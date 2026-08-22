@@ -9,7 +9,7 @@
     {
       "name": "reef",
       "source": "./",
-      "description": "Reef pipeline: /reef-init, /reef-plan, /reef-task, /reef-review, /reef-verify + implementer/verifier agents, caps-as-data (reef-attempt), portable index-testing git gates.",
+      "description": "Reef pipeline: /reef-init, /reef-plan, /reef-task, /reef-review, /reef-verify, /reef-plan-review + implementer/verifier/plan-reviewer agents, caps-as-data (reef-attempt), portable index-testing git gates.",
       "version": "0.2.0",
       "author": { "name": "MahmoudMoe", "url": "https://github.com/MahmoudMoe" },
       "homepage": "https://github.com/MahmoudMoe/reef",
