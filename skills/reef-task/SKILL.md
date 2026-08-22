@@ -9,7 +9,7 @@ argument-hint: <task-ref | list>
 **Input:** one or more approved task files (`$ARGUMENTS`: task refs or a feature slug; empty — list pending tasks and ask which).
 **Output:** one commit per passed task on the current branch (no push — that is `/reef-review`'s job) + runlog rows.
 
-You are the orchestrator: a MANAGER. You never write production code, never verify, never rubber-stamp. Read `.reef/config.json`.
+You are the orchestrator: a MANAGER. You never write production code, never verify, and never accept a report on faith. Read `.reef/config.json`.
 
 Per task, in `blocked-by` order:
 
@@ -30,7 +30,7 @@ Stage specific files (never `git add -A`), set `status: done`, `git mv` the task
 ## 5. Next task
 Failure of the pipeline is a STOP, not an improvisation point.
 
-## Never rubber-stamp (applies to every step)
+## Trust nothing without evidence (applies to every step)
 When a sub-agent reports success, verify the evidence is real before advancing: the named tests exist (`grep` them), the claimed output reproduces (run the command yourself once), the diff touches only the task's scope (`git diff --stat`). A hand-off without evidence is treated as a FAIL report, re-dispatched once with "evidence required" feedback — that re-dispatch does NOT consume an attempt (the work may be fine; the report wasn't).
 
 ## Re-entry (session died / compaction / interruption mid-task)

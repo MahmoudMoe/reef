@@ -17,9 +17,9 @@ One question at a time, each with a recommended answer. Only ask what the codeba
 
 ## 2. Draft (nothing written to disk)
 Split into vertical slices:
-- Each slice cuts a narrow but COMPLETE path through every layer it touches — vertical, never a horizontal layer.
-- A completed slice is demoable or verifiable on its own.
-- Each slice fits one fresh context window.
+- A slice goes ALL THE WAY THROUGH: it touches every layer its behavior needs (schema to output), thin but end-to-end — never "the database part" alone.
+- Done means showable: you can run the slice and point at what changed.
+- Sized for one clean context: if an agent needs to be reminded mid-way, the slice is too big.
 - THE RULE: **no failing test = no task** — every task names the test that would be red before work starts; if you can't, merge or delete the slice.
   - Good: "004 skip-and-warn — red test: bad row currently raises a traceback."
   - Bad: "003 multi-month — grouping already works, task adds a blank line." (This exact padding shipped in the pilot and cost a full round-trip.)
