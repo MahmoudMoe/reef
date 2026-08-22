@@ -14,7 +14,7 @@ You are the orchestrator: a MANAGER. You never write production code, never veri
 Per task, in `blocked-by` order:
 
 ## 1. Dispatch — mechanical, not from memory
-Run `scripts/reef-attempt <task-file>`. Exit 2 = blocked -> print its USER ACTION REQUIRED and STOP the pipeline. Otherwise use EXACTLY the model/effort it prints for the implementer. Never dispatch without it; never repeat a model+effort after a failure (the script enforces the ladder).
+Run `scripts/reef-attempt <task-file>`. Exit 2 = blocked -> print its USER ACTION REQUIRED and STOP the pipeline. Otherwise use EXACTLY what it prints: pass its model as the Agent call's model parameter (overrides the frontmatter default), and state its effort in the dispatch prompt (e.g. "reasoning effort: high") — frontmatter effort keys are inert. Never dispatch without it; never repeat a model+effort after a failure (the script enforces the ladder).
 
 ## 2. Implement
 Spawn the `implementer` agent (this plugin) with the task file, resolved model/effort, and working directory. mech tasks with a tiny expected diff (<~40 lines): the orchestrator MAY implement inline in the main session instead — record that in the Log. Design tasks: refuse if `## Decision` is empty (send the human back to /reef-plan step 3).

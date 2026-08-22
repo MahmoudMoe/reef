@@ -2,6 +2,8 @@
 name: implementer
 description: Implements ONE groomed Reef task via TDD. Writes code AND tests. Never commits, never verifies its own work. Dispatched by reef-task with an explicit model/effort from reef-attempt.
 tools: Read, Edit, Write, Bash, Glob, Grep
+model: opus
+# model above is a DEFAULT (= the ladder base). The orchestrator MUST pass the model printed by scripts/reef-attempt at dispatch time — a per-call model overrides this frontmatter.
 ---
 
 # Implementer

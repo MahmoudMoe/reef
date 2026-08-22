@@ -26,7 +26,7 @@ Then in your project: `/reef-init` (detects stack, writes .reef/config.json, ins
 | Verify `mech` | no agent — gate + golden test | free | task frontmatter `verify: gate-only` |
 | Verify `design` | `verifier` agent (fresh context) | opus medium | task frontmatter `verify: judge` |
 | Review (acceptance/diff) | main session, fresh-context passes | session model | reef-review |
-Agent files carry NO model pins — a pinned frontmatter can't escalate and drifts from reality (red-team finding #5).
+Agent files carry a DEFAULT model (the ladder base) — but the dispatch-time model from `reef-attempt` always overrides it (per-call model > frontmatter). One source of truth for escalation: the script. Effort escalation travels in the dispatch prompt ("reasoning effort: high"), since agent frontmatter has no working effort key (red-team finding #5).
 
 ## Flow
 `/reef-plan <spec>` → grill → vertical slices → ONE human gate → `/reef-task` (implement→verify→commit per task, mechanical caps) → `/reef-review` (push → PR → acceptance → diff review → CI, rollup tasks under the same caps) → you squash-merge.
