@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Reef task frontmatter",
+  "type": "object",
+  "required": ["id", "feature", "status", "complexity", "effort", "blocked-by", "verify", "attempts"],
+  "properties": {
+    "id": { "type": "integer", "description": "NNN, dependency order" },
+    "feature": { "type": "string" },
+    "status": { "enum": ["pending", "in-progress", "blocked", "done"] },
+    "complexity": { "enum": ["mech", "design"] },
+    "effort": { "enum": ["low", "medium", "high"] },
+    "blocked-by": { "type": "array", "items": { "type": "integer" }, "description": "task ids that must be done first" },
+    "verify": { "enum": ["judge", "gate-only"], "description": "design -> judge (adversarial subagent); mech -> gate-only (hooks + golden test)" },
+    "attempts": { "type": "integer" },
+    "last_failure_sig": { "type": "string" }
+  }
+}

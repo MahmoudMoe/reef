@@ -1,0 +1,5 @@
+{
+  "name": "reef",
+  "owner": { "name": "Mahmoud Mohamed" },
+  "plugins": [ { "name": "reef", "source": "./", "description": "Reef agentic coding pipeline" } ]
+}

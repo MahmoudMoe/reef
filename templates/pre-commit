@@ -1,0 +1,11 @@
+#!/bin/sh
+# Reef gate: tests the INDEX (what is actually being committed), not the worktree.
+set -e
+cd "$(git rev-parse --show-toplevel)"
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  git stash push -q --keep-index --include-untracked -m reef-precommit || true
+  STASHED=1
+fi
+cleanup() { [ -n "$STASHED" ] && git stash pop -q; }
+trap cleanup EXIT
+sh scripts/reef-gate.sh || { echo "pre-commit: gate failed — commit rejected." >&2; exit 1; }

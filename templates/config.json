@@ -1,0 +1,7 @@
+{
+  "gates": { "test": "", "lint": "" },
+  "roles": { "author": "opus", "judge": "opus", "escalation": "one FAIL -> high effort; cap 3; same signature twice -> blocked" },
+  "paths": { "tasks": "tasks", "adr": "docs/adr", "glossary": "docs/glossary.md", "runlog": "docs/runlog.md" },
+  "invariants": [],
+  "explain": true
+}
