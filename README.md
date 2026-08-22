@@ -37,6 +37,7 @@ Then in your project: `/reef-init` (detects stack, writes .reef/config.json, ins
 | Grill / plan / gate | main session | session model | you |
 | Implement `mech` (tiny diff) | main session inline | session model | reef-task §2 |
 | Implement (normal) | `implementer` agent | printed by `reef-attempt`: attempt 1 = opus medium, after any FAIL = opus high | reef-attempt |
+| Plan review | `scripts/reef-plan-check.py` (blocking) + `plan-reviewer` agent | free + fable | `reef-plan-review`; auto-invoked by reef-task on a stale stamp |
 | Verify `mech` | no agent — gate + golden test | free | task frontmatter `verify: gate-only` |
 | Verify `design` | `verifier` agent (fresh context) | opus medium | task frontmatter `verify: judge` |
 | Review (acceptance/diff) | main session, fresh-context passes | session model | reef-review |
