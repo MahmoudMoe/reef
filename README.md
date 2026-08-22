@@ -33,3 +33,9 @@ Agent files carry NO model pins — a pinned frontmatter can't escalate and drif
 
 ## Layout
 skills/ (init, plan, task, verify, review) · agents/ (implementer, verifier — no model pins; routing comes from reef-attempt + .reef/config.json) · scripts/ (reef-gate.sh, reef-attempt) · schemas/task.schema.json · templates/
+
+## Acknowledgments
+Reef is an original implementation, but its process ideas stand on two open projects:
+- [iusztinpaul/squid](https://github.com/iusztinpaul/squid) (Apache-2.0) — the agent-team lifecycle, author/verifier separation, retry-cap concept, artifacts-as-memory.
+- [mattpocock/skills](https://github.com/mattpocock/skills) (MIT) — grilling, vertical-slice/tracer-bullet rules (a few planning heuristics in reef-plan closely paraphrase that repo's wording), spec/ticket discipline.
+No code was copied from either project. Thanks to Paul Iusztin and Matt Pocock for publishing their work openly.
