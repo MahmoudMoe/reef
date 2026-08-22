@@ -1,4 +1,18 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
+  <img src="assets/banner-light.svg" alt="Reef — agentic coding pipeline" width="100%">
+</picture>
+
+<p align="center">
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.0-D94F35?style=flat-square">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-0E7C7B?style=flat-square">
+  <img alt="claude code" src="https://img.shields.io/badge/claude_code-plugin-182B33?style=flat-square">
+  <img alt="status" src="https://img.shields.io/badge/status-pilot_(n%3D1)-B07C1F?style=flat-square">
+</p>
+
 # Reef
+
+> *A coral reef grows one calcified layer at a time — each organism leaves a hard structure the next builds on. Reef works the same way: every task, ADR, and glossary line is a fossilized layer that outlives the session that wrote it.*
 
 Token-frugal agentic coding pipeline for Claude Code. Pocock front (grilling, vertical slices, one seam thinking, TDD), Iusztin back (author≠verifier, retry caps, artifacts-as-memory) — thinned, and with the discipline moved from prose into mechanisms.
 

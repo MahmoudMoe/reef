@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 240" role="img" aria-label="Reef — agentic coding pipeline">
+  <rect width="880" height="240" fill="#0A171E"/>
+  <path d="M0 200 H880" stroke="#24363E" stroke-width="1.5"/>
+  <!-- coral colony -->
+  <g fill="#FF7A5C">
+    <circle cx="140" cy="186" r="16"/><circle cx="114" cy="162" r="12"/><circle cx="166" cy="162" r="12"/>
+    <circle cx="128" cy="136" r="9.5"/><circle cx="152" cy="136" r="9.5"/><circle cx="140" cy="112" r="8"/>
+    <circle cx="118" cy="112" r="5.5" opacity=".7"/><circle cx="162" cy="112" r="5.5" opacity=".7"/>
+    <circle cx="140" cy="90" r="5.5" opacity=".85"/><circle cx="127" cy="76" r="4" opacity=".55"/><circle cx="153" cy="76" r="4" opacity=".55"/>
+  </g>
+  <g fill="#43C1B2" opacity=".9">
+    <circle cx="228" cy="188" r="9"/><circle cx="244" cy="170" r="6.5"/><circle cx="213" cy="169" r="6.5"/><circle cx="228" cy="152" r="5"/>
+  </g>
+  <g fill="none" stroke="#9FB0B4" stroke-width="1.6" opacity=".75">
+    <path d="M64 200 V156 M64 156 q-12-8 -14-24 M64 156 q13-6 16-22"/>
+  </g>
+  <!-- wordmark -->
+  <text x="320" y="128" font-family="Avenir Next, Segoe UI, Helvetica, Arial, sans-serif" font-size="76" font-weight="800" letter-spacing="6" fill="#E9E4D8">REEF</text>
+  <text x="324" y="164" font-family="SFMono-Regular, Consolas, Menlo, monospace" font-size="15" letter-spacing="3.5" fill="#43C1B2">AGENTIC CODING PIPELINE</text>
+  <text x="324" y="190" font-family="Avenir Next, Segoe UI, Helvetica, Arial, sans-serif" font-size="15" fill="#9FB0B4">discipline as mechanisms, not prose · pay for judgment, not ceremony</text>
+</svg>
