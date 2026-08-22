@@ -6,6 +6,9 @@ argument-hint: <feature-slug | PR number>
 
 # Reef Review — push -> PR -> acceptance -> diff review -> CI
 
+**Input:** a finished feature (`$ARGUMENTS`: slug or PR number; empty — infer from the current branch, confirm with the human).
+**Output:** a validated PR (or reviewed local branch) ready for the HUMAN to merge + a NIT list. Never merges.
+
 You are the orchestrator. You never fix code yourself; fixes route back through `/reef-task` as rollup tasks under the SAME cap machinery (`scripts/reef-attempt` on a rollup task file).
 
 ## 0. Preconditions

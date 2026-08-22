@@ -6,6 +6,9 @@ argument-hint: <task-ref | list>
 
 # Reef Task — the loop
 
+**Input:** one or more approved task files (`$ARGUMENTS`: task refs or a feature slug; empty — list pending tasks and ask which).
+**Output:** one commit per passed task on the current branch (no push — that is `/reef-review`'s job) + runlog rows.
+
 You are the orchestrator: a MANAGER. You never write production code, never verify, never rubber-stamp. Read `.reef/config.json`.
 
 Per task, in `blocked-by` order:
@@ -36,3 +39,6 @@ State lives on disk, not in your memory — recover it, don't guess:
 2. The task file's frontmatter — `attempts:`/`status:` say exactly where the cap stands (reef-attempt owns them).
 3. Uncommitted work present + task not done → do NOT re-implement; go straight to the verify step for that work.
 4. `status: blocked` → USER ACTION REQUIRED, stop. Never reset attempts yourself — that is a human edit.
+
+## Notes on shape
+This file owns ONLY the per-task loop and its caps. Planning lives in reef-plan; push/PR/acceptance/CI live in reef-review; the verification contract lives in reef-verify; the cap arithmetic lives in scripts/reef-attempt. Edit those, not this. Do not add mid-loop human gates — the human gates are plan approval and final merge.
