@@ -3,7 +3,10 @@
 Usage: reef-plan-check.py [repo-root] [--verify-stamp]
 - Checks task files, ADRs, brief, and .reef/config.json for structural defects. No model, no network.
 - One line per check: OK / FAIL: <what and where>. Exit 0 = all pass, 1 = at least one FAIL.
-- On success writes <tasks>/.plan-review.json (sha256 over the sorted plan artifacts + check count).
+- On success writes <tasks>/.plan-review.json (sha256 over the plan artifacts + check count).
+  The hash covers what PLANNING wrote, not what EXECUTION writes: task files are keyed by
+  basename and stripped of status/attempts/last_failure_sig and the Log section, so completing
+  a task does not invalidate the review — only editing the plan does.
   Never written on failure.
 - --verify-stamp: recompute the hash, print one line, exit 0 = plan unchanged since last review,
   1 = changed or no stamp. reef-task runs this before its first dispatch.
@@ -114,10 +117,26 @@ def main():
     artifacts = task_files + adr_files + [p for p in (glossary, brief, cfg_path)
                                           if p and os.path.isfile(p)]
 
+    def stamp_key(p):
+        """Task files are keyed by BASENAME, not path: completing a task moves it to done/,
+        which changes the plan not at all."""
+        return os.path.basename(p) if p in task_files else os.path.relpath(p, root)
+
+    def stamp_body(p):
+        """Strip what EXECUTION writes, keep what PLANNING wrote. Otherwise every commit
+        invalidates the review and the semantic pass gets paid for on every task."""
+        raw = open(p, "rb").read()
+        if p not in task_files:
+            return raw
+        text = raw.decode("utf-8", "replace")
+        text = text.split("\n## Log", 1)[0]
+        text = re.sub(r"^(status|attempts|last_failure_sig):.*$", "", text, flags=re.M)
+        return text.encode()
+
     h = hashlib.sha256()
-    for p in sorted(artifacts):
-        h.update(os.path.relpath(p, root).encode() + b"\0")
-        h.update(open(p, "rb").read() + b"\0")
+    for p in sorted(artifacts, key=stamp_key):
+        h.update(stamp_key(p).encode() + b"\0")
+        h.update(stamp_body(p) + b"\0")
     digest = h.hexdigest()
 
     if verify_stamp:
