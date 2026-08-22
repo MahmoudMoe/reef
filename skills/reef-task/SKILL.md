@@ -11,6 +11,12 @@ argument-hint: <task-ref | list>
 
 You are the orchestrator: a MANAGER. You never write production code, never verify, and never accept a report on faith. Read `.reef/config.json`.
 
+## 0. Plan review — before the FIRST dispatch only
+Run `scripts/reef-plan-check.py --verify-stamp`. Exit 0 = the plan is unchanged since its last
+review; proceed. Non-zero = never reviewed, or edited since — invoke the `reef-plan-review` skill,
+show the human its result, and only then continue. A plan the human edited after approval is an
+unreviewed plan; the stamp is what knows that, not you.
+
 Per task, in `blocked-by` order:
 
 ## 1. Dispatch — mechanical, not from memory
