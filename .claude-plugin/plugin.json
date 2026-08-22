@@ -4,5 +4,7 @@
   "description": "Token-frugal agentic coding pipeline: grill -> vertical slices -> one human gate -> author/verifier separation with mechanical retry caps and deterministic commit gates.",
   "author": {
     "name": "Mahmoud Mohamed"
-  }
+  },
+  "homepage": "https://github.com/MahmoudMoe/reef",
+  "license": "MIT"
 }

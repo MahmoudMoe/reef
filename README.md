@@ -26,8 +26,8 @@ Full multi-agent setups burn tokens on ceremony; pure manual workflows have no s
 
 ## Install
 ```
-/plugin marketplace add <you>/reef
-/plugin install reef@reef
+/plugin marketplace add MahmoudMoe/reef
+/plugin install reef@mahmoudmoe
 ```
 Then in your project: `/reef-init` (detects stack, writes .reef/config.json, installs gates — after any fresh clone run `make setup`).
 
