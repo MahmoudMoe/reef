@@ -1,6 +1,8 @@
 {
   "name": "reef",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Token-frugal agentic coding pipeline: grill -> vertical slices -> one human gate -> author/verifier separation with mechanical retry caps and deterministic commit gates.",
-  "author": { "name": "Mahmoud Mohamed" }
+  "author": {
+    "name": "Mahmoud Mohamed"
+  }
 }
