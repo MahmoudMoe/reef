@@ -25,3 +25,6 @@ For each `design` task the HUMAN writes the `## Decision` section in their own w
 
 ## 4. HUMAN GATE (one, blocking)
 Show every task in full (scope, ACs, out-of-scope). AskUserQuestion: Approve / Edit / Cancel; on Approve also ask where the branch lives (worktree vs current tree). Only after Approve: write task files, glossary, ADR; create `feat/<slug>` branch.
+
+## Re-entry
+If tasks for this feature already exist (`tasks/NNN-*.md` matching the slug): do not re-plan from zero — show the existing plan, ask whether to extend, edit, or abandon it. Never overwrite an approved plan silently.

@@ -18,7 +18,7 @@ Full multi-agent setups burn tokens on ceremony; pure manual workflows have no s
 Then in your project: `/reef-init` (detects stack, writes .reef/config.json, installs gates — after any fresh clone run `make setup`).
 
 ## Flow
-`/reef-plan <spec>` → grill → vertical slices → ONE human gate → `/reef-task` → implement→verify→commit per task → you squash-merge.
+`/reef-plan <spec>` → grill → vertical slices → ONE human gate → `/reef-task` (implement→verify→commit per task, mechanical caps) → `/reef-review` (push → PR → acceptance → diff review → CI, rollup tasks under the same caps) → you squash-merge.
 
 ## Layout
-skills/ (init, plan, task, verify) · agents/ (implementer, verifier — no model pins; routing comes from reef-attempt + .reef/config.json) · scripts/ (reef-gate.sh, reef-attempt) · schemas/task.schema.json · templates/
+skills/ (init, plan, task, verify, review) · agents/ (implementer, verifier — no model pins; routing comes from reef-attempt + .reef/config.json) · scripts/ (reef-gate.sh, reef-attempt) · schemas/task.schema.json · templates/

@@ -26,3 +26,13 @@ Stage specific files (never `git add -A`), set `status: done`, `git mv` the task
 
 ## 5. Next task
 Failure of the pipeline is a STOP, not an improvisation point.
+
+## Never rubber-stamp (applies to every step)
+When a sub-agent reports success, verify the evidence is real before advancing: the named tests exist (`grep` them), the claimed output reproduces (run the command yourself once), the diff touches only the task's scope (`git diff --stat`). A hand-off without evidence is treated as a FAIL report, re-dispatched once with "evidence required" feedback — that re-dispatch does NOT consume an attempt (the work may be fine; the report wasn't).
+
+## Re-entry (session died / compaction / interruption mid-task)
+State lives on disk, not in your memory — recover it, don't guess:
+1. `git status` + `git log --oneline -5` — is there uncommitted implementer work?
+2. The task file's frontmatter — `attempts:`/`status:` say exactly where the cap stands (reef-attempt owns them).
+3. Uncommitted work present + task not done → do NOT re-implement; go straight to the verify step for that work.
+4. `status: blocked` → USER ACTION REQUIRED, stop. Never reset attempts yourself — that is a human edit.
