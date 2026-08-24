@@ -6,6 +6,6 @@ set -e
 cd "$(dirname "$0")/.."
 echo "== python suites (guard / attempt / plan-check) =="
 python3 -m unittest discover -s tests -q
-echo "== shell suite (pre-commit / pre-push / gate / snapshot) =="
+echo "== shell suite (pre-commit / gate / snapshot) =="
 sh tests/test_hooks.sh
 echo "ALL REEF TESTS PASSED"

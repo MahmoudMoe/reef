@@ -1,5 +1,5 @@
 #!/bin/sh
-# Sabotage suite for templates/pre-commit, templates/pre-push, scripts/reef-gate.sh
+# Sabotage suite for templates/pre-commit, scripts/reef-gate.sh
 # and scripts/reef-snapshot.sh. Every scenario that used to brick a commit, eat a
 # stash, or silently pass must be shown green here — and every gate must be shown
 # RED on the defect it exists to catch.
