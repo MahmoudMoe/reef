@@ -39,7 +39,8 @@ import sys
 import tempfile
 
 DEFAULT_CAP = 3
-OPS = {";", "&", "|", "&&", "||", ";;", ";&", "|&"}
+OPS = {";", "&", "|", "&&", "||", ";;", ";&", "|&", "(", ")"}
+MAX_DEPTH = 25   # bound sh -c / eval recursion so a nested payload cannot hang the hook
 # git global options that consume a separate value before the subcommand
 GIT_GLOBAL_VALUE_OPTS = {"-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--config-env"}
 # git-commit options that consume a separate value (their VALUES must not be inspected)
@@ -57,8 +58,11 @@ def deny(reason):
 
 
 def tokenize(cmd):
-    """Tokens with shell operators as separate tokens; None if unparseable."""
-    lex = shlex.shlex(cmd, posix=True, punctuation_chars=";|&")
+    """Tokens for ONE line, shell operators (incl. subshell parens) as separate tokens;
+    None if unparseable. Default commenters='#': a '#' ends the comment at this line's end
+    (we feed one line at a time), which strips real comments without letting a '#' swallow
+    a command that lives on a LATER line."""
+    lex = shlex.shlex(cmd, posix=True, punctuation_chars="();|&")
     lex.whitespace_split = True
     try:
         return list(lex)
@@ -66,9 +70,9 @@ def tokenize(cmd):
         return None
 
 
-def check_bash(cmd):
+def check_bash(cmd, depth=0):
     try:
-        _check_bash(cmd)
+        _check_bash(cmd, depth)
     except SystemExit:
         raise
     except Exception:
@@ -77,21 +81,28 @@ def check_bash(cmd):
             deny("guard internal error on a command that mentions a gate bypass — failing closed")
 
 
-def _check_bash(cmd):
+def _check_bash(cmd, depth=0):
+    if depth > MAX_DEPTH:
+        deny("shell nesting too deep to analyze — refusing a command that hides commands this many layers down")
     cmd = re.sub(r"\\\r?\n", " ", cmd)     # backslash line continuations JOIN a command
-    flat = re.sub(r"\r?\n", " ; ", cmd)    # remaining newlines SEPARATE commands like ';'
-    toks = tokenize(flat)
-    if toks is None:
-        # Unparseable (unbalanced quotes): flags can no longer be told apart from
-        # values, so a bypass-smelling string is denied outright.
-        if re.search(r"no-verify|hookspath", cmd, re.I):
-            deny("unparseable command that mentions a gate bypass")
-        return
+    # tokenize per LINE so '#' comments end at their own line's end; a newline is a
+    # command separator exactly like ';'
+    toks = []
+    for line in cmd.split("\n"):
+        line_toks = tokenize(line)
+        if line_toks is None:
+            # Unparseable (unbalanced quotes): flags can no longer be told apart from
+            # values, so a bypass-smelling line is denied outright.
+            if re.search(r"no-verify|hookspath", line, re.I):
+                deny("unparseable command that mentions a gate bypass")
+            continue
+        toks.append(";")
+        toks.extend(line_toks)
     seg = []
     for t in toks + [";"]:
         if t in OPS:
             if seg:
-                check_segment(seg)
+                check_segment(seg, depth)
             seg = []
         else:
             seg.append(t)
@@ -99,11 +110,13 @@ def _check_bash(cmd):
 
 SHELLS = ("sh", "bash", "dash", "zsh", "ksh")
 DESTRUCTIVE = ("rm", "mv", "unlink", "truncate", "shred")
+MODE_RE = re.compile(r"^([0-7]{3,4}|[ugoa]*[-+=][rwxXstugo]+(,[ugoa]*[-+=][rwxXstugo]+)*)$")
+PURE_ADD = re.compile(r"^[ugoa]*\+[rwxXst]+$")
 
 
-def check_segment(seg):
+def check_segment(seg, depth=0):
     """Position-independent: `env X=y git ...`, `nohup git ...`, `nice -n5 git ...`,
-    `xargs git ...` — a prefix word must never hide the real command from the rules."""
+    `xargs git ...`, `(git ...)` — a prefix word must never hide the real command."""
     for t in seg:
         if ENV_ASSIGN.match(t) and HOOKSPATH.search(t):
             deny(f"environment assignment smuggles hooksPath: {t!r}")
@@ -122,19 +135,21 @@ def check_segment(seg):
             for k, a in enumerate(rest):
                 # -c may be bundled (-lc, -ec, -cx); the payload is the next argument
                 if re.match(r"^-[a-zA-Z]*c[a-zA-Z]*$", a) and k + 1 < len(rest):
-                    check_bash(rest[k + 1])   # `sh -c "git commit -n"` is not a tunnel
+                    check_bash(rest[k + 1], depth + 1)   # `sh -c "git commit -n"` is not a tunnel
         elif b == "eval":
-            check_bash(" ".join(rest))
+            check_bash(" ".join(rest), depth + 1)
 
 
 def check_chmod(args):
     if not any(HOOK_PATHS.search(a) for a in args):
         return
-    # reef-init's install is a pure permission ADDITION (+x). Anything else on the hook
-    # files — numeric modes, '=', ',', 'a-x' — can strip exec and kill the gate silently.
-    modes = [a for a in args if not a.startswith("-") and "/" not in a and not HOOK_PATHS.search(a)]
-    if not modes or not all(re.fullmatch(r"[ugoa]*\+[rwxXst]+", m) for m in modes):
-        deny("chmod on the hook files is allowed only for pure permission additions like +x")
+    # reef-init's install is a pure permission ADDITION (+x). A MODE token that can strip or
+    # set exec (octal, '=', or any '-x') on the hook files kills the gate silently. MODE_RE
+    # tells a mode from a flag (-R/-v -> not a mode) and from a target filename, so a bare
+    # '-x' (remove execute) is correctly caught while '-R' is passed through.
+    for a in args:
+        if MODE_RE.match(a) and not PURE_ADD.match(a):
+            deny("chmod on the hook files is allowed only for pure permission additions like +x")
 
 
 def check_git(args):
@@ -222,10 +237,13 @@ def read_frontmatter(path):
         return None, text
     fm = {}
     for line in m.group(1).splitlines():
-        if ":" in line and not line.lstrip().startswith("#"):
+        # column 0 only, FIRST occurrence wins — mirrors reef-attempt's `^key:` (re.M)
+        # reader exactly, so an indented or duplicated key cannot read differently across
+        # the two enforcement layers
+        if line[:1] in (" ", "\t", "#"):
+            continue
+        if ":" in line:
             key, _, val = line.partition(":")
-            # FIRST occurrence wins, matching reef-attempt's reader — a duplicate-key
-            # file must not read differently across the two enforcement layers
             fm.setdefault(key.strip(), val.strip().strip('"'))
     return fm, text
 

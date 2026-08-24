@@ -151,6 +151,27 @@ t "ita decoy: broken INDEX still rejected (gate not downgraded to worktree)" 1
 [ "$(cat f.txt)" = "good" ]
 t "  worktree restored after the rejection" 0
 
+# round-4: a gate that STAGES changes must not corrupt the index or commit untested
+# unstaged work (the --3way fallback implied --index and merged worktree into the commit)
+mkrepo "$TMP/r11" 'x'
+printf 'sed -i.bak "s/^l4\$/FORMATTED/" f.txt; rm -f f.txt.bak; git add -u; exit 0\n' > scripts/gate.sh
+printf '{"gates": {"test": "sh scripts/gate.sh"}}\n' > .reef/config.json
+printf 'l1\nl2\nl3\nl4\nl5\n' > f.txt; git add .; git commit -qm c1 >/dev/null 2>&1
+printf 'l1\nSTAGED\nl3\nl4\nl5\n' > f.txt; git add f.txt        # index: line2 = STAGED
+printf 'l1\nSTAGED\nl3\nl4\nMY-UNSTAGED\n' > f.txt              # worktree: + line5 edit
+git commit -qm c2 >/dev/null 2>&1
+t "staging gate: commit path completes" 0
+git show HEAD:f.txt > /dev/null 2>&1 && ! git show HEAD:f.txt | grep -q 'MY-UNSTAGED'
+t "  UNSTAGED work NOT smuggled into the commit (index-backup, no --3way)" 0
+git show HEAD:f.txt | grep -q 'STAGED'
+t "  committed content is exactly what was staged" 0
+git ls-files -u | grep -q .; [ $? -ne 0 ]
+t "  index has no unmerged/conflict entries" 0
+grep -q '<<<<<<<' f.txt; [ $? -ne 0 ]
+t "  no conflict markers written into the file" 0
+[ "$(tail -1 f.txt)" = "MY-UNSTAGED" ]
+t "  the user's unstaged edit is back in the worktree" 0
+
 # round-3: clean/smudge-filtered path skips the dance LOUDLY instead of corrupting
 mkrepo "$TMP/r10" "true"
 printf '*.dat filter=scrub\n' > .gitattributes

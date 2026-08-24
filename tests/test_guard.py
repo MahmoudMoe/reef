@@ -61,6 +61,12 @@ DENY_BASH = [
     'chmod u=rw .githooks/pre-commit',                      # '=' can strip exec too
     'bash -lc "git commit -n -m x"',                        # bundled -c flag
     'git commit -m x \\\n--no-verify',                      # backslash continuation
+    # round-4 findings
+    'git commit -n # -m harmless-looking-comment',          # '#' must not truncate the scan
+    '(git commit -n -m x)',                                 # subshell paren glued to git
+    'true && (env X=1 git commit --no-verify -m x)',
+    'chmod ugo+r,ugo-x .githooks/pre-commit',               # mixed add/remove mode
+    'chmod 644 .githooks/pre-commit',                        # octal that strips exec
 ]
 
 ALLOW_BASH = [
@@ -82,6 +88,11 @@ ALLOW_BASH = [
     'git config core.hooksPathological x',                  # not the hooksPath key
     'rm not.githooksish.txt',                               # substring, not a path component
     'git commit -m fix -- -n',                              # after -- it is a pathspec
+    # round-4 findings: benign shapes the tighter rules must still allow
+    'chmod +x .githooks/pre-commit run.sh',                 # pure add touching a bare filename too
+    'chmod -R +x .githooks',                                # recursive pure add
+    'git log # git commit -n in a comment',                 # comment after a benign git command
+    '(cd sub && git status)',                               # subshell with benign git
 ]
 
 
@@ -102,6 +113,14 @@ class BashGuard(unittest.TestCase):
     def test_unparseable_bypass_denied_innocent_allowed(self):
         self.assertEqual(bash('git commit --no-verify -m "unbalanced').returncode, 2)
         self.assertEqual(bash('echo "unbalanced').returncode, 0)
+
+    def test_recursion_bomb_denied_not_hung(self):
+        # nested eval must terminate with a denial, never hang past the hook timeout
+        payload = "eval " * 60 + "git commit -n -m x"
+        r = subprocess.run([sys.executable, GUARD], input=json.dumps(
+            {"tool_name": "Bash", "tool_input": {"command": payload}}),
+            capture_output=True, text=True, timeout=15)
+        self.assertEqual(r.returncode, 2)
 
     def test_garbage_stdin_allows(self):
         r = subprocess.run([sys.executable, GUARD], input="not json", capture_output=True, text=True)
@@ -201,6 +220,12 @@ class DispatchGuard(unittest.TestCase):
         p = make_task(self.dir, status="blocked", extra="status: pending\n")
         r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement")
         self.assertEqual(r.returncode, 2, "first occurrence (blocked) must win in the guard too")
+
+    def test_indented_key_ignored_matches_attempt(self):
+        # round-4: guard accepted indented keys while reef-attempt requires column 0
+        p = make_task(self.dir, status="blocked", extra=" status: pending\n")
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 2, "an indented 'status: pending' must not override column-0 'blocked'")
 
     def test_absolute_path_accepted(self):
         p = make_task(self.dir)
