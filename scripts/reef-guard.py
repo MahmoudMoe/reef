@@ -58,10 +58,12 @@ def deny(reason):
 
 
 def tokenize(cmd):
-    """Tokens for ONE line, shell operators (incl. subshell parens) as separate tokens;
-    None if unparseable. Default commenters='#': a '#' ends the comment at this line's end
-    (we feed one line at a time), which strips real comments without letting a '#' swallow
-    a command that lives on a LATER line."""
+    """Tokenize a whole command in ONE pass; shell operators (incl. subshell parens) become
+    their own tokens; None if unparseable. Newlines are whitespace here (shlex default), so a
+    newline INSIDE a quote stays a literal message character while a newline BETWEEN commands
+    just separates tokens — and default commenters='#' ends a comment exactly at its own
+    line's newline. Command boundaries do not matter because check_segment scans every token
+    position for git/rm/chmod, so two newline-separated commands are still both inspected."""
     lex = shlex.shlex(cmd, posix=True, punctuation_chars="();|&")
     lex.whitespace_split = True
     try:
@@ -85,19 +87,13 @@ def _check_bash(cmd, depth=0):
     if depth > MAX_DEPTH:
         deny("shell nesting too deep to analyze — refusing a command that hides commands this many layers down")
     cmd = re.sub(r"\\\r?\n", " ", cmd)     # backslash line continuations JOIN a command
-    # tokenize per LINE so '#' comments end at their own line's end; a newline is a
-    # command separator exactly like ';'
-    toks = []
-    for line in cmd.split("\n"):
-        line_toks = tokenize(line)
-        if line_toks is None:
-            # Unparseable (unbalanced quotes): flags can no longer be told apart from
-            # values, so a bypass-smelling line is denied outright.
-            if re.search(r"no-verify|hookspath", line, re.I):
-                deny("unparseable command that mentions a gate bypass")
-            continue
-        toks.append(";")
-        toks.extend(line_toks)
+    toks = tokenize(cmd)                    # one pass: quotes span newlines, comments end at theirs
+    if toks is None:
+        # Unparseable (unbalanced quotes): flags can no longer be told apart from
+        # values, so a bypass-smelling command is denied outright.
+        if re.search(r"no-verify|hookspath", cmd, re.I):
+            deny("unparseable command that mentions a gate bypass")
+        return
     seg = []
     for t in toks + [";"]:
         if t in OPS:

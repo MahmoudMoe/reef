@@ -63,6 +63,8 @@ DENY_BASH = [
     'git commit -m x \\\n--no-verify',                      # backslash continuation
     # round-4 findings
     'git commit -n # -m harmless-looking-comment',          # '#' must not truncate the scan
+    'echo setup # a note\ngit commit --no-verify -m x',      # '#' comment must NOT swallow the next line's command
+    'git commit -m "a\nb" -n',                              # newline INSIDE the message; -n is a live bypass
     '(git commit -n -m x)',                                 # subshell paren glued to git
     'true && (env X=1 git commit --no-verify -m x)',
     'chmod ugo+r,ugo-x .githooks/pre-commit',               # mixed add/remove mode
@@ -93,6 +95,9 @@ ALLOW_BASH = [
     'chmod -R +x .githooks',                                # recursive pure add
     'git log # git commit -n in a comment',                 # comment after a benign git command
     '(cd sub && git status)',                               # subshell with benign git
+    # round-5: a multi-line commit MESSAGE whose body merely mentions a guarded command
+    # is one quoted -m value in real bash, not a command — must not false-deny
+    'git commit -m "docs: never run\ngit commit --no-verify\nor rm -rf .githooks"',
 ]
 
 
