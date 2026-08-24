@@ -8,6 +8,7 @@
   <img alt="license" src="https://img.shields.io/badge/license-MIT-0E7C7B?style=flat-square">
   <img alt="claude code" src="https://img.shields.io/badge/claude_code-plugin-182B33?style=flat-square">
   <img alt="status" src="https://img.shields.io/badge/status-pilot_(n%3D1)-B07C1F?style=flat-square">
+  <img alt="selftests" src="https://github.com/MahmoudMoe/reef/actions/workflows/ci.yml/badge.svg?branch=main">
 </p>
 
 # Reef
@@ -61,6 +62,9 @@ Agent files carry a DEFAULT model (the ladder base) — but the dispatch-time mo
 
 ## Layout
 skills/ (init, plan, plan-review, task, verify, review) · commands/ (`/reef` status overview + `/reef-plan`, `/reef-task`, `/reef-review` wrappers) · agents/ (implementer, verifier, plan-reviewer — each carries a DEFAULT model; the dispatch-time model from reef-attempt overrides it) · scripts/ (reef-gate.sh, reef-attempt, reef-guard.py, reef-snapshot.sh, reef-plan-check.py) · hooks/hooks.json (PreToolUse guard, wired to reef-guard.py) · schemas/task.schema.json · templates/ (pre-commit, config, task, adr, glossary, runlog) · tests/ (sabotage suites: every gate shown red) · .github/workflows/ci.yml (runs the suites on ubuntu+macos)
+
+## Selftests
+`sh tests/run.sh` — 124 sabotage tests (79 Python + 45 shell). Every gate in this plugin has a test here that shows it going RED on the defect it exists to catch; CI runs the suite on ubuntu (dash — the honest POSIX check) and macos.
 
 ## Acknowledgments
 Reef is an original implementation, but its process ideas stand on two open projects:
