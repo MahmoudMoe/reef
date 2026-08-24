@@ -30,7 +30,8 @@ Full multi-agent setups burn tokens on ceremony; pure manual workflows have no s
 |---|---|---|
 | Retry cap / same-failure-twice | `reef-attempt` (data) + `reef-guard.py` deny at dispatch + `dispatches:` odometer | **code** |
 | Plan edited after approval → re-review | `reef-plan-check.py --verify-stamp`, re-checked by the guard at every implementer dispatch | **code** |
-| Commit gate tests the index | `.githooks/pre-commit` (patch dance, no stash) | **code** |
+| Commit gate tests the index | `.githooks/pre-commit` (canonical patch dance, no stash; restore failure rejects the commit loudly) | **code** |
+| Push gate | none by design — a worktree gate at push time only false-rejects | **CI is the wall** |
 | Bypass spellings (`--no-verify`, `-n`, `-c core.hookspath`, env smuggling, `rm .githooks`) | `reef-guard.py` (tokenizing PreToolUse hook) | **tripwire** — a blocklist over a shell surface is never complete; CI is the wall |
 | Verifier didn't touch the tree | `reef-snapshot.sh` before/after | code hash, **prose trigger** (the orchestrator must run it) |
 | Golden-output test on mech tasks | verifier contract | **prose** |

@@ -1,9 +1,0 @@
-#!/bin/sh
-# Reef push gate: run the test gate once against the current checkout before any push.
-# This is deliberately NOT the pre-commit script: at push time the index/worktree has no
-# relationship to the commits being pushed, so the stash/patch dance is wrong here — the
-# per-commit index testing already happened at commit time, and CI re-checks pushed history.
-set -e
-ROOT=$(git rev-parse --show-toplevel) || exit 1
-cd "$ROOT"
-sh scripts/reef-gate.sh || { echo "pre-push: gate failed — push rejected." >&2; exit 1; }

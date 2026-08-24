@@ -32,7 +32,7 @@ DENY_BASH = [
     'git -c core.hooksPath=/dev/null commit -m "x"',
     'git config core.hooksPath /dev/null',
     'git --no-pager commit --no-verify -m "x"',
-    # new bypass spellings the tokenizer must catch
+    # bypass spellings the tokenizer must catch
     'git commit -anm "x"',                                  # bundled short flags
     'git -c core.hookspath=/dev/null commit -m x',          # case games
     'git config CORE.HOOKSPATH /tmp/nothing',
@@ -40,12 +40,19 @@ DENY_BASH = [
     'git config --unset core.hooksPath',
     'GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m x',
     'cd /tmp && git commit -n -m x',                        # behind an operator
-    'git push --no-verify',
     'git merge --no-verify feature',
     'rm -rf .githooks',
     'mv .git/hooks/pre-commit /tmp/',
     'chmod -x .githooks/pre-commit',
+    'chmod 000 .githooks',
     'git commit -m "x" --no-verify || true',
+    # round-2 findings: shapes the first guard missed
+    'git commit -m x\ngit commit -n -m y',                  # newline-separated second command
+    'sh -c "git commit -n -m x"',                           # shell wrapper payload
+    'bash -c "git commit --no-verify -m x"',
+    'eval git commit -n -m x',
+    'git --config-env core.hooksPath=EVIL commit -m x',     # space form of --config-env
+    'git --config-env=core.hooksPath=EVIL commit -m x',     # glued form
 ]
 
 ALLOW_BASH = [
@@ -58,8 +65,15 @@ ALLOW_BASH = [
     'git config --list',
     'git log --oneline -n 5',                               # -n belongs to log, not commit
     'git checkout -b feat/x && git commit -m "y"',
-    'echo hooksPath is documented in README.md',            # hmm: mentions the word only
+    'echo hooksPath is documented in README.md',            # bare word in a value
     'ls -la',
+    # round-2 findings: false positives the first guard would have produced
+    'chmod +x .githooks/pre-commit .githooks/pre-merge-commit',   # reef-init's own install step
+    'git merge -n topic',                                   # merge -n is --no-stat, not --no-verify
+    'git push --no-verify',                                 # no pre-push hook exists to bypass
+    'git config core.hooksPathological x',                  # not the hooksPath key
+    'rm not.githooksish.txt',                               # substring, not a path component
+    'git commit -m fix -- -n',                              # after -- it is a pathspec
 ]
 
 
@@ -149,16 +163,83 @@ class DispatchGuard(unittest.TestCase):
         r = dispatch(self.dir, "anything", subagent="reef:verifier")
         self.assertEqual(r.returncode, 0)
 
-    def test_stale_stamp_denied(self):
-        # a repo with reef-plan-check installed and NO stamp -> dispatch must be denied
+    def test_denied_dispatch_never_bumps_odometer(self):
+        p = make_task(self.dir, status="blocked", dispatches=2)
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 2)
+        with open(p) as f:
+            self.assertIn("dispatches: 2", f.read())   # unchanged: a denial costs nothing
+
+    def test_path_with_spaces(self):
+        make_task(self.dir, name="008-two words.md")
+        r = dispatch(self.dir, "REEF-TASK: tasks/008-two words.md\nimplement")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_absolute_path_accepted(self):
+        p = make_task(self.dir)
+        r = dispatch("/somewhere/else", f"REEF-TASK: {p}\nimplement")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_non_utf8_task_fails_closed(self):
+        p = make_task(self.dir)
+        with open(p, "ab") as f:
+            f.write(b"\xff\xfe garbage")
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 2, "an unreadable task file must DENY, never crash-allow")
+
+    def _stamped_repo(self):
+        """A real git repo with a full valid plan and a written stamp."""
+        import shutil
+        import subprocess as sp
+        d = self.dir
+        sp.run(["git", "init", "-q", "-b", "main", d], check=True)
+        os.makedirs(os.path.join(d, "tasks", "done"), exist_ok=True)
+        os.makedirs(os.path.join(d, "scripts"), exist_ok=True)
+        os.makedirs(os.path.join(d, ".reef"), exist_ok=True)
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            f.write('{"gates": {"test": "true"}}')
+        with open(os.path.join(d, "CLAUDE.md"), "w") as f:
+            f.write("# demo brief\n")
+        with open(os.path.join(d, "tasks", "007-demo.md"), "w") as f:
+            f.write("---\nid: 7\nfeature: demo\nstatus: pending\ncomplexity: mech\n"
+                    "effort: medium\nblocked-by: []\nverify: gate-only\nattempts: 0\n"
+                    "dispatches: 0\nlast_failure_sig: \"\"\n---\n# 7\n\n## Scope\nx\n\n"
+                    "## Acceptance Criteria\n- test_demo_works goes red first\n\n## Log\n")
+        shutil.copy(os.path.join(ROOT, "scripts", "reef-plan-check.py"),
+                    os.path.join(d, "scripts", "reef-plan-check.py"))
+        r = sp.run([sys.executable, os.path.join(d, "scripts", "reef-plan-check.py"), d],
+                   capture_output=True, text=True)
+        assert r.returncode == 0, f"fixture plan must pass plan-check:\n{r.stdout}"
+        return d
+
+    def test_stamp_match_allows_and_stale_denies(self):
+        d = self._stamped_repo()
+        r = dispatch(d, "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 0, f"fresh stamp must allow: {r.stderr}")
+        # the guard's own odometer bump must NOT stale the stamp
+        r = dispatch(d, "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 0, f"odometer bump staled the stamp: {r.stderr}")
+        # a real plan edit must deny
+        p = os.path.join(d, "tasks", "007-demo.md")
+        with open(p) as f:
+            t = f.read()
+        with open(p, "w") as f:
+            f.write(t.replace("## Scope\nx", "## Scope\nsneaky edit"))
+        r = dispatch(d, "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("stamp", r.stderr)
+
+    def test_missing_stamp_denied(self):
         import shutil
         make_task(self.dir)
         os.makedirs(os.path.join(self.dir, "scripts"), exist_ok=True)
-        os.makedirs(os.path.join(self.dir, ".reef"), exist_ok=True)
-        with open(os.path.join(self.dir, ".reef", "config.json"), "w") as f:
-            f.write("{}")
+        import subprocess as sp
+        sp.run(["git", "init", "-q", "-b", "main", self.dir], check=True)
         shutil.copy(os.path.join(ROOT, "scripts", "reef-plan-check.py"),
                     os.path.join(self.dir, "scripts", "reef-plan-check.py"))
+        os.makedirs(os.path.join(self.dir, ".reef"), exist_ok=True)
+        with open(os.path.join(self.dir, ".reef", "config.json"), "w") as f:
+            f.write('{"gates": {"test": "true"}}')
         r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement")
         self.assertEqual(r.returncode, 2)
         self.assertIn("stamp", r.stderr)

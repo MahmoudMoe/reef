@@ -25,10 +25,14 @@ REQUIRED = ["id", "feature", "status", "complexity", "effort", "blocked-by", "ve
 DEFAULT_TEST_RE = (
     r"(?<![A-Za-z0-9_])test_[a-z0-9_]+"            # pytest
     r"|(?<![A-Za-z0-9_])Test[A-Z][A-Za-z0-9_]*"    # Go
-    r"|[a-z0-9_]+::[a-z0-9_]+"                     # Rust module::test paths
+    # Rust paths must mention 'test' in a segment — a bare foo::bar would let prose
+    # like std::vec or tokio::spawn satisfy the gate vacuously
+    r"|(?<![A-Za-z0-9_:])[a-z0-9_]*test[a-z0-9_]*::[a-z0-9_]+"
+    r"|(?<![A-Za-z0-9_:])[a-z0-9_]+::[a-z0-9_]*test[a-z0-9_]*"
     r"|(?:\bit|\btest|\bdescribe)\((['\"]).+?\1\)"  # Jest/Vitest it('...')/test("...")
 )
 TASK_NAME_RE = re.compile(r"(R?)(\d+)-.*\.md$")     # NNN-slug.md and rollup RNN-slug.md
+FM_RE = re.compile(r"\A(---\r?\n.*?\r?\n---\r?\n)", re.S)
 
 results = []  # (ok, line)
 
@@ -74,7 +78,7 @@ def section(text, heading):
     return m.group(1) if m else None
 
 
-BULLET = re.compile(r"^[-*+] +| ?\d+[.)] +")
+BULLET = re.compile(r"^[-*+] +|^\d+[.)] +")   # column 0 only: an indented '2.' is a continuation line
 
 
 def criteria(text):
@@ -146,23 +150,36 @@ def main():
             fail(f"same task filename in tasks/ and tasks/done/ (stamp keys by basename): {b}")
     adr_files = sorted(os.path.join(adr_dir, f) for f in os.listdir(adr_dir)
                        if f.endswith(".md")) if os.path.isdir(adr_dir) else []
-    artifacts = task_files + adr_files + [p for p in (glossary, brief, cfg_path)
-                                          if p and os.path.isfile(p)]
+    # Rollups (R<NN>) are EXECUTION artifacts written by reef-review mid-run; they get
+    # every structural check but must never enter the stamp — creating one would stale
+    # the plan and deny the very dispatch it was created for.
+    stamp_tasks = [p for p in task_files if not os.path.basename(p).startswith("R")]
+    artifacts = stamp_tasks + adr_files + [p for p in (glossary, brief, cfg_path)
+                                           if p and os.path.isfile(p)]
+
+    stamp_task_set = set(stamp_tasks)
 
     def stamp_key(p):
         """Task files are keyed by BASENAME, not path: completing a task moves it to done/,
         which changes the plan not at all."""
-        return os.path.basename(p) if p in task_files else os.path.relpath(p, root)
+        return os.path.basename(p) if p in stamp_task_set else os.path.relpath(p, root)
 
     def stamp_body(p):
         """Strip what EXECUTION writes, keep what PLANNING wrote. Otherwise every commit
-        invalidates the review and the semantic pass gets paid for on every task."""
+        invalidates the review and the semantic pass gets paid for on every task.
+        The Log cut requires the exact '## Log' heading ('## Login' is plan content),
+        and the key strip removes WHOLE LINES and only inside the frontmatter — a body
+        line that happens to start with 'status:' is plan content too."""
         raw = open(p, "rb").read()
-        if p not in task_files:
+        if p not in stamp_task_set:
             return raw
         text = raw.decode("utf-8", "replace")
-        text = text.split("\n## Log", 1)[0]
-        text = re.sub(r"^(status|attempts|last_failure_sig|dispatches):.*$", "", text, flags=re.M)
+        text = re.split(r"\r?\n## Log[ \t]*(?:\r?\n|\Z)", text, maxsplit=1)[0]
+        m = FM_RE.match(text)
+        if m:
+            fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches):.*(?:\r?\n|\Z)", "",
+                        m.group(1), flags=re.M)
+            text = fm + text[m.end():]
         return text.encode()
 
     h = hashlib.sha256()
@@ -244,13 +261,13 @@ def main():
     graph = {}
     bad_ref = False
     for rel, fm in tasks.items():
-        if "_id" not in fm:
-            continue
-        missing = [b for b in fm["_blocked"] if b not in known]
+        # every task's refs are validated — a rollup's blocked-by can dangle too
+        missing = [b for b in fm.get("_blocked", []) if b not in known]
         if missing:
             fail(f"{rel}: blocked-by refers to missing task id(s) {missing}")
             bad_ref = True
-        graph[fm["_id"]] = [b for b in fm["_blocked"] if b in known]
+        if "_id" in fm:
+            graph[fm["_id"]] = [b for b in fm["_blocked"] if b in known]
     if not bad_ref and tasks:
         ok("blocked-by references resolve (tasks/ + done/)")
 
@@ -343,15 +360,29 @@ def main():
         # decisions"); demanding one unconditionally deadlocks every fresh bootstrap
         ok("no ADRs (reef-plan treats the ADR as optional)")
     else:
+        def adr_status(text):
+            """Status value in either layout: inline 'Status: X' or a '## Status'
+            heading with the value on the next non-blank line (Nygard/MADR)."""
+            m = re.search(r"^\**Status\**:[ \t]*(\S.*)$", text, re.M | re.I)
+            if m:
+                return m.group(1).strip()
+            lines = text.splitlines()
+            for i, l in enumerate(lines):
+                if re.match(r"^#+\s*Status\s*$", l, re.I):
+                    for nxt in lines[i + 1:]:
+                        if nxt.strip():
+                            return nxt.strip()
+            return ""
+
         proposed, unchosen = [], []
         for p in adr_files:
             rel = os.path.relpath(p, root)
-            m = re.search(r"^\**Status\**:?[ \t]*(.+)$", read(p), re.M | re.I)
-            status = m.group(1).strip() if m else ""
-            if re.search(r"\bProposed\b", status, re.I) and re.search(r"\bAccepted\b", status, re.I):
+            status = adr_status(read(p))
+            words = re.findall(r"\b(proposed|accepted|superseded)\b", status, re.I)
+            if len({w.lower() for w in words}) > 1 and "|" in status:
                 unchosen.append(rel)          # template placeholder line left untouched
-            elif re.search(r"\bProposed\b", status, re.I):
-                proposed.append(rel)
+            elif words and words[0].lower() == "proposed":
+                proposed.append(rel)          # first word decides: 'Accepted (was Proposed)' is accepted
         if unchosen:
             fail("ADR status is still the template placeholder (pick one): " + ", ".join(unchosen))
         if proposed:

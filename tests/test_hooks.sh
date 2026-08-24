@@ -22,11 +22,15 @@ mkrepo() { # mkrepo <dir> <gate-cmd>
   mkdir -p scripts .reef .githooks
   cp "$ROOT/scripts/reef-gate.sh" scripts/
   printf '{"gates": {"test": "%s"}}\n' "$2" > .reef/config.json
-  cp "$ROOT/templates/pre-commit" .githooks/pre-commit
-  cp "$ROOT/templates/pre-push"  .githooks/pre-push
-  chmod +x .githooks/pre-commit .githooks/pre-push scripts/reef-gate.sh
+  cp -p "$ROOT/templates/pre-commit" .githooks/pre-commit
+  chmod +x scripts/reef-gate.sh
   git config core.hooksPath .githooks
 }
+
+# the template itself must ship executable: a mode-preserving copy (cp -p, rsync -a)
+# of a 644 template yields a hook git silently never runs
+[ -x "$ROOT/templates/pre-commit" ]
+t "templates/pre-commit ships with the executable bit" 0
 
 # ---------- pre-commit ----------
 
@@ -99,16 +103,30 @@ t "resolved merge commits cleanly" 0
 [ "$(git rev-list --parents -1 HEAD | wc -w | tr -d ' ')" = "3" ]
 t "  merge kept BOTH parents (MERGE_HEAD survived)" 0
 
-# ---------- pre-push ----------
+# ---------- round-2 data-loss scenarios ----------
+
+# intent-to-add: the index blob is EMPTY; the dance must be skipped, never truncate
 mkrepo "$TMP/r5" "true"
 echo v1 > f.txt; git add .; git commit -qm c1 >/dev/null 2>&1
-git init -q --bare "$TMP/origin.git"
-git remote add origin "$TMP/origin.git"
-git push -q origin main >/dev/null 2>&1
-t "pre-push on a CLEAN tree: push accepted (the old trap rejected every push)" 0
-printf '{"gates": {"test": "false"}}\n' > .reef/config.json
-git push -q origin main:other >/dev/null 2>&1
-t "pre-push with a RED gate: push rejected" 1
+echo v2 > f.txt; git add f.txt
+printf 'line1\nBRAND NEW WORK\n' > new.txt
+git add -N new.txt
+git commit -qm c2 >/dev/null 2>&1
+t "intent-to-add (git add -N): commit path completes" 0
+grep -q 'BRAND NEW WORK' new.txt
+t "  ita file content PRESERVED (was truncated to 0 bytes before)" 0
+
+# diff.noprefix=true: the user's diff config must not be able to break the restore
+mkrepo "$TMP/r6" "true"
+git config diff.noprefix true
+echo v1 > f.txt; git add .; git commit -qm c1 >/dev/null 2>&1
+echo v2 > f.txt; git add f.txt; echo PRECIOUS-UNSTAGED > f.txt
+git commit -qm c2 >/dev/null 2>&1
+t "diff.noprefix=true: commit accepted" 0
+[ "$(cat f.txt)" = "PRECIOUS-UNSTAGED" ]
+t "  unstaged work restored despite noprefix (canonical patch flags)" 0
+[ "$(git show HEAD:f.txt)" = "v2" ]
+t "  committed content is still the index" 0
 
 # ---------- reef-gate.sh ----------
 cd "$TMP"; mkdir -p g1; cd g1; git init -q -b main; git config user.email t@t; git config user.name t
@@ -130,7 +148,7 @@ cd "$TMP"
 t "gate: outside a git repo FAILS LOUDLY" 1
 
 # ---------- reef-snapshot.sh ----------
-mkrepo "$TMP/r6" "true"
+mkrepo "$TMP/r7" "true"
 cp "$ROOT/scripts/reef-snapshot.sh" scripts/; chmod +x scripts/reef-snapshot.sh
 echo v1 > f.txt; git add .; git commit -qm c1 >/dev/null 2>&1
 S1=$(sh scripts/reef-snapshot.sh); S2=$(sh scripts/reef-snapshot.sh)

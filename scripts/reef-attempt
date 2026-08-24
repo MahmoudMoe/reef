@@ -8,19 +8,22 @@ Usage:
 
 Exit codes: 0 = dispatch allowed (prints the dispatch line + the REEF-TASK header the
 dispatch prompt must start with), 2 = BLOCKED or unusable input -> USER ACTION REQUIRED.
-Anything this script cannot parse is a 2, never a silent 0: fail closed.
+Anything this script cannot parse is a 2, never a silent 0 and never a traceback: fail closed.
 
 Cap resolution: --cap flag > .reef/config.json caps.attempts > 3.
 Model: .reef/config.json roles.author > "opus".  Effort ladder: the task's own
 `effort:` field is the base; any recorded FAIL escalates to high.
 
-Failure signatures are NORMALIZED before hashing (lowercase, volatile tokens like
-timings/addresses/line numbers stripped, whitespace collapsed) so that the "same
-failure twice" guard fires on the same failure, not on byte-identical text.
+Failure signatures are NORMALIZED before hashing (lowercase, timings/addresses/
+file:line numbers stripped, whitespace collapsed) so the "same failure twice"
+guard fires on the same failure, not on byte-identical text. Ports and other
+plain `host:port` pairs are NOT stripped — two different services failing must
+not collide into one signature.
 
 This script records WHY a task fails. Enforcement does not depend on it being
 called: the PreToolUse guard (reef-guard.py) independently refuses implementer
-dispatches on blocked/at-cap task files and advances a `dispatches:` odometer.
+dispatches on blocked/at-cap task files and advances a `dispatches:` odometer,
+under the same lock this script takes.
 """
 import fcntl
 import hashlib
@@ -28,6 +31,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 
 DEFAULT_CAP = 3
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
@@ -41,9 +45,9 @@ def die(msg):
 
 def normalize(failure):
     s = failure.lower()
-    s = re.sub(r"0x[0-9a-f]+", "", s)            # addresses
-    s = re.sub(r"\b\d+(\.\d+)?m?s\b", "", s)     # timings (1.23s, 450ms)
-    s = re.sub(r":\d+\b", ":", s)                # line numbers drift between attempts
+    s = re.sub(r"0x[0-9a-f]+", "", s)                    # addresses
+    s = re.sub(r"\b\d+(\.\d+)?m?s\b", "", s)             # timings (1.23s, 450ms)
+    s = re.sub(r"(\.[a-z]{1,5}):\d+\b", r"\1:", s)       # file.py:17 line numbers (NOT host:port)
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
@@ -73,13 +77,14 @@ def parse_args(argv):
 
 def repo_root(path):
     d = os.path.dirname(os.path.abspath(path))
+    probe = d
     while True:
-        if os.path.isdir(os.path.join(d, ".reef")) or os.path.isdir(os.path.join(d, ".git")):
-            return d
-        parent = os.path.dirname(d)
-        if parent == d:
-            return os.getcwd()
-        d = parent
+        if os.path.isdir(os.path.join(probe, ".reef")) or os.path.isdir(os.path.join(probe, ".git")):
+            return probe
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            return d   # no marker found: the task file's own directory — NEVER the caller's cwd
+        probe = parent
 
 
 def read_config(root):
@@ -90,18 +95,23 @@ def read_config(root):
         return {}
 
 
+def lock_path_for(path):
+    """Shared with reef-guard.py. Lives in tmp (never committed) and is never
+    unlinked — unlink-in-finally is the classic broken lock."""
+    digest = hashlib.sha1(os.path.abspath(path).encode()).hexdigest()
+    return os.path.join(tempfile.gettempdir(), f"reef-lock-{digest}")
+
+
 class TaskFile:
     """Frontmatter-scoped read/write. Keys are only ever read from and written to the
     region between the opening fences — never the body (a `status:` line inside ## Log
-    is history, not state)."""
+    is history, not state). Newlines are preserved byte-for-byte (newline='') so a
+    CRLF task file is not silently rewritten, which would invalidate the plan stamp."""
 
     def __init__(self, path):
         self.path = path
-        try:
-            with open(path, encoding="utf-8") as f:
-                self.text = f.read()
-        except OSError as e:
-            die(f"cannot read task file {path}: {e}")
+        with open(path, encoding="utf-8", newline="") as f:
+            self.text = f.read()
         m = FENCE.match(self.text)
         if not m:
             die(f"{path} has no frontmatter fence (--- ... ---) — not a reef task file; refusing to guess")
@@ -135,58 +145,75 @@ class TaskFile:
         return v
 
     def write(self):
-        tmp = self.path + ".reef-tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(self.text)
-        os.replace(tmp, self.path)
+        fd, tmp = tempfile.mkstemp(prefix=".reef-attempt-", dir=os.path.dirname(os.path.abspath(self.path)))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+                f.write(self.text)
+            os.replace(tmp, self.path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
 
-def main():
-    cap_flag, path, failure = parse_args(sys.argv[1:])
+def run(cap_flag, path, failure):
+    if not os.path.isfile(path):
+        die(f"task file not found: {path}")
     root = repo_root(path)
     cfg = read_config(root)
     cap = cap_flag or int(cfg.get("caps", {}).get("attempts", DEFAULT_CAP) or DEFAULT_CAP)
     model = str(cfg.get("roles", {}).get("author", "opus") or "opus")
 
-    lock_path = path + ".lock"
-    with open(lock_path, "w") as lock:
+    with open(lock_path_for(path), "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            task = TaskFile(path)
-            attempts = task.get_int("attempts")
-            prev_sig = task.get("last_failure_sig")
+        task = TaskFile(path)
+        attempts = task.get_int("attempts")
+        prev_sig = task.get("last_failure_sig")
 
-            if failure:
-                sig = hashlib.sha1(normalize(failure).encode()).hexdigest()[:12]
-                attempts += 1
-                # "twice" means twice within THIS round: after a human reset
-                # (attempts back to 0) a stale signature must not burn the fresh round.
-                repeated = attempts > 1 and prev_sig != "" and sig == prev_sig
-                task.set("attempts", str(attempts))
-                task.set("last_failure_sig", sig)
-                if attempts >= cap or repeated:
-                    task.set("status", "blocked")
-                    task.write()
-                    reason = "same failure signature twice" if repeated else f"retry cap {cap} reached"
-                    die(f"task blocked ({reason}). attempts={attempts} sig={sig}")
+        # an already-blocked task is immutable until a human unblocks it — recording
+        # more failures onto it would burn the counter past the cap and overwrite the
+        # very signature the human needs to diagnose the block
+        if task.get("status") == "blocked":
+            die("task is blocked. A HUMAN must unblock it (set attempts: 0, status: pending, last_failure_sig: \"\") before any dispatch.")
+
+        if failure:
+            sig = hashlib.sha1(normalize(failure).encode()).hexdigest()[:12]
+            attempts += 1
+            # "twice" means twice within THIS round: after a human reset
+            # (attempts back to 0) a stale signature must not burn the fresh round.
+            repeated = attempts > 1 and prev_sig != "" and sig == prev_sig
+            task.set("attempts", str(attempts))
+            task.set("last_failure_sig", sig)
+            if attempts >= cap or repeated:
+                task.set("status", "blocked")
                 task.write()
+                reason = "same failure signature twice" if repeated else f"retry cap {cap} reached"
+                die(f"task blocked ({reason}). attempts={attempts} sig={sig}")
+            task.write()
 
-            if task.get("status") == "blocked":
-                die("task is blocked. A HUMAN must unblock it (set attempts: 0, status: pending, last_failure_sig: \"\") before any dispatch.")
-            if attempts >= cap:  # cap is authoritative on the dispatch path too, not only when recording
-                die(f"task is at the retry cap ({attempts}/{cap}); a HUMAN must reset or re-plan.")
+        if attempts >= cap:  # cap is authoritative on the dispatch path too, not only when recording
+            die(f"task is at the retry cap ({attempts}/{cap}); a HUMAN must reset or re-plan.")
 
-            base = task.get("effort", "medium")
-            if base not in EFFORTS:
-                base = "medium"
-            effort = "high" if attempts > 0 else base
-            print(f"dispatch: model={model} effort={effort} attempt={attempts + 1}/{cap}")
-            print(f"REEF-TASK: {os.path.relpath(path, os.getcwd())}")
-        finally:
-            try:
-                os.unlink(lock_path)
-            except OSError:
-                pass
+        base = task.get("effort", "medium")
+        if base not in EFFORTS:
+            base = "medium"
+        effort = "high" if attempts > 0 else base
+        print(f"dispatch: model={model} effort={effort} attempt={attempts + 1}/{cap}")
+        # absolute: the guard resolves this against the SESSION cwd, which need not
+        # be the cwd this script happened to run from
+        print(f"REEF-TASK: {os.path.abspath(path)}")
+
+
+def main():
+    cap_flag, path, failure = parse_args(sys.argv[1:])
+    try:
+        run(cap_flag, path, failure)
+    except SystemExit:
+        raise
+    except Exception as e:   # fail closed: exit 2 with a reason, never a traceback
+        die(f"internal error on {path}: {e}")
 
 
 if __name__ == "__main__":

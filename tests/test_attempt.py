@@ -31,7 +31,9 @@ class Attempt(unittest.TestCase):
         r = run(p)
         self.assertEqual(r.returncode, 0)
         self.assertIn("dispatch: model=opus effort=medium attempt=1/3", r.stdout)
-        self.assertIn("REEF-TASK:", r.stdout)
+        header = [l for l in r.stdout.splitlines() if l.startswith("REEF-TASK: ")]
+        self.assertTrue(header and os.path.isabs(header[0].split(": ", 1)[1]),
+                        "REEF-TASK must be absolute — the guard resolves it against the SESSION cwd")
 
     def test_effort_base_from_task_then_escalates(self):
         p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: low\nattempts: 0\n")
@@ -130,6 +132,45 @@ class Attempt(unittest.TestCase):
     def test_blocked_status_refuses_dispatch(self):
         p = make_task(self.dir, fm="id: 7\nstatus: blocked\nattempts: 1\n")
         self.assertEqual(run(p).returncode, 2)
+
+    # ---- round-2 findings ----
+
+    def test_blocked_task_never_mutated_by_further_fails(self):
+        p = make_task(self.dir, fm="id: 7\nstatus: blocked\nattempts: 2\nlast_failure_sig: \"cafecafecafe\"\n")
+        r = run(p, "another failure while blocked")
+        self.assertEqual(r.returncode, 2)
+        text = open(p).read()
+        self.assertIn("attempts: 2", text)                # counter not burned past the block
+        self.assertIn("cafecafecafe", text)               # diagnostic signature preserved
+
+    def test_crlf_file_preserved_byte_for_byte_outside_edited_lines(self):
+        p = os.path.join(self.dir, "007-crlf.md")
+        with open(p, "wb") as f:
+            f.write(b"---\r\nid: 7\r\nstatus: pending\r\nattempts: 0\r\n---\r\n# demo\r\n\r\n## Log\r\n")
+        r = run(p, "some failure")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        raw = open(p, "rb").read()
+        self.assertIn(b"# demo\r\n", raw)                 # body EOLs untouched
+        self.assertIn(b"id: 7\r\n", raw)                  # unedited frontmatter EOLs untouched
+
+    def test_ports_are_not_line_numbers(self):
+        # two genuinely different failures must NOT collide into one signature
+        p = make_task(self.dir)
+        run(p, "connect to localhost:5432 refused")
+        r = run(p, "connect to localhost:6379 refused")
+        self.assertEqual(r.returncode, 0, "different ports collided into 'same failure twice'")
+
+    def test_file_line_numbers_still_normalized(self):
+        p = make_task(self.dir)
+        run(p, "tests/test_x.py:17: AssertionError: boom")
+        r = run(p, "tests/test_x.py:19: AssertionError: boom")
+        self.assertEqual(r.returncode, 2, "same failure at a drifted line must still count as repeated")
+
+    def test_typoed_parent_dir_exits_2_not_traceback(self):
+        r = run(os.path.join(self.dir, "no-such-dir", "007-x.md"), "failure")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("USER ACTION REQUIRED", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
 
 
 if __name__ == "__main__":

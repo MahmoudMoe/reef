@@ -81,7 +81,11 @@ class Stacks(unittest.TestCase):
         self.check_ac("TestLoginHandler fails before the change", True)
 
     def test_rust(self):
-        self.check_ac("auth::rejects_bad_token fails before the change", True)
+        self.check_ac("auth_tests::rejects_bad_token fails before the change", True)
+
+    def test_rust_prose_paths_rejected(self):
+        # round-2 finding: a bare foo::bar matched prose like std::vec
+        self.check_ac("uses std::vec and tokio::spawn correctly", False)
 
     def test_prose_star_test_star_rejected(self):
         self.check_ac("the latest_figures view renders correctly", False)
@@ -173,6 +177,39 @@ class Decoration(unittest.TestCase):
         repo(tmp)
         self.assertEqual(run(tmp).returncode, 0, "a fresh bootstrap with zero ADRs must be able to pass")
 
+    def test_numbered_continuation_line_not_a_bogus_criterion(self):
+        # round-2 finding: ' 2.' under one space of indent was promoted to a criterion
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp, acs="- test_a covers the cases:\n 2) this wrapped line belongs to the bullet above")
+        self.assertEqual(run(tmp).returncode, 0)
+
+    def test_adr_status_heading_layout_detected(self):
+        # Nygard/MADR layout: '## Status' heading with the value on the next line
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        with open(os.path.join(tmp, "docs", "adr", "0001-x.md"), "w") as f:
+            f.write("# ADR 0001\n\n## Status\n\nProposed\n\n## Context\nx\n")
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1, "heading-layout Proposed must be caught")
+        self.assertIn("Proposed", r.stdout)
+
+    def test_adr_accepted_mentioning_proposed_is_ok(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        with open(os.path.join(tmp, "docs", "adr", "0001-x.md"), "w") as f:
+            f.write("# ADR 0001\n\nStatus: Accepted (was Proposed until 2026-08)\n\n## Context\nx\n")
+        self.assertEqual(run(tmp).returncode, 0)
+
+    def test_rollup_dangling_blocked_by_fails(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        body = TASK.format(id="R1", acs="- test_rollup_fix goes red first").replace("blocked-by: []", "blocked-by: [99]")
+        with open(os.path.join(tmp, "tasks", "R01-fixups.md"), "w") as f:
+            f.write(body)
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("missing task id", r.stdout)
+
     def test_open_heading_case_insensitive_and_scoped(self):
         tmp = tempfile.mkdtemp(prefix="reef-pc.")
         repo(tmp)
@@ -199,6 +236,48 @@ class Rollups(unittest.TestCase):
 
 
 class Stamp(unittest.TestCase):
+    def test_rollup_creation_and_edits_never_stale_the_stamp(self):
+        # round-2 finding: rollups are EXECUTION artifacts; hashing them denied the
+        # very dispatch they were created for
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        self.assertEqual(run(tmp).returncode, 0)
+        with open(os.path.join(tmp, "tasks", "R01-fixups.md"), "w") as f:
+            f.write(TASK.format(id="R1", acs="- test_rollup_fix goes red first"))
+        self.assertEqual(run(tmp, "--verify-stamp").returncode, 0,
+                         "creating a rollup mid-run must not stale the plan stamp")
+
+    def test_guard_dispatches_append_never_stales_the_stamp(self):
+        # round-2 finding: the odometer append changed the digest because the strip
+        # kept the newline
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        self.assertEqual(run(tmp).returncode, 0)
+        p = os.path.join(tmp, "tasks", "001-demo.md")
+        with open(p) as f:
+            t = f.read()
+        with open(p, "w") as f:   # simulate reef-guard appending the odometer key
+            f.write(t.replace("---\n# ", "dispatches: 3\n---\n# ", 1))
+        self.assertEqual(run(tmp, "--verify-stamp").returncode, 0,
+                         "the guard's own odometer write must not stale the stamp")
+
+    def test_login_heading_is_plan_content_not_log(self):
+        # round-2 finding: '\n## Log' prefix-matched '## Login' and hid plan content
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp, acs="- test_login_works goes red first")
+        p = os.path.join(tmp, "tasks", "001-demo.md")
+        with open(p) as f:
+            t = f.read()
+        with open(p, "w") as f:
+            f.write(t.replace("## Out of scope", "## Login flow\nplan detail here\n\n## Out of scope"))
+        self.assertEqual(run(tmp).returncode, 0)
+        with open(p) as f:
+            t = f.read()
+        with open(p, "w") as f:
+            f.write(t.replace("plan detail here", "sneaky post-approval edit"))
+        self.assertEqual(run(tmp, "--verify-stamp").returncode, 1,
+                         "an edit under '## Login' is a PLAN edit and must stale the stamp")
+
     def test_execution_does_not_invalidate_plan_edit_does(self):
         tmp = tempfile.mkdtemp(prefix="reef-pc.")
         repo(tmp)
