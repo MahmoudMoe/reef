@@ -191,22 +191,6 @@ def main():
             text = fm + text[m.end():]
         return text.encode()
 
-    def stamp_key(p):
-        """Task files are keyed by BASENAME, not path: completing a task moves it to done/,
-        which changes the plan not at all."""
-        return os.path.basename(p) if p in task_files else os.path.relpath(p, root)
-
-    def stamp_body(p):
-        """Strip what EXECUTION writes, keep what PLANNING wrote. Otherwise every commit
-        invalidates the review and the semantic pass gets paid for on every task."""
-        raw = open(p, "rb").read()
-        if p not in task_files:
-            return raw
-        text = raw.decode("utf-8", "replace")
-        text = text.split("\n## Log", 1)[0]
-        text = re.sub(r"^(status|attempts|last_failure_sig):.*$", "", text, flags=re.M)
-        return text.encode()
-
     h = hashlib.sha256()
     for p in sorted(artifacts, key=stamp_key):
         h.update(stamp_key(p).encode() + b"\0")
