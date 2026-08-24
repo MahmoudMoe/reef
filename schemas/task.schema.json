@@ -4,14 +4,21 @@
   "type": "object",
   "required": ["id", "feature", "status", "complexity", "effort", "blocked-by", "verify", "attempts"],
   "properties": {
-    "id": { "type": "integer", "description": "NNN, dependency order" },
+    "id": {
+      "anyOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "string", "pattern": "^R[0-9]+$" }
+      ],
+      "description": "NNN in dependency order; rollup tasks from reef-review use R<NN> (never referenced by blocked-by)"
+    },
     "feature": { "type": "string" },
     "status": { "enum": ["pending", "in-progress", "blocked", "done"] },
     "complexity": { "enum": ["mech", "design"] },
-    "effort": { "enum": ["low", "medium", "high"] },
-    "blocked-by": { "type": "array", "items": { "type": "integer" }, "description": "task ids that must be done first" },
+    "effort": { "enum": ["low", "medium", "high"], "description": "ladder BASE for reef-attempt; any recorded FAIL escalates to high" },
+    "blocked-by": { "type": "array", "items": { "type": "integer" }, "description": "numeric task ids that must be done first" },
     "verify": { "enum": ["judge", "gate-only"], "description": "design -> judge (adversarial subagent); mech -> gate-only (hooks + golden test)" },
-    "attempts": { "type": "integer" },
-    "last_failure_sig": { "type": "string" }
+    "attempts": { "type": "integer", "minimum": 0, "description": "recorded FAILs; written only by scripts/reef-attempt" },
+    "dispatches": { "type": "integer", "minimum": 0, "description": "implementer-dispatch odometer; written only by the reef-guard PreToolUse hook" },
+    "last_failure_sig": { "type": "string", "description": "normalized sha1 of the last failure; same sig twice in one round = blocked" }
   }
 }

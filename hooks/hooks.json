@@ -6,7 +6,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c \"import json,sys,re; d=json.load(sys.stdin); c=d.get('tool_input',{}).get('command',''); bad=re.search(r'git\\\\s+commit[^|;&]*--no-verify|git\\\\s+config[^|;&]*hooksPath', c); sys.exit(2 if bad else 0)\""
+            "command": "sh -c 'if command -v python3 >/dev/null 2>&1; then exec python3 \"$0\"; fi; if grep -qiE \"no-?verify|hookspath\"; then echo \"reef-guard (no python3, degraded): possible gate bypass — denied\" >&2; exit 2; fi; exit 0' \"${CLAUDE_PLUGIN_ROOT}/scripts/reef-guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'command -v python3 >/dev/null 2>&1 && exec python3 \"$0\"; exit 0' \"${CLAUDE_PLUGIN_ROOT}/scripts/reef-guard.py\""
           }
         ]
       }
