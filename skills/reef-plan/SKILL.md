@@ -1,7 +1,6 @@
 ---
 name: reef-plan
 description: Turn a raw feature spec into an approved set of vertical-slice task files via grilling and ONE human gate. Use when the user has a feature to plan, or says "/reef-plan".
-disable-model-invocation: true
 argument-hint: <feature spec | path/to/spec.md>
 ---
 

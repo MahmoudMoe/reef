@@ -1,50 +1,193 @@
 #!/usr/bin/env python3
 """Reef attempt counter — the retry cap as DATA, not model memory.
-Usage: reef-attempt <task-file> [failure-text...]
-- No failure text: report current state + model/effort to use for the NEXT dispatch.
-- With failure text: record a FAIL (increment attempts, store failure signature), then report.
-Exit codes: 0 = dispatch allowed (prints model/effort), 2 = BLOCKED (cap or repeated signature) -> USER ACTION REQUIRED.
-Rule for the orchestrator: NEVER spawn an implementer without running this first and using what it prints.
+
+Usage:
+  reef-attempt <task-file>                    report state; print model/effort for the NEXT dispatch
+  reef-attempt <task-file> <failure-text...>  record a FAIL (increment attempts, store signature), then report
+  reef-attempt --cap N <task-file> [...]      override the cap for this call (rollup/CI loops)
+
+Exit codes: 0 = dispatch allowed (prints the dispatch line + the REEF-TASK header the
+dispatch prompt must start with), 2 = BLOCKED or unusable input -> USER ACTION REQUIRED.
+Anything this script cannot parse is a 2, never a silent 0: fail closed.
+
+Cap resolution: --cap flag > .reef/config.json caps.attempts > 3.
+Model: .reef/config.json roles.author > "opus".  Effort ladder: the task's own
+`effort:` field is the base; any recorded FAIL escalates to high.
+
+Failure signatures are NORMALIZED before hashing (lowercase, volatile tokens like
+timings/addresses/line numbers stripped, whitespace collapsed) so that the "same
+failure twice" guard fires on the same failure, not on byte-identical text.
+
+This script records WHY a task fails. Enforcement does not depend on it being
+called: the PreToolUse guard (reef-guard.py) independently refuses implementer
+dispatches on blocked/at-cap task files and advances a `dispatches:` odometer.
 """
-import hashlib, re, sys
+import fcntl
+import hashlib
+import json
+import os
+import re
+import sys
 
-CAP = 3
-path = sys.argv[1]
-failure = " ".join(sys.argv[2:]).strip()
-text = open(path).read()
+DEFAULT_CAP = 3
+FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
+EFFORTS = ("low", "medium", "high")
 
-def get(key, default=""):
-    m = re.search(rf"^{key}:\s*(.*)$", text, re.M)
-    return m.group(1).strip().strip('"') if m else default
 
-def setkey(key, value):
-    global text
-    if re.search(rf"^{key}:", text, re.M):
-        text = re.sub(rf"^{key}:.*$", f"{key}: {value}", text, count=1, flags=re.M)
-    else:
-        text = text.replace("---\n", f"---\n{key}: {value}\n", 1)  # after opening fence
-        # ensure inserted inside frontmatter: insert after first line instead
-attempts = int(get("attempts", "0") or 0)
-prev_sig = get("last_failure_sig", "")
-
-if failure:
-    sig = hashlib.sha1(failure.encode()).hexdigest()[:12]
-    attempts += 1
-    repeated = sig == prev_sig and prev_sig != ""
-    setkey("attempts", str(attempts))
-    setkey("last_failure_sig", sig)
-    if attempts >= CAP or repeated:
-        setkey("status", "blocked")
-        open(path, "w").write(text)
-        reason = "same failure signature twice" if repeated else f"retry cap {CAP} reached"
-        print(f"USER ACTION REQUIRED: task blocked ({reason}). attempts={attempts} sig={sig}", file=sys.stderr)
-        sys.exit(2)
-    open(path, "w").write(text)
-
-if get("status") == "blocked":
-    print("USER ACTION REQUIRED: task is blocked. Human must unblock (reset attempts/status) before any dispatch.", file=sys.stderr)
+def die(msg):
+    print(f"USER ACTION REQUIRED: {msg}", file=sys.stderr)
     sys.exit(2)
 
-# escalation ladder: attempt 0 -> base effort; any recorded FAIL -> high.
-model, effort = ("opus", "medium") if attempts == 0 else ("opus", "high")
-print(f"dispatch: model={model} effort={effort} attempt={attempts + 1}/{CAP}")
+
+def normalize(failure):
+    s = failure.lower()
+    s = re.sub(r"0x[0-9a-f]+", "", s)            # addresses
+    s = re.sub(r"\b\d+(\.\d+)?m?s\b", "", s)     # timings (1.23s, 450ms)
+    s = re.sub(r":\d+\b", ":", s)                # line numbers drift between attempts
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def parse_args(argv):
+    cap = None
+    rest = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--cap":
+            if i + 1 >= len(argv) or not argv[i + 1].isdigit() or int(argv[i + 1]) < 1:
+                die("--cap requires a positive integer")
+            cap = int(argv[i + 1])
+            i += 2
+        else:
+            rest.append(argv[i])
+            i += 1
+    if not rest:
+        die("usage: reef-attempt [--cap N] <task-file> [failure-text...]")
+    path = rest[0]
+    failure_given = len(rest) > 1
+    failure = " ".join(rest[1:]).strip()
+    if failure_given and not failure:
+        die("a failure argument was passed but it is empty — a FAIL with no text cannot be recorded; pass the real failure output")
+    return cap, path, failure
+
+
+def repo_root(path):
+    d = os.path.dirname(os.path.abspath(path))
+    while True:
+        if os.path.isdir(os.path.join(d, ".reef")) or os.path.isdir(os.path.join(d, ".git")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return os.getcwd()
+        d = parent
+
+
+def read_config(root):
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+class TaskFile:
+    """Frontmatter-scoped read/write. Keys are only ever read from and written to the
+    region between the opening fences — never the body (a `status:` line inside ## Log
+    is history, not state)."""
+
+    def __init__(self, path):
+        self.path = path
+        try:
+            with open(path, encoding="utf-8") as f:
+                self.text = f.read()
+        except OSError as e:
+            die(f"cannot read task file {path}: {e}")
+        m = FENCE.match(self.text)
+        if not m:
+            die(f"{path} has no frontmatter fence (--- ... ---) — not a reef task file; refusing to guess")
+        self._fm_span = m.span(1)
+
+    @property
+    def fm(self):
+        return self.text[self._fm_span[0]:self._fm_span[1]]
+
+    def get(self, key, default=""):
+        m = re.search(rf"^{re.escape(key)}:[ \t]*(.*)$", self.fm, re.M)
+        return m.group(1).strip().strip('"') if m else default
+
+    def set(self, key, value):
+        fm = self.fm
+        if re.search(rf"^{re.escape(key)}:", fm, re.M):
+            fm = re.sub(rf"^{re.escape(key)}:.*$", f"{key}: {value}", fm, count=1, flags=re.M)
+        else:
+            fm = fm + f"{key}: {value}\n"
+        self.text = self.text[:self._fm_span[0]] + fm + self.text[self._fm_span[1]:]
+        self._fm_span = (self._fm_span[0], self._fm_span[0] + len(fm))
+
+    def get_int(self, key, default=0):
+        raw = self.get(key, str(default)) or str(default)
+        try:
+            v = int(raw)
+        except ValueError:
+            die(f"{self.path}: frontmatter {key}: {raw!r} is not an integer — fix the file")
+        if v < 0:
+            die(f"{self.path}: frontmatter {key}: {v} is negative — fix the file")
+        return v
+
+    def write(self):
+        tmp = self.path + ".reef-tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(self.text)
+        os.replace(tmp, self.path)
+
+
+def main():
+    cap_flag, path, failure = parse_args(sys.argv[1:])
+    root = repo_root(path)
+    cfg = read_config(root)
+    cap = cap_flag or int(cfg.get("caps", {}).get("attempts", DEFAULT_CAP) or DEFAULT_CAP)
+    model = str(cfg.get("roles", {}).get("author", "opus") or "opus")
+
+    lock_path = path + ".lock"
+    with open(lock_path, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            task = TaskFile(path)
+            attempts = task.get_int("attempts")
+            prev_sig = task.get("last_failure_sig")
+
+            if failure:
+                sig = hashlib.sha1(normalize(failure).encode()).hexdigest()[:12]
+                attempts += 1
+                # "twice" means twice within THIS round: after a human reset
+                # (attempts back to 0) a stale signature must not burn the fresh round.
+                repeated = attempts > 1 and prev_sig != "" and sig == prev_sig
+                task.set("attempts", str(attempts))
+                task.set("last_failure_sig", sig)
+                if attempts >= cap or repeated:
+                    task.set("status", "blocked")
+                    task.write()
+                    reason = "same failure signature twice" if repeated else f"retry cap {cap} reached"
+                    die(f"task blocked ({reason}). attempts={attempts} sig={sig}")
+                task.write()
+
+            if task.get("status") == "blocked":
+                die("task is blocked. A HUMAN must unblock it (set attempts: 0, status: pending, last_failure_sig: \"\") before any dispatch.")
+            if attempts >= cap:  # cap is authoritative on the dispatch path too, not only when recording
+                die(f"task is at the retry cap ({attempts}/{cap}); a HUMAN must reset or re-plan.")
+
+            base = task.get("effort", "medium")
+            if base not in EFFORTS:
+                base = "medium"
+            effort = "high" if attempts > 0 else base
+            print(f"dispatch: model={model} effort={effort} attempt={attempts + 1}/{cap}")
+            print(f"REEF-TASK: {os.path.relpath(path, os.getcwd())}")
+        finally:
+            try:
+                os.unlink(lock_path)
+            except OSError:
+                pass
+
+
+if __name__ == "__main__":
+    main()

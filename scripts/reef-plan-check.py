@@ -19,7 +19,16 @@ COMPLEXITY = {"mech", "design"}
 EFFORT = {"low", "medium", "high"}
 VERIFY = {"judge", "gate-only"}
 REQUIRED = ["id", "feature", "status", "complexity", "effort", "blocked-by", "verify", "attempts"]
-TEST_RE = re.compile(r"test_[a-z0-9_]+")
+# Test-name conventions across the stacks reef-init advertises. Left/right anchored so
+# prose like "latest_figures" cannot satisfy the gate. Overridable via .reef/config.json
+# plan.test_re for stacks/conventions not covered here.
+DEFAULT_TEST_RE = (
+    r"(?<![A-Za-z0-9_])test_[a-z0-9_]+"            # pytest
+    r"|(?<![A-Za-z0-9_])Test[A-Z][A-Za-z0-9_]*"    # Go
+    r"|[a-z0-9_]+::[a-z0-9_]+"                     # Rust module::test paths
+    r"|(?:\bit|\btest|\bdescribe)\((['\"]).+?\1\)"  # Jest/Vitest it('...')/test("...")
+)
+TASK_NAME_RE = re.compile(r"(R?)(\d+)-.*\.md$")     # NNN-slug.md and rollup RNN-slug.md
 
 results = []  # (ok, line)
 
@@ -65,18 +74,27 @@ def section(text, heading):
     return m.group(1) if m else None
 
 
+BULLET = re.compile(r"^[-*+] +| ?\d+[.)] +")
+
+
 def criteria(text):
-    """AC bullets as joined strings (continuation lines belong to their bullet)."""
+    """AC bullets as joined strings (continuation lines belong to their bullet).
+    Accepts -, *, + and numbered bullets so a legal list is never invisibly skipped."""
     body = section(text, "Acceptance Criteria")
     if body is None:
         return None
     items = []
     for line in body.splitlines():
-        if line.startswith("- "):
-            items.append(line[2:])
+        m = BULLET.match(line)
+        if m:
+            items.append(line[m.end():])
         elif line.strip() and items:
             items[-1] += " " + line.strip()
     return items
+
+
+def strip_comments(s):
+    return re.sub(r"<!--.*?-->", "", s, flags=re.S)
 
 
 def main():
@@ -105,13 +123,27 @@ def main():
                   if os.path.isfile(os.path.join(root, b))), None)
     stamp_path = os.path.join(tasks_dir, ".plan-review.json")
 
-    # ---- collect plan artifacts (task files incl. done/, ADRs, glossary, brief, config)
-    task_files = []
+    test_re = re.compile(cfg.get("plan", {}).get("test_re", "") or DEFAULT_TEST_RE)
+
+    # ---- collect plan artifacts (task files incl. done/ and rollups, ADRs, glossary, brief, config)
+    task_files, strays = [], []
     for d in (tasks_dir, os.path.join(tasks_dir, "done")):
         if os.path.isdir(d):
-            task_files += [os.path.join(d, f) for f in os.listdir(d)
-                           if re.match(r"\d+-.*\.md$", f)]
+            for f in os.listdir(d):
+                if TASK_NAME_RE.match(f):
+                    task_files.append(os.path.join(d, f))
+                elif f.endswith(".md"):
+                    strays.append(os.path.relpath(os.path.join(d, f), root))
     task_files.sort()
+    if strays:
+        # a misnamed file would be invisible to every check AND to the stamp — refuse that
+        fail("task file(s) not matching NNN-slug.md / RNN-slug.md (invisible to checks + stamp): " + ", ".join(sorted(strays)))
+    basenames = {}
+    for p in task_files:
+        basenames.setdefault(os.path.basename(p), []).append(p)
+    for b, ps in sorted(basenames.items()):
+        if len(ps) > 1:
+            fail(f"same task filename in tasks/ and tasks/done/ (stamp keys by basename): {b}")
     adr_files = sorted(os.path.join(adr_dir, f) for f in os.listdir(adr_dir)
                        if f.endswith(".md")) if os.path.isdir(adr_dir) else []
     artifacts = task_files + adr_files + [p for p in (glossary, brief, cfg_path)
@@ -130,7 +162,7 @@ def main():
             return raw
         text = raw.decode("utf-8", "replace")
         text = text.split("\n## Log", 1)[0]
-        text = re.sub(r"^(status|attempts|last_failure_sig):.*$", "", text, flags=re.M)
+        text = re.sub(r"^(status|attempts|last_failure_sig|dispatches):.*$", "", text, flags=re.M)
         return text.encode()
 
     h = hashlib.sha256()
@@ -169,9 +201,10 @@ def main():
                            ("effort", EFFORT), ("verify", VERIFY)):
             if key in fm and fm[key] not in legal:
                 errs.append(f"{key}={fm[key]!r} not in {sorted(legal)}")
-        for key in ("id", "attempts"):
-            if key in fm and not re.fullmatch(r"-?\d+", fm[key]):
-                errs.append(f"{key}={fm[key]!r} not an integer")
+        if "id" in fm and not re.fullmatch(r"R?\d+", fm["id"]):
+            errs.append(f"id={fm['id']!r} not NNN or RNN")
+        if "attempts" in fm and not re.fullmatch(r"\d+", fm["attempts"]):
+            errs.append(f"attempts={fm['attempts']!r} not a non-negative integer (a negative value would multiply the retry cap)")
         try:
             fm["_blocked"] = parse_blocked_by(fm.get("blocked-by", "[]"))
         except Exception as e:
@@ -181,15 +214,18 @@ def main():
             fail(f"{rel}: schema — " + "; ".join(errs))
         else:
             ok(f"{rel}: schema")
-        if "id" in fm and re.fullmatch(r"-?\d+", fm.get("id", "")):
-            tid = int(fm["id"])
-            fm["_id"] = tid
-            ids.setdefault(tid, []).append(rel)
-            prefix = re.match(r"(\d+)-", os.path.basename(path)).group(1)
-            if int(prefix) == tid:
-                ok(f"{rel}: filename prefix matches id {tid}")
+        if "id" in fm and re.fullmatch(r"R?\d+", fm.get("id", "")):
+            raw_id = fm["id"]
+            fname = TASK_NAME_RE.match(os.path.basename(path))
+            expect = fname.group(1) + str(int(fname.group(2)))
+            canon = ("R" + str(int(raw_id[1:]))) if raw_id.startswith("R") else str(int(raw_id))
+            if not raw_id.startswith("R"):
+                fm["_id"] = int(raw_id)          # only numeric ids join the blocked-by graph
+            ids.setdefault(canon, []).append(rel)
+            if canon == expect:
+                ok(f"{rel}: filename prefix matches id {canon}")
             else:
-                fail(f"{rel}: filename prefix {prefix} != id {tid}")
+                fail(f"{rel}: filename prefix {fname.group(1)}{fname.group(2)} != id {raw_id}")
         fm["_text"] = text
         tasks[rel] = fm
 
@@ -203,8 +239,8 @@ def main():
     elif ids:
         ok("task ids unique")
 
-    # blocked-by refs + cycle detection
-    known = set(ids)
+    # blocked-by refs + cycle detection (numeric ids only; rollups take no dependents)
+    known = {int(k) for k in ids if not k.startswith("R")}
     graph = {}
     bad_ref = False
     for rel, fm in tasks.items():
@@ -241,8 +277,10 @@ def main():
         text = fm["_text"]
         if fm.get("complexity") == "design":
             dec = section(text, "Decision")
-            if dec is None or not dec.strip():
-                fail(f"{rel}: complexity design but ## Decision is empty/missing")
+            # comments don't count: the untouched template placeholder is an HTML comment,
+            # and this check exists precisely to force the HUMAN to write the Decision
+            if dec is None or not strip_comments(dec).strip():
+                fail(f"{rel}: complexity design but ## Decision has no human-written content")
             else:
                 ok(f"{rel}: design has non-empty ## Decision")
             if fm.get("verify") != "judge":
@@ -259,19 +297,29 @@ def main():
         if crits is None:
             fail(f"{rel}: no ## Acceptance Criteria section")
             continue
-        untested = []
+        if not crits:
+            # an empty list must never pass vacuously as "every criterion is covered"
+            fail(f"{rel}: ## Acceptance Criteria has no criteria bullets")
+            continue
+        untested, automated = [], 0
         for c in crits:
-            if "HUMAN AC" in c:
+            if c.startswith("HUMAN AC"):        # opt-out marker only counts at bullet start
+                if fm.get("verify") == "gate-only":
+                    fail(f"{rel}: HUMAN AC on a gate-only (mech) task — nothing would ever check it")
                 manual += 1
                 continue
-            names = TEST_RE.findall(c)
+            names = [m.group(0) for m in test_re.finditer(c)]
             if not names:
                 untested.append(c[:60])
+            else:
+                automated += 1
             for n in names:
                 test_owners.setdefault(n, set()).add(rel)
         if untested:
-            fail(f"{rel}: criterion names no test_ identifier and is not HUMAN AC — " +
+            fail(f"{rel}: criterion names no test identifier and is not HUMAN AC — " +
                  "; ".join(f"{c!r}" for c in untested))
+        elif automated == 0:
+            fail(f"{rel}: every criterion is HUMAN AC — no failing test = no task")
         else:
             ok(f"{rel}: every criterion names a test or is HUMAN AC")
     print_manual = f"manual criteria: {manual}"
@@ -291,24 +339,46 @@ def main():
         fail(".reef/config.json: gates.test is empty — no deterministic gate")
 
     if not adr_files:
-        fail(f"no ADR found under {os.path.relpath(adr_dir, root)}")
+        # reef-plan makes the ADR optional ("at most ONE ... if it has non-obvious
+        # decisions"); demanding one unconditionally deadlocks every fresh bootstrap
+        ok("no ADRs (reef-plan treats the ADR as optional)")
     else:
-        proposed = [os.path.relpath(p, root) for p in adr_files
-                    if re.search(r"^Status:\s*Proposed\s*$", read(p), re.M)]
+        proposed, unchosen = [], []
+        for p in adr_files:
+            rel = os.path.relpath(p, root)
+            m = re.search(r"^\**Status\**:?[ \t]*(.+)$", read(p), re.M | re.I)
+            status = m.group(1).strip() if m else ""
+            if re.search(r"\bProposed\b", status, re.I) and re.search(r"\bAccepted\b", status, re.I):
+                unchosen.append(rel)          # template placeholder line left untouched
+            elif re.search(r"\bProposed\b", status, re.I):
+                proposed.append(rel)
+        if unchosen:
+            fail("ADR status is still the template placeholder (pick one): " + ", ".join(unchosen))
         if proposed:
             fail("ADR still Proposed (a settled plan has only Accepted): " + ", ".join(proposed))
-        else:
+        if not unchosen and not proposed:
             ok(f"{len(adr_files)} ADR(s), none Proposed")
 
     if brief is None:
-        fail("no project brief (CLAUDE.md or AGENTS.md) at repo root")
+        fail("no project brief (CLAUDE.md or AGENTS.md) at repo root — reef-init scaffolds one")
     else:
         rel = os.path.relpath(brief, root)
-        open_h = [l for l in read(brief).splitlines() if re.match(r"^#+ .*\bOpen\b", l)]
+        # scan headings outside fenced code blocks, case-insensitively; only headings that
+        # actually mean "unsettled" count ('OpenAPI notes' is not an open question)
+        open_h, fenced = [], False
+        for l in read(brief).splitlines():
+            if l.lstrip().startswith("```"):
+                fenced = not fenced
+                continue
+            if fenced:
+                continue
+            if re.match(r"^#+\s+open\s*$", l, re.I) or \
+               re.match(r"^#+\s.*\bopen\s+(questions?|issues?|items?|points?|topics?|threads?)\b", l, re.I):
+                open_h.append(l)
         if open_h:
-            fail(f"{rel}: 'Open' heading remains — a settled plan leaves no open questions: {open_h[0]!r}")
+            fail(f"{rel}: open-questions heading remains — a settled plan leaves none: {open_h[0]!r}")
         else:
-            ok(f"{rel}: no 'Open' heading")
+            ok(f"{rel}: no open-questions heading")
 
     # report
     for _, line in results:

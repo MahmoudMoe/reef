@@ -3,14 +3,14 @@
   "owner": { "name": "MahmoudMoe" },
   "metadata": {
     "description": "Reef: token-frugal agentic coding pipeline — mechanical retry caps, author/verifier separation, deterministic commit gates.",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "plugins": [
     {
       "name": "reef",
       "source": "./",
       "description": "Reef pipeline: /reef-init, /reef-plan, /reef-task, /reef-review, /reef-verify, /reef-plan-review + implementer/verifier/plan-reviewer agents, caps-as-data (reef-attempt), portable index-testing git gates.",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "author": { "name": "MahmoudMoe", "url": "https://github.com/MahmoudMoe" },
       "homepage": "https://github.com/MahmoudMoe/reef",
       "repository": "https://github.com/MahmoudMoe/reef",

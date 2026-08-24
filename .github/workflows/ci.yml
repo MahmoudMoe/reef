@@ -1,0 +1,16 @@
+name: reef selftests
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]   # ubuntu sh=dash: the honest POSIX check
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: run sabotage suites
+        run: sh tests/run.sh

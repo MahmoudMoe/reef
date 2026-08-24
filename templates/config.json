@@ -1,7 +1,8 @@
 {
-  "gates": { "test": "", "lint": "" },
-  "roles": { "author": "opus", "judge": "opus", "escalation": "one FAIL -> high effort; cap 3; same signature twice -> blocked" },
+  "gates": { "test": "" },
+  "caps": { "attempts": 3 },
+  "roles": { "author": "opus" },
+  "plan": { "test_re": "" },
   "paths": { "tasks": "tasks", "adr": "docs/adr", "glossary": "docs/glossary.md", "runlog": "docs/runlog.md" },
-  "invariants": [],
-  "explain": true
+  "invariants": []
 }

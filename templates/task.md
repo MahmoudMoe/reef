@@ -7,6 +7,7 @@ effort: low|medium|high
 blocked-by: []
 verify: judge|gate-only
 attempts: 0
+dispatches: 0
 last_failure_sig: ""
 ---
 # NNN — <title>
