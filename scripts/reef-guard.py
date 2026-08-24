@@ -67,9 +67,19 @@ def tokenize(cmd):
 
 
 def check_bash(cmd):
-    # a newline separates commands exactly like ';' — without this, everything after
-    # the first line would be scanned as arguments of the first command
-    flat = re.sub(r"\r?\n", " ; ", cmd)
+    try:
+        _check_bash(cmd)
+    except SystemExit:
+        raise
+    except Exception:
+        # a guard crash must not open the gate: deny when the raw text smells
+        if re.search(r"no-verify|hookspath", cmd, re.I):
+            deny("guard internal error on a command that mentions a gate bypass — failing closed")
+
+
+def _check_bash(cmd):
+    cmd = re.sub(r"\\\r?\n", " ", cmd)     # backslash line continuations JOIN a command
+    flat = re.sub(r"\r?\n", " ; ", cmd)    # remaining newlines SEPARATE commands like ';'
     toks = tokenize(flat)
     if toks is None:
         # Unparseable (unbalanced quotes): flags can no longer be told apart from
@@ -87,32 +97,44 @@ def check_bash(cmd):
             seg.append(t)
 
 
+SHELLS = ("sh", "bash", "dash", "zsh", "ksh")
+DESTRUCTIVE = ("rm", "mv", "unlink", "truncate", "shred")
+
+
 def check_segment(seg):
-    k = 0
-    while k < len(seg) and ENV_ASSIGN.match(seg[k]):
-        if HOOKSPATH.search(seg[k]):
-            deny(f"environment assignment smuggles hooksPath: {seg[k]!r}")
-        k += 1
-    if k >= len(seg):
+    """Position-independent: `env X=y git ...`, `nohup git ...`, `nice -n5 git ...`,
+    `xargs git ...` — a prefix word must never hide the real command from the rules."""
+    for t in seg:
+        if ENV_ASSIGN.match(t) and HOOKSPATH.search(t):
+            deny(f"environment assignment smuggles hooksPath: {t!r}")
+    for i, t in enumerate(seg):
+        b = os.path.basename(t)
+        rest = seg[i + 1:]
+        if b == "git":
+            check_git(rest)
+        elif b in DESTRUCTIVE:
+            for a in rest:
+                if HOOK_PATHS.search(a):
+                    deny(f"{b} on {a!r} disables the commit gate")
+        elif b == "chmod":
+            check_chmod(rest)
+        elif b in SHELLS:
+            for k, a in enumerate(rest):
+                # -c may be bundled (-lc, -ec, -cx); the payload is the next argument
+                if re.match(r"^-[a-zA-Z]*c[a-zA-Z]*$", a) and k + 1 < len(rest):
+                    check_bash(rest[k + 1])   # `sh -c "git commit -n"` is not a tunnel
+        elif b == "eval":
+            check_bash(" ".join(rest))
+
+
+def check_chmod(args):
+    if not any(HOOK_PATHS.search(a) for a in args):
         return
-    base = os.path.basename(seg[k])
-    args = seg[k + 1:]
-    if base in ("rm", "mv", "unlink", "truncate"):
-        for a in args:
-            if HOOK_PATHS.search(a):
-                deny(f"{base} on {a!r} disables the commit gate")
-    elif base == "chmod":
-        # adding a permission (+x) is reef-init's own install; any other chmod on the hooks is sabotage
-        if any(HOOK_PATHS.search(a) for a in args) and not any("+" in a for a in args):
-            deny("chmod that does not ADD a permission on the hook files disables the commit gate")
-    elif base in ("sh", "bash", "dash", "zsh", "ksh"):
-        for i, a in enumerate(args):
-            if a == "-c" and i + 1 < len(args):
-                check_bash(args[i + 1])   # `sh -c "git commit -n"` is not a tunnel
-    elif base == "eval":
-        check_bash(" ".join(args))
-    elif base == "git":
-        check_git(args)
+    # reef-init's install is a pure permission ADDITION (+x). Anything else on the hook
+    # files — numeric modes, '=', ',', 'a-x' — can strip exec and kill the gate silently.
+    modes = [a for a in args if not a.startswith("-") and "/" not in a and not HOOK_PATHS.search(a)]
+    if not modes or not all(re.fullmatch(r"[ugoa]*\+[rwxXst]+", m) for m in modes):
+        deny("chmod on the hook files is allowed only for pure permission additions like +x")
 
 
 def check_git(args):
@@ -202,7 +224,9 @@ def read_frontmatter(path):
     for line in m.group(1).splitlines():
         if ":" in line and not line.lstrip().startswith("#"):
             key, _, val = line.partition(":")
-            fm[key.strip()] = val.strip().strip('"')
+            # FIRST occurrence wins, matching reef-attempt's reader — a duplicate-key
+            # file must not read differently across the two enforcement layers
+            fm.setdefault(key.strip(), val.strip().strip('"'))
     return fm, text
 
 
@@ -254,11 +278,22 @@ def check_stamp(root):
 
 
 def check_dispatch(tool_input, payload):
+    try:
+        _check_dispatch(tool_input, payload)
+    except SystemExit:
+        raise
+    except Exception as e:
+        # ANY internal error (unwritable lock, full disk, foreign-owned tmp file)
+        # must fail CLOSED — exit 1 would be a non-blocking hook error, i.e. an allow
+        deny(f"guard internal error — failing closed: {e}")
+
+
+def _check_dispatch(tool_input, payload):
     sub = str(tool_input.get("subagent_type") or "")
     if "implementer" not in sub:
         return
     prompt = str(tool_input.get("prompt") or "")
-    m = re.search(r"^REEF-TASK:[ \t]*(.+?)[ \t]*$", prompt, re.M)
+    m = re.search(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", prompt, re.M)
     if not m:
         deny("implementer dispatch without a 'REEF-TASK: <task-file>' line — run scripts/reef-attempt "
              "and start the dispatch prompt with the line it prints")
@@ -283,6 +318,8 @@ def check_dispatch(tool_input, payload):
             dispatches = int(fm.get("dispatches", "0") or 0)
         except ValueError:
             deny(f"{path}: attempts/dispatches are not integers — fix the frontmatter")
+        if attempts < 0 or dispatches < 0:
+            deny(f"{path}: negative attempts/dispatches would disable the caps — fix the frontmatter")
         if fm.get("status") == "blocked":
             deny(f"{path} is blocked — a HUMAN must unblock it (attempts: 0, status: pending, last_failure_sig: \"\")")
         if attempts >= cap:

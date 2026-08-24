@@ -53,6 +53,14 @@ DENY_BASH = [
     'eval git commit -n -m x',
     'git --config-env core.hooksPath=EVIL commit -m x',     # space form of --config-env
     'git --config-env=core.hooksPath=EVIL commit -m x',     # glued form
+    # round-3 findings: shapes the second guard missed
+    'nohup git commit -n -m x',                             # prefix word hides the head
+    'env GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m x',
+    'nice -n 5 git commit --no-verify -m x',
+    'chmod ugo+r,ugo-x .githooks/pre-commit',               # '+' present but strips exec
+    'chmod u=rw .githooks/pre-commit',                      # '=' can strip exec too
+    'bash -lc "git commit -n -m x"',                        # bundled -c flag
+    'git commit -m x \\\n--no-verify',                      # backslash continuation
 ]
 
 ALLOW_BASH = [
@@ -174,6 +182,25 @@ class DispatchGuard(unittest.TestCase):
         make_task(self.dir, name="008-two words.md")
         r = dispatch(self.dir, "REEF-TASK: tasks/008-two words.md\nimplement")
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_crlf_prompt_accepted(self):
+        # round-3: a CRLF prompt left '\r' glued to the path and false-denied
+        make_task(self.dir)
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\r\nimplement")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_negative_dispatches_denied(self):
+        # round-3: a negative odometer disabled the runaway backstop
+        make_task(self.dir, dispatches=-999)
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("negative", r.stderr)
+
+    def test_duplicate_status_key_first_wins(self):
+        # round-3: guard read the LAST duplicate key while reef-attempt reads the FIRST
+        p = make_task(self.dir, status="blocked", extra="status: pending\n")
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 2, "first occurrence (blocked) must win in the guard too")
 
     def test_absolute_path_accepted(self):
         p = make_task(self.dir)

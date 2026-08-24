@@ -124,9 +124,46 @@ echo v2 > f.txt; git add f.txt; echo PRECIOUS-UNSTAGED > f.txt
 git commit -qm c2 >/dev/null 2>&1
 t "diff.noprefix=true: commit accepted" 0
 [ "$(cat f.txt)" = "PRECIOUS-UNSTAGED" ]
-t "  unstaged work restored despite noprefix (canonical patch flags)" 0
+t "  unstaged work restored despite noprefix (plumbing diff-files)" 0
 [ "$(git show HEAD:f.txt)" = "v2" ]
 t "  committed content is still the index" 0
+
+# round-3: rename-paired ita (mv old new; git add -N new) — rename detection made the
+# A-filter blind and the dance truncated the file
+mkrepo "$TMP/r8" "true"
+seq 1 100 > old.py; echo v1 > other.txt; git add .; git commit -qm c1 >/dev/null 2>&1
+mv old.py new.py; git add -N new.py                 # deletion left unstaged -> git pairs as R
+echo v2 > other.txt; git add other.txt; echo PRECIOUS > other.txt
+git commit -qm c2 >/dev/null 2>&1
+t "rename-paired ita: commit completes" 0
+[ "$(wc -c < new.py | tr -d ' ')" != "0" ]
+t "  ita'd rename target NOT truncated (plumbing sees A, not R)" 0
+[ "$(cat other.txt)" = "PRECIOUS" ]
+t "  other unstaged work restored" 0
+
+# round-3: an unrelated `git add -N` decoy must NOT downgrade the INDEX gate
+mkrepo "$TMP/r9" "grep -q good f.txt"
+echo good > f.txt; git add .; git commit -qm c1 >/dev/null 2>&1
+echo BROKEN > f.txt; git add f.txt; echo good > f.txt   # index BROKEN, worktree good
+touch decoy.txt; git add -N decoy.txt
+git commit -qm c2 >/dev/null 2>&1
+t "ita decoy: broken INDEX still rejected (gate not downgraded to worktree)" 1
+[ "$(cat f.txt)" = "good" ]
+t "  worktree restored after the rejection" 0
+
+# round-3: clean/smudge-filtered path skips the dance LOUDLY instead of corrupting
+mkrepo "$TMP/r10" "true"
+printf '*.dat filter=scrub\n' > .gitattributes
+git config filter.scrub.clean 'tr a-z A-Z'
+printf 'v1\n' > d.dat; git add .; git commit -qm c1 >/dev/null 2>&1
+printf 'v2\n' > d.dat; git add d.dat; printf 'precious lower\n' > d.dat
+OUT=$(git commit -m c2 2>&1); RC=$?
+[ "$RC" = "0" ]
+t "filtered path: commit accepted via loud in-place fallback" 0
+echo "$OUT" | grep -q 'WORKTREE'
+t "  fallback announced itself on stderr (never silent)" 0
+[ "$(cat d.dat)" = "precious lower" ]
+t "  unstaged filtered content untouched (no clean-filter corruption)" 0
 
 # ---------- reef-gate.sh ----------
 cd "$TMP"; mkdir -p g1; cd g1; git init -q -b main; git config user.email t@t; git config user.name t

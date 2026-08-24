@@ -60,7 +60,12 @@ def parse_frontmatter(text):
         if ":" not in line:
             raise ValueError(f"bad frontmatter line: {line!r}")
         key, _, val = line.partition(":")
-        fm[key.strip()] = val.strip().strip('"')
+        key = key.strip()
+        if key in fm:
+            # duplicate keys read DIFFERENTLY across the three readers (first-wins vs
+            # last-wins) — that ambiguity is how a blocked task smuggles past the cap
+            raise ValueError(f"duplicate frontmatter key {key!r}")
+        fm[key] = val.strip().strip('"')
     return fm
 
 
@@ -78,7 +83,9 @@ def section(text, heading):
     return m.group(1) if m else None
 
 
-BULLET = re.compile(r"^[-*+] +|^\d+[.)] +")   # column 0 only: an indented '2.' is a continuation line
+# CommonMark: 0-3 leading spaces is still a sibling list item; 4+ is continuation/code
+BULLET = re.compile(r"^ {0,3}[-*+] +|^ {0,3}\d+[.)] +")
+LOG_HEADING = re.compile(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", re.M)
 
 
 def criteria(text):
@@ -174,7 +181,9 @@ def main():
         if p not in stamp_task_set:
             return raw
         text = raw.decode("utf-8", "replace")
-        text = re.split(r"\r?\n## Log[ \t]*(?:\r?\n|\Z)", text, maxsplit=1)[0]
+        # cut at the Log heading in any case/spacing — a '## log' variant would
+        # otherwise hash the log body and stale the plan on the first log append
+        text = LOG_HEADING.split(text, maxsplit=1)[0]
         m = FM_RE.match(text)
         if m:
             fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches):.*(?:\r?\n|\Z)", "",
@@ -222,6 +231,8 @@ def main():
             errs.append(f"id={fm['id']!r} not NNN or RNN")
         if "attempts" in fm and not re.fullmatch(r"\d+", fm["attempts"]):
             errs.append(f"attempts={fm['attempts']!r} not a non-negative integer (a negative value would multiply the retry cap)")
+        if "dispatches" in fm and not re.fullmatch(r"\d+", fm["dispatches"]):
+            errs.append(f"dispatches={fm['dispatches']!r} not a non-negative integer (a negative value would disable the runaway backstop)")
         try:
             fm["_blocked"] = parse_blocked_by(fm.get("blocked-by", "[]"))
         except Exception as e:
@@ -292,6 +303,11 @@ def main():
     # per-task semantic checks, ordered by file
     for rel, fm in sorted(tasks.items()):
         text = fm["_text"]
+        # the stamp ignores everything after ## Log — so nothing but log content may
+        # live there, or a plan section could be edited invisibly after approval
+        log_parts = LOG_HEADING.split(text, maxsplit=1)
+        if len(log_parts) == 2 and re.search(r"^##[ \t]", log_parts[1], re.M):
+            fail(f"{rel}: ## Log must be the LAST section — the stamp ignores everything after it")
         if fm.get("complexity") == "design":
             dec = section(text, "Decision")
             # comments don't count: the untouched template placeholder is an HTML comment,
@@ -360,34 +376,50 @@ def main():
         # decisions"); demanding one unconditionally deadlocks every fresh bootstrap
         ok("no ADRs (reef-plan treats the ADR as optional)")
     else:
+        def strip_fences(text):
+            out, fenced = [], False
+            for l in text.splitlines():
+                if l.lstrip().startswith("```"):
+                    fenced = not fenced
+                    continue
+                if not fenced:
+                    out.append(l)
+            return "\n".join(out)
+
         def adr_status(text):
-            """Status value in either layout: inline 'Status: X' or a '## Status'
-            heading with the value on the next non-blank line (Nygard/MADR)."""
-            m = re.search(r"^\**Status\**:[ \t]*(\S.*)$", text, re.M | re.I)
-            if m:
-                return m.group(1).strip()
+            """Status value in either layout — a '## Status' heading with the value on
+            the next non-blank line (Nygard/MADR) takes precedence over an inline
+            'Status: X' line; fenced code (e.g. a quoted template) never counts.
+            Returns None when the ADR states no status at all."""
+            text = strip_fences(text)
             lines = text.splitlines()
             for i, l in enumerate(lines):
                 if re.match(r"^#+\s*Status\s*$", l, re.I):
                     for nxt in lines[i + 1:]:
                         if nxt.strip():
                             return nxt.strip()
-            return ""
+            m = re.search(r"^\**Status\**:[ \t]*(\S.*)$", text, re.M | re.I)
+            return m.group(1).strip() if m else None
 
-        proposed, unchosen = [], []
+        proposed, unchosen, missing_status = [], [], []
         for p in adr_files:
             rel = os.path.relpath(p, root)
             status = adr_status(read(p))
+            if status is None:
+                missing_status.append(rel)    # an undecided ADR must not pass as settled
+                continue
             words = re.findall(r"\b(proposed|accepted|superseded)\b", status, re.I)
             if len({w.lower() for w in words}) > 1 and "|" in status:
                 unchosen.append(rel)          # template placeholder line left untouched
             elif words and words[0].lower() == "proposed":
                 proposed.append(rel)          # first word decides: 'Accepted (was Proposed)' is accepted
+        if missing_status:
+            fail("ADR states no Status at all (a settled plan has only Accepted): " + ", ".join(missing_status))
         if unchosen:
             fail("ADR status is still the template placeholder (pick one): " + ", ".join(unchosen))
         if proposed:
             fail("ADR still Proposed (a settled plan has only Accepted): " + ", ".join(proposed))
-        if not unchosen and not proposed:
+        if not (missing_status or unchosen or proposed):
             ok(f"{len(adr_files)} ADR(s), none Proposed")
 
     if brief is None:

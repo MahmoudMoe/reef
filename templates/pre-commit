@@ -1,54 +1,71 @@
 #!/bin/sh
 # Reef commit gate: tests the INDEX (what is actually being committed), not the worktree.
-# Method: save the unstaged diff as a canonical patch, set tracked files to the index
-# state, run the gate, restore the patch. No `git stash`: a --keep-index stash pop
-# CONFLICTS by design on same-file staged+unstaged edits, destroys merge state, and on a
-# shared checkout can pop another session's stash.
-# Known limitation: untracked files stay in place during the gate; CI is the wall for those.
+# Method: list the changed paths and save their unstaged diff with git diff-files —
+# PLUMBING, so no rename detection and no diff.* config can alter the output — set
+# exactly those tracked files to their index state, run the gate, restore the patch.
+# Intent-to-add paths are excluded from both the list and the patch: their index blob is
+# EMPTY and materializing it destroys the real file. No `git stash` (pop conflicts by
+# design on same-file staged+unstaged edits, eats merge state, can pop another
+# session's stash).
+# Limits are LOUD, never silent: untracked and intent-to-add files stay in place during
+# the gate; clean/smudge-filtered paths skip the dance with a note. CI is the wall.
 set -e
 ROOT=$(git rev-parse --show-toplevel) || exit 1
 cd "$ROOT"
-GITDIR=$(git rev-parse --git-dir)
+GITDIR=$(git rev-parse --absolute-git-dir 2>/dev/null) || GITDIR=$(git rev-parse --git-dir)
 PATCH="$GITDIR/reef-precommit.patch"
+LIST="$GITDIR/reef-precommit.paths"
 
 fail_gate() { echo "pre-commit: gate failed — commit rejected." >&2; exit 1; }
-
-# Test in place when the dance is unnecessary or unsafe:
-# - unborn HEAD (first commit): nothing to diff against;
-# - merge/rebase/cherry-pick state: touching the worktree here corrupts the operation;
-# - intent-to-add entries (git add -N): their index blob is EMPTY, so materializing the
-#   index would truncate the real file to 0 bytes — never do that;
-# - worktree already equals the index: nothing to hide.
-if ! git rev-parse -q --verify HEAD >/dev/null 2>&1 \
-   || [ -e "$GITDIR/MERGE_HEAD" ] || [ -e "$GITDIR/REBASE_HEAD" ] || [ -e "$GITDIR/CHERRY_PICK_HEAD" ] \
-   || git diff --name-only --diff-filter=A | grep -q . \
-   || git diff --quiet; then
+in_place() {
+  if [ -n "$1" ]; then
+    echo "pre-commit: NOTE — gate tested the WORKTREE, not the index ($1)." >&2
+  fi
   sh scripts/reef-gate.sh || fail_gate
   exit 0
+}
+
+# unborn HEAD or merge/rebase/cherry-pick in progress: touching the worktree is unsafe
+git rev-parse -q --verify HEAD >/dev/null 2>&1 || in_place "first commit"
+if [ -e "$GITDIR/MERGE_HEAD" ] || [ -e "$GITDIR/REBASE_HEAD" ] || [ -e "$GITDIR/CHERRY_PICK_HEAD" ]; then
+  in_place "merge/rebase/cherry-pick in progress"
+fi
+if git diff --quiet 2>/dev/null; then
+  in_place ""   # worktree == index: nothing to hide
 fi
 
-# Canonical patch: every flag pins the format against user diff config — diff.noprefix,
-# textconv drivers, external diff, color — so the restore always applies with plain -p1.
-git diff --no-color --no-ext-diff --no-textconv --binary --src-prefix=a/ --dst-prefix=b/ >"$PATCH"
+# the paths the dance will touch: unstaged changes EXCLUDING intent-to-add additions
+git diff-files --name-only -z --diff-filter=a >"$LIST"
+[ -s "$LIST" ] || in_place "only intent-to-add paths differ"
+
+# clean/smudge filters do not round-trip through a patch; refuse to corrupt content
+if git check-attr filter -z --stdin <"$LIST" | tr '\0' '\n' | awk 'NR%3==0' \
+   | grep -qv '^\(unspecified\|unset\)$'; then
+  rm -f "$LIST"
+  in_place "a changed path has a clean/smudge content filter"
+fi
+
+git diff-files -p --binary --full-index --diff-filter=a >"$PATCH"
 restore() {
   rc=$?
   if [ -s "$PATCH" ]; then
-    git checkout -q -- . 2>/dev/null || true   # drop any gate side effects on tracked files
-    if git apply -p1 --whitespace=nowarn "$PATCH" 2>/dev/null; then
-      rm -f "$PATCH"
+    xargs -0 git checkout -q -- <"$LIST" 2>/dev/null || true   # drop gate side effects
+    if git apply -p1 --whitespace=nowarn "$PATCH" 2>/dev/null \
+       || git apply -p1 --3way --whitespace=nowarn "$PATCH" 2>/dev/null; then
+      rm -f "$PATCH" "$LIST"
     else
-      RESCUE="$GITDIR/reef-precommit-rescue.$$.patch"
-      mv -f "$PATCH" "$RESCUE"
+      RESCUE=$(mktemp "$GITDIR/reef-precommit-rescue.XXXXXX") && mv -f "$PATCH" "$RESCUE"
       echo "pre-commit: FAILED to restore your unstaged changes automatically." >&2
-      echo "pre-commit: they are saved as a patch — restore with: git apply \"$RESCUE\"" >&2
+      echo "pre-commit: they are saved as a patch — restore with: git apply --3way \"$RESCUE\"" >&2
       echo "pre-commit: rejecting the commit so this cannot pass silently." >&2
+      rm -f "$LIST"
       exit 1   # a silently thinner worktree is data loss; loud rejection is the only honest exit
     fi
   else
-    rm -f "$PATCH"
+    rm -f "$PATCH" "$LIST"
   fi
   exit $rc     # otherwise the trap must never override the script's real exit status
 }
 trap restore EXIT
-git checkout -q -- .   # tracked worktree = index; the gate now sees what will be committed
+xargs -0 git checkout -q -- <"$LIST"   # changed tracked files = index state; ita untouched
 sh scripts/reef-gate.sh || fail_gate

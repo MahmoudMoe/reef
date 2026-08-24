@@ -166,6 +166,25 @@ class Attempt(unittest.TestCase):
         r = run(p, "tests/test_x.py:19: AssertionError: boom")
         self.assertEqual(r.returncode, 2, "same failure at a drifted line must still count as repeated")
 
+    def test_tld_ports_are_not_extensions(self):
+        # round-3: '.co'/'.io' looked like file extensions to the old rule
+        p = make_task(self.dir)
+        run(p, "connect to db.example.co:5432 refused")
+        r = run(p, "connect to db.example.co:6379 refused")
+        self.assertEqual(r.returncode, 0, "two ports on a .co host collided into one signature")
+
+    def test_line_and_column_both_normalized(self):
+        p = make_task(self.dir)
+        run(p, "src/main.rs:10:5 error[E0308]: mismatched types")
+        r = run(p, "src/main.rs:12:9 error[E0308]: mismatched types")
+        self.assertEqual(r.returncode, 2, "line:col drift must still count as the same failure")
+
+    def test_extensionless_build_files_normalized(self):
+        p = make_task(self.dir)
+        run(p, "Makefile:23: recipe for target 'all' failed")
+        r = run(p, "Makefile:25: recipe for target 'all' failed")
+        self.assertEqual(r.returncode, 2, "Makefile line drift must still count as the same failure")
+
     def test_typoed_parent_dir_exits_2_not_traceback(self):
         r = run(os.path.join(self.dir, "no-such-dir", "007-x.md"), "failure")
         self.assertEqual(r.returncode, 2)

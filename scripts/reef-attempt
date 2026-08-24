@@ -43,11 +43,24 @@ def die(msg):
     sys.exit(2)
 
 
+# Line/column stripping is keyed on a CURATED set of code-file shapes — a bare
+# "ext:digits" rule cannot tell main.py:17 from db.example.co:5432, and colliding two
+# different services into one signature falsely blocks a task.
+CODE_LOC = re.compile(
+    r"(?<![\w:])("
+    r"[\w./-]*\.(?:py|pyi|pyx|js|jsx|mjs|cjs|ts|tsx|go|rs|rb|java|c|h|hh|hpp|cc|cpp|cs|php"
+    r"|swift|kt|kts|scala|sh|bash|zsh|pl|pm|lua|ex|exs|erl|hrl|ml|mli|hs|vue|svelte|sql|tf"
+    r"|yaml|yml|toml|json)"
+    r"|[\w./-]*(?:makefile|dockerfile|justfile|rakefile|build|workspace)"
+    r")((?::\d+)+)"      # :line and :line:col both drift between attempts
+)
+
+
 def normalize(failure):
     s = failure.lower()
     s = re.sub(r"0x[0-9a-f]+", "", s)                    # addresses
     s = re.sub(r"\b\d+(\.\d+)?m?s\b", "", s)             # timings (1.23s, 450ms)
-    s = re.sub(r"(\.[a-z]{1,5}):\d+\b", r"\1:", s)       # file.py:17 line numbers (NOT host:port)
+    s = CODE_LOC.sub(r"\1:", s)                          # file.py:17[:5] — never host:port
     s = re.sub(r"\s+", " ", s).strip()
     return s
 

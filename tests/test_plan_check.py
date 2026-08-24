@@ -177,10 +177,86 @@ class Decoration(unittest.TestCase):
         repo(tmp)
         self.assertEqual(run(tmp).returncode, 0, "a fresh bootstrap with zero ADRs must be able to pass")
 
-    def test_numbered_continuation_line_not_a_bogus_criterion(self):
-        # round-2 finding: ' 2.' under one space of indent was promoted to a criterion
+    def test_commonmark_bullet_indentation(self):
+        # round-3 overturned round-2 here: per CommonMark, 0-3 leading spaces is a
+        # SIBLING list item (a real criterion); 4+ spaces is a continuation
         tmp = tempfile.mkdtemp(prefix="reef-pc.")
-        repo(tmp, acs="- test_a covers the cases:\n 2) this wrapped line belongs to the bullet above")
+        repo(tmp, acs="- test_a covers the cases\n 2) untested sibling criterion")
+        self.assertEqual(run(tmp).returncode, 1, "a 1-space-indented numbered item is a criterion and it names no test")
+        tmp2 = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp2, acs="- test_a covers the cases:\n    2) genuinely a wrapped continuation line")
+        self.assertEqual(run(tmp2).returncode, 0)
+
+    def test_duplicate_frontmatter_key_fails(self):
+        # round-3: dup keys read first-wins in one reader and last-wins in another
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        p = os.path.join(tmp, "tasks", "001-demo.md")
+        with open(p) as f:
+            t = f.read()
+        with open(p, "w") as f:
+            f.write(t.replace("attempts: 0\n", "attempts: 0\nattempts: 9\n"))
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("duplicate frontmatter key", r.stdout)
+
+    def test_log_must_be_last_section(self):
+        # round-3: a '## Log' above plan sections exempted them from the stamp
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        p = os.path.join(tmp, "tasks", "001-demo.md")
+        with open(p) as f:
+            t = f.read()
+        with open(p, "w") as f:
+            f.write(t.replace("## Scope\nx", "## Log\n- early\n\n## Scope\nx"))
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("LAST section", r.stdout)
+
+    def test_lowercase_log_heading_still_cut_from_stamp(self):
+        # round-3: '## log' hashed the log body, so every append staled the plan
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        p = os.path.join(tmp, "tasks", "001-demo.md")
+        with open(p) as f:
+            t = f.read()
+        with open(p, "w") as f:
+            f.write(t.replace("## Log\n", "## log\n"))
+        self.assertEqual(run(tmp).returncode, 0)
+        with open(p, "a") as f:
+            f.write("- executed attempt 1\n")
+        self.assertEqual(run(tmp, "--verify-stamp").returncode, 0,
+                         "a log append under '## log' must not stale the stamp")
+
+    def test_negative_dispatches_fails(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        p = os.path.join(tmp, "tasks", "001-demo.md")
+        with open(p) as f:
+            t = f.read()
+        with open(p, "w") as f:
+            f.write(t.replace("dispatches: 0", "dispatches: -999"))
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("dispatches", r.stdout)
+
+    def test_adr_without_status_fails(self):
+        # round-3: an ADR that never wrote a Status passed as 'none Proposed'
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        with open(os.path.join(tmp, "docs", "adr", "0001-x.md"), "w") as f:
+            f.write("# ADR 0001\n\n## Context\nundecided\n")
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no Status", r.stdout)
+
+    def test_adr_fenced_template_quote_ignored(self):
+        # round-3: a quoted template inside ``` outranked the real '## Status/Accepted'
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        with open(os.path.join(tmp, "docs", "adr", "0001-x.md"), "w") as f:
+            f.write("# ADR 0001\n\n## Status\n\nAccepted\n\n## Context\nquoting the template:\n"
+                    "```\nStatus: Proposed | Accepted | Superseded by NNNN\n```\n")
         self.assertEqual(run(tmp).returncode, 0)
 
     def test_adr_status_heading_layout_detected(self):
