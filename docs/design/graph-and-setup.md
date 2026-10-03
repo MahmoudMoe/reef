@@ -1,6 +1,6 @@
 # Reef as a graph executor, and `/reef-init` as the project setup
 
-Status: design for 0.5.0, on top of 0.4.0 (`parallel-loop-compat`). Where this and `PROJECT-SETUP.md` differ, the owner's decisions win; what remains is listed at the end.
+Status: design for 0.5.0, on 0.4.0 (`parallel-loop-compat`). Where this and `PROJECT-SETUP.md` differ, the owner's decisions win; what remains is listed at the end.
 
 ## 1. Invariant
 
@@ -67,7 +67,6 @@ Zero-touch for execution: no `resources:` → no resource rule; no `graph` → p
 - Launching every ready task is prose; the guard catches a wrong dispatch, not a missing one.
 - The hook cannot see an agent's cwd: the worktree rule is `reef-graph worktree` + the skill.
 - An undeclared resource is not serialised; the collision table is as complete as the plan.
-- A human's shell is not guarded; CI is the wall.
 - Running the claims and adversarial scripts is the orchestrator's duty; what they check is code.
 
 ## Left for the owner
