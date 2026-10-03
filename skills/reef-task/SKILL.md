@@ -12,7 +12,8 @@ argument-hint: <task-ref | list>
 You are the orchestrator: a MANAGER. You never write production code, never verify, and never accept a report on faith. Read `.reef/config.json`.
 
 ## 0. Plan review — before the FIRST dispatch only
-Run `scripts/reef-plan-check.py --verify-stamp`. Exit 0 = the plan is unchanged since its last
+Run `scripts/reef-plan-check.py --verify-stamp --feature <slug>` in the task's own worktree (the
+stamp is per-worktree and per-feature). Exit 0 = this feature's plan is unchanged since its last
 review; proceed. Non-zero = never reviewed, or edited since — invoke the `reef-plan-review` skill,
 show the human its result, and only then continue. A plan the human edited after approval is an
 unreviewed plan; the stamp is what knows that, not you.
@@ -26,12 +27,12 @@ Run `scripts/reef-attempt <task-file>`. Exit 2 = blocked -> print its USER ACTIO
 Spawn the `implementer` agent (this plugin) with the task file, resolved model/effort, and working directory. mech tasks with a tiny expected diff (<~40 lines): the orchestrator MAY implement inline in the main session instead — record that in the Log. Design tasks: refuse if `## Decision` is empty (send the human back to /reef-plan step 3).
 
 ## 3. Verify
-- `verify: gate-only` (mech): run the gate (`scripts/reef-gate.sh`) + require a golden-output test for user-visible output. No judge subagent — that is the cost lesson; do not "helpfully" add one.
-- `verify: judge` (design): record `scripts/reef-snapshot.sh` (a CONTENT hash over HEAD + index + worktree — `git status --porcelain` cannot see an edit that keeps status letters unchanged). Spawn the `verifier` agent fresh. After it returns, re-run the snapshot: ANY difference = automatic FAIL regardless of verdict. Require the `RUN:` header line and evidence per AC.
+- `verify: gate-only` (mech): run the full gate (`scripts/reef-gate.sh full`) + require a golden-output test for user-visible output. No judge subagent — that is the cost lesson; do not "helpfully" add one.
+- `verify: judge` (design): record `scripts/reef-snapshot.sh` (a CONTENT hash over HEAD + index + worktree — `git status --porcelain` cannot see an edit that keeps status letters unchanged). Spawn the `verifier` agent fresh, passing the model from the `verifier: model=` line `reef-attempt` printed (roles.verifier). After it returns, re-run the snapshot: ANY difference = automatic FAIL regardless of verdict. Require the `RUN:` header line, a `RULE AC<n>` line per criterion ABOVE the verdicts (written before the verifier read the diff), and evidence per AC.
 - **A finding on a claimed AC = FAIL** — run `scripts/reef-attempt <task-file> "<failure text>"` and loop to step 1. Never launder findings into backlog tasks; only genuinely out-of-scope findings become new tasks, recorded in the runlog's "Escaped defects" column.
 
 ## 4. Commit (on PASS only)
-Stage specific files (never `git add -A`), set `status: done`, `git mv` the task file to `tasks/done/` in the SAME commit, Conventional Commits subject, trailer `Closes-task: NNN-slug`. The pre-commit gate tests the index; do not bypass it (no `--no-verify`, ever). Append the runlog row from the RUN: line + harness usage numbers verbatim — never from memory.
+Stage specific files (never `git add -A`), set `status: done`, `git mv` the task file to `tasks/done/` in the SAME commit, Conventional Commits subject, trailer `Closes-task: NNN-slug`. The pre-commit gate tests the index; do not bypass it (no `--no-verify`, ever). Append the runlog row from the RUN: line — never from memory.
 
 ## 5. Next task
 Failure of the pipeline is a STOP, not an improvisation point.

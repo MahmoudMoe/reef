@@ -23,7 +23,11 @@ Reads the hook JSON on stdin. Two duties:
    under the same lock reef-attempt uses. The counter moves as a side effect of
    the dispatch action itself, so a model that "forgets" scripts/reef-attempt
    still cannot loop forever (the odometer trips at 2x the cap). A denied
-   dispatch never bumps the odometer.
+   dispatch never bumps the odometer. Config and stamp are resolved against the
+   TASK FILE's own checkout (worktree), never the dispatching session's folder,
+   and the stamp is verified for the task's own `feature:` only. A rollup
+   (R<NN>) is refused when another rollup of the same feature exists: one rollup
+   per feature carries acceptance, diff and CI rounds under ONE cap.
 
 Exit 0 = allow. Exit 2 = deny (reason on stderr). Anything unparseable that
 smells like a bypass is denied; anything unparseable and innocent is allowed.
@@ -275,20 +279,73 @@ def read_cap(root):
         return DEFAULT_CAP
 
 
-def check_stamp(root):
+def task_root(path, fallback):
+    """The checkout the TASK FILE lives in — walk up from it to the first directory holding
+    .reef/ or .git. `.git` is a FILE in a linked worktree, so existence (not isdir) is the
+    test. Resolving against the dispatching session's folder checked the wrong worktree in
+    both directions: it denied a reviewed worktree and passed an edited one."""
+    probe = os.path.dirname(os.path.abspath(path))
+    while True:
+        if os.path.isdir(os.path.join(probe, ".reef")) or os.path.exists(os.path.join(probe, ".git")):
+            return probe
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            return fallback   # no marker at all: the old behaviour (session folder)
+        probe = parent
+
+
+def check_stamp(root, feature):
     """Mechanical plan-freshness: an edited plan never dispatches unnoticed.
-    Read-only; runs BEFORE the odometer bump so a stale-plan denial costs nothing."""
+    Read-only; runs BEFORE the odometer bump so a stale-plan denial costs nothing.
+    Scoped to the task's own feature, so another feature's tasks arriving with a merge
+    of the integration branch do not force a re-review of this one."""
     script = os.path.join(root, "scripts", "reef-plan-check.py")
     if not os.path.isfile(script):
         return  # not a reef-init'd layout; nothing to verify against
+    cmd = [sys.executable, script, root, "--verify-stamp"]
+    if feature:
+        cmd += ["--feature", feature]
     try:
-        r = subprocess.run([sys.executable, script, root, "--verify-stamp"], cwd=root,
-                           capture_output=True, text=True, timeout=30)
+        r = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=30)
     except Exception:
         return
     if r.returncode != 0:
+        out = (r.stdout or r.stderr).strip()
+        hint = ""
+        if "unknown option" in out:
+            hint = " — the project's scripts/reef-plan-check.py predates this plugin; re-copy it (reef-init step 6)"
         deny("plan stamp is stale or missing — the plan changed since its last review; "
-             "run the reef-plan-review skill before dispatching (" + (r.stdout or r.stderr).strip() + ")")
+             "run the reef-plan-review skill in the task's own worktree before dispatching ("
+             + out + ")" + hint)
+
+
+ROLLUP_NAME = re.compile(r"^R\d+-.*\.md$")
+
+
+def check_single_rollup(path, fm):
+    """One rollup file per feature: a second one would start a fresh attempts: counter
+    and launder the shared cap. Mirrors scripts/reef-attempt."""
+    if not ROLLUP_NAME.match(os.path.basename(path)):
+        return
+    feature = fm.get("feature", "")
+    if not feature:
+        deny(f"{path}: a rollup must name its feature: (one rollup per feature carries the cap)")
+    here = os.path.dirname(os.path.abspath(path))
+    tasks_dir = os.path.dirname(here) if os.path.basename(here) == "done" else here
+    for d in (tasks_dir, os.path.join(tasks_dir, "done")):
+        if not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d)):
+            other = os.path.join(d, f)
+            if not ROLLUP_NAME.match(f) or os.path.abspath(other) == os.path.abspath(path):
+                continue
+            try:
+                ofm, _ = read_frontmatter(other)
+            except Exception:
+                continue
+            if ofm and ofm.get("feature", "") == feature:
+                deny(f"feature {feature!r} already has rollup {os.path.relpath(other, tasks_dir)} — "
+                     "reuse it (move it back from done/ if needed); a second rollup resets the cap")
 
 
 def check_dispatch(tool_input, payload):
@@ -317,7 +374,12 @@ def _check_dispatch(tool_input, payload):
         path = os.path.join(cwd, path)
     if not os.path.isfile(path):
         deny(f"REEF-TASK file not found: {path}")
-    check_stamp(cwd)
+    root = task_root(path, cwd)
+    try:
+        pre_fm, _ = read_frontmatter(path)
+    except Exception:
+        pre_fm = None   # re-read under the lock below, which fails closed
+    check_stamp(root, (pre_fm or {}).get("feature", ""))
     with open(lock_path_for(path), "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
@@ -326,7 +388,8 @@ def _check_dispatch(tool_input, payload):
             deny(f"cannot read {path}: {e}")
         if fm is None:
             deny(f"{path} has no frontmatter fence — not a reef task file")
-        cap = read_cap(cwd)
+        check_single_rollup(path, fm)
+        cap = read_cap(root)
         try:
             attempts = int(fm.get("attempts", "0") or 0)
             dispatches = int(fm.get("dispatches", "0") or 0)

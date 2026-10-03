@@ -1,5 +1,6 @@
 #!/bin/sh
-# Reef commit gate: tests the INDEX (what is actually being committed), not the worktree.
+# Reef commit gate: runs the FAST gate (reef-gate.sh fast) on the INDEX (what is actually being
+# committed), not the worktree. The full gate runs at verify/review/CI.
 # Method:
 #   1. back up the exact index bytes and save the unstaged diff (plumbing: git diff-files,
 #      so no rename detection and no diff.* config can alter the output);
@@ -26,7 +27,7 @@ fail_gate() { echo "pre-commit: gate failed — commit rejected." >&2; exit 1; }
 in_place() {
   rm -f "$PATCH" "$LIST" "$IBACK"
   [ -n "$1" ] && echo "pre-commit: NOTE — gate tested the WORKTREE, not the index ($1)." >&2
-  sh scripts/reef-gate.sh || fail_gate
+  sh scripts/reef-gate.sh fast || fail_gate
   exit 0
 }
 
@@ -71,4 +72,4 @@ restore() {
 }
 trap restore EXIT
 xargs -0 git checkout -q -- <"$LIST"   # changed tracked files = index state; ita untouched
-sh scripts/reef-gate.sh || fail_gate
+sh scripts/reef-gate.sh fast || fail_gate

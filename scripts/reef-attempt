@@ -13,6 +13,12 @@ Anything this script cannot parse is a 2, never a silent 0 and never a traceback
 Cap resolution: --cap flag > .reef/config.json caps.attempts > 3.
 Model: .reef/config.json roles.author > "opus".  Effort ladder: the task's own
 `effort:` field is the base; any recorded FAIL escalates to high.
+A `verify: judge` task also gets a `verifier: model=` line (roles.verifier > "opus"),
+so the judge's model is read at dispatch exactly like the author's.
+
+One rollup per feature: a rollup file (R<NN>-slug.md) is refused when another rollup
+with the same `feature:` exists in tasks/ or tasks/done/. Acceptance, diff and CI rounds
+all record on that ONE file, so `attempts:` counts across them under one cap.
 
 Failure signatures are NORMALIZED before hashing (lowercase, timings/addresses/
 file:line numbers stripped, whitespace collapsed) so the "same failure twice"
@@ -171,19 +177,51 @@ class TaskFile:
             raise
 
 
+ROLLUP_NAME = re.compile(r"^R\d+-.*\.md$")
+
+
+def check_single_rollup(path, task):
+    if not ROLLUP_NAME.match(os.path.basename(path)):
+        return
+    feature = task.get("feature")
+    if not feature:
+        die(f"{path}: a rollup must name its feature: (one rollup per feature carries the cap)")
+    here = os.path.dirname(os.path.abspath(path))
+    tasks_dir = os.path.dirname(here) if os.path.basename(here) == "done" else here
+    for d in (tasks_dir, os.path.join(tasks_dir, "done")):
+        if not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d)):
+            other = os.path.join(d, f)
+            if not ROLLUP_NAME.match(f) or os.path.abspath(other) == os.path.abspath(path):
+                continue
+            try:
+                with open(other, encoding="utf-8", newline="") as fh:
+                    m = FENCE.match(fh.read())
+            except (OSError, UnicodeDecodeError):
+                continue
+            om = m and re.search(r"^feature:[ \t]*(.*)$", m.group(1), re.M)
+            if om and om.group(1).strip().strip('"') == feature:
+                die(f"feature {feature!r} already has rollup {os.path.relpath(other, tasks_dir)} — reuse it "
+                    "(move it back from done/ with status: pending if needed); a second rollup resets the cap")
+
+
 def run(cap_flag, path, failure):
     if not os.path.isfile(path):
         die(f"task file not found: {path}")
     root = repo_root(path)
     cfg = read_config(root)
     cap = cap_flag or int(cfg.get("caps", {}).get("attempts", DEFAULT_CAP) or DEFAULT_CAP)
-    model = str(cfg.get("roles", {}).get("author", "opus") or "opus")
+    roles = cfg.get("roles", {}) if isinstance(cfg.get("roles", {}), dict) else {}
+    model = str(roles.get("author", "opus") or "opus")
+    verifier = str(roles.get("verifier", "opus") or "opus")
 
     with open(lock_path_for(path), "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         task = TaskFile(path)
         attempts = task.get_int("attempts")
         prev_sig = task.get("last_failure_sig")
+        check_single_rollup(path, task)
 
         # an already-blocked task is immutable until a human unblocks it — recording
         # more failures onto it would burn the counter past the cap and overwrite the
@@ -214,6 +252,8 @@ def run(cap_flag, path, failure):
             base = "medium"
         effort = "high" if attempts > 0 else base
         print(f"dispatch: model={model} effort={effort} attempt={attempts + 1}/{cap}")
+        if task.get("verify") == "judge":
+            print(f"verifier: model={verifier}")
         # absolute: the guard resolves this against the SESSION cwd, which need not
         # be the cwd this script happened to run from
         print(f"REEF-TASK: {os.path.abspath(path)}")

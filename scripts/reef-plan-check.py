@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """Reef plan check — the deterministic, blocking layer between plan approval and implementation.
-Usage: reef-plan-check.py [repo-root] [--verify-stamp]
+Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
 - Checks task files, ADRs, brief, and .reef/config.json for structural defects. No model, no network.
 - One line per check: OK / FAIL: <what and where>. Exit 0 = all pass, 1 = at least one FAIL.
-- On success writes <tasks>/.plan-review.json (sha256 over the plan artifacts + check count).
-  The hash covers what PLANNING wrote, not what EXECUTION writes: task files are keyed by
-  basename and stripped of status/attempts/last_failure_sig and the Log section, so completing
-  a task does not invalidate the review — only editing the plan does.
+  On success the last line names the plan-reviewer's model (roles.plan_reviewer, default fable).
+- On success writes <tasks>/.plan-review.json: one sha256 PER FEATURE over that feature's task
+  files plus the ADRs, and the check count. The stamp is per-worktree state and must be
+  gitignored (a tracked stamp is a FAIL). The hash covers what PLANNING wrote, not what
+  EXECUTION writes: task files are keyed by basename and stripped of status/attempts/
+  last_failure_sig and the Log section, so completing a task does not invalidate the review —
+  only editing the plan does. Other features' tasks, the brief, the glossary and the config are
+  NOT hashed: merging the integration branch changes them without changing this feature's plan.
   Never written on failure.
-- --verify-stamp: recompute the hash, print one line, exit 0 = plan unchanged since last review,
-  1 = changed or no stamp. reef-task runs this before its first dispatch.
+- --verify-stamp: recompute, print one line, exit 0 = unchanged since last review, 1 = changed
+  or no stamp. With --feature SLUG only that feature is compared (the guard passes the
+  dispatched task's feature); without it every feature present must match.
 Rule for the orchestrator: this script is deterministic; never argue with it, never work around it.
 """
 import hashlib, json, os, re, subprocess, sys
@@ -108,9 +113,45 @@ def strip_comments(s):
     return re.sub(r"<!--.*?-->", "", s, flags=re.S)
 
 
+MERGE_BY = ("human", "loop")
+FEATURE_GATE = ("ci", "local")
+
+
+def parse_args(argv):
+    verify, feature, args = False, None, []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--verify-stamp":
+            verify = True
+        elif a == "--feature":
+            if i + 1 >= len(argv) or not argv[i + 1].strip():
+                print("FAIL: --feature requires a feature slug")
+                sys.exit(1)
+            feature = argv[i + 1].strip()
+            i += 1
+        elif a.startswith("--feature="):
+            feature = a.split("=", 1)[1].strip()
+        elif a.startswith("-"):
+            print(f"FAIL: unknown option {a!r}")   # never let a typo become the repo root
+            sys.exit(1)
+        else:
+            args.append(a)
+        i += 1
+    return verify, feature, args
+
+
+def fm_value(text, key):
+    """One frontmatter value, read the way reef-attempt reads it (column 0, first wins)."""
+    m = FM_RE.match(text)
+    if not m:
+        return ""
+    v = re.search(rf"^{re.escape(key)}:[ \t]*(.*)$", m.group(1), re.M)
+    return v.group(1).strip().strip('"') if v else ""
+
+
 def main():
-    args = [a for a in sys.argv[1:] if a != "--verify-stamp"]
-    verify_stamp = "--verify-stamp" in sys.argv[1:]
+    verify_stamp, feature_filter, args = parse_args(sys.argv[1:])
     if args:
         root = args[0]
     else:
@@ -129,14 +170,17 @@ def main():
     paths = cfg.get("paths", {})
     tasks_dir = os.path.join(root, paths.get("tasks", "tasks"))
     adr_dir = os.path.join(root, paths.get("adr", "docs/adr"))
-    glossary = os.path.join(root, paths.get("glossary", "docs/glossary.md"))
     brief = next((os.path.join(root, b) for b in ("CLAUDE.md", "AGENTS.md")
                   if os.path.isfile(os.path.join(root, b))), None)
     stamp_path = os.path.join(tasks_dir, ".plan-review.json")
 
     test_re = re.compile(cfg.get("plan", {}).get("test_re", "") or DEFAULT_TEST_RE)
+    max_words = cfg.get("plan", {}).get("max_words", 0) or 0
+    if not isinstance(max_words, int) or isinstance(max_words, bool) or max_words < 0:
+        fail(f".reef/config.json: plan.max_words {max_words!r} is not a non-negative integer")
+        max_words = 0
 
-    # ---- collect plan artifacts (task files incl. done/ and rollups, ADRs, glossary, brief, config)
+    # ---- collect plan artifacts (task files incl. done/ and rollups, ADRs)
     task_files, strays = [], []
     for d in (tasks_dir, os.path.join(tasks_dir, "done")):
         if os.path.isdir(d):
@@ -161,9 +205,6 @@ def main():
     # every structural check but must never enter the stamp — creating one would stale
     # the plan and deny the very dispatch it was created for.
     stamp_tasks = [p for p in task_files if not os.path.basename(p).startswith("R")]
-    artifacts = stamp_tasks + adr_files + [p for p in (glossary, brief, cfg_path)
-                                           if p and os.path.isfile(p)]
-
     stamp_task_set = set(stamp_tasks)
 
     def stamp_key(p):
@@ -191,22 +232,45 @@ def main():
             text = fm + text[m.end():]
         return text.encode()
 
-    h = hashlib.sha256()
-    for p in sorted(artifacts, key=stamp_key):
-        h.update(stamp_key(p).encode() + b"\0")
-        h.update(stamp_body(p) + b"\0")
-    digest = h.hexdigest()
+    # one digest PER FEATURE: that feature's task files + every ADR. A task whose feature:
+    # cannot be read lands in the "" bucket, which is still hashed (never invisible).
+    by_feature = {}
+    for p in stamp_tasks:
+        try:
+            feat = fm_value(read(p), "feature")
+        except (OSError, UnicodeDecodeError):
+            feat = ""
+        by_feature.setdefault(feat, []).append(p)
+
+    def digest_for(feat):
+        h = hashlib.sha256()
+        for p in sorted(by_feature.get(feat, []) + adr_files, key=stamp_key):
+            h.update(stamp_key(p).encode() + b"\0")
+            h.update(stamp_body(p) + b"\0")
+        return h.hexdigest()
+
+    digests = {feat: digest_for(feat) for feat in by_feature}
 
     if verify_stamp:
         try:
             stamp = json.loads(read(stamp_path))
+            stamped = stamp["features"]
+            if not isinstance(stamped, dict):
+                raise ValueError("features is not a mapping")
         except Exception:
-            print("stamp: MISSING — run reef-plan-check.py (plan never reviewed, or review failed)")
+            print("stamp: MISSING — run reef-plan-check.py (plan never reviewed, review failed, "
+                  "or a pre-0.4 stamp)")
             sys.exit(1)
-        if stamp.get("sha256") == digest:
-            print("stamp: MATCH — plan unchanged since last review")
+        if feature_filter is not None:
+            same = feature_filter in stamped and stamped[feature_filter] == digest_for(feature_filter)
+            scope = f"feature {feature_filter!r}"
+        else:
+            same = stamped == digests
+            scope = "every feature"
+        if same:
+            print(f"stamp: MATCH — plan unchanged since last review ({scope})")
             sys.exit(0)
-        print("stamp: STALE — plan artifacts changed since last review; re-review required")
+        print(f"stamp: STALE — plan artifacts changed since last review ({scope}); re-review required")
         sys.exit(1)
 
     # ---- per-task parse + checks, ordered by file
@@ -308,6 +372,12 @@ def main():
         log_parts = LOG_HEADING.split(text, maxsplit=1)
         if len(log_parts) == 2 and re.search(r"^##[ \t]", log_parts[1], re.M):
             fail(f"{rel}: ## Log must be the LAST section — the stamp ignores everything after it")
+        if max_words:
+            plan_text = log_parts[0]
+            fmm = FM_RE.match(plan_text)
+            words = len(re.findall(r"\S+", plan_text[fmm.end():] if fmm else plan_text))
+            if words > max_words:
+                fail(f"{rel}: {words} words > plan.max_words {max_words} (the Log does not count) — split the slice")
         if fm.get("complexity") == "design":
             dec = section(text, "Decision")
             # comments don't count: the untouched template placeholder is an HTML comment,
@@ -365,11 +435,53 @@ def main():
         ok("no test name claimed by two task files")
 
     # config, ADRs, brief
-    gate = cfg.get("gates", {}).get("test", "")
-    if isinstance(gate, str) and gate.strip():
-        ok(f".reef/config.json: gates.test = {gate!r}")
+    gates = cfg.get("gates", {}) if isinstance(cfg.get("gates", {}), dict) else {}
+    def gate_cmd(key):
+        v = gates.get(key, "")
+        return v.strip() if isinstance(v, str) else ""
+    # same resolution as scripts/reef-gate.sh: full -> gates.full > gates.test (legacy alias)
+    full = gate_cmd("full") or gate_cmd("test")
+    if full:
+        ok(f".reef/config.json: full gate = {full!r}" + ("" if gate_cmd("full") else " (legacy gates.test)"))
     else:
-        fail(".reef/config.json: gates.test is empty — no deterministic gate")
+        fail(".reef/config.json: gates.full (or legacy gates.test) is empty — no deterministic gate")
+
+    def setting(section, key, default):
+        sec = cfg.get(section, {})
+        v = sec.get(key, default) if isinstance(sec, dict) else default
+        return v if v not in ("", None) else default
+    merge_by = setting("merge", "by", "human")
+    feature_gate = setting("ci", "feature_gate", "ci")
+    base = setting("branches", "base", "main")
+    release = setting("branches", "release", "main")
+    bad = []
+    if merge_by not in MERGE_BY:
+        bad.append(f"merge.by {merge_by!r} not in {list(MERGE_BY)}")
+    if feature_gate not in FEATURE_GATE:
+        bad.append(f"ci.feature_gate {feature_gate!r} not in {list(FEATURE_GATE)}")
+    for name, v in (("branches.base", base), ("branches.release", release)):
+        if not isinstance(v, str) or not v.strip():
+            bad.append(f"{name} {v!r} is not a branch name")
+    if merge_by == "loop" and base == release:
+        bad.append(f"merge.by 'loop' with branches.base == branches.release ({base!r}) — the loop "
+                   "would merge into the release branch; releases are merged by the human. "
+                   "Set branches.base to the integration branch")
+    if bad:
+        fail(".reef/config.json: " + "; ".join(bad))
+    else:
+        ok(f".reef/config.json: merge.by={merge_by} ci.feature_gate={feature_gate} "
+           f"branches.base={base} branches.release={release}")
+
+    # the stamp is per-worktree state: tracked, it travels across branches and conflicts
+    try:
+        tr = subprocess.run(["git", "-C", root, "ls-files", "--error-unmatch", "--",
+                             os.path.relpath(stamp_path, root)], capture_output=True, text=True)
+        tracked = tr.returncode == 0
+    except Exception:
+        tracked = False
+    if tracked:
+        fail(f"{os.path.relpath(stamp_path, root)} is tracked by git — it is per-worktree state: "
+             "`git rm --cached` it and add it to .gitignore")
 
     if not adr_files:
         # reef-plan makes the ADR optional ("at most ONE ... if it has non-obvious
@@ -401,9 +513,13 @@ def main():
             m = re.search(r"^\**Status\**:[ \t]*(\S.*)$", text, re.M | re.I)
             return m.group(1).strip() if m else None
 
-        proposed, unchosen, missing_status = [], [], []
+        proposed, unchosen, missing_status, drafts = [], [], [], 0
         for p in adr_files:
             rel = os.path.relpath(p, root)
+            # draft-<item>-<slug>.md: a parallel item's ADR, numbered at merge — it may still
+            # be Proposed; a missing status or the untouched placeholder still fails
+            is_draft = os.path.basename(p).startswith("draft-")
+            drafts += is_draft
             status = adr_status(read(p))
             if status is None:
                 missing_status.append(rel)    # an undecided ADR must not pass as settled
@@ -411,7 +527,7 @@ def main():
             words = re.findall(r"\b(proposed|accepted|superseded)\b", status, re.I)
             if len({w.lower() for w in words}) > 1 and "|" in status:
                 unchosen.append(rel)          # template placeholder line left untouched
-            elif words and words[0].lower() == "proposed":
+            elif words and words[0].lower() == "proposed" and not is_draft:
                 proposed.append(rel)          # first word decides: 'Accepted (was Proposed)' is accepted
         if missing_status:
             fail("ADR states no Status at all (a settled plan has only Accepted): " + ", ".join(missing_status))
@@ -420,7 +536,7 @@ def main():
         if proposed:
             fail("ADR still Proposed (a settled plan has only Accepted): " + ", ".join(proposed))
         if not (missing_status or unchosen or proposed):
-            ok(f"{len(adr_files)} ADR(s), none Proposed")
+            ok(f"{len(adr_files)} ADR(s), none Proposed" + (f" (drafts exempt: {drafts})" if drafts else ""))
 
     if brief is None:
         fail("no project brief (CLAUDE.md or AGENTS.md) at repo root — reef-init scaffolds one")
@@ -452,8 +568,10 @@ def main():
     if failed:
         sys.exit(1)
     with open(stamp_path, "w") as f:
-        json.dump({"sha256": digest, "checks": len(results)}, f, indent=2)
+        json.dump({"features": digests, "checks": len(results)}, f, indent=2, sort_keys=True)
         f.write("\n")
+    roles = cfg.get("roles", {}) if isinstance(cfg.get("roles", {}), dict) else {}
+    print(f"plan-reviewer: model={roles.get('plan_reviewer') or 'fable'}")
     sys.exit(0)
 
 
