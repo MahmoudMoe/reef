@@ -82,6 +82,10 @@ DENY_BASH = [
     'npm run ci:local | tail -1 && git commit -m x',
     'cargo test | head',
     'go test ./... |& tee log',
+    'uv run pytest | tail',
+    'python3 -m pytest -q | tail -3',
+    'npx vitest run | tail',
+    'nice -n 5 npm test | tail',
 ]
 
 ALLOW_BASH = [
@@ -120,6 +124,12 @@ ALLOW_BASH = [
     'go build ./... | tail',                                 # build is not the gate
     'echo test | grep t',
     'git log --oneline | head -5',
+    'grep -rn pytest tests/ | head',                         # a gate WORD, not a gate — only the head counts
+    'git log --grep pytest | head',
+    'echo npm test | cat',
+    'rg vitest src | wc -l',
+    'npm run lint | tail',                                   # not the test gate
+    'go build ./... | tail',
 ]
 
 

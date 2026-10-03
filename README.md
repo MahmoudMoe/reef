@@ -60,6 +60,8 @@ Full multi-agent setups burn tokens on ceremony; pure manual workflows have no s
 ```
 Then in your project: `/reef-init` (detects stack, writes .reef/config.json, installs gates — after any fresh clone run `make setup`).
 
+**Upgrading to 0.5:** the role check fires on ANY subagent whose name contains `implementer`, `verifier`, `plan-reviewer`, `loophole-hunter` or `mechanic` — a project that ships its own agent under one of those names must pass `model=<roles.*>` on every dispatch (or leave that role unset in `roles.*`). Name no project agent `*implementer*`: the guard also demands its `REEF-TASK:` line.
+
 **Upgrading from 0.3.x:** re-copy `scripts/` and `.githooks/pre-commit` + `pre-merge-commit` from the plugin (reef-init steps 5–6), add `<tasks>/.plan-review.json` to `.gitignore` (`git rm --cached` it if it was committed), and re-run `/reef-plan-review` once — 0.3 stamps are read as missing. Old configs keep working: `gates.test` is an alias, every new key defaults to 0.3 behaviour (`merge.by: human`, `ci.feature_gate: ci`, `branches: main/main`).
 
 ### Settings added in 0.4 (all default to 0.3 behaviour)

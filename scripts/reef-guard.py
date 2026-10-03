@@ -122,24 +122,42 @@ SHELLS = ("sh", "bash", "dash", "zsh", "ksh")
 DESTRUCTIVE = ("rm", "mv", "unlink", "truncate", "shred")
 # gates whose exit code IS the verdict: piping them hides it (the pipe reports the
 # last command's status). Names, not paths — `sh scripts/reef-gate.sh | tail` too.
-GATE_WORDS = {"reef-gate.sh", "reef-ci-local.sh", "ci:local", "pytest", "vitest", "jest",
-              "cargo", "go"}
 STASH_READ_ONLY = {"list", "show"}
 MODE_RE = re.compile(r"^([0-7]{3,4}|[ugoa]*[-+=][rwxXstugo]+(,[ugoa]*[-+=][rwxXstugo]+)*)$")
 PURE_ADD = re.compile(r"^[ugoa]*\+[rwxXst]+$")
 
 
+PREFIX_WORDS = {"env", "nohup", "nice", "time", "sudo", "command", "exec", "ionice", "stdbuf"}
+GATE_SCRIPTS = {"reef-gate.sh", "reef-ci-local.sh"}
+RUNNERS = {"pytest", "vitest", "jest"}
+
+
 def is_gate(seg):
-    """A segment that runs a test gate: `npm test`, `npm run ci:local`, `pytest -q`,
-    `cargo test`, `go test ./...`, `sh scripts/reef-gate.sh`."""
-    names = [os.path.basename(t) for t in seg]
-    if "npm" in names and ("test" in seg or "ci:local" in seg):
+    """A segment whose COMMAND HEAD runs a test gate: `npm test`, `npm run ci:local`, `pytest -q`,
+    `uv run pytest`, `npx vitest`, `python3 -m pytest`, `cargo test`, `go test ./...`,
+    `sh scripts/reef-gate.sh`. Only the head counts — `grep pytest src | head` and
+    `git log --grep vitest | head` merely mention a gate word and must pass."""
+    i = 0
+    while i < len(seg) and (ENV_ASSIGN.match(seg[i]) or seg[i] in PREFIX_WORDS
+                            or seg[i].startswith("-") or seg[i].isdigit()):
+        i += 1   # env assignments, wrapper words and their flags/values (`nice -n 5`)
+    if i >= len(seg):
+        return False
+    head, rest = os.path.basename(seg[i]), seg[i + 1:]
+    if head in GATE_SCRIPTS or head in RUNNERS:
         return True
-    for i, b in enumerate(names):
-        if b in ("cargo", "go"):
-            return "test" in seg[i + 1:i + 2]
-        if b in GATE_WORDS:
-            return True
+    if head == "npm":
+        return "test" in rest[:1] or "ci:local" in rest[:2]
+    if head in ("cargo", "go"):
+        return rest[:1] == ["test"]
+    if head in SHELLS:
+        return any(os.path.basename(a) in GATE_SCRIPTS for a in rest)
+    if head == "uv":
+        return rest[:1] == ["run"] and len(rest) > 1 and os.path.basename(rest[1]) in RUNNERS
+    if head == "npx":
+        return len(rest) > 0 and rest[0] in RUNNERS
+    if head in ("python", "python3"):
+        return rest[:2] == ["-m", "pytest"]
     return False
 
 
