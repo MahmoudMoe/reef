@@ -226,6 +226,49 @@ S5=$(sh scripts/reef-snapshot.sh)
 [ "$S4" != "$S5" ]
 t "snapshot: sees an EDIT to an untracked file (porcelain was blind to this)" 0
 
+# 0.4.0: a NESTED worktree (another agent's checkout under this repo) must not count as a
+# change — `git add -A` recorded it as a gitlink, so another agent's commit moved the hash
+rm -f untracked.txt
+git worktree add -q -b other wt/other >/dev/null 2>&1
+W1=$(sh scripts/reef-snapshot.sh)
+( cd wt/other && echo theirs > theirs.txt && git add theirs.txt && git commit -qm theirs ) >/dev/null 2>&1
+W2=$(sh scripts/reef-snapshot.sh)
+[ "$W1" = "$W2" ]
+t "snapshot: another agent's commit in a nested worktree is NOT a change" 0
+echo mine > f.txt
+W3=$(sh scripts/reef-snapshot.sh)
+[ "$W2" != "$W3" ]
+t "  ...while an edit in this tree still is" 0
+git checkout -q -- f.txt
+echo sneaky > untracked2.txt
+W4=$(sh scripts/reef-snapshot.sh)
+[ "$W2" != "$W4" ]
+t "  ...and so is a new untracked file (the exclusion did not disable git add)" 0
+rm -f untracked2.txt
+
+# ---------- 0.4.0: fast vs full gates ----------
+mkrepo "$TMP/r12" "unused"
+printf '{"gates": {"fast": "true", "full": "false"}}\n' > .reef/config.json
+echo v1 > f.txt; git add .; git commit -qm c1 >/dev/null 2>&1
+t "gates.fast runs at pre-commit (fast green, full red: commit accepted)" 0
+sh scripts/reef-gate.sh full >/dev/null 2>&1
+t "  reef-gate.sh full runs gates.full (red)" 1
+sh scripts/reef-gate.sh >/dev/null 2>&1
+t "  reef-gate.sh with no mode = full (old callers keep the full gate)" 1
+printf '{"gates": {"fast": "false", "full": "true"}}\n' > .reef/config.json
+git add .reef/config.json; echo v2 > f.txt; git add f.txt
+git commit -qm c2 >/dev/null 2>&1
+t "  red gates.fast rejects the commit" 1
+printf '{"gates": {"full": "true"}}\n' > .reef/config.json
+sh scripts/reef-gate.sh fast >/dev/null 2>&1
+t "  empty gates.fast falls back to the full gate (today's behaviour)" 0
+printf '{"gates": {"test": "false", "full": "true"}}\n' > .reef/config.json
+sh scripts/reef-gate.sh full >/dev/null 2>&1
+t "  gates.full wins over the legacy gates.test alias" 0
+printf '{"gates": {"test": "true"}}\n' > .reef/config.json
+sh scripts/reef-gate.sh fastt >/dev/null 2>&1
+t "  an unknown gate mode FAILS LOUDLY (never silently runs some gate)" 1
+
 echo
 echo "hooks suite: $PASS passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

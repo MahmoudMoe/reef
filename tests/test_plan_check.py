@@ -378,5 +378,208 @@ class Stamp(unittest.TestCase):
         self.assertEqual(run(tmp, "--verify-stamp").returncode, 1, "a plan edit MUST invalidate the review")
 
 
+def add_task(tmp, name, tid, feature, acs="- test_{f}_{i}_works goes red first"):
+    text = TASK.format(id=tid, acs=acs.format(f=feature, i=tid)).replace("feature: demo", f"feature: {feature}")
+    with open(os.path.join(tmp, "tasks", name), "w") as f:
+        f.write(text)
+    return os.path.join(tmp, "tasks", name)
+
+
+def edit(path, old, new):
+    with open(path) as f:
+        t = f.read()
+    assert old in t, f"{old!r} not in {path}"
+    with open(path, "w") as f:
+        f.write(t.replace(old, new))
+
+
+class FeatureStamp(unittest.TestCase):
+    """0.4.0: the stamp hashes only the tasks of ONE feature plus the ADRs, so merging the
+    integration branch (other features' tasks, the brief, the glossary) stales nothing."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(self.tmp)
+        add_task(self.tmp, "002-other.md", 2, "other")
+        self.assertEqual(run(self.tmp).returncode, 0)
+
+    def test_other_feature_edit_does_not_stale_this_feature(self):
+        edit(os.path.join(self.tmp, "tasks", "002-other.md"), "## Scope\nx", "## Scope\nedited elsewhere")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").returncode, 0,
+                         "another feature's plan edit must not stale this feature")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "other").returncode, 1,
+                         "the edited feature itself must be stale")
+        self.assertEqual(run(self.tmp, "--verify-stamp").returncode, 1,
+                         "without --feature every feature must match")
+
+    def test_new_feature_arriving_does_not_stale_this_feature(self):
+        add_task(self.tmp, "003-third.md", 3, "third")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").returncode, 0)
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "third").returncode, 1)
+
+    def test_adr_edit_stales_every_feature(self):
+        adr = os.path.join(self.tmp, "docs", "adr", "0001-x.md")
+        with open(adr, "w") as f:
+            f.write("# ADR 0001\n\nStatus: Accepted\n\n## Context\nx\n")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").returncode, 1)
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "other").returncode, 1)
+
+    def test_this_feature_edit_stales_it(self):
+        edit(os.path.join(self.tmp, "tasks", "001-demo.md"), "## Scope\nx", "## Scope\nsneaky")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").returncode, 1)
+
+    def test_moving_a_task_to_another_feature_stales_both(self):
+        edit(os.path.join(self.tmp, "tasks", "002-other.md"), "feature: other", "feature: demo")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").returncode, 1)
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "other").returncode, 1)
+
+    def test_documented_scope_brief_glossary_config_do_not_stale(self):
+        # DELIBERATE (README, enforcement map): merges touch the brief, the glossary and the
+        # config on every integration; hashing them re-reviewed every feature per merge
+        with open(os.path.join(self.tmp, "CLAUDE.md"), "a") as f:
+            f.write("\nA line another feature's merge added.\n")
+        os.makedirs(os.path.join(self.tmp, "docs"), exist_ok=True)
+        with open(os.path.join(self.tmp, "docs", "glossary.md"), "w") as f:
+            f.write("| Term | Definition |\n|---|---|\n| Other | from another feature |\n")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").returncode, 0)
+
+    def test_unknown_option_fails_loudly(self):
+        r = run(self.tmp, "--verify-stmap")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("unknown option", r.stdout)
+
+
+class StampTracking(unittest.TestCase):
+    def test_tracked_stamp_fails(self):
+        # a committed stamp travels across branches and conflicts on every merge; it is
+        # per-worktree state and must be gitignored
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        subprocess.run(["git", "init", "-q", "-b", "main", tmp], check=True)
+        self.assertEqual(run(tmp).returncode, 0)
+        subprocess.run(["git", "-C", tmp, "add", "tasks/.plan-review.json"], check=True)
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1, "a stamp tracked by git must fail the check")
+        self.assertIn("tracked", r.stdout)
+
+    def test_untracked_stamp_ok(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        subprocess.run(["git", "init", "-q", "-b", "main", tmp], check=True)
+        self.assertEqual(run(tmp).returncode, 0)
+        self.assertEqual(run(tmp).returncode, 0)
+
+
+class DraftAdr(unittest.TestCase):
+    def write_adr(self, tmp, name, status):
+        with open(os.path.join(tmp, "docs", "adr", name), "w") as f:
+            f.write(f"# ADR\n\nStatus: {status}\n\n## Context\nx\n")
+
+    def test_draft_adr_may_be_proposed(self):
+        # parallel items draft ADRs as draft-<item>-<slug>.md; the number is given at merge
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        self.write_adr(tmp, "draft-333-model-route.md", "Proposed")
+        r = run(tmp)
+        self.assertEqual(r.returncode, 0, f"a draft ADR must be exempt from the Proposed check:\n{r.stdout}")
+
+    def test_numbered_adr_still_cannot_be_proposed(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        self.write_adr(tmp, "draft-333-model-route.md", "Proposed")
+        self.write_adr(tmp, "0007-settled.md", "Proposed")
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("0007-settled.md", r.stdout)
+        self.assertNotIn("draft-333", r.stdout.split("ADR still Proposed")[1])
+
+    def test_draft_adr_placeholder_and_missing_status_still_fail(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        self.write_adr(tmp, "draft-1-x.md", "Proposed | Accepted | Superseded by NNNN")
+        self.assertEqual(run(tmp).returncode, 1)
+        tmp2 = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp2)
+        with open(os.path.join(tmp2, "docs", "adr", "draft-2-y.md"), "w") as f:
+            f.write("# ADR\n\n## Context\nno status\n")
+        self.assertEqual(run(tmp2).returncode, 1)
+
+    def test_accepted_number_at_merge_is_ok(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        self.write_adr(tmp, "draft-333-model-route.md", "Accepted (number at merge)")
+        self.assertEqual(run(tmp).returncode, 0)
+
+
+class Config(unittest.TestCase):
+    def check(self, extra, should_pass, needle=None):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp, extra_cfg=extra)
+        r = run(tmp)
+        self.assertEqual(r.returncode, 0 if should_pass else 1, f"{extra}:\n{r.stdout}")
+        if needle:
+            self.assertIn(needle, r.stdout)
+        return r
+
+    def test_merge_by_must_be_human_or_loop(self):
+        self.check({"merge": {"by": "robot"}}, False, "merge.by")
+
+    def test_ci_feature_gate_must_be_ci_or_local(self):
+        self.check({"ci": {"feature_gate": "sometimes"}}, False, "ci.feature_gate")
+
+    def test_loop_merge_into_the_release_branch_fails(self):
+        # merge.by=loop merges into the integration branch only; with base == release the
+        # loop would merge releases, which stay the human's
+        self.check({"merge": {"by": "loop"}}, False, "release")
+        self.check({"merge": {"by": "loop"}, "branches": {"base": "develop", "release": "main"}}, True)
+
+    def test_defaults_pass(self):
+        self.check({"merge": {"by": "human"}, "ci": {"feature_gate": "local"}}, True)
+
+    def test_gates_full_alone_is_a_gate(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        with open(os.path.join(tmp, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"fast": "", "full": "true"}, "paths": {}}, f)
+        r = run(tmp)
+        self.assertEqual(r.returncode, 0, f"gates.full alone must count as the gate:\n{r.stdout}")
+
+    def test_gates_fast_alone_is_not_a_full_gate(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        with open(os.path.join(tmp, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"fast": "true"}, "paths": {}}, f)
+        self.assertEqual(run(tmp).returncode, 1)
+
+    def test_plan_reviewer_model_printed_from_config(self):
+        r = self.check({"roles": {"plan_reviewer": "opus"}}, True)
+        self.assertIn("plan-reviewer: model=opus", r.stdout)
+
+    def test_plan_reviewer_model_defaults_to_agent_default(self):
+        r = self.check(None, True)
+        self.assertIn("plan-reviewer: model=fable", r.stdout)
+
+
+class MaxWords(unittest.TestCase):
+    def test_task_over_max_words_fails(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp, extra_cfg={"plan": {"max_words": 20}})
+        edit(os.path.join(tmp, "tasks", "001-demo.md"), "## Scope\nx", "## Scope\n" + "word " * 40)
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("max_words", r.stdout)
+
+    def test_log_does_not_count_and_unset_means_no_limit(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp, extra_cfg={"plan": {"max_words": 60}})
+        with open(os.path.join(tmp, "tasks", "001-demo.md"), "a") as f:
+            f.write("log " * 500)
+        self.assertEqual(run(tmp).returncode, 0, "the Log is execution history, not plan length")
+        tmp2 = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp2)
+        edit(os.path.join(tmp2, "tasks", "001-demo.md"), "## Scope\nx", "## Scope\n" + "word " * 2000)
+        self.assertEqual(run(tmp2).returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

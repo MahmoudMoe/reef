@@ -185,6 +185,48 @@ class Attempt(unittest.TestCase):
         r = run(p, "Makefile:25: recipe for target 'all' failed")
         self.assertEqual(r.returncode, 2, "Makefile line drift must still count as the same failure")
 
+    # ---- 0.4.0 ----
+
+    def test_verifier_model_printed_for_judge_tasks_from_config(self):
+        # roles.verifier is read at dispatch, exactly like roles.author
+        os.makedirs(os.path.join(self.dir, ".reef"), exist_ok=True)
+        open(os.path.join(self.dir, ".reef", "config.json"), "w").write(
+            '{"roles": {"author": "opus", "verifier": "sonnet"}}')
+        p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: medium\nverify: judge\nattempts: 0\n")
+        r = run(p)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("verifier: model=sonnet", r.stdout)
+
+    def test_verifier_model_defaults_to_agent_default(self):
+        p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: medium\nverify: judge\nattempts: 0\n")
+        self.assertIn("verifier: model=opus", run(p).stdout)
+
+    def test_no_verifier_line_for_gate_only_tasks(self):
+        # mech tasks have no judge; printing a verifier model would invite one
+        p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: medium\nverify: gate-only\nattempts: 0\n")
+        self.assertNotIn("verifier:", run(p).stdout)
+
+    def test_second_rollup_for_same_feature_refused(self):
+        # acceptance, diff and CI rounds share ONE rollup file per feature, so attempts:
+        # counts across them; a second file would reset the counter and launder the cap
+        tasks = os.path.join(self.dir, "tasks")
+        os.makedirs(os.path.join(tasks, "done"))
+        make_task(os.path.join(tasks, "done"), name="R01-fixups.md",
+                  fm="id: R1\nfeature: demo\nstatus: done\neffort: medium\nattempts: 1\n")
+        p = make_task(tasks, name="R02-ci-fixups.md",
+                      fm="id: R2\nfeature: demo\nstatus: pending\neffort: medium\nattempts: 0\n")
+        r = run(p, "CI red: test_x failed")
+        self.assertEqual(r.returncode, 2, "a second rollup for one feature must be refused")
+        self.assertIn("R01-fixups.md", r.stderr)
+        self.assertIn("attempts: 0", open(p).read(), "a refused rollup must not be mutated")
+
+    def test_rollups_of_different_features_coexist(self):
+        tasks = os.path.join(self.dir, "tasks")
+        os.makedirs(tasks)
+        make_task(tasks, name="R01-a.md", fm="id: R1\nfeature: alpha\nstatus: pending\nattempts: 0\n")
+        p = make_task(tasks, name="R02-b.md", fm="id: R2\nfeature: beta\nstatus: pending\nattempts: 0\n")
+        self.assertEqual(run(p).returncode, 0)
+
     def test_typoed_parent_dir_exits_2_not_traceback(self):
         r = run(os.path.join(self.dir, "no-such-dir", "007-x.md"), "failure")
         self.assertEqual(r.returncode, 2)
