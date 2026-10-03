@@ -1,11 +1,14 @@
 {
   "gates": { "fast": "", "full": "" },
   "caps": { "attempts": 3 },
-  "roles": { "author": "opus", "verifier": "opus", "plan_reviewer": "fable" },
+  "roles": { "author": "opus", "verifier": "opus", "plan_reviewer": "fable", "planner": "fable", "adversary": "opus", "reviewer": "opus", "security": "opus", "mechanic": "sonnet" },
   "merge": { "by": "human" },
   "ci": { "feature_gate": "ci" },
   "branches": { "base": "main", "release": "main" },
   "plan": { "test_re": "", "max_words": 0 },
   "paths": { "tasks": "tasks", "adr": "docs/adr", "glossary": "docs/glossary.md", "runlog": "docs/runlog.md" },
-  "invariants": []
+  "invariants": [],
+  "graph": { "parallel": 10 },
+  "resources": { "heavy": { "slots": 2 } },
+  "worktree": { "dir": ".reef/worktrees", "setup": "" }
 }

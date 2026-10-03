@@ -69,6 +69,19 @@ DENY_BASH = [
     'true && (env X=1 git commit --no-verify -m x)',
     'chmod ugo+r,ugo-x .githooks/pre-commit',               # mixed add/remove mode
     'chmod 644 .githooks/pre-commit',                        # octal that strips exec
+    # 0.5.0 — lessons measured on a 15-agent merge wave
+    'git stash',                                             # one stash stack serves EVERY worktree
+    'git stash push -m wip',
+    'git stash pop',
+    'git stash apply stash@{0}',
+    'cd .reef/worktrees/3 && git stash',
+    'npm test | tail -5',                                    # the pipe reports tail's exit code
+    'npm test 2>&1 | tail -20',
+    'sh scripts/reef-gate.sh | tail -1',
+    'pytest -q | grep passed',
+    'npm run ci:local | tail -1 && git commit -m x',
+    'cargo test | head',
+    'go test ./... |& tee log',
 ]
 
 ALLOW_BASH = [
@@ -98,6 +111,15 @@ ALLOW_BASH = [
     # round-5: a multi-line commit MESSAGE whose body merely mentions a guarded command
     # is one quoted -m value in real bash, not a command — must not false-deny
     'git commit -m "docs: never run\ngit commit --no-verify\nor rm -rf .githooks"',
+    # 0.5.0 — the lesson rules must not false-deny
+    'git stash list',                                        # read-only
+    'git stash show -p',
+    'set -o pipefail; npm test 2>&1 | tail -5',              # the exit code survives
+    'npm test > out.txt 2>&1; tail -5 out.txt',              # redirect, then read
+    'npm test',
+    'go build ./... | tail',                                 # build is not the gate
+    'echo test | grep t',
+    'git log --oneline | head -5',
 ]
 
 
@@ -141,9 +163,55 @@ def make_task(dirpath, name="007-demo.md", status="pending", attempts=0, dispatc
     return p
 
 
-def dispatch(cwd, prompt, subagent="reef:implementer"):
-    return run_guard({"tool_name": "Task", "cwd": cwd,
-                      "tool_input": {"subagent_type": subagent, "prompt": prompt}})
+def dispatch(cwd, prompt, subagent="reef:implementer", model=None):
+    tool_input = {"subagent_type": subagent, "prompt": prompt}
+    if model is not None:
+        tool_input["model"] = model
+    return run_guard({"tool_name": "Task", "cwd": cwd, "tool_input": tool_input})
+
+
+def write_config(cwd, cfg):
+    os.makedirs(os.path.join(cwd, ".reef"), exist_ok=True)
+    with open(os.path.join(cwd, ".reef", "config.json"), "w") as f:
+        json.dump(cfg, f)
+
+
+class RoleModel(unittest.TestCase):
+    """0.5.0: a dispatch runs on the configured model for its role — read at dispatch, not remembered."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="reef-guard-roles.")
+        write_config(self.dir, {"gates": {"test": "true"}, "roles": {
+            "author": "opus", "verifier": "opus", "plan_reviewer": "fable", "mechanic": "sonnet"}})
+        make_task(self.dir)
+
+    def test_implementer_on_wrong_model_denied(self):
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement", model="sonnet")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("roles.author", r.stderr)
+        with open(os.path.join(self.dir, "tasks", "007-demo.md")) as f:
+            self.assertIn("dispatches: 0", f.read())   # a denial costs nothing
+
+    def test_implementer_without_model_denied_when_role_configured(self):
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 2, "the agent file's default is not the configured model")
+        self.assertIn("pass model='opus'", r.stderr)
+
+    def test_implementer_on_configured_model_allowed(self):
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement", model="opus")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_verifier_plan_reviewer_mechanic_checked(self):
+        for sub, want, wrong in (("reef:verifier", "opus", "fable"), ("reef:plan-reviewer", "fable", "opus"),
+                                 ("reef:mechanic", "sonnet", "opus")):
+            with self.subTest(sub=sub):
+                self.assertEqual(dispatch(self.dir, "x", subagent=sub, model=wrong).returncode, 2)
+                self.assertEqual(dispatch(self.dir, "x", subagent=sub, model=want).returncode, 0)
+
+    def test_unset_role_is_not_enforced(self):
+        write_config(self.dir, {"gates": {"test": "true"}, "roles": {"author": "opus"}})
+        self.assertEqual(dispatch(self.dir, "x", subagent="reef:verifier", model="fable").returncode, 0)
+        self.assertEqual(dispatch(self.dir, "x", subagent="reef:mechanic").returncode, 0)
 
 
 class DispatchGuard(unittest.TestCase):

@@ -23,6 +23,7 @@ STATUS = {"pending", "in-progress", "blocked", "done"}
 COMPLEXITY = {"mech", "design"}
 EFFORT = {"low", "medium", "high"}
 VERIFY = {"judge", "gate-only"}
+TIER = {"light", "full", "design"}       # effort matched to risk; mech <=> light (design §4)
 REQUIRED = ["id", "feature", "status", "complexity", "effort", "blocked-by", "verify", "attempts"]
 # Test-name conventions across the stacks reef-init advertises. Left/right anchored so
 # prose like "latest_figures" cannot satisfy the gate. Overridable via .reef/config.json
@@ -227,7 +228,7 @@ def main():
         text = LOG_HEADING.split(text, maxsplit=1)[0]
         m = FM_RE.match(text)
         if m:
-            fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches):.*(?:\r?\n|\Z)", "",
+            fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches|worktree):.*(?:\r?\n|\Z)", "",
                         m.group(1), flags=re.M)
             text = fm + text[m.end():]
         return text.encode()
@@ -288,7 +289,7 @@ def main():
             continue
         errs = [k for k in REQUIRED if k not in fm]
         for key, legal in (("status", STATUS), ("complexity", COMPLEXITY),
-                           ("effort", EFFORT), ("verify", VERIFY)):
+                           ("effort", EFFORT), ("verify", VERIFY), ("tier", TIER)):
             if key in fm and fm[key] not in legal:
                 errs.append(f"{key}={fm[key]!r} not in {sorted(legal)}")
         if "id" in fm and not re.fullmatch(r"R?\d+", fm["id"]):
@@ -302,6 +303,16 @@ def main():
         except Exception as e:
             errs.append(str(e))
             fm["_blocked"] = []
+        res = fm.get("resources", "[]").strip()
+        if not (res.startswith("[") and res.endswith("]")):
+            errs.append(f"resources not a list: {res!r}")
+        # the tier is the risk the plan DECLARED; a cheap tier on a design task is the
+        # mismatch this check exists for (mech <=> light; design is full or design)
+        tier, cx = fm.get("tier"), fm.get("complexity")
+        if tier == "light" and cx == "design":
+            errs.append("tier light on a design task (light <=> mech only)")
+        if tier in ("full", "design") and cx == "mech":
+            errs.append(f"tier {tier} on a mech task (mech <=> light; make it design or lower the tier)")
         if errs:
             fail(f"{rel}: schema — " + "; ".join(errs))
         else:

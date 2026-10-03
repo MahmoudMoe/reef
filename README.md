@@ -4,7 +4,7 @@
 </picture>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.4.0-D94F35?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-0.5.0-D94F35?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-0E7C7B?style=flat-square">
   <img alt="claude code" src="https://img.shields.io/badge/claude_code-plugin-182B33?style=flat-square">
   <img alt="status" src="https://img.shields.io/badge/status-pilot_(n%3D1)-B07C1F?style=flat-square">
@@ -30,6 +30,13 @@ Full multi-agent setups burn tokens on ceremony; pure manual workflows have no s
 | Rule | Enforced by | Layer |
 |---|---|---|
 | Retry cap / same-failure-twice | `reef-attempt` (data) + `reef-guard.py` deny at dispatch + `dispatches:` odometer | **code** |
+| No implementer outside the READY SET (every `blocked-by` done, a free slot on every declared `resources:`, under `graph.parallel`; a broken graph has no ready set) | `scripts/reef-graph.py` computes it from the task files; the guard imports the plugin's own copy, takes one graph-wide lock, denies, and on allow marks the task `in-progress` | **code** — launching every ready task in parallel is reef-task prose; the guard catches a wrong dispatch, not a missing one |
+| Each implementer in its own worktree, its own `worktree.setup` (never the shared generated client) | `reef-graph worktree` creates it and records `worktree:`; the hook cannot see an agent's cwd | **prose** trigger, code mechanism |
+| Heavy commands share 2 slots | `reef-graph lock heavy -- cmd` (fcntl, numbered slot files, mandatory timeout → exit 75) | **code** when called |
+| `git stash` (one stack serves every worktree) | `reef-guard.py` denies every stash write; `list`/`show` allowed | **tripwire** |
+| A gate piped into `tail`/`grep` hides its exit code | `reef-guard.py` denies `npm test \| …`, `pytest \| …`, `reef-gate.sh \| …` without `pipefail` | **tripwire** |
+| Every role runs on its configured model | `reef-guard.py` denies a dispatch whose `model` ≠ `roles.<role>` (author, verifier, plan_reviewer, adversary, mechanic) when set | **code** |
+| `tier:` matches `complexity` (mech ⇔ light) | `reef-plan-check.py` | **code** |
 | Plan edited after approval → re-review | `reef-plan-check.py --verify-stamp`, re-checked by the guard at every implementer dispatch — against the TASK FILE's own worktree, for the task's own `feature:` (one hash per feature over its tasks + the ADRs; the brief, glossary and config are deliberately not hashed, so merging the integration branch stales nothing) | **code** |
 | Stamp is per-worktree, never committed | `reef-plan-check.py` FAILs when `<tasks>/.plan-review.json` is tracked; reef-init gitignores it | **code** (check) + prose (init) |
 | One cap per item after GREEN (acceptance + diff + CI share it) | `reef-attempt` and the guard refuse a second rollup file for the same `feature:`; one `attempts:` counter, `caps.attempts`. `reef-attempt --cap N` still exists — not raising it is prose | **code** (one file) + prose (no `--cap`) |
@@ -65,29 +72,39 @@ Then in your project: `/reef-init` (detects stack, writes .reef/config.json, ins
 | `roles.verifier` / `roles.plan_reviewer` | `opus` / `fable` | printed at dispatch by `reef-attempt` / `reef-plan-check.py`, like `roles.author` |
 | `plan.max_words` | `0` (no limit) | task files longer than this (excluding the Log) fail plan-check |
 
+### Settings added in 0.5
+| Key | Default | Effect |
+|---|---|---|
+| `graph.parallel` | `10` | tasks in flight at once (20 heavy agents drove one machine's load to ~90) |
+| `resources.<name>.slots` | `1` (`heavy`: `2`) | holders of a declared resource at once; `reef-graph lock <name> -- cmd` for commands |
+| `worktree.dir` / `worktree.setup` | `.reef/worktrees` / `""` | where task worktrees live; the command run in a new one (`npm ci`, `uv sync` — its own copy, never the shared one) |
+| `roles.planner` / `adversary` / `reviewer` / `security` / `mechanic` | `fable` / `opus` / `opus` / `opus` / `sonnet` | the model per job (table below); the guard enforces `author`, `verifier`, `plan_reviewer`, `adversary`, `mechanic` at dispatch |
+
 ## Who runs what (routing)
-| Stage | Runs as | Model / effort | Decided by |
+The model per job — the owner's routing, 2026-10-04 — lives in `.reef/config.json` `roles.*` (every role overridable per project) and is read at dispatch: `reef-attempt` / `reef-plan-check.py` print it, the orchestrator passes it as the Agent call's `model`, and the guard refuses a dispatch on any other model. This table replaces the old comment that called fable "the cheap model".
+
+| Job | Model (`roles.*`) | Runs as | Decided by |
 |---|---|---|---|
-| Grill / plan / gate | main session | session model | you |
-| Implement `mech` (tiny diff) | main session inline | session model | reef-task §2 |
-| Implement (normal) | `implementer` agent | printed by `reef-attempt`: attempt 1 = `roles.author` at the task's `effort:` base, after any FAIL = high | reef-attempt + .reef/config.json |
-| Plan review | `scripts/reef-plan-check.py` (blocking) + `plan-reviewer` agent | free + `roles.plan_reviewer` (default fable), printed by the script | `reef-plan-review`; auto-invoked by reef-task on a stale stamp |
-| Commit gate | `.githooks/pre-commit` → `reef-gate.sh fast` | free | `gates.fast` |
-| Verify `mech` | no agent — full gate + golden test | free | task frontmatter `verify: gate-only` |
-| Verify `design` | `verifier` agent (fresh context), rules per AC before the diff | `roles.verifier` (default opus), printed by `reef-attempt` | task frontmatter `verify: judge` |
-| Review (acceptance/diff) | main session, fresh-context passes; diff against `branches.base` | session model | reef-review |
-| Feature-PR gate | CI, or `reef-gate.sh full` locally | free | `ci.feature_gate` |
-| Merge | the human; or the loop into `branches.base` | — | `merge.by` (releases: always the human) |
-Agent files carry a DEFAULT model (the ladder base) — but the dispatch-time model from `reef-attempt` always overrides it (per-call model > frontmatter). One source of truth for escalation: the script. Effort escalation travels in the dispatch prompt ("reasoning effort: high"), since agent frontmatter has no working effort key (red-team finding #5).
+| Grill, slice, plan; plan review; the design of a `tier: design` task | **fable** (`planner`, `plan_reviewer`) | main session; `plan-reviewer` agent after `scripts/reef-plan-check.py` passes | reef-plan, reef-plan-review |
+| Write code: implementer, fix rounds | **opus** (`author`); attempt 1 at the task's `effort:` base, after any FAIL = high | `implementer` agent, one per ready task, in its worktree; tiny `mech` diffs inline | reef-task; printed by `reef-attempt` |
+| Verify `design` (rules per AC before the diff) | **opus** (`verifier`) | `verifier` agent, fresh context, tree hash-checked | task `verify: judge` |
+| Verify `mech` | no model — full gate + golden test | — | task `verify: gate-only` |
+| Adversarial attack (on the plan, on the finished guard), code review, security review | **opus** (`adversary`, `reviewer`, `security`) | `loophole-hunter` agent; reviewers | tier (design: both passes mandatory) |
+| Rebase, run gates, re-take records, evidence re-runs, archive/close edits | **sonnet** (`mechanic`) — writes no prose claims; checked by exit codes, `git range-diff`, digests | `mechanic` agent | reef-task / reef-review |
+| Commit gate | free | `.githooks/pre-commit` → `reef-gate.sh fast` | `gates.fast` |
+| Feature-PR gate | free | CI, or `reef-gate.sh full` locally | `ci.feature_gate` |
+| Merge | — | the human; or the loop into `branches.base` | `merge.by` (releases: always the human) |
+
+Escalation goes up, never down: after a FAIL the next attempt runs at effort high (the dispatch prompt carries "reasoning effort: high" — agent frontmatter has no working effort key). Agent files carry a DEFAULT model equal to the role's default; the dispatch-time model always overrides it.
 
 ## Flow
-`/reef-plan <spec>` → grill → vertical slices → ONE human gate → `/reef-plan-review` (deterministic checks + semantic review) → `/reef-task` (implement→verify→commit per task, mechanical caps) → `/reef-review` (push → PR → acceptance → diff review → CI or local gate, one rollup per feature under one cap) → you squash-merge (or, with `merge.by: loop`, the loop merges into the integration branch and you merge the release).
+`/reef-plan <spec>` → grill → vertical slices with `blocked-by` edges and `resources:` → ONE batched human gate → `/reef-plan-review` (deterministic checks + semantic review) → `/reef-task` runs the task set as a GRAPH: every ready task dispatched at once, each implementer in its own worktree, implement→verify→merge into the feature branch, mechanical caps, a restart recomputes the graph from disk → `/reef-review` (push → PR → acceptance → diff review → CI or local gate, one rollup per feature under one cap) → you squash-merge (or, with `merge.by: loop`, the loop merges into the integration branch and you merge the release). Design: `docs/design/graph-and-setup.md`.
 
 ## Layout
-skills/ (init, plan, plan-review, task, verify, review) · commands/ (`/reef` status overview + `/reef-plan`, `/reef-task`, `/reef-review` wrappers) · agents/ (implementer, verifier, plan-reviewer — each carries a DEFAULT model; the dispatch-time model from reef-attempt overrides it) · scripts/ (reef-gate.sh [fast|full], reef-attempt, reef-guard.py, reef-snapshot.sh, reef-plan-check.py) · hooks/hooks.json (PreToolUse guard, wired to reef-guard.py) · schemas/task.schema.json · templates/ (pre-commit, config, task, adr, glossary, runlog) · tests/ (sabotage suites: every gate shown red) · .github/workflows/ci.yml (runs the suites on ubuntu+macos)
+skills/ (init, plan, plan-review, task, verify, review) · commands/ (`/reef` status overview + `/reef-plan`, `/reef-task`, `/reef-review` wrappers) · agents/ (implementer, verifier, plan-reviewer, mechanic — each carries a DEFAULT model; the dispatch-time model from reef-attempt overrides it) · scripts/ (reef-gate.sh [fast|full], reef-attempt, reef-guard.py, reef-graph.py [ready|status|check|worktree|lock], reef-snapshot.sh, reef-plan-check.py) · hooks/hooks.json (PreToolUse guard, wired to reef-guard.py) · schemas/task.schema.json · templates/ (pre-commit, config, task, adr, glossary, runlog) · tests/ (sabotage suites: every gate shown red) · docs/design/ (the graph executor's design) · .github/workflows/ci.yml (runs the suites on ubuntu+macos)
 
 ## Selftests
-`sh tests/run.sh` — 177 sabotage and contract tests (122 Python + 55 shell). Every gate in this plugin has a test here that shows it going RED on the defect it exists to catch; CI runs the suite on ubuntu (dash — the honest POSIX check) and macos.
+`sh tests/run.sh` — 209 sabotage and contract tests (154 Python + 55 shell). Every gate in this plugin has a test here that shows it going RED on the defect it exists to catch; CI runs the suite on ubuntu (dash — the honest POSIX check) and macos.
 
 ## Acknowledgments
 Reef is an original implementation, but its process ideas stand on two open projects:
