@@ -579,6 +579,54 @@ class MaxWords(unittest.TestCase):
         repo(tmp2)
         edit(os.path.join(tmp2, "tasks", "001-demo.md"), "## Scope\nx", "## Scope\n" + "word " * 2000)
         self.assertEqual(run(tmp2).returncode, 0)
+class BriefPointer(unittest.TestCase):
+    """0.5.0: reef-init writes a one-line CLAUDE.md pointer; the brief the checks read is AGENTS.md."""
+
+    def test_pointer_claude_md_yields_to_agents_md(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        with open(os.path.join(tmp, "CLAUDE.md"), "w") as f:
+            f.write("See [AGENTS.md](AGENTS.md) — the single instruction layer.\n")
+        with open(os.path.join(tmp, "AGENTS.md"), "w") as f:
+            f.write("# brief\n\n## Open questions\n- unsettled\n")
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1, "an open-questions heading in AGENTS.md hid behind the CLAUDE.md pointer")
+        self.assertIn("AGENTS.md: open-questions heading remains", r.stdout)
+
+    def test_real_claude_md_still_wins(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)   # writes a real CLAUDE.md brief
+        with open(os.path.join(tmp, "AGENTS.md"), "w") as f:
+            f.write("# other\n\n## Open questions\n- x\n")
+        self.assertEqual(run(tmp).returncode, 0)
+
+
+class TierWordCap(unittest.TestCase):
+    """0.5.0: writing.task_words[tier] is the task file's word cap (one home); plan.max_words is the fallback."""
+
+    def test_light_cap_applies_to_mech_tasks(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp, acs="- test_demo_works goes red first; " + " ".join(["word"] * 30),
+             extra_cfg={"writing": {"task_words": {"light": 20, "full": 500}}, "plan": {"max_words": 0}})
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1, "a mech (light) task over writing.task_words.light must fail")
+        self.assertIn("writing.task_words.light 20", r.stdout)
+        p = os.path.join(tmp, "tasks", "001-demo.md")
+        with open(p) as f:
+            t = f.read()
+        with open(p, "w") as f:   # declare full: the full cap (500) applies
+            f.write(t.replace("complexity: mech", "complexity: design\ntier: full").replace("verify: gate-only", "verify: judge")
+                     .replace("## Scope", "## Decision\nhuman wrote this\n\n## Scope"))
+        self.assertEqual(run(tmp).returncode, 0)
+
+    def test_bad_task_words_fails_loudly(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp, extra_cfg={"writing": {"task_words": {"light": "many"}}})
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("writing.task_words", r.stdout)
+
+
 class Graph05(unittest.TestCase):
     """0.5.0: the graph's execution keys never stale the plan; the tier matches the complexity."""
 

@@ -1,0 +1,33 @@
+name: CI
+
+# Release-only CI: pull requests into {{release}} run the full set, once. A feature PR into
+# {{base}} runs nothing here — its gate is `sh scripts/reef-ci-local.sh`, the same list, locally,
+# every exit code read (measured on the pilot: per-PR CI checked every change ~4 times, 100 runs in
+# 48 hours). No second run on the push to {{release}}: require the release branch to be up to date
+# with {{release}} so the PR run already checked the merge result.
+on:
+  pull_request:
+    branches: [{{release}}]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    name: every gate, once
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # the secret scan walks every commit
+          persist-credentials: false
+{{setup_steps}}
+      # The ONE list of gates lives in .reef/config.json (gates.full + gates.extra); CI runs the same
+      # script the pre-push gate runs, so a check that only exists on {{release}} cannot exist.
+      - name: Gates (the same script as locally)
+        run: sh scripts/reef-ci-local.sh --ci

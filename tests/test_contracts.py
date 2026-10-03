@@ -93,6 +93,20 @@ class Lessons(unittest.TestCase):
         self.assertEqual(roles["adversary"], front)
 
 
+class InitSkill(unittest.TestCase):
+    def test_init_skill_runs_the_script_and_never_overwrites(self):
+        text = read("skills", "reef-init", "SKILL.md")
+        self.assertIn("scripts/reef-init.py", text)
+        self.assertRegex(text, r"(?i)never overwrit")
+        self.assertIn("--accept", text)
+
+    def test_every_project_template_is_rendered_by_init(self):
+        import ast
+        src = read("scripts", "reef-init.py")
+        for name in os.listdir(os.path.join(ROOT, "templates", "project")):
+            self.assertIn(f"project/{name}", src, f"templates/project/{name} is not wired into reef-init.py")
+
+
 class Templates(unittest.TestCase):
     def test_runlog_has_no_subagent_tokens_column(self):
         self.assertNotIn("Subagent tokens", read("templates", "runlog.md"))
