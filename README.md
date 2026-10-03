@@ -105,7 +105,7 @@ A `tier: design` task (a mechanism that failed twice, or anything touching priva
 | `ci.feature_gate` | `ci` (`local` with two branches) | `local`: feature PRs run `reef-ci-local.sh`; CI is watched only on PRs into `branches.release` |
 | `branches.base` / `branches.release` | `main` / `main` (init: `develop` / `main`) | integration branch / release branch |
 | `tiers.light.allow` / `max_lines` / `migrations` | `docs/**, README.md` / `80` / migration dirs | what may be light; `reef-tier.py` can only make a tier heavier |
-| `writing.*` | task words 600/2500, hand-back 150, prompt 120, journal 40 000, queue 35 000 | the writing caps (`plan.max_words`, `reef-queue.py check`) |
+| `writing.*` | task words light 600 / full 2500 / design 2500, hand-back 150, prompt 120, journal 40 000, queue 35 000 | `task_words.<tier>` is enforced by `reef-plan-check.py` (falls back to `plan.max_words`); `journal_words`/`queue_words` by `reef-queue.py check`; hand-back and prompt caps are prose |
 | `paths.*` | tasks, adr, glossary, runlog = journal, queue | where things live |
 | `plan.test_re` / `plan.max_words` | `""` / `0` | test-name convention override / task file word cap |
 
@@ -115,7 +115,7 @@ Pre-0.4 configs keep working: `gates.test` is an alias of `gates.full`; every ne
 skills/ (init, loop, plan, plan-review, task, verify, review) · commands/ (`/reef` status + `/reef-init`, `/reef-loop`, `/reef-plan`, `/reef-task`, `/reef-review`) · agents/ (implementer, verifier, plan-reviewer, loophole-hunter, mechanic) · scripts/ (reef-init.py, reef-gate.sh [fast|full], reef-attempt, reef-guard.py, reef-graph.py [ready|status|check|worktree|lock], reef-adversarial [plan|guard], reef-claims.py [check|claims-only], reef-tier.py, reef-queue.py [status|ready|check|adr-number], reef-ci-local.sh, reef-snapshot.sh, reef-plan-check.py) · hooks/hooks.json (PreToolUse guard) · schemas/task.schema.json · templates/ (config, task, adr, glossary, runlog, pre-commit, project/) · docs/design/ · docs/manual/ar/ · tests/ (sabotage suites) · .github/workflows/ci.yml (the suites on ubuntu + macos)
 
 ## Selftests
-`sh tests/run.sh` — 272 sabotage and contract tests (200 Python + 72 shell). Every mechanism in this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos.
+`sh tests/run.sh` — 274 sabotage and contract tests (202 Python + 72 shell). Every mechanism in this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos.
 
 ## Acknowledgments
 Reef is an original implementation, but its process ideas stand on two open projects:
