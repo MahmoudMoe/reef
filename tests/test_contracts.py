@@ -21,6 +21,7 @@ class Version(unittest.TestCase):
         market = json.loads(read(".claude-plugin", "marketplace.json"))
         badge = re.search(r"badge/version-([0-9.]+)-", read("README.md")).group(1)
         versions = {plugin, market["metadata"]["version"], market["plugins"][0]["version"], badge}
+        # pinned on purpose: a version bump edits this line too, in the same commit
         self.assertEqual(versions, {"0.4.0"})
 
 
