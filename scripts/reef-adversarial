@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""Reef adversarial record — the loophole-hunter's pass as DATA on the task file.
+
+Usage:
+  reef-adversarial <task-file> plan  <report-file>    record the pass on the PLAN (before code)
+  reef-adversarial <task-file> guard <report-file>    record the pass on the finished GUARD (after)
+  reef-adversarial <task-file> plan-hash               print the plan hash the guard will compare
+
+A `tier: design` task runs the loophole-hunter twice. This script turns each pass into a
+frontmatter key the mechanisms read:
+  adversarial-plan: <sha12 of the PLAN content>   — the guard refuses a design-tier
+                    implementer dispatch unless this equals the task's current plan hash
+                    (edit the plan and the pass is void — re-run the hunter)
+  adversarial-guard: <sha12 of the report>@<HEAD of the worktree>  — the pre-commit refuses
+                    a design-tier task file staged into tasks/done/ without this key
+
+What is recorded: only a report that is the hunter's (RUN: agent=loophole-hunter ...
+pass=<same pass>), ends VERDICT: PASS, and carries no BLOCKER line. A FAIL is not
+recorded — it goes back to the plan or the implementer. A mech/light task is refused:
+the adversarial stage never runs on mech (the cost lesson), and recording one would
+only decorate the file.
+
+Exit 0 = recorded. 2 = refused (reason on stderr). Never a traceback.
+"""
+import hashlib
+import os
+import re
+import subprocess
+import sys
+import tempfile
+
+FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
+LOG_HEADING = re.compile(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", re.M)
+EXEC_KEYS = r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-plan|adversarial-guard):.*(?:\r?\n|\Z)"
+PASSES = ("plan", "guard")
+
+
+def die(msg):
+    print(f"reef-adversarial REFUSED: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
+def read(path):
+    with open(path, encoding="utf-8", newline="") as f:
+        return f.read()
+
+
+def frontmatter(text):
+    m = FENCE.match(text)
+    if not m:
+        return None
+    fm = {}
+    for line in m.group(1).splitlines():
+        if line[:1] in (" ", "\t", "#") or ":" not in line:
+            continue
+        k, _, v = line.partition(":")
+        fm.setdefault(k.strip(), v.strip().strip('"'))
+    return fm
+
+
+def plan_hash(text):
+    """What PLANNING wrote: the frontmatter minus execution keys, the body up to ## Log.
+    The same strip reef-plan-check uses for the stamp, plus this script's own keys."""
+    text = LOG_HEADING.split(text, maxsplit=1)[0]
+    m = FENCE.match(text)
+    if m:
+        fm = re.sub(EXEC_KEYS, "", m.group(1), flags=re.M)
+        text = fm + text[m.end(1):]
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
+
+def set_key(path, text, key, value):
+    m = FENCE.match(text)
+    fm = m.group(1)
+    if re.search(rf"^{re.escape(key)}:", fm, re.M):
+        fm = re.sub(rf"^{re.escape(key)}:.*$", f"{key}: {value}", fm, count=1, flags=re.M)
+    else:
+        fm = fm + f"{key}: {value}\n"
+    new = text[:m.start(1)] + fm + text[m.end(1):]
+    fd, tmp = tempfile.mkstemp(prefix=".reef-adv-", dir=os.path.dirname(os.path.abspath(path)))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(new)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def check_report(report, want_pass):
+    head = re.search(r"^RUN:[ \t]*agent=loophole-hunter\b(.*)$", report, re.M)
+    if not head:
+        die("the report does not start a RUN: agent=loophole-hunter line — only the hunter's own report counts")
+    got = re.search(r"\bpass=(\w+)", head.group(1))
+    if not got or got.group(1) != want_pass:
+        die(f"the report's pass is {got.group(1) if got else 'missing'!r}, not {want_pass!r} — a plan pass does not stand in for the guard pass")
+    verdict = re.search(r"^VERDICT:[ \t]*(PASS|FAIL)\b", report, re.M)
+    if not verdict:
+        die("the report has no VERDICT: PASS|FAIL line")
+    if verdict.group(1) != "PASS":
+        die("VERDICT: FAIL is not recorded — fix the plan or the guard, then run the hunter again")
+    if re.search(r"^BLOCKER:", report, re.M):
+        die("a BLOCKER line with VERDICT: PASS is a contradiction — not recorded")
+
+
+def head_of(path):
+    d = os.path.dirname(os.path.abspath(path))
+    r = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], cwd=d, capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else "no-git"
+
+
+def main(argv):
+    if len(argv) == 2 and argv[1] == "plan-hash":
+        print(plan_hash(read(argv[0])))
+        return 0
+    if len(argv) != 3 or argv[1] not in PASSES:
+        die("usage: reef-adversarial <task-file> plan|guard <report-file>  |  <task-file> plan-hash")
+    task_path, which, report_path = argv
+    for p in (task_path, report_path):
+        if not os.path.isfile(p):
+            die(f"file not found: {p}")
+    text = read(task_path)
+    fm = frontmatter(text)
+    if fm is None:
+        die(f"{task_path} has no frontmatter fence — not a reef task file")
+    if fm.get("complexity") == "mech" or fm.get("tier") == "light":
+        die("the adversarial stage never runs on a mech/light task — nothing to record")
+    check_report(read(report_path), which)
+    if which == "plan":
+        value = plan_hash(text)
+    else:
+        if "adversarial-plan" not in fm:
+            die("no adversarial-plan record — the plan pass comes first")
+        value = hashlib.sha1(read(report_path).encode("utf-8")).hexdigest()[:12] + "@" + head_of(task_path)
+    set_key(task_path, text, f"adversarial-{which}", value)
+    print(f"adversarial-{which}: {value}")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except SystemExit:
+        raise
+    except Exception as e:
+        die(f"internal error: {e}")

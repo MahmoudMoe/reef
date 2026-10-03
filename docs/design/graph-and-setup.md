@@ -1,10 +1,10 @@
 # Reef as a graph executor, and `/reef-init` as the project setup
 
-Status: design for 0.5.0, on top of 0.4.0 (`parallel-loop-compat`: merge setting, one cap per item, draft ADRs, per-feature stamp, fast/full gates, model per role, rule-first verifier). Where this and `PROJECT-SETUP.md` differ, the owner's decisions win; what remains is listed at the end for him.
+Status: design for 0.5.0, on top of 0.4.0 (`parallel-loop-compat`). Where this and `PROJECT-SETUP.md` differ, the owner's decisions win; what remains is listed at the end.
 
 ## 1. Invariant
 
-**No implementer runs on a task outside the ready set, and the ready set is computed by code from state on disk.** A task is ready iff: `status` is `pending` or `in-progress`; every id in `blocked-by` is `done`; `attempts < cap`; each resource it declares has a free slot once its own holding is discounted; and the number of *other* `in-progress` tasks is below `graph.parallel`. The PreToolUse guard denies any implementer dispatch of a non-ready task and, on allow, marks it `in-progress` under one graph-wide lock — the state advances as a side effect of the dispatch. Nothing existing weakens: the cap and odometer stay per task, the stamp still gates the plan, the verifier is still a fresh, hash-checked context.
+**No implementer runs on a task outside the ready set, and the ready set is computed by code from state on disk.** A task is ready iff: `status` is `pending` or `in-progress`; every id in `blocked-by` is `done`; `attempts < cap`; each resource it declares has a free slot once its own holding is discounted; and the number of *other* `in-progress` tasks is below `graph.parallel`. The PreToolUse guard denies any implementer dispatch of a non-ready task and, on allow, marks it `in-progress` under one graph-wide lock — the state advances as a side effect of the dispatch. The cap and odometer stay per task, the stamp still gates the plan, the verifier stays a fresh, hash-checked context.
 
 ## 2. Scheduler: `scripts/reef-graph.py`
 
@@ -18,17 +18,21 @@ Data — the task files' front matter only, so a restart recomputes everything:
 | `status` | guard → `in-progress`; reef-attempt → `blocked`; merge → `done` | the only execution state the scheduler reads |
 | `worktree:` | `reef-graph worktree` | the task's worktree; stripped from the stamp like `status` |
 
-`ready` loads every task under `tasks/` and `tasks/done/`, validates the DAG, applies §1, prints the ready tasks in id order (`--json` for the orchestrator); `check <file>` is the guard's question (0 ready, 2 not, 1 broken graph); `status` shows every task's state and reason. `graph.parallel` defaults to 10 (20 heavy agents drove one machine to load ~90). A nonsense setting denies rather than silently defaulting.
+`ready` loads every task under `tasks/` and `tasks/done/`, validates the DAG, applies §1, prints the ready tasks in id order (`--json`); `check <file>` is the guard's question (0 ready, 2 not, 1 broken graph); `status` shows every task's state and reason. `graph.parallel` defaults to 10 (20 heavy agents drove one machine to load ~90); a nonsense setting denies rather than defaulting.
 
 Locking: the decision and the `in-progress` write happen under **one lock for the whole task set** (`tempdir/reef-graph-<sha1 of tasks dir>`, never unlinked); two hooks fired by one orchestrator message race on it and exactly one wins the last slot (tested with eight). `reef-graph lock <resource> [--timeout S] -- cmd` holds one of N numbered slot files with Python `fcntl` (no `flock(1)` — macOS lacks it); the timeout is always in force, a stuck holder is exit 75, never a hang.
 
 ## 3. Isolation
 
-`reef-graph worktree <task>` creates `.reef/worktrees/<id>` on `task/<id>-<slug>` from the current branch, runs the project's `worktree.setup` (`npm ci`, `uv sync`; empty = nothing — each worktree its own generated client, never the shared one) and records `worktree:`. The implementer is dispatched with that directory and never touches `tasks/`: **task state lives only in the orchestrator's checkout**. Verification runs in the worktree (snapshot before/after; nested worktrees are excluded from the hash since 0.4). On PASS the orchestrator — the feature branch's single writer — merges `task/<id>` with `--no-ff`, moves the task file to `done/` and writes the runlog row in that same merge commit, then removes the worktree. The row is never written on the task branch (method §5). Two guard rules come from the same wave: `git stash` is denied (one stack serves every worktree; one agent's pop applied another's), and a gate piped into `tail`/`grep` without `pipefail` is denied (the pipe reports the last command's exit code).
+`reef-graph worktree <task>` creates `.reef/worktrees/<id>` on `task/<id>-<slug>` from the current branch, runs the project's `worktree.setup` (`npm ci`, `uv sync`; empty = nothing — each worktree its own generated client, never the shared one) and records `worktree:`. The implementer is dispatched with that directory and never touches `tasks/`: **task state lives only in the orchestrator's checkout**. Verification runs in the worktree (snapshot before/after). On PASS the orchestrator — the feature branch's single writer — merges `task/<id>` with `--no-ff`, moves the task file to `done/` and writes the runlog row in that same merge commit, then removes the worktree. The row is never written on the task branch (method §5). Two guard rules come from the same wave: `git stash` is denied (one stack serves every worktree), and a gate piped into `tail`/`grep` without `pipefail` is denied (the pipe hides the exit code).
 
 ## 4. Guard enforcement
 
 `reef-guard.py` keeps its order — header → file → per-feature stamp → role model → blocked → cap → odometer — and adds the graph question, inside the graph lock and before the bump, importing the scheduler **from the plugin's own directory** (`rm scripts/reef-graph.py` in a project opens nothing). Denials name the reason: `blocked-by not done: 3 (pending)`, `resource 'db' held by task(s) 4`, `parallel cap 10 reached`. A retry after a FAIL finds the task already `in-progress`: it is discounted from its own counts, so it never self-blocks. Model per role: when `roles.<role>` is set the Agent call must carry that `model` (`author`, `verifier`, `plan_reviewer`, `adversary`, `mechanic`); fable plans, opus writes, attacks, verifies and reviews, sonnet does mechanical work — each project overrides. Escalation goes up (effort high after a FAIL), never down.
+
+## 4b. The adversarial stage and the claims
+
+A `tier: design` task runs the `loophole-hunter` (model `roles.adversary`) twice — on the plan before code, on the finished guard before close; never on mech. `scripts/reef-adversarial` records only a PASS without BLOCKER lines: `adversarial-plan: <hash of the plan content>` (the guard refuses the first implementer dispatch without it, or after a plan edit) and `adversarial-guard: <report>@<HEAD>` (the pre-commit refuses a design-tier task file entering `done/` without it). A BLOCKER goes back under the cap; a NEW-ROW becomes a queue row. Every fix round ends with a claims list; `scripts/reef-claims.py check` rejects a claim at a line the round did not add. After GREEN, `claims-only` is the one commit allowed (docs, comments, blank lines); else a BLOCKER or a new row — never a fourth round (44% of measured fix rounds came after GREEN).
 
 ## 5. The outer loop
 
@@ -41,12 +45,12 @@ The project loop is the same graph one level up: `docs/queue.md` holds one row p
 | file | holds | its one home for numbers |
 |---|---|---|
 | `.reef/config.json` | gates, caps, roles, graph, resources, worktree, tiers, writing caps, branches | **here** |
-| `AGENTS.md` | commands, layout, the loop, parallel rule, the writing rule, "Owner decision points" (never "Open questions"), the lessons that are prose | points at config, queue, constitution |
+| `AGENTS.md` | commands, layout, the loop, parallel rule, writing rule, "Owner decision points" (never "Open questions"), the lessons that are prose | config, queue, constitution |
 | `.specify/constitution.md` | 8 starter articles, each "what it prevents"; version + ADR-to-amend | — |
 | `docs/queue.md` | rules of the loop, columns, footnotes in the owner's words | task files for status |
 | `docs/adr/README.md`, `templates/adr.md` | `draft-<item>-<slug>.md`, `Status: Accepted (number at merge)`; numbered on the integration branch at merge | — |
 | `docs/journal.md` (`paths.runlog`), `HANDOFF.md` | headers; rewrite-whole rule | — |
-| `.github/workflows/ci.yml`, `.github/dependabot.yml` | PRs into the release branch only, `concurrency: cancel-in-progress`, `timeout-minutes`, cache; CI runs `scripts/reef-ci-local.sh` so local and CI are one list; Dependabot targets `branches.base`, weekly, grouped | config |
+| `.github/workflows/ci.yml`, `.github/dependabot.yml` | PRs into the release branch only, cancel-in-progress, timeouts, cache; CI runs `scripts/reef-ci-local.sh` so local and CI are one list; Dependabot on `branches.base`, weekly, grouped | config |
 | `scripts/reef-ci-local.sh` | `gates.full` + `gates.extra[]`, every exit code read, never piped; exit 2 = skipped ≠ success | config |
 | `scripts/reef-tier.py` | recomputes `tier:` from the diff (allowlist globs, product-line count, migration, ADR); can only make it heavier | config `tiers` |
 | `docs/day-zero.md` | the checklist, each line a command or a gate | — |
@@ -55,15 +59,15 @@ Idempotence: absent → written; identical → skipped; **different → never ov
 
 ## 7. Migration
 
-Zero-touch for execution: no `resources:` → no resource rule; no `graph` → parallel 10; the only new denial is an undone `blocked-by`, which a correctly ordered plan never trips, and a dispatch on the wrong model once `roles.*` is set. Re-run `/reef-init` for the project files; nothing existing is overwritten. Serial `/reef-task` remains a graph with one task in flight.
+Zero-touch for execution: no `resources:` → no resource rule; no `graph` → parallel 10; new denials: an undone `blocked-by` (a correctly ordered plan never trips it), `git stash`, a piped gate, a wrong model once `roles.*` is set, a design-tier dispatch without its adversarial pass. Re-run `/reef-init` for the project files; nothing existing is overwritten.
 
 ## 8. What this cannot cover
 
-- Launching every ready task is the orchestrator's duty (prose); the guard catches a wrong dispatch, not a missing one.
-- The hook cannot see an agent's cwd: "each implementer in its own worktree" is `reef-graph worktree` + the skill's instruction.
-- An undeclared resource is not serialised; the collision table is only as complete as the plan.
+- Launching every ready task is prose; the guard catches a wrong dispatch, not a missing one.
+- The hook cannot see an agent's cwd: the worktree rule is `reef-graph worktree` + the skill.
+- An undeclared resource is not serialised; the collision table is as complete as the plan.
 - A human's shell is not guarded; CI is the wall.
-- The outer loop's merge is one orchestrator's act; the lock exists for a second orchestrator, not for the model forgetting to merge.
+- Running the claims and adversarial scripts is the orchestrator's duty; what they check is code.
 
 ## Left for the owner
 
