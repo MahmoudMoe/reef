@@ -171,7 +171,18 @@ def main():
     paths = cfg.get("paths", {})
     tasks_dir = os.path.join(root, paths.get("tasks", "tasks"))
     adr_dir = os.path.join(root, paths.get("adr", "docs/adr"))
-    brief = next((os.path.join(root, b) for b in ("CLAUDE.md", "AGENTS.md")
+    def is_pointer(p):
+        """A CLAUDE.md that only says 'see AGENTS.md' (<= 3 non-blank lines naming it) is not the brief."""
+        try:
+            lines = [l for l in read(p).splitlines() if l.strip()]
+        except OSError:
+            return False
+        return len(lines) <= 3 and any("AGENTS.md" in l for l in lines)
+    candidates = ["CLAUDE.md", "AGENTS.md"]
+    if os.path.isfile(os.path.join(root, "CLAUDE.md")) and os.path.isfile(os.path.join(root, "AGENTS.md")) \
+       and is_pointer(os.path.join(root, "CLAUDE.md")):
+        candidates = ["AGENTS.md", "CLAUDE.md"]
+    brief = next((os.path.join(root, b) for b in candidates
                   if os.path.isfile(os.path.join(root, b))), None)
     stamp_path = os.path.join(tasks_dir, ".plan-review.json")
 
@@ -180,6 +191,16 @@ def main():
     if not isinstance(max_words, int) or isinstance(max_words, bool) or max_words < 0:
         fail(f".reef/config.json: plan.max_words {max_words!r} is not a non-negative integer")
         max_words = 0
+    # per-tier caps (reef-init writes writing.task_words: light/full/design); a tier's cap wins
+    # over plan.max_words for tasks of that tier, so the number has one home
+    tier_words = cfg.get("writing", {}).get("task_words", {}) if isinstance(cfg.get("writing", {}), dict) else {}
+    if not isinstance(tier_words, dict) or any(not isinstance(v, int) or isinstance(v, bool) or v < 0 for v in tier_words.values()):
+        fail(".reef/config.json: writing.task_words must map tier -> non-negative integer")
+        tier_words = {}
+
+    def word_cap(fm):
+        tier = fm.get("tier") or ("light" if fm.get("complexity") == "mech" else "full")
+        return tier_words.get(tier, max_words), ("writing.task_words." + tier) if tier in tier_words else "plan.max_words"
 
     # ---- collect plan artifacts (task files incl. done/ and rollups, ADRs)
     task_files, strays = [], []
@@ -383,12 +404,13 @@ def main():
         log_parts = LOG_HEADING.split(text, maxsplit=1)
         if len(log_parts) == 2 and re.search(r"^##[ \t]", log_parts[1], re.M):
             fail(f"{rel}: ## Log must be the LAST section — the stamp ignores everything after it")
-        if max_words:
+        cap, cap_name = word_cap(fm)
+        if cap:
             plan_text = log_parts[0]
             fmm = FM_RE.match(plan_text)
             words = len(re.findall(r"\S+", plan_text[fmm.end():] if fmm else plan_text))
-            if words > max_words:
-                fail(f"{rel}: {words} words > plan.max_words {max_words} (the Log does not count) — split the slice")
+            if words > cap:
+                fail(f"{rel}: {words} words > {cap_name} {cap} (the Log does not count) — split the slice")
         if fm.get("complexity") == "design":
             dec = section(text, "Decision")
             # comments don't count: the untouched template placeholder is an HTML comment,

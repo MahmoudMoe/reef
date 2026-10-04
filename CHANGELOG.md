@@ -20,6 +20,16 @@
 - **Claims bound to the round.** `scripts/reef-claims.py check` rejects a claim at a line the round did
   not add; `claims-only` is the one commit allowed after GREEN. Verifier and hunter attack the last
   round's fix first; "cannot verify here" needs the probe pasted.
+- **`/reef-init` is the full project setup.** `scripts/reef-init.py` renders `templates/project/`
+  (AGENTS.md, constitution, queue, ADR convention, journal, handoff, day-zero checklist, release-only
+  CI, Dependabot on the integration branch, the hooks and every Reef script) adapted to the detected
+  stack — idempotent: absent → written, identical → skipped, different → never overwritten (the
+  rendering lands in `.reef/proposed/` with a diff; `--accept` applies it). Config keys are merged,
+  never changed. `scripts/reef-ci-local.sh` (every gate, every exit code, 2 = skipped ≠ success; CI
+  runs the same script), `scripts/reef-tier.py` (a tier only gets heavier), `scripts/reef-queue.py`
+  (status derived from task files, ready rows, consistency, ADR numbering at merge). plan-check reads
+  AGENTS.md as the brief when CLAUDE.md is a pointer. `/reef-loop` drives the outer graph.
+- Arabic user manual: `docs/manual/ar/index.html`.
 - Model per role read at dispatch (`roles.*`, the guard refuses another model); `agents/mechanic.md`.
 - Defaults: `graph.parallel` 10, `resources.heavy.slots` 2, `worktree.setup` per project.
 - Version 0.5.0 (0.4.0 was `parallel-loop-compat`: merge setting, one cap per item, draft ADRs,

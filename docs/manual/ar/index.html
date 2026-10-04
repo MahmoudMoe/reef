@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>دليل Reef</title>
+<meta name="description" content="دليل المستخدم العربي لإضافة Reef في Claude Code: ما هي، كيف تتعلمها، كيف تبدأ مشروعًا جديدًا أو تعتمدها في مشروع موجود، الاستخدام اليومي، الجودة، التوفير، الأخطاء الشائعة، حل المشاكل، ومرجع سريع.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf9f6; --fg: #1d2429; --muted: #5b6770; --card: #ffffff; --line: #e3e0d8;
+    --accent: #0e7c7b; --accent-2: #d94f35; --warn-bg: #fff6e8; --warn-line: #e8c78f;
+    --code-bg: #f1efe9; --ok: #2f7d4a;
+    --font: "IBM Plex Sans Arabic", "Noto Kufi Arabic", "Segoe UI", Tahoma, system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141a1e; --fg: #e9e6df; --muted: #a2adb5; --card: #1c242a; --line: #2b353d;
+      --accent: #4fb3b1; --accent-2: #ef7a63; --warn-bg: #2a2418; --warn-line: #6b5527;
+      --code-bg: #0f1518; --ok: #6cc08b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141a1e; --fg: #e9e6df; --muted: #a2adb5; --card: #1c242a; --line: #2b353d;
+    --accent: #4fb3b1; --accent-2: #ef7a63; --warn-bg: #2a2418; --warn-line: #6b5527;
+    --code-bg: #0f1518; --ok: #6cc08b;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); line-height: 1.8; font-size: 17px; }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 16px 80px; }
+  header.top { border-bottom: 1px solid var(--line); padding: 28px 16px 20px; }
+  header.top .inner { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 2rem; margin: 0 0 6px; font-weight: 700; }
+  h2 { font-size: 1.45rem; margin: 48px 0 12px; padding-top: 12px; border-top: 2px solid var(--accent); font-weight: 700; }
+  h3 { font-size: 1.1rem; margin: 24px 0 8px; font-weight: 600; }
+  p { margin: 0 0 12px; }
+  .lead { color: var(--muted); font-size: 1.05rem; }
+  nav.toc { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin: 20px 0 0; padding: 0; list-style: none; }
+  nav.toc a { display: block; padding: 10px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; color: var(--fg); text-decoration: none; }
+  nav.toc a:hover { border-color: var(--accent); }
+  nav.toc .n { color: var(--accent); font-weight: 600; margin-inline-end: 6px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 14px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .card h4 { margin: 0 0 6px; font-size: 1rem; }
+  .card p { margin: 0; color: var(--muted); font-size: .95rem; }
+  code, pre { font-family: var(--mono); font-size: .9em; direction: ltr; unicode-bidi: isolate; }
+  code { background: var(--code-bg); padding: 1px 6px; border-radius: 6px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto; text-align: left; margin: 10px 0 16px; line-height: 1.6; }
+  pre code { background: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: .95rem; display: block; overflow-x: auto; }
+  th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  td code { white-space: nowrap; }
+  .note { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
+  .ok { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--accent-2); font-weight: 600; }
+  figure { margin: 16px 0 20px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { color: var(--muted); font-size: .9rem; margin-top: 8px; }
+  .steps { counter-reset: s; list-style: none; padding: 0; margin: 12px 0; }
+  .steps li { counter-increment: s; position: relative; padding: 10px 44px 10px 0; border-bottom: 1px dashed var(--line); }
+  .steps li::before { content: counter(s); position: absolute; right: 0; top: 10px; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: .9rem; }
+  dl { margin: 8px 0; }
+  dt { font-weight: 600; margin-top: 10px; }
+  dd { margin: 0 0 4px; color: var(--muted); }
+  .kbd { font-family: var(--mono); background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; direction: ltr; unicode-bidi: isolate; }
+  footer { color: var(--muted); font-size: .9rem; margin-top: 48px; border-top: 1px solid var(--line); padding-top: 16px; }
+  @media (max-width: 600px) { body { font-size: 16px; } h1 { font-size: 1.6rem; } h2 { font-size: 1.25rem; } }
+</style>
+</head>
+<body>
+<header class="top"><div class="inner">
+  <h1>دليل Reef</h1>
+  <p class="lead">إضافة لـ <span class="kbd">Claude Code</span> تدير مشروعك كـ<strong>رسم بياني من العمل المحكوم ببوابات</strong>: تخطيط، تنفيذ متوازٍ، تحقق مستقل، مراجعة محدودة الجولات، دمج آلي، وإصدار بيدك أنت. الإصدار 0.5.0.</p>
+  <nav class="toc" aria-label="المحتويات">
+    <a href="#what"><span class="n">1</span>ما هو Reef ولماذا</a>
+    <a href="#learn"><span class="n">2</span>كيف تذاكره</a>
+    <a href="#new"><span class="n">3</span>مشروع جديد</a>
+    <a href="#existing"><span class="n">4</span>مشروع موجود</a>
+    <a href="#daily"><span class="n">5</span>الاستخدام اليومي</a>
+    <a href="#quality"><span class="n">6</span>الجودة</a>
+    <a href="#cost"><span class="n">7</span>التوفير</a>
+    <a href="#mistakes"><span class="n">8</span>الأخطاء الشائعة</a>
+    <a href="#trouble"><span class="n">9</span>حل المشاكل</a>
+    <a href="#ref"><span class="n">10</span>مرجع سريع</a>
+  </nav>
+</div></header>
+
+<main>
+
+<h2 id="what">1. ما هو Reef ولماذا</h2>
+<p>عندما تعمل عدة وكلاء (agents) على مشروع واحد، تظهر ثلاث مشاكل: يكرر الوكيل جولات الإصلاح بلا نهاية، ويراجع الوكيل عمله بنفسه، وتتصادم الوكلاء على نفس الملفات والمنافذ. Reef يحل الثلاثة بـ<strong>آليات</strong> لا بنصائح: سكربتات، حارس (guard) يعترض كل أمر قبل تنفيذه، وخطافات git. وكل آلية تأتي باختبار يُظهرها <span class="bad">حمراء</span> عند العيب الذي وُجدت لتمنعه، لأن بوابة لم تُرَ حمراء قط هي زينة.</p>
+<div class="cards">
+  <div class="card"><h4>الرسم البياني (graph)</h4><p>المهام لها اعتماديات حقيقية (<code>blocked-by</code>). كل مهمة جاهزة تُرسل فورًا، بالتوازي، في نسخة عمل (worktree) خاصة بها.</p></div>
+  <div class="card"><h4>الحدود كبيانات</h4><p>عدد الجولات مكتوب في ملف المهمة نفسه، لا في ذاكرة النموذج. الحارس يرفض الإرسال بعد الحد حتى لو «نسي» الوكيل.</p></div>
+  <div class="card"><h4>الكاتب ≠ المُحقّق</h4><p>من كتب الكود لا يحكم عليه. المُحقّق سياق جديد، يكتب قاعدة النجاح قبل أن يقرأ الكود، وشجرة الملفات تُقارن قبله وبعده.</p></div>
+  <div class="card"><h4>مكان واحد لكل حقيقة</h4><p>كل رقم وقرار يعيش في ملف واحد (<code>.reef/config.json</code> للأرقام) وكل ما عداه يشير إليه. الجملة المكررة هي ما تتعطل عليه المراجعة التالية.</p></div>
+</div>
+<figure>
+<svg viewBox="0 0 900 180" role="img" aria-label="تدفق Reef: طابور، تخطيط، رسم مهام، مراجعة، دمج، إصدار">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+  <g font-family="IBM Plex Sans Arabic, sans-serif" font-size="15" fill="currentColor" stroke="currentColor">
+    <g fill="none" stroke-width="1.6">
+      <rect x="790" y="40" width="100" height="60" rx="10"/><rect x="640" y="40" width="120" height="60" rx="10"/>
+      <rect x="470" y="40" width="140" height="60" rx="10"/><rect x="310" y="40" width="130" height="60" rx="10"/>
+      <rect x="160" y="40" width="120" height="60" rx="10"/><rect x="10" y="40" width="120" height="60" rx="10"/>
+    </g>
+    <g stroke-width="1.6" marker-end="url(#a)">
+      <line x1="790" y1="70" x2="762" y2="70"/><line x1="640" y1="70" x2="612" y2="70"/><line x1="470" y1="70" x2="442" y2="70"/>
+      <line x1="310" y1="70" x2="282" y2="70"/><line x1="160" y1="70" x2="132" y2="70"/>
+    </g>
+    <g stroke="none" text-anchor="middle">
+      <text x="840" y="76">الطابور</text><text x="700" y="76">التخطيط</text><text x="540" y="66">رسم المهام</text><text x="540" y="88" font-size="12">بالتوازي</text>
+      <text x="375" y="76">المراجعة</text><text x="220" y="66">الدمج</text><text x="220" y="88" font-size="12">إلى develop</text><text x="70" y="66">الإصدار</text><text x="70" y="88" font-size="12">أنت تدمج إلى main</text>
+    </g>
+    <path d="M70,100 C70,150 840,150 840,100" fill="none" stroke-dasharray="5 5" stroke-width="1.4" marker-end="url(#a)"/>
+    <text x="450" y="160" text-anchor="middle" stroke="none" font-size="12">الصف التالي من الطابور</text>
+  </g>
+</svg>
+<figcaption>الحلقة الخارجية: صف من الطابور → تخطيط → رسم مهام ينفَّذ بالتوازي → مراجعة → دمج إلى فرع التكامل → إغلاق. الإصدار إلى <code>main</code> وحده بيدك.</figcaption>
+</figure>
+
+<h2 id="learn">2. كيف تذاكره</h2>
+<p>بالترتيب، وكل مرحلة تبني على ما قبلها:</p>
+<ol class="steps">
+  <li><strong>المفاهيم</strong> (هذا القسم والمسرد أدناه): مهمة، بوابة، حارس، رسم بياني، worktree، طبقة (tier)، سقف الجولات.</li>
+  <li><strong>التشغيل الأول</strong> (القسم 3): مشروع صغير، <code>/reef-init</code>، ثم صف واحد في الطابور حتى الدمج. اقرأ ما كتبه كل أمر.</li>
+  <li><strong>الاستخدام اليومي</strong> (القسم 5): <code>/reef-loop</code> يدير كل شيء؛ أنت تجيب عن أسئلتك فقط، مجمَّعة.</li>
+  <li><strong>المتقدم</strong> (القسمان 6 و7): طبقة design والمرحلة العدائية، الموارد المشتركة، ضبط النماذج والحدود في <code>.reef/config.json</code>.</li>
+</ol>
+<h3>المسرد</h3>
+<dl>
+  <dt>Task (مهمة)</dt><dd>شريحة رأسية واحدة في <code>tasks/NNN-slug.md</code>: النطاق، معايير القبول (كل معيار يسمّي اختباره)، <code>blocked-by</code>، <code>resources</code>، <code>tier</code>. ملف المهمة هو المواصفة (spec).</dd>
+  <dt>Gate (بوابة)</dt><dd>فحص حتمي لا يُجادَل: الاختبارات، البناء، فحص الأسرار. <code>gates.fast</code> عند كل commit و<code>gates.full</code> عند التحقق والمراجعة وCI.</dd>
+  <dt>Guard (الحارس)</dt><dd><code>scripts/reef-guard.py</code>: خطاف يعترض كل أمر Bash وكل إرسال وكيل قبل التنفيذ ويرفض ما يخالف القواعد (تجاوز البوابة، مهمة خارج المجموعة الجاهزة، نموذج خطأ، <code>git stash</code>).</dd>
+  <dt>Ready set (المجموعة الجاهزة)</dt><dd>المهام التي اكتملت اعتمادياتها ومواردها حرة وعددها تحت <code>graph.parallel</code>. يحسبها <code>scripts/reef-graph.py ready</code> من الملفات على القرص.</dd>
+  <dt>Worktree</dt><dd>نسخة عمل git منفصلة لكل مهمة في <code>.reef/worktrees/&lt;id&gt;</code> بفرعها الخاص واعتمادياتها الخاصة.</dd>
+  <dt>Tier (الطبقة)</dt><dd><code>light</code> (مسارات آمنة فقط، صغيرة) / <code>full</code> (الافتراضي) / <code>design</code> (آلية فشلت مرتين، أو خصوصية أو مال أو حارس). الطبقة لا تخف إلا بقرار، وتثقل آليًا من حجم التغيير.</dd>
+  <dt>Cap (السقف)</dt><dd>عدد جولات الإصلاح لكل مهمة ولكل بند (<code>caps.attempts</code>). بعده يتوقف العمل ويُسجَّل العائق، ولا جولة رابعة.</dd>
+  <dt>Plan stamp (ختم الخطة)</dt><dd>بصمة لمحتوى الخطة بعد مراجعتها؛ أي تعديل على الخطة بعد الموافقة يُبطل الختم فيرفض الحارس الإرسال حتى تُراجَع من جديد.</dd>
+  <dt>ADR</dt><dd>سجل قرار معماري: ما قُرّر، لماذا، ما رُفض، وما تكلفته. يُكتب مسودة بلا رقم على الفرع، ويُرقَّم عند الدمج.</dd>
+</dl>
+
+<h2 id="new">3. مشروع جديد: خطوة بخطوة</h2>
+<ol class="steps">
+  <li><strong>التثبيت</strong> مرة واحدة في Claude Code:
+<pre><code>/plugin marketplace add MahmoudMoe/reef
+/plugin install reef@mahmoudmoe</code></pre>
+  وثبّت أيضًا <code>review-toolkit</code> (المراجعون <code>plan-review</code>، <code>code-excellence</code>، <code>code-security</code> في <code>~/.claude/agents/</code>).</li>
+  <li><strong><code>/reef-init</code></strong> داخل المشروع (مستودع git). يسألك سؤالًا واحدًا مجمَّعًا: فرع التكامل وفرع الإصدار (الافتراضي <code>develop</code> → <code>main</code>). ثم يكتشف المكدس (<code>package.json</code>، <code>pyproject.toml</code>، <code>Cargo.toml</code>، <code>go.mod</code>) ويكتب:
+    <table><thead><tr><th>الملف</th><th>ماذا يحمل</th></tr></thead><tbody>
+      <tr><td><code>.reef/config.json</code></td><td>كل إعداد وكل رقم، مرة واحدة: البوابات، السقف، النماذج (<code>roles.*</code>)، <code>graph.parallel</code>، الموارد، الطبقات، حدود الكتابة، الفروع.</td></tr>
+      <tr><td><code>AGENTS.md</code> + <code>CLAUDE.md</code></td><td>تعليمات أي وكيل: الأوامر، التخطيط، كيف يسير العمل، القواعد المقيسة، «Owner decision points». <code>CLAUDE.md</code> سطر واحد يشير إليه.</td></tr>
+      <tr><td><code>.specify/constitution.md</code></td><td>8 مواد لا تنكسر، كل مادة تقول ما تمنعه. تغييرها يحتاج ADR ورفع رقم الإصدار.</td></tr>
+      <tr><td><code>docs/queue.md</code></td><td>صف لكل وحدة عمل (id · سطر · depends · source · batch) بلا عمود حالة: الحالة تُقرأ من ملفات المهام. قراراتك حواشٍ بكلماتك.</td></tr>
+      <tr><td><code>docs/adr/README.md</code></td><td>اتفاقية ADR: مسودة <code>draft-&lt;row&gt;-&lt;slug&gt;.md</code> بلا رقم، تُرقَّم عند الدمج.</td></tr>
+      <tr><td><code>docs/journal.md</code> و<code>HANDOFF.md</code></td><td>سجل لكل دمج (الجولات، ما تحقق وكيف، وما لم يتحقق)، وملف تسليم يُعاد كتابته كاملًا نهاية كل جلسة.</td></tr>
+      <tr><td><code>.github/workflows/ci.yml</code> و<code>dependabot.yml</code></td><td>CI على pull requests إلى فرع الإصدار فقط، يشغّل نفس سكربت البوابات المحلي. Dependabot يستهدف فرع التكامل أسبوعيًا مجمَّعًا.</td></tr>
+      <tr><td><code>scripts/reef-*</code> و<code>.githooks/</code></td><td>كل آليات Reef نسخة في مشروعك، وخطّاف الـcommit الذي يختبر الـindex.</td></tr>
+      <tr><td><code>docs/day-zero.md</code></td><td>قائمة اليوم صفر: كل سطر أمر أو بوابة، تُعلَّم عندما تخضرّ.</td></tr>
+    </tbody></table>
+    ثم يثبّت الخطافات (<code>git config core.hooksPath .githooks</code>) ويعمل commit واحدًا <code>chore: reef init</code>.</li>
+  <li><strong>أكمل اليوم صفر</strong>: افتح <code>docs/day-zero.md</code>. الأهم: أمر الاختبار إن لم يُكتشف (<code>gates.full</code> فارغ يعني أن البوابة <span class="bad">تفشل بصوت عالٍ</span> حتى تضبطها، لا بوابة وهمية)، وقائمة المسارات الآمنة للطبقة الخفيفة <code>tiers.light.allow</code>، ومواد الدستور مقصوصة على مشروعك.</li>
+  <li><strong>املأ الطابور</strong> بصفوف الدفعة الأولى (<code>Source: planned</code>) قبل أي كود.</li>
+  <li><strong><code>/reef-loop</code></strong>: يأخذ أول صف جاهز، يخطط (<code>/reef-plan</code>: أسئلة مركزة ثم شرائح رأسية، كل شريحة تسمّي اختبارها الذي يجب أن يكون أحمر قبل العمل)، سؤال موافقة واحد مجمَّع، مراجعة الخطة (<code>/reef-plan-review</code>)، ثم تنفيذ الرسم (<code>/reef-task</code>) والمراجعة (<code>/reef-review</code>) والدمج إلى <code>develop</code> والإغلاق.</li>
+  <li><strong>الإصدار</strong>: عندما تكتمل الدفعة، يفتح الحلقة pull request من <code>develop</code> إلى <code>main</code>، يعمل CI مرة واحدة، <strong>وأنت تدمجه</strong>. بعده <code>/clear</code> وتبدأ جلسة جديدة من <code>HANDOFF.md</code>.</li>
+</ol>
+
+<h2 id="existing">4. مشروع موجود: الاعتماد الآمن</h2>
+<p>نفس الأمر <code>/reef-init</code>، والقاعدة الواحدة لكل ملف:</p>
+<div class="cards">
+  <div class="card"><h4><span class="ok">غير موجود</span> → يُكتب</h4><p>الملفات التي تنقصك تُولَّد ومتوائمة مع مكدسك.</p></div>
+  <div class="card"><h4><span class="ok">مطابق</span> → يُتجاوز</h4><p>التشغيل الثاني بلا تغيير لا يكتب شيئًا (<code>0 written</code>).</p></div>
+  <div class="card"><h4><span class="bad">مختلف</span> → <strong>لا يُستبدل أبدًا</strong></h4><p>ملفك يبقى كما هو. النسخة المقترحة تُوضع في <code>.reef/proposed/&lt;path&gt;</code> ويُطبع الفرق (diff). تقبل ما تريد: <code>python3 scripts/reef-init.py --accept &lt;path&gt;</code>.</p></div>
+</div>
+<p><code>.reef/config.json</code> يُدمَج: المفاتيح الناقصة تُضاف بقيمها الافتراضية، وما ضبطته أنت لا يتغير. <code>.gitignore</code> وMakefile يُضاف إليهما سطر، ولا يُعاد كتابتهما. <code>CLAUDE.md</code> الذي كتبته أنت يبقى لك ولا يُقترح بديل.</p>
+<div class="note"><strong>الترحيل من 0.3/0.4:</strong> لا يتغير شيء في التنفيذ إلا أربع حالات يرفضها الحارس الآن: إرسال مهمة اعتماديتها لم تكتمل، <code>git stash</code>، بوابة مضخوخة في <code>tail</code>، ونموذج غير المضبوط في <code>roles.*</code>. أعد تشغيل <code>/reef-plan-review</code> مرة واحدة (أختام 0.3 تُقرأ كمفقودة). بعد ترقية الإضافة أعد <code>/reef-init</code>: السكربتات المتغيرة تُقترح لا تُستبدل، واقبلها فهي ملك Reef لا ملكك.</div>
+
+<h2 id="daily">5. الاستخدام اليومي</h2>
+<h3>الحلقة رسم بياني</h3>
+<figure>
+<svg viewBox="0 0 900 230" role="img" aria-label="رسم مهام: المهمة 1 جاهزة، 2 و3 تعتمدان على 1، 4 تعتمد على 2 و3؛ 2 و3 تعملان بالتوازي في worktree لكل منهما">
+  <defs><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+  <g font-family="IBM Plex Sans Arabic, sans-serif" font-size="14" fill="currentColor" stroke="currentColor">
+    <g fill="none" stroke-width="1.6">
+      <circle cx="780" cy="115" r="34"/><circle cx="560" cy="55" r="34"/><circle cx="560" cy="175" r="34"/><circle cx="340" cy="115" r="34"/>
+      <rect x="120" y="20" width="150" height="70" rx="10" stroke-dasharray="4 4"/><rect x="120" y="140" width="150" height="70" rx="10" stroke-dasharray="4 4"/>
+    </g>
+    <g stroke-width="1.6" marker-end="url(#b)">
+      <line x1="746" y1="100" x2="596" y2="62"/><line x1="746" y1="130" x2="596" y2="168"/>
+      <line x1="526" y1="62" x2="376" y2="100"/><line x1="526" y1="168" x2="376" y2="130"/>
+    </g>
+    <g stroke="none" text-anchor="middle">
+      <text x="780" y="110">1</text><text x="780" y="128" font-size="11">done</text>
+      <text x="560" y="50">2</text><text x="560" y="68" font-size="11">in-progress</text>
+      <text x="560" y="170">3</text><text x="560" y="188" font-size="11">in-progress</text>
+      <text x="340" y="110">4</text><text x="340" y="128" font-size="11">waiting</text>
+      <text x="195" y="48" font-size="12">.reef/worktrees/2</text><text x="195" y="70" font-size="12">task/2-slug · resources: [db]</text>
+      <text x="195" y="168" font-size="12">.reef/worktrees/3</text><text x="195" y="190" font-size="12">task/3-slug · resources: [port:3000]</text>
+    </g>
+    <g stroke-width="1.2" stroke-dasharray="3 3"><line x1="526" y1="40" x2="270" y2="40"/><line x1="526" y1="190" x2="270" y2="190"/></g>
+  </g>
+</svg>
+<figcaption>المهمتان 2 و3 جاهزتان معًا بعد اكتمال 1 فتُرسَلان في الرسالة نفسها، كل واحدة في worktree خاص بها ومواردها معلنة. المهمة 4 تنتظر. الحارس يرفض إرسال 4 الآن، وأي مهمة ثانية تطلب <code>db</code> وهو محجوز.</figcaption>
+</figure>
+<p>أمر واحد يدير اليوم: <code>/reef-loop</code>. يقرأ الصفوف الجاهزة (<code>scripts/reef-queue.py ready</code>: الدفعة الحالية، المخطط قبل المكتشف)، ويشغّل كل صف لا يتصادم مع غيره بالتوازي، حتى <code>graph.parallel</code> وكيلًا. وداخل كل صف يشغّل <code>/reef-task</code> كل مهمة جاهزة فورًا. ينهي كل رد بسطر واحد: <code>in flight: … / waiting on: …</code>.</p>
+<h3>كيف يعمل الوكلاء المتوازون</h3>
+<ul>
+  <li>كل وكيل تنفيذ في worktree خاص بفرعه <code>task/&lt;id&gt;-&lt;slug&gt;</code>، ويشغّل <code>worktree.setup</code> (مثل <code>npm ci</code>) لنسخته الخاصة من الاعتماديات والكود المولَّد. لا أحد يلمس النسخة المشتركة.</li>
+  <li>الموارد المشتركة تُعلَن في المهمة: <code>resources: [db, port:3000, browser, heavy]</code>. عدد الحاملين في <code>resources.&lt;name&gt;.slots</code> (الافتراضي 1، و<code>heavy</code> اثنان). الأوامر الثقيلة تمر عبر <code>scripts/reef-graph.py lock heavy -- &lt;cmd&gt;</code>.</li>
+  <li>حالة المهمة على القرص فقط (<code>status</code>، <code>attempts</code>، <code>worktree</code> في مقدمة ملف المهمة)، فإعادة التشغيل تعيد حساب الرسم كله: <code>scripts/reef-graph.py status</code>.</li>
+  <li>الدمج بيد المنسّق وحده (كاتب واحد لفرع الميزة)، وبعد التسليم <strong>النهائي</strong> للوكيل لا عند رؤية تقريره.</li>
+</ul>
+<h3>متى يسألك ومتى لا</h3>
+<table><thead><tr><th>يسألك</th><th>لا يسألك</th></tr></thead><tbody>
+<tr><td>بيانات شخصية تخرج من النظام؛ ادعاء تجاري؛ شكل منتجك؛ مال؛ تغيير قاعدة.</td><td>كل ما عدا ذلك يقرره ويسجله (في ADR أو حاشية).</td></tr>
+<tr><td>الموافقة على خطة الدفعة وقرارات طبقة design — <strong>في سؤال واحد مجمَّع</strong>، كل بند 2–4 خيارات، الموصى به أولًا بعلامة (Recommended) وسطر مقايضة.</td><td>لا يسأل سؤالًا تلو سؤال. ما لم تجب عنه يأخذ الافتراضي، إلا البيانات الشخصية والادعاءات والتغيير المرئي في منتجك.</td></tr>
+<tr><td>عمل التصميم: صفحة معاينة كاملة لكل شاشة قبل أي بناء.</td><td>داخل البند لا ينتظر موافقة: يتوقف فقط لقرارك، أو بيانات اعتماد ناقصة، أو مواصفة خطأ (يعدّلها ويكمل)، أو السقف.</td></tr>
+</tbody></table>
+
+<h2 id="quality">6. الجودة</h2>
+<div class="cards">
+  <div class="card"><h4>مراجعة الخطة</h4><p><code>scripts/reef-plan-check.py</code> فحوص حتمية (المعرّفات، الدورات، كل معيار يسمّي اختبارًا، الطبقة تطابق التعقيد، لا عنوان «Open questions») ثم وكيل <code>plan-reviewer</code> يراجع المعنى. النجاح يكتب ختم الخطة.</p></div>
+  <div class="card"><h4>المُحقّق (verifier)</h4><p>سياق جديد يكتب <code>RULE AC&lt;n&gt;</code> لكل معيار <strong>قبل</strong> قراءة الكود، يعيد تشغيل البوابة بنفسه، ويقدم دليلًا لكل معيار. في إعادة التحقق يهاجم إصلاح الجولة السابقة أولًا. أي تعديل منه على الشجرة = فشل تلقائي.</p></div>
+  <div class="card"><h4>المرحلة العدائية</h4><p><code>loophole-hunter</code> يسأل: «كيف يكون كل شيء أخضر والعيب يحدث؟». إلزامي مرتين في طبقة design: على الخطة قبل الكود (الحارس يرفض الإرسال بدون سجلها) وعلى الحارس المكتمل قبل الإغلاق (الـcommit يرفض بدونه). لا يعمل أبدًا على mech.</p></div>
+  <div class="card"><h4>السقف</h4><p><code>caps.attempts</code> جولات لكل مهمة، وسقف واحد للبند كله عبر القبول والمراجعة وCI (ملف rollup واحد). بعد حكم GREEN: commit ادعاءات فقط أو BLOCKER أو صف جديد. لا جولة رابعة.</p></div>
+</div>
+<h3>لماذا يجب أن تُرى البوابة حمراء</h3>
+<p>بوابة لم تفشل قط أمام العيب الذي وُجدت له قد تكون لا تفحص شيئًا. لذلك لكل آلية في Reef اختبار يُظهرها حمراء أولًا (<code>sh tests/run.sh</code>)، ولكل مهمة اختبار يُسمّى في معيار القبول ويكون أحمر قبل العمل. القاعدة: <strong>لا اختبار فاشل = لا مهمة</strong>.</p>
+
+<h2 id="cost">7. التوفير: tokens ودقائق CI</h2>
+<table><thead><tr><th>ما يفعله Reef</th><th>ما تواصله أنت</th></tr></thead><tbody>
+<tr><td>النموذج حسب الوظيفة (<code>roles.*</code>): <strong>fable</strong> للتخطيط ومراجعة الخطة، <strong>opus</strong> لكتابة الكود والتحقق والمراجعة والهجوم، <strong>sonnet</strong> للعمل الميكانيكي (rebase، تشغيل البوابات، إعادة القياسات، الأرشفة) ولا يكتب ادعاءً نثريًا. الحارس يرفض نموذجًا غير المضبوط.</td><td>اترك الأدوار كما هي إلا لسبب مقيس، وغيّرها في <code>.reef/config.json</code> لا في ملفات الوكلاء.</td></tr>
+<tr><td>CI على pull requests إلى <code>main</code> فقط، مرة واحدة، مع <code>cancel-in-progress</code>. البوابة المحلية <code>scripts/reef-ci-local.sh</code> تشغّل نفس القائمة وتقرأ كل exit code (2 = شيء تخطّى وليس نجاحًا).</td><td>لا تدفع إلى <code>develop</code> أثناء CI للإصدار. اجعل <code>gates.fast</code> أقل من دقيقة.</td></tr>
+<tr><td>الكتابة أقل: حدود كلمات للمواصفة والتسليم والـprompt (<code>writing.*</code>)، قائمة ادعاءات بدل سرد، مكان واحد لكل حقيقة.</td><td>اكتب قراراتك في الحواشي بكلماتك، ولا تنسخ رقمًا في مكانين.</td></tr>
+<tr><td>منسّق جديد لكل إصدار: <code>HANDOFF.md</code> يُعاد كتابته ثم <code>/clear</code>. سياق المنسّق الطويل كان ~20% من tokens يوم مقيس.</td><td>اقبل الـ<code>/clear</code> عند نهاية الوحدة، لا في منتصفها.</td></tr>
+<tr><td>mech بلا وكيل تحقق (بوابة + اختبار ذهبي)؛ المرحلة العدائية في design فقط.</td><td>لا تطلب «مراجعة إضافية» على mech؛ ارفع الطبقة إن كان الخطر يستحق.</td></tr>
+</tbody></table>
+
+<h2 id="mistakes">8. الأخطاء الشائعة وكيف تتجنبها</h2>
+<p>كلها مقيسة على مشروع حقيقي، ولكل واحدة آلية أو سطر في <code>AGENTS.md</code> المولَّد، لا الاثنان معًا:</p>
+<table><thead><tr><th>الخطأ</th><th>ما يمنعه</th></tr></thead><tbody>
+<tr><td>جولات إصلاح بعد GREEN (44% من الجولات المقيسة)</td><td>سقف واحد للبند؛ <code>reef-claims.py claims-only</code>؛ BLOCKER أو صف جديد</td></tr>
+<tr><td>حقيقة مكررة تنحرف (24 جولة تعطلت على جملة خاطئة مقابل 14 على عيب)</td><td>مكان واحد لكل حقيقة؛ قائمة ادعاءات مربوطة بسطور الجولة (<code>reef-claims.py check</code>)</td></tr>
+<tr><td><code>git stash</code> مع worktrees متوازية (pop وكيل طبّق عمل وكيل آخر)</td><td>الحارس يرفضه</td></tr>
+<tr><td>بوابة عبر <code>| tail</code> فيختفي exit code</td><td>الحارس يرفضه؛ <code>reef-ci-local.sh</code> يقرأ كل كود مباشرة</td></tr>
+<tr><td>استعادة ملف مولَّد تحت خادم يعمل، أو إعادة توليد عميل مشترك من worktree</td><td><code>worktree.setup</code> لكل نسخة؛ سطر في AGENTS.md</td></tr>
+<tr><td>«لا أستطيع التحقق هنا» بلا فحص (كانت هناك قاعدة بيانات محلية)</td><td>المُحقّق يلصق ناتج الفحص قبل الجملة</td></tr>
+<tr><td>حارس ضُيِّق من «ارفض إلا المستثنى» إلى «اقبل إلا المذكور»</td><td>مادة في الدستور؛ المرحلة العدائية تبحث عنها</td></tr>
+<tr><td>اختبار متخطَّى يُقرأ أخضر؛ فحص لا يعمل إلا على <code>main</code></td><td>exit 2 للتخطي؛ CI يشغّل نفس السكربت المحلي</td></tr>
+<tr><td>CI مرتين لكل إصدار</td><td>لا <code>push:</code> في الـworkflow المولَّد</td></tr>
+<tr><td>دمج قبل التسليم النهائي للوكيل؛ توسع النطاق وسط الدفعة</td><td>سطر في AGENTS.md؛ الدفعة مجمَّدة بمادة في الدستور وقاعدة في الطابور</td></tr>
+<tr><td>20 وكيلًا ثقيلًا على جهاز واحد (load ~90)</td><td><code>graph.parallel</code> = 10، و<code>heavy</code> بفتحتين</td></tr>
+</tbody></table>
+
+<h2 id="trouble">9. حل المشاكل</h2>
+<dl>
+  <dt><code>reef-guard DENY: … is not in the ready set — blocked-by not done</code></dt><dd>اعتمادية لم تكتمل. <code>scripts/reef-graph.py status</code> يريك ما ينتظر ماذا. لا تعدّل <code>blocked-by</code> لتمريرها إلا إن كانت الحافة وهمية، وعندها ستحتاج مراجعة خطة.</dd>
+  <dt><code>resource 'db' held by task(s) 4</code> أو <code>parallel cap 10 reached</code></dt><dd>انتظر اكتمال الحامل، أو ارفع <code>resources.db.slots</code> / <code>graph.parallel</code> في الإعدادات إن كان الجهاز يحتمل.</dd>
+  <dt><code>plan stamp is stale or missing</code></dt><dd>الخطة تغيرت بعد مراجعتها (أو لم تُراجَع). شغّل <code>/reef-plan-review</code> في worktree المهمة نفسه. تذكّر أن <code>status</code> و<code>attempts</code> و<code>worktree</code> لا تُبطل الختم، أما <code>resources</code> والنطاق فيُبطلانه.</dd>
+  <dt><code>is at the retry cap</code> / <code>task is blocked</code></dt><dd>السقف. اقرأ الفشل المسجل (<code>last_failure_sig</code> والسجل)، قرر: أعد التخطيط أو افتح صفًا جديدًا. فك الحظر يدوي وثلاثة حقول: <code>attempts: 0</code>، <code>status: pending</code>، <code>last_failure_sig: ""</code>.</dd>
+  <dt><code>must run on roles.author = 'opus'</code></dt><dd>الإرسال لم يحمل النموذج المضبوط. مرّر <code>model=</code> كما طبعه <code>reef-attempt</code>، أو غيّر الدور في الإعدادات إن كان القرار قرارك.</dd>
+  <dt><code>tier: design with no adversarial-plan record</code></dt><dd>شغّل <code>loophole-hunter</code> على الخطة وسجّل نجاحه: <code>scripts/reef-adversarial &lt;task&gt; plan &lt;report&gt;</code>. تقرير فيه BLOCKER لا يُسجَّل حتى يُصلَح.</dd>
+  <dt>الـcommit مرفوض: <code>closing without adversarial-guard</code></dt><dd>مهمة design تُغلق بلا مرور الهجوم الثاني على الحارس المكتمل. شغّله وسجّل: <code>… guard &lt;report&gt;</code>.</dd>
+  <dt><code>gate … piped into another command</code> / <code>git stash</code></dt><dd>اقرأ exit code مباشرة (<code>&gt; out.txt; echo $?</code> أو <code>set -o pipefail</code>). بدل stash: commit على فرع المهمة (البوابة يجب أن تمر) أو worktree آخر.</dd>
+  <dt>CI أحمر على pull request الإصدار</dt><dd>اقرأ السجل الفعلي لا اسم الاختبار. سجّل الفشل على rollup الميزة بـ<code>scripts/reef-attempt</code> (نفس السقف)، أصلح، وتحقق محليًا بـ<code>sh scripts/reef-ci-local.sh --ci</code> قبل الدفع. إن فشل شيء على <code>main</code> ولم يفشل محليًا فالقائمة تختلف: أضفه إلى <code>gates.extra</code>.</dd>
+  <dt><code>reef-ci-local: exit 2</code></dt><dd>بوابة تخطّت (exit 77). ليست نجاحًا. سمّها بـ<code>--require &lt;name&gt;</code> حتى يصير التخطي فشلًا، أو وفّر ما تحتاجه (قاعدة بيانات محلية مثلًا).</dd>
+  <dt><code>reef-init: PROPOSED &lt;file&gt;</code></dt><dd>ملف عندك يختلف عن النسخة المولَّدة. اقرأ الفرق المطبوع، ثم <code>--accept</code> لما تريد، وتجاهل الباقي.</dd>
+</dl>
+
+<h2 id="ref">10. مرجع سريع</h2>
+<h3>الأوامر</h3>
+<table><thead><tr><th>الأمر</th><th>ماذا يفعل</th></tr></thead><tbody>
+<tr><td><code>/reef-init</code></td><td>الإعداد الكامل (جديد أو موجود)، لا يستبدل ملفك أبدًا؛ <code>--accept</code> لتطبيق مقترح</td></tr>
+<tr><td><code>/reef-loop [row]</code></td><td>الحلقة الخارجية: الصفوف الجاهزة → تخطيط → رسم → مراجعة → دمج → إغلاق، بالتوازي</td></tr>
+<tr><td><code>/reef-plan &lt;spec&gt;</code></td><td>أسئلة، شرائح رأسية، <code>blocked-by</code>/<code>resources</code>/<code>tier</code>، بوابة موافقة واحدة مجمَّعة</td></tr>
+<tr><td><code>/reef-plan-review</code></td><td>فحوص حتمية + مراجعة معنوية؛ يكتب ختم الخطة</td></tr>
+<tr><td><code>/reef-task &lt;feature&gt;</code></td><td>رسم المهام: كل مهمة جاهزة الآن، worktree لكل واحدة، تنفيذ → تحقق → دمج</td></tr>
+<tr><td><code>/reef-review &lt;feature&gt;</code></td><td>دفع، PR، قبول، مراجعة الفرق، البوابة المحلية أو CI، rollup واحد بسقف واحد، دمج إن <code>merge.by: loop</code></td></tr>
+<tr><td><code>/reef-verify</code></td><td>مرور تحقق عدائي مستقل على مهمة أو فرق</td></tr>
+<tr><td><code>/reef</code></td><td>حالة المشروع: الرسم، البوابات، آخر السجل، الأمر التالي</td></tr>
+<tr><td><code>scripts/reef-graph.py ready|status|check|worktree|lock</code></td><td>المجموعة الجاهزة، حالة كل مهمة، سؤال الحارس، إنشاء worktree، قفل مورد بفتحات</td></tr>
+<tr><td><code>scripts/reef-queue.py status|ready|check|adr-number</code></td><td>حالة الصفوف المشتقة، الصفوف الجاهزة، الاتساق، ترقيم مسودات ADR عند الدمج</td></tr>
+<tr><td><code>scripts/reef-attempt &lt;task&gt; [failure]</code></td><td>تسجيل فشل ورفع العداد؛ يطبع النموذج والجهد لإرسال التالي</td></tr>
+<tr><td><code>scripts/reef-adversarial &lt;task&gt; plan|guard &lt;report&gt;</code></td><td>تسجيل نجاح المرور العدائي (PASS بلا BLOCKER فقط)</td></tr>
+<tr><td><code>scripts/reef-claims.py check|claims-only</code></td><td>الادعاءات مربوطة بسطور الجولة؛ لا كود بعد GREEN</td></tr>
+<tr><td><code>scripts/reef-tier.py &lt;task&gt; [--write]</code></td><td>حساب الطبقة من الفرق؛ تثقل فقط</td></tr>
+<tr><td><code>scripts/reef-ci-local.sh [--require a,b] [--ci]</code></td><td>كل البوابات محليًا، كل exit code مقروء؛ 2 = تخطٍّ</td></tr>
+<tr><td><code>scripts/reef-gate.sh fast|full</code> · <code>reef-snapshot.sh</code> · <code>reef-plan-check.py</code></td><td>البوابة، بصمة الشجرة، فحص الخطة والختم</td></tr>
+</tbody></table>
+<h3>مفاتيح <code>.reef/config.json</code></h3>
+<table><thead><tr><th>المفتاح</th><th>الافتراضي</th><th>الأثر</th></tr></thead><tbody>
+<tr><td><code>gates.fast</code> / <code>gates.full</code> / <code>gates.extra</code></td><td>"" / اختبار المكدس / {}</td><td>بوابة الـcommit / التحقق والمراجعة وCI / بوابات أخرى يشغّلها <code>reef-ci-local.sh</code></td></tr>
+<tr><td><code>caps.attempts</code></td><td>3</td><td>جولات الإصلاح لكل مهمة، وللبند على rollup</td></tr>
+<tr><td><code>graph.parallel</code></td><td>10</td><td>المهام في التنفيذ معًا</td></tr>
+<tr><td><code>resources.&lt;name&gt;.slots</code></td><td>1 (heavy: 2)</td><td>حاملو المورد معًا</td></tr>
+<tr><td><code>worktree.dir</code> / <code>worktree.setup</code></td><td>.reef/worktrees / أمر التثبيت</td><td>مكان الـworktrees وأمر تهيئة كل واحد</td></tr>
+<tr><td><code>roles.*</code></td><td>author opus · verifier opus · plan_reviewer fable · planner fable · adversary opus · reviewer opus · security opus · mechanic sonnet</td><td>النموذج لكل وظيفة، يفرضه الحارس عند الإرسال</td></tr>
+<tr><td><code>merge.by</code></td><td>human (loop مع فرعين)</td><td>من يدمج PR الميزة إلى فرع التكامل؛ الإصدار دائمًا بيدك</td></tr>
+<tr><td><code>ci.feature_gate</code></td><td>ci (local مع فرعين)</td><td>بوابة PR الميزة: CI أم السكربت المحلي</td></tr>
+<tr><td><code>branches.base</code> / <code>branches.release</code></td><td>main / main (init: develop / main)</td><td>فرع التكامل / فرع الإصدار</td></tr>
+<tr><td><code>tiers.light.allow</code> / <code>max_lines</code> / <code>migrations</code></td><td>docs/**, README.md / 80 / مجلدات الترحيل</td><td>ما يجوز أن يكون light</td></tr>
+<tr><td><code>writing.*</code></td><td>600/2500 كلمة للمهمة، 150 للتسليم، 120 للـprompt، 40000 للسجل، 35000 للطابور</td><td>حدود الكتابة</td></tr>
+<tr><td><code>paths.*</code></td><td>tasks, docs/adr, docs/glossary.md, docs/journal.md, docs/queue.md</td><td>أين تعيش الأشياء</td></tr>
+<tr><td><code>plan.test_re</code> / <code>plan.max_words</code></td><td>"" / 0</td><td>نمط أسماء الاختبارات / سقف كلمات ملف المهمة</td></tr>
+</tbody></table>
+
+<footer>Reef 0.5.0 · <a href="https://github.com/MahmoudMoe/reef">github.com/MahmoudMoe/reef</a> · التصميم: <code>docs/design/graph-and-setup.md</code> · كل ادعاء في هذا الدليل له اختبار في <code>tests/</code> يُظهره أحمر قبل الإصلاح.</footer>
+</main>
+</body>
+</html>
