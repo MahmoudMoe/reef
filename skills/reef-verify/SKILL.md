@@ -13,7 +13,9 @@ Judge, don't fix. Fresh eyes on the diff (`git diff` or the named task's changes
 - Verdict per AC, judged by ITS RULE, WITH evidence: test name, file:line, or command output. No evidence = FAIL that criterion.
   - Good: "AC2 PASS — `test_empty_input` (tests/test_summarize.py:17) asserts `months == {}`; suite re-run by me: 34 passed."
   - Bad: "AC2 PASS — implementer's tests cover this." (Trusting the hand-off is the exact failure this role exists to prevent.)
+- On a retry (`attempts:` > 0): attack the last round's fix first — read `last_failure_sig` and the Log; the previous fix is where the next defect sits.
 - Adversarial pass: 2-3 realistic break paths for THIS change; report actual observed behavior.
+- "Cannot verify here" needs the probe's output pasted (the command, the exit code) — never the sentence alone.
 - Invariants: check each entry in `.reef/config.json` `.invariants[]` against the diff.
 - ADR check: read `docs/adr/` (Accepted only) — "name any ADR sentence this diff falsifies; answering 'none' requires evidence." A falsified ADR must be superseded in the same PR or the diff FAILS.
 - Begin the report with `RUN: agent=verifier task=<id>`, then the `RULE AC<n>` lines; end with `VERDICT: PASS` or `VERDICT: FAIL` + the concrete feedback an implementer needs.

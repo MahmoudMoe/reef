@@ -12,6 +12,15 @@
 - **`tier:`** (light / full / design) on tasks; plan-check refuses a tier that does not match the
   complexity (mech ⇔ light). `resources:` is plan content; `worktree:` and `in-progress` are
   execution state the stamp ignores.
+- **The adversarial stage.** `agents/loophole-hunter.md` ("how can this be green while the defect happens?"),
+  mandatory twice on `tier: design` — on the plan before code (the guard refuses the first dispatch
+  without `adversarial-plan:` bound to the plan's content) and on the finished guard before close (the
+  pre-commit refuses a design-tier task entering `done/` without `adversarial-guard:`); never on mech.
+  `scripts/reef-adversarial` records only a PASS without BLOCKER lines.
+- **Claims bound to the round.** `scripts/reef-claims.py check` rejects a claim at a line the round did
+  not add; `claims-only` is the one commit allowed after GREEN. Verifier and hunter attack the last
+  round's fix first; "cannot verify here" needs the probe pasted.
+- Model per role read at dispatch (`roles.*`, the guard refuses another model); `agents/mechanic.md`.
 - Defaults: `graph.parallel` 10, `resources.heavy.slots` 2, `worktree.setup` per project.
 - Version 0.5.0 (0.4.0 was `parallel-loop-compat`: merge setting, one cap per item, draft ADRs,
   per-feature stamp, fast/full gates, model per role, rule-first verifier).

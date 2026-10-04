@@ -24,6 +24,19 @@ LIST="$GITDIR/reef-precommit.paths"
 IBACK="$GITDIR/reef-precommit.index-bak"
 
 fail_gate() { echo "pre-commit: gate failed — commit rejected." >&2; exit 1; }
+
+# A tier: design task closes only after the loophole-hunter's SECOND pass, on the finished
+# guard (scripts/reef-adversarial <task> guard <report> writes adversarial-guard:). Checked on
+# the STAGED blob of every task file entering a done/ directory, before anything else runs.
+git diff --cached --name-only --diff-filter=AR -z | tr '\0' '\n' | grep -E '(^|/)done/[^/]+\.md$' \
+| while IFS= read -r p; do
+    blob=$(git show ":$p" 2>/dev/null) || continue
+    if printf '%s\n' "$blob" | grep -q '^tier: *design' \
+       && ! printf '%s\n' "$blob" | grep -q '^adversarial-guard: *[^ ]'; then
+      echo "pre-commit: $p is a tier: design task closing without adversarial-guard: — run the loophole-hunter on the finished guard and record it (scripts/reef-adversarial <task> guard <report>)." >&2
+      exit 1
+    fi
+  done || { echo "pre-commit: commit rejected." >&2; exit 1; }
 in_place() {
   rm -f "$PATCH" "$LIST" "$IBACK"
   [ -n "$1" ] && echo "pre-commit: NOTE — gate tested the WORKTREE, not the index ($1)." >&2

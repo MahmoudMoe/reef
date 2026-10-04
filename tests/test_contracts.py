@@ -72,6 +72,27 @@ class VerifierRulesFirst(unittest.TestCase):
             self.assertIn("RULE AC", text, "/".join(path))
 
 
+class Lessons(unittest.TestCase):
+    """0.5.0: the measured lessons that are prose live where the README says they live."""
+
+    def test_attack_the_last_fix_first(self):
+        for path in (("agents", "verifier.md"), ("agents", "loophole-hunter.md"), ("skills", "reef-verify", "SKILL.md")):
+            self.assertRegex(read(*path), r"(?i)last (round's|fix round's) fix", "/".join(path))
+
+    def test_cannot_verify_needs_the_probe(self):
+        self.assertRegex(read("agents", "verifier.md"), r"(?i)cannot verify here.*probe")
+
+    def test_after_green_only_claims(self):
+        text = read("skills", "reef-review", "SKILL.md")
+        self.assertIn("claims-only", text)
+        self.assertRegex(text, r"(?i)never a fourth round")
+
+    def test_adversary_role_matches_agent(self):
+        roles = json.loads(read("templates", "config.json"))["roles"]
+        front = re.search(r"^model:\s*(\S+)", read("agents", "loophole-hunter.md"), re.M).group(1)
+        self.assertEqual(roles["adversary"], front)
+
+
 class Templates(unittest.TestCase):
     def test_runlog_has_no_subagent_tokens_column(self):
         self.assertNotIn("Subagent tokens", read("templates", "runlog.md"))

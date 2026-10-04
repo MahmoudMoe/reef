@@ -23,6 +23,9 @@ All the feature's tasks are in `tasks/done/` and the full gate is green locally 
 ## One rollup, one cap
 Every finding from steps 2, 3 and 4 goes on ONE rollup task file per feature: `tasks/R<NN>-<feature>.md` (template frontmatter, `id: R<NN>`, `feature:` = this feature, `complexity` judged fresh). Every round that sends work back is recorded on that file with `scripts/reef-attempt <rollup> "<findings>"`, so `attempts:` counts acceptance, diff and CI rounds TOGETHER against the one cap (`caps.attempts`, default 3) — never a separate cap per step, never `--cap` to raise it. `reef-attempt` and the dispatch guard both refuse a second rollup file for the same feature: a fresh file would reset the counter and launder the cap. If the rollup already sits in `tasks/done/` from an earlier round, `git mv` it back to `tasks/`, set `status: pending`, append the new scope under a dated `## Round N` line in Scope — `attempts:` carries over. At the cap: USER ACTION REQUIRED, stop.
 
+## A GREEN stage is over
+After a GREEN verdict from any step below, the only commit allowed before the next step is one claims-only commit: `scripts/reef-claims.py claims-only <green-sha>..HEAD` must exit 0 (docs, comments, blank lines — nothing else). A code should-fix after GREEN is either the reviewer's BLOCKER (it goes on the rollup, under the cap) or a new queue row — never a fourth round. Measured: 44% of the pilot's fix rounds came after GREEN. The reviewer of a re-review attacks the last round's fix first.
+
 ## 1. Push + PR
 `git push -u origin <branch>`. If `gh` is available and a remote exists: `gh pr create --fill --base <branches.base>` (or `gh pr view` if it exists — update, don't duplicate). No remote → skip PR steps, say so, and continue with local review.
 

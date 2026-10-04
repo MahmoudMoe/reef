@@ -186,6 +186,31 @@ t "  fallback announced itself on stderr (never silent)" 0
 [ "$(cat d.dat)" = "precious lower" ]
 t "  unstaged filtered content untouched (no clean-filter corruption)" 0
 
+# ---------- 0.5.0: a tier: design task closes only with the guard pass recorded ----------
+mkrepo "$TMP/r12" "true"
+mkdir -p tasks/done
+printf -- '---\nid: 1\nfeature: f\nstatus: pending\ncomplexity: design\ntier: design\nverify: judge\nattempts: 0\n---\n# 1\n' > tasks/001-d.md
+printf -- '---\nid: 2\nfeature: f\nstatus: pending\ncomplexity: design\ntier: full\nverify: judge\nattempts: 0\n---\n# 2\n' > tasks/002-f.md
+git add .; git commit -qm c1 >/dev/null 2>&1
+git mv tasks/001-d.md tasks/done/001-d.md
+git commit -qm close >/dev/null 2>&1
+t "design-tier task moved to done/ WITHOUT adversarial-guard: rejected" 1
+git reset -q HEAD >/dev/null 2>&1; git checkout -q -- . 2>/dev/null; git clean -qfd >/dev/null 2>&1
+[ -f tasks/001-d.md ]
+t "  tree restored after the rejection" 0
+mkdir -p tasks/done   # git clean removed the empty directory
+printf -- '---\nid: 1\nfeature: f\nstatus: pending\ncomplexity: design\ntier: design\nverify: judge\nattempts: 0\nadversarial-plan: abc\nadversarial-guard: def@1234567\n---\n# 1\n' > tasks/001-d.md
+git add tasks/001-d.md; git mv tasks/001-d.md tasks/done/001-d.md
+git commit -qm close >/dev/null 2>&1
+t "design-tier task WITH adversarial-guard: accepted" 0
+git mv tasks/002-f.md tasks/done/002-f.md
+git commit -qm close2 >/dev/null 2>&1
+t "full-tier task needs no guard pass: accepted" 0
+printf -- '---\nid: 3\nfeature: f\nstatus: pending\ncomplexity: design\ntier: design\nverify: judge\nattempts: 0\n---\n# 3\n' > tasks/done/003-new.md
+git add tasks/done/003-new.md
+git commit -qm close3 >/dev/null 2>&1
+t "design-tier task ADDED straight into done/ without the pass: rejected" 1
+
 # ---------- reef-gate.sh ----------
 cd "$TMP"; mkdir -p g1; cd g1; git init -q -b main; git config user.email t@t; git config user.name t
 mkdir -p .reef scripts; cp "$ROOT/scripts/reef-gate.sh" scripts/

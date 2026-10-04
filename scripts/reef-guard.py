@@ -337,6 +337,35 @@ def bump_dispatches(path, text, current, mark_in_progress=False):
         raise
 
 
+def load_plugin_module(filename, name):
+    """A sibling script from the PLUGIN's own directory (never the project's copy)."""
+    import importlib.machinery
+    import importlib.util
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+    loader = importlib.machinery.SourceFileLoader(name, p)
+    spec = importlib.util.spec_from_loader(name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def check_adversarial_plan(path, fm, text):
+    """tier: design — the loophole-hunter's pass on the PLAN is recorded (scripts/reef-adversarial)
+    as adversarial-plan: <hash of the plan content>; an edited plan voids it. A mech/light task
+    never needs one (the stage never runs on mech)."""
+    if fm.get("tier") != "design":
+        return
+    adv = load_plugin_module("reef-adversarial", "reef_adversarial")
+    want = adv.plan_hash(text)
+    got = (fm.get("adversarial-plan") or "").strip()
+    if not got:
+        deny(f"{path} is tier: design with no adversarial-plan record — run the loophole-hunter on the plan "
+             "and record its PASS with scripts/reef-adversarial <task> plan <report> before any code")
+    if got != want:
+        deny(f"{path}: the plan changed since the loophole-hunter's pass (adversarial-plan {got} != {want}) — "
+             "run the hunter again on the current plan")
+
+
 def load_graph_module():
     """scripts/reef-graph.py from the PLUGIN's own directory. The project's copy is
     never consulted: `rm scripts/reef-graph.py` in a project must not open the gate."""
@@ -519,6 +548,7 @@ def _check_dispatch(tool_input, payload):
         if dispatches >= 2 * cap:
             deny(f"{path} was dispatched {dispatches}x against cap {cap} without enough recorded failures — "
                  "runaway-loop backstop; record failures via scripts/reef-attempt or stop")
+        check_adversarial_plan(path, fm, text)
         # the graph: dependencies done, resources free, parallel cap — a broken graph
         # (cycle, dangling id, duplicate id) has no ready set and is a denial too
         try:

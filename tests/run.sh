@@ -9,6 +9,8 @@ cd "$(dirname "$0")/.."
 #   test_attempt.py     reef-attempt: the cap as data, failure signatures
 #   test_plan_check.py  reef-plan-check: schema, graph, stamp, tier
 #   test_graph.py       reef-graph: ready set, resources, parallel cap, the race, worktrees, locks
+#   test_adversarial.py reef-adversarial + the guard's plan-pass check; reef-claims (check, claims-only)
+#   test_contracts.py   the prose and the shipped defaults still say what the code expects
 # One suite: python3 -m unittest tests.test_graph -v
 echo "== python suites (guard / attempt / plan-check / graph) =="
 python3 -m unittest discover -s tests -q
