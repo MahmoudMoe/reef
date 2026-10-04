@@ -47,6 +47,7 @@ The loop does not wait for approval inside an item. It stops only for: a decisio
 - **One place per fact.** A number, list or decision lives in one file; everything else points at it. A restated fact is the sentence the next review blocks on.
 - **Never `git stash`** (the guard denies it): one stack serves every worktree. Commit to the task branch or open another worktree.
 - **Never pipe a gate** into `tail`/`grep` (the guard denies it): read the exit code. A skipped gate is not a passed gate: `reef-ci-local.sh` exits 2 for a skip, and 2 is not success.
+- **Expensive end-to-end measurements run once per release, on the frozen integration branch** — screenshots of every page, printed documents bound to the exact tree — never on every feature branch. A feature branch may merge with them stale when every other gate is green; stale is told apart from a real failure **by test name, never by file** (a measurement file can also hold ordinary guards). At the release the takes run in parallel lanes on the tree that ships; a measurement that fails names the merge that caused it, and the release waits until that is fixed.
 - **Never regenerate a shared generated file** (an ORM client, a build artefact) from a worktree, and never restore one under a running server. Each worktree runs `worktree.setup` for its own copy.
 - **Merge only after the agent's final hand-back**, never on seeing its report file.
 - **The batch is frozen.** Work found mid-batch waits for the next batch unless it is in the constitution's fix-now class (Article VII) — journaled with its ground.
