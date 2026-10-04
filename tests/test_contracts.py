@@ -87,6 +87,17 @@ class Lessons(unittest.TestCase):
         self.assertIn("claims-only", text)
         self.assertRegex(text, r"(?i)never a fourth round")
 
+    def test_hunter_ranks_by_cost_and_stops(self):
+        text = read("agents", "loophole-hunter.md")
+        self.assertRegex(text, r"(?i)rank every hole by its real cost")
+        self.assertRegex(text, r"(?i)worst case costs less than another pass.*stop")
+
+    def test_expensive_measurements_once_per_release(self):
+        text = read("templates", "project", "AGENTS.md")
+        self.assertRegex(text, r"(?i)once per release, on the frozen integration branch")
+        self.assertIn("by test name, never by file", text)
+        self.assertRegex(text, r"(?i)names the merge that caused it")
+
     def test_adversary_role_matches_agent(self):
         roles = json.loads(read("templates", "config.json"))["roles"]
         front = re.search(r"^model:\s*(\S+)", read("agents", "loophole-hunter.md"), re.M).group(1)

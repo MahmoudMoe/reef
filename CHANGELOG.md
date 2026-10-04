@@ -29,6 +29,12 @@
   runs the same script), `scripts/reef-tier.py` (a tier only gets heavier), `scripts/reef-queue.py`
   (status derived from task files, ready rows, consistency, ADR numbering at merge). plan-check reads
   AGENTS.md as the brief when CLAUDE.md is a pointer. `/reef-loop` drives the outer graph.
+- **Expensive measurements once per release** (project rules, `templates/project/AGENTS.md`): screenshots of
+  every page, printed documents bound to the tree run on the frozen integration branch, in parallel lanes, not on
+  every feature branch; a feature branch merges with them stale only when its other gates are green, stale told
+  apart from failing by test name, never by file; a failure names the merge that caused it and holds the release.
+- **The hunter ranks holes by real cost** (`agents/loophole-hunter.md`): it stops when the remaining holes' worst
+  case is below the cost of another pass — no 100% mechanical guarantee for a guard whose worst case is cosmetic.
 - Arabic user manual: `docs/manual/ar/index.html`.
 - Model per role read at dispatch (`roles.*`, the guard refuses another model); `agents/mechanic.md`.
 - Defaults: `graph.parallel` 10, `resources.heavy.slots` 2, `worktree.setup` per project.
