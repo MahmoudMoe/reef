@@ -22,7 +22,7 @@ class Version(unittest.TestCase):
         badge = re.search(r"badge/version-([0-9.]+)-", read("README.md")).group(1)
         versions = {plugin, market["metadata"]["version"], market["plugins"][0]["version"], badge}
         # pinned on purpose: a version bump edits this line too, in the same commit
-        self.assertEqual(versions, {"0.4.0"})
+        self.assertEqual(versions, {"0.5.0"})
 
 
 class ConfigTemplate(unittest.TestCase):
@@ -40,7 +40,8 @@ class ConfigTemplate(unittest.TestCase):
 
     def test_model_per_role_defaults_match_agent_frontmatter(self):
         roles = self.cfg["roles"]
-        for role, agent in (("verifier", "verifier"), ("plan_reviewer", "plan-reviewer")):
+        for role, agent in (("author", "implementer"), ("verifier", "verifier"),
+                            ("plan_reviewer", "plan-reviewer"), ("mechanic", "mechanic")):
             front = re.search(r"^model:\s*(\S+)", read("agents", f"{agent}.md"), re.M).group(1)
             self.assertEqual(roles[role], front, f"roles.{role} default must equal the agent's frontmatter")
 

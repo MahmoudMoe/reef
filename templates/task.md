@@ -5,6 +5,8 @@ status: pending
 complexity: mech|design
 effort: low|medium|high
 blocked-by: []
+resources: []
+tier: light|full|design
 verify: judge|gate-only
 attempts: 0
 dispatches: 0

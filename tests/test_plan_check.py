@@ -579,6 +579,60 @@ class MaxWords(unittest.TestCase):
         repo(tmp2)
         edit(os.path.join(tmp2, "tasks", "001-demo.md"), "## Scope\nx", "## Scope\n" + "word " * 2000)
         self.assertEqual(run(tmp2).returncode, 0)
+class Graph05(unittest.TestCase):
+    """0.5.0: the graph's execution keys never stale the plan; the tier matches the complexity."""
+
+    def _edit(self, tmp, old, new):
+        p = os.path.join(tmp, "tasks", "001-demo.md")
+        with open(p) as f:
+            t = f.read()
+        assert old in t, old
+        with open(p, "w") as f:
+            f.write(t.replace(old, new, 1))
+
+    def test_worktree_and_in_progress_never_stale_the_stamp(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        self.assertEqual(run(tmp).returncode, 0)
+        # what reef-graph worktree and the guard write at dispatch
+        self._edit(tmp, "status: pending", "status: in-progress")
+        self._edit(tmp, "---\n# ", "worktree: .reef/worktrees/1\n---\n# ")
+        self.assertEqual(run(tmp, "--verify-stamp").returncode, 0,
+                         "dispatch state (in-progress, worktree:) must not force a plan re-review")
+
+    def test_resources_are_plan_content(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        self.assertEqual(run(tmp).returncode, 0)
+        self._edit(tmp, "blocked-by: []", "blocked-by: []\nresources: [db]")
+        self.assertEqual(run(tmp, "--verify-stamp").returncode, 1,
+                         "declaring a new shared resource changes the collision plan — re-review")
+        self._edit(tmp, "resources: [db]", "resources: db")
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("resources not a list", r.stdout)
+
+    def test_tier_must_match_complexity(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        self._edit(tmp, "blocked-by: []", "blocked-by: []\ntier: full")
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1, "a mech task cannot claim the full tier (mech <=> light)")
+        self.assertIn("tier full on a mech task", r.stdout)
+        self._edit(tmp, "tier: full", "tier: light")
+        self.assertEqual(run(tmp).returncode, 0)
+        self._edit(tmp, "tier: light", "tier: cheap")
+        self.assertIn("tier='cheap' not in", run(tmp).stdout)
+
+    def test_light_tier_on_design_task_fails(self):
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        self._edit(tmp, "complexity: mech", "complexity: design\ntier: light")
+        self._edit(tmp, "verify: gate-only", "verify: judge")
+        self._edit(tmp, "## Scope", "## Decision\nthe human decided\n\n## Scope")
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("tier light on a design task", r.stdout)
 
 
 if __name__ == "__main__":

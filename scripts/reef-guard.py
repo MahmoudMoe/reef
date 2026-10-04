@@ -10,7 +10,11 @@ Reads the hook JSON on stdin. Two duties:
    (`git --no-pager commit --no-verify`), `--config-env` in both spellings, env
    smuggling (`GIT_CONFIG_KEY_0=core.hooksPath`), a second command after a
    newline, `sh -c "git commit -n"` payloads (recursed into), and `rm/mv/chmod`
-   sabotage of the hook files — while ALLOWING reef-init's own install
+   sabotage of the hook files, `git stash` (ONE stash stack serves every worktree:
+   with parallel agents one agent's pop applied another's — commit to the task
+   branch or open another worktree), and a GATE PIPED INTO ANOTHER COMMAND
+   without pipefail (`npm test | tail` reports tail's exit code; a red gate went
+   unnoticed until CI) — while ALLOWING reef-init's own install
    (`git config core.hooksPath .githooks`, `chmod +x .githooks/*`), read-only
    queries, `git merge -n` (that is --no-stat), and commit messages that merely
    mention a flag. A blocklist over a shell surface can never be complete
@@ -18,9 +22,13 @@ Reads the hook JSON on stdin. Two duties:
    TRIPWIRE; CI is the wall (see README).
 
 2. Task/Agent dispatches of the reef implementer: refuse when the task file is
-   blocked or at the retry cap, refuse when the plan stamp is stale, and — only
-   after every check passed — advance a `dispatches:` odometer IN THIS HOOK,
-   under the same lock reef-attempt uses. The counter moves as a side effect of
+   blocked or at the retry cap, refuse when the plan stamp is stale, refuse when
+   the task is NOT IN THE READY SET of the task graph (an undone `blocked-by`, a
+   declared resource with no free slot, the parallel cap — computed by
+   scripts/reef-graph.py loaded from THIS plugin's directory, never from a copy
+   the project could delete), and — only after every check passed — advance a
+   `dispatches:` odometer and mark the task `in-progress` IN THIS HOOK, under the
+   graph-wide lock plus the same per-file lock reef-attempt uses. The counter moves as a side effect of
    the dispatch action itself, so a model that "forgets" scripts/reef-attempt
    still cannot loop forever (the odometer trips at 2x the cap). A denied
    dispatch never bumps the odometer. Config and stamp are resolved against the
@@ -91,6 +99,7 @@ def _check_bash(cmd, depth=0):
     if depth > MAX_DEPTH:
         deny("shell nesting too deep to analyze — refusing a command that hides commands this many layers down")
     cmd = re.sub(r"\\\r?\n", " ", cmd)     # backslash line continuations JOIN a command
+    cmd = re.sub(r"(\d*>&\d+|&>>?)", " ", cmd)  # fd redirections are not operators (2>&1, &>)
     toks = tokenize(cmd)                    # one pass: quotes span newlines, comments end at theirs
     if toks is None:
         # Unparseable (unbalanced quotes): flags can no longer be told apart from
@@ -99,10 +108,11 @@ def _check_bash(cmd, depth=0):
             deny("unparseable command that mentions a gate bypass")
         return
     seg = []
+    pipefail = "pipefail" in cmd
     for t in toks + [";"]:
         if t in OPS:
             if seg:
-                check_segment(seg, depth)
+                check_segment(seg, depth, next_op=t, pipefail=pipefail)
             seg = []
         else:
             seg.append(t)
@@ -110,16 +120,57 @@ def _check_bash(cmd, depth=0):
 
 SHELLS = ("sh", "bash", "dash", "zsh", "ksh")
 DESTRUCTIVE = ("rm", "mv", "unlink", "truncate", "shred")
+# gates whose exit code IS the verdict: piping them hides it (the pipe reports the
+# last command's status). Names, not paths — `sh scripts/reef-gate.sh | tail` too.
+STASH_READ_ONLY = {"list", "show"}
 MODE_RE = re.compile(r"^([0-7]{3,4}|[ugoa]*[-+=][rwxXstugo]+(,[ugoa]*[-+=][rwxXstugo]+)*)$")
 PURE_ADD = re.compile(r"^[ugoa]*\+[rwxXst]+$")
 
 
-def check_segment(seg, depth=0):
+PREFIX_WORDS = {"env", "nohup", "nice", "time", "sudo", "command", "exec", "ionice", "stdbuf"}
+GATE_SCRIPTS = {"reef-gate.sh", "reef-ci-local.sh"}
+RUNNERS = {"pytest", "vitest", "jest"}
+
+
+def is_gate(seg):
+    """A segment whose COMMAND HEAD runs a test gate: `npm test`, `npm run ci:local`, `pytest -q`,
+    `uv run pytest`, `npx vitest`, `python3 -m pytest`, `cargo test`, `go test ./...`,
+    `sh scripts/reef-gate.sh`. Only the head counts — `grep pytest src | head` and
+    `git log --grep vitest | head` merely mention a gate word and must pass."""
+    i = 0
+    while i < len(seg) and (ENV_ASSIGN.match(seg[i]) or seg[i] in PREFIX_WORDS
+                            or seg[i].startswith("-") or seg[i].isdigit()):
+        i += 1   # env assignments, wrapper words and their flags/values (`nice -n 5`)
+    if i >= len(seg):
+        return False
+    head, rest = os.path.basename(seg[i]), seg[i + 1:]
+    if head in GATE_SCRIPTS or head in RUNNERS:
+        return True
+    if head == "npm":
+        return "test" in rest[:1] or "ci:local" in rest[:2]
+    if head in ("cargo", "go"):
+        return rest[:1] == ["test"]
+    if head in SHELLS:
+        return any(os.path.basename(a) in GATE_SCRIPTS for a in rest)
+    if head == "uv":
+        return rest[:1] == ["run"] and len(rest) > 1 and os.path.basename(rest[1]) in RUNNERS
+    if head == "npx":
+        return len(rest) > 0 and rest[0] in RUNNERS
+    if head in ("python", "python3"):
+        return rest[:2] == ["-m", "pytest"]
+    return False
+
+
+def check_segment(seg, depth=0, next_op=";", pipefail=False):
     """Position-independent: `env X=y git ...`, `nohup git ...`, `nice -n5 git ...`,
     `xargs git ...`, `(git ...)` — a prefix word must never hide the real command."""
     for t in seg:
         if ENV_ASSIGN.match(t) and HOOKSPATH.search(t):
             deny(f"environment assignment smuggles hooksPath: {t!r}")
+    if next_op in ("|", "|&") and not pipefail and is_gate(seg):
+        deny(f"gate {' '.join(seg[:3])!r} piped into another command — the pipe reports the LAST "
+             "command's exit code, so a red gate passes unnoticed; use `set -o pipefail`, or redirect "
+             "to a file and read the exit code")
     for i, t in enumerate(seg):
         b = os.path.basename(t)
         rest = seg[i + 1:]
@@ -191,10 +242,20 @@ def check_git(args):
         elif sub == "merge" and a == "--no-verify":
             # note: merge -n is --no-stat, NOT --no-verify — only the long form is a bypass
             deny("git merge --no-verify skips the pre-merge-commit gate")
+        elif sub == "stash":
+            action = next((t for t in args[j:] if not t.startswith("-")), "push")
+            if action not in STASH_READ_ONLY:
+                deny(f"git stash {action}: ONE stash stack serves every worktree, so a parallel agent's "
+                     "pop applies another's work — commit to the task branch (the gate must pass) or "
+                     "open another worktree")
+            return
         elif sub == "config":
             check_git_config(args[j:])
             return
         j += 1
+    if sub == "stash":
+        deny("git stash (bare = push): ONE stash stack serves every worktree — commit to the task "
+             "branch (the gate must pass) or open another worktree")
 
 
 def check_git_config(seg):
@@ -248,14 +309,20 @@ def read_frontmatter(path):
     return fm, text
 
 
-def bump_dispatches(path, text, current):
-    """Increment dispatches: inside the frontmatter only; unique temp + atomic replace."""
+def bump_dispatches(path, text, current, mark_in_progress=False):
+    """Increment dispatches: (and set status: in-progress — the task now holds its
+    resources and a parallel slot) inside the frontmatter only; unique temp + atomic replace."""
     m = FENCE.match(text)
     fm_body = m.group(1)
     if re.search(r"^dispatches:", fm_body, re.M):
         new_fm = re.sub(r"^dispatches:.*$", f"dispatches: {current + 1}", fm_body, count=1, flags=re.M)
     else:
         new_fm = fm_body + f"dispatches: {current + 1}\n"
+    if mark_in_progress:
+        if re.search(r"^status:", new_fm, re.M):
+            new_fm = re.sub(r"^status:.*$", "status: in-progress", new_fm, count=1, flags=re.M)
+        else:
+            new_fm = new_fm + "status: in-progress\n"
     new_text = text[:m.start(1)] + new_fm + text[m.end(1):]
     fd, tmp = tempfile.mkstemp(prefix=".reef-guard-", dir=os.path.dirname(path) or ".")
     try:
@@ -268,6 +335,17 @@ def bump_dispatches(path, text, current):
         except OSError:
             pass
         raise
+
+
+def load_graph_module():
+    """scripts/reef-graph.py from the PLUGIN's own directory. The project's copy is
+    never consulted: `rm scripts/reef-graph.py` in a project must not open the gate."""
+    import importlib.util
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-graph.py")
+    spec = importlib.util.spec_from_file_location("reef_graph", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def read_cap(root):
@@ -348,6 +426,34 @@ def check_single_rollup(path, fm):
                      "reuse it (move it back from done/ if needed); a second rollup resets the cap")
 
 
+# subagent name -> the .reef/config.json roles.* key whose model it must run on. The owner's
+# routing (2026-10-04): fable plans, opus writes/attacks/verifies/reviews, sonnet does light
+# mechanical work. Each project overrides per role; an unset role is not checked.
+ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "plan_reviewer",
+           "loophole-hunter": "adversary", "mechanic": "mechanic"}
+
+
+def check_role_model(sub, tool_input, root):
+    """A dispatch runs on the CONFIGURED model for its role, not on the agent file's default
+    and not on whatever the orchestrator remembered: when roles.<role> is set, the Agent
+    call must carry exactly that `model` parameter."""
+    role = next((r for name, r in ROLE_OF.items() if name in sub), None)
+    if role is None:
+        return
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            roles = json.load(f).get("roles", {})
+    except Exception:
+        return   # no readable config: nothing is configured, nothing to enforce
+    if not isinstance(roles, dict) or not roles.get(role):
+        return
+    want = str(roles[role]).strip()
+    got = str(tool_input.get("model") or "").strip()
+    if got != want:
+        deny(f"{sub} must run on roles.{role} = {want!r} (.reef/config.json); the Agent call "
+             f"passed model={got or 'none'!r} — pass model={want!r}")
+
+
 def check_dispatch(tool_input, payload):
     try:
         _check_dispatch(tool_input, payload)
@@ -361,6 +467,8 @@ def check_dispatch(tool_input, payload):
 
 def _check_dispatch(tool_input, payload):
     sub = str(tool_input.get("subagent_type") or "")
+    cwd = payload.get("cwd") or os.getcwd()
+    check_role_model(sub, tool_input, cwd)
     if "implementer" not in sub:
         return
     prompt = str(tool_input.get("prompt") or "")
@@ -368,19 +476,26 @@ def _check_dispatch(tool_input, payload):
     if not m:
         deny("implementer dispatch without a 'REEF-TASK: <task-file>' line — run scripts/reef-attempt "
              "and start the dispatch prompt with the line it prints")
-    cwd = payload.get("cwd") or os.getcwd()
     path = m.group(1)
     if not os.path.isabs(path):
         path = os.path.join(cwd, path)
     if not os.path.isfile(path):
         deny(f"REEF-TASK file not found: {path}")
     root = task_root(path, cwd)
+    if os.path.abspath(root) != os.path.abspath(cwd):
+        check_role_model(sub, tool_input, root)
     try:
         pre_fm, _ = read_frontmatter(path)
     except Exception:
         pre_fm = None   # re-read under the lock below, which fails closed
     check_stamp(root, (pre_fm or {}).get("feature", ""))
-    with open(lock_path_for(path), "a") as lock:
+    graph = load_graph_module()
+    tasks_dir = graph.tasks_dir_for(root, graph.read_config(root), path)
+    # ONE lock over the whole task set: the ready decision reads every task file, so
+    # two dispatches racing for the last parallel slot or the last resource slot must
+    # serialise here — the per-file lock below protects only this file's counters.
+    with open(graph.graph_lock_path(tasks_dir), "a") as glock, open(lock_path_for(path), "a") as lock:
+        fcntl.flock(glock, fcntl.LOCK_EX)
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             fm, text = read_frontmatter(path)
@@ -404,8 +519,17 @@ def _check_dispatch(tool_input, payload):
         if dispatches >= 2 * cap:
             deny(f"{path} was dispatched {dispatches}x against cap {cap} without enough recorded failures — "
                  "runaway-loop backstop; record failures via scripts/reef-attempt or stop")
-        # every check passed: the odometer moves as part of the dispatch itself
-        bump_dispatches(path, text, dispatches)
+        # the graph: dependencies done, resources free, parallel cap — a broken graph
+        # (cycle, dangling id, duplicate id) has no ready set and is a denial too
+        try:
+            reason, _, _ = graph.check_task(path)
+        except graph.GraphError as e:
+            deny(f"task graph cannot be scheduled — {e}")
+        if reason is not None:
+            deny(f"{path} is not in the ready set — {reason}")
+        # every check passed: the odometer moves and the task becomes in-progress as
+        # part of the dispatch itself (it now holds its resources and a parallel slot)
+        bump_dispatches(path, text, dispatches, mark_in_progress=(fm.get("status", "pending") != "in-progress"))
 
 
 def main():
