@@ -27,7 +27,7 @@ Per task, draft the full file from `${CLAUDE_PLUGIN_ROOT}/templates/task.md` (sc
 - `complexity`: mech = a junior copies an existing example without one question; design = two people would produce materially different solutions.
 - `verify`: design -> judge; mech -> gate-only.
 - Effort above medium must be argued for in the plan.
-Also draft: glossary additions, and at most ONE ADR (Nygard: Status/Context/Decision/Consequences) for the whole feature if it has non-obvious decisions.
+Also draft: glossary additions, and at most ONE ADR (Nygard: Status/Context/Decision/Consequences) for the whole feature if it has non-obvious decisions. In a parallel loop, where ADR numbers would collide across branches, write it as `docs/adr/draft-<item>-<slug>.md` and number it at merge — reef-plan-check exempts `draft-*.md` from the "no Proposed ADR" rule (a placeholder or missing Status still fails).
 
 ## 3. Explain-back (design tasks)
 For each `design` task the HUMAN writes the `## Decision` section in their own words — grill them to sharpen it; never write it for them. A design task with an empty Decision cannot be dispatched.

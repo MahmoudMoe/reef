@@ -9,7 +9,7 @@ description: >
   ever corrected automatically.
 tools: Read, Glob, Grep, Bash
 model: fable
-# DEFAULT: fable — the input set is small and bounded (task files, ADRs, brief, config), so the cheap model suffices.
+# DEFAULT: fable (= roles.plan_reviewer default) — the input set is small and bounded (task files, ADRs, brief, config), so the cheap model suffices. The orchestrator passes the `plan-reviewer: model=` line printed by scripts/reef-plan-check.py — a per-call model overrides this.
 ---
 
 # Plan Reviewer

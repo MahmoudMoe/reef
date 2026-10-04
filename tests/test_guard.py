@@ -301,6 +301,110 @@ class DispatchGuard(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("stamp", r.stderr)
 
+    # ---- 0.4.0: one rollup per feature (the cap is shared by acceptance, diff and CI) ----
+
+    def test_second_rollup_for_same_feature_denied(self):
+        # a fresh R02 for a feature that already has R01 would start a fresh counter and
+        # launder the cap; the guard must refuse it even without reef-attempt
+        make_task(self.dir, name="R01-fixups.md", extra="")
+        os.makedirs(os.path.join(self.dir, "tasks", "done"), exist_ok=True)
+        os.replace(os.path.join(self.dir, "tasks", "R01-fixups.md"),
+                   os.path.join(self.dir, "tasks", "done", "R01-fixups.md"))
+        make_task(self.dir, name="R02-more-fixups.md")
+        r = dispatch(self.dir, "REEF-TASK: tasks/R02-more-fixups.md\nimplement")
+        self.assertEqual(r.returncode, 2, "a second rollup file for one feature must be denied")
+        self.assertIn("rollup", r.stderr)
+
+
+# ---------------- 0.4.0: the stamp under parallel worktrees ----------------
+
+def git(d, *args):
+    return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *args],
+                          check=True, capture_output=True, text=True)
+
+
+def plan_task(tid, feature, scope="x"):
+    return ("---\nid: {id}\nfeature: {f}\nstatus: pending\ncomplexity: mech\neffort: medium\n"
+            "blocked-by: []\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n"
+            "---\n# {id}\n\n## Scope\n{s}\n\n## Acceptance Criteria\n- test_{f}_{id}_works goes red first\n\n"
+            "## Log\n").format(id=tid, f=feature, s=scope)
+
+
+def plan_repo(d, tasks=((7, "demo"),)):
+    """A committed git repo with a valid plan, the plan-check script, and the stamp
+    gitignored (it is per-worktree state)."""
+    import shutil
+    os.makedirs(os.path.join(d, "tasks", "done"), exist_ok=True)
+    os.makedirs(os.path.join(d, "scripts"), exist_ok=True)
+    os.makedirs(os.path.join(d, ".reef"), exist_ok=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+    with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+        f.write('{"gates": {"test": "true"}}')
+    with open(os.path.join(d, "CLAUDE.md"), "w") as f:
+        f.write("# demo brief\n")
+    with open(os.path.join(d, ".gitignore"), "w") as f:
+        f.write("tasks/.plan-review.json\n")
+    for tid, feat in tasks:
+        with open(os.path.join(d, "tasks", f"{tid:03d}-{feat}.md"), "w") as f:
+            f.write(plan_task(tid, feat))
+    shutil.copy(os.path.join(ROOT, "scripts", "reef-plan-check.py"),
+                os.path.join(d, "scripts", "reef-plan-check.py"))
+    git(d, "add", "-A")
+    git(d, "commit", "-qm", "plan")
+    return d
+
+
+def plan_check(d):
+    r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-plan-check.py"), d],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, f"fixture plan must pass plan-check:\n{r.stdout}"
+
+
+class WorktreeStamp(unittest.TestCase):
+    """The compat read (2026-10-03) found both failure directions: the guard resolved the
+    stamp against the DISPATCHING SESSION's folder, not the task's own worktree."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="reef-guard-wt.")
+        self.main = plan_repo(os.path.join(self.tmp, "main"))
+        self.wt = os.path.join(self.tmp, "wt")
+        git(self.main, "worktree", "add", "-q", "-b", "feat", self.wt)
+        self.wt_task = os.path.join(self.wt, "tasks", "007-demo.md")
+
+    def test_fresh_worktree_stamp_allows_dispatch_from_main_checkout(self):
+        # direction 1: the worktree was reviewed; the main checkout never was. Dispatching
+        # from the main session used to deny every dispatch ("stamp missing").
+        plan_check(self.wt)
+        r = dispatch(self.main, f"REEF-TASK: {self.wt_task}\nimplement")
+        self.assertEqual(r.returncode, 0, f"fresh stamp in the task's worktree must allow: {r.stderr}")
+
+    def test_edited_worktree_plan_denied_even_if_session_stamp_is_fresh(self):
+        # direction 2: the main checkout's stamp is fresh, the worktree's plan was edited
+        # after its review. Checking the session's folder used to let this through.
+        plan_check(self.main)
+        plan_check(self.wt)
+        with open(self.wt_task) as f:
+            t = f.read()
+        with open(self.wt_task, "w") as f:
+            f.write(t.replace("## Scope\nx", "## Scope\nsneaky post-approval edit"))
+        r = dispatch(self.main, f"REEF-TASK: {self.wt_task}\nimplement")
+        self.assertEqual(r.returncode, 2, "a stale plan in the task's own worktree must deny")
+        self.assertIn("stamp", r.stderr)
+
+
+class FeatureStamp(unittest.TestCase):
+    def test_unrelated_feature_arriving_by_merge_does_not_deny_dispatch(self):
+        # merging the integration branch brings another feature's task files; that is not
+        # an edit of THIS feature's plan and must not force a re-review
+        d = plan_repo(tempfile.mkdtemp(prefix="reef-guard-feat."))
+        plan_check(d)
+        with open(os.path.join(d, "tasks", "008-other.md"), "w") as f:
+            f.write(plan_task(8, "other"))
+        r = dispatch(d, "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 0, f"another feature's task staled this feature's stamp: {r.stderr}")
+        r = dispatch(d, "REEF-TASK: tasks/008-other.md\nimplement")
+        self.assertEqual(r.returncode, 2, "the newly arrived feature itself was never reviewed here")
+
 
 if __name__ == "__main__":
     unittest.main()
