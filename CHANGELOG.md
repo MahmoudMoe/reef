@@ -9,6 +9,12 @@
   `<paths.tasks>/.plan-review.json`; the check now creates that directory instead of dying with ENOENT after
   reporting zero failures (`tests/test_feature_spec.py::test_fresh_06_project_without_tasks_dir_gets_its_stamp`,
   red before the fix). Same measurement row.
+- **Row 2, the hunter's scope discipline.** Corpus entry `scope-names-later-rows` (truth PASS: a sound path guard whose
+  Scope names its three known holes as later rows). `agents/loophole-hunter.md`: the Scope draws the BLOCKER/NEW-ROW
+  line, an out-of-scope hole is a NEW-ROW even when it will happen or is a regression (marked `regression`). Measured,
+  k=3 over the whole corpus (21 runs): catch 1.00 → 1.00, precision 1.00 → 1.00, false-FAIL 0.33 → 0.17
+  (`sound-guard` 2/3 → 1/3; the remaining FAIL is a quoted-heredoc hole the hunter argues is in scope);
+  `reef-eval compare` ok. Details: `docs/perf/eval-baseline-2026-10-16.md` §0.7.
 
 ## 0.6.0 — governance, spec, tiers, day zero, loop engine, one tree
 
