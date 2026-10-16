@@ -223,6 +223,32 @@ class ReleaseOnlyCi(unittest.TestCase):
         self.assertNotIn("{{", dep)
         self.assertIn("setup-node", read(d, ".github/workflows/ci.yml"))
 
+    def test_another_tools_block_in_a_rendered_file_rides_along(self):
+        # first contact (2026-10-16): `next dev` appends `<!-- BEGIN:nextjs-agent-rules --> … <!-- END:… -->` to AGENTS.md
+        # on every run; every re-init proposed dropping it, and the orchestrator re-appended it by hand (once twice)
+        block = "<!-- BEGIN:nextjs-agent-rules -->\n\n## This is NOT the Next.js you know\n\nRead the docs.\n\n<!-- END:nextjs-agent-rules -->\n"
+        d = tempfile.mkdtemp(prefix="reef-init-foreign.")
+        subprocess.run(["git", "init", "-q", d], check=True)
+        init(d)
+        with open(os.path.join(d, "AGENTS.md"), "a", encoding="utf-8") as f:
+            f.write("\n" + block)
+        write(d, "package.json", json.dumps({"name": "late", "scripts": {"test": "vitest run"}}))
+        r = init(d)
+        self.assertIn("updated  AGENTS.md (+1 foreign block(s) kept)", r.stdout)
+        agents = read(d, "AGENTS.md")
+        self.assertIn("npm ci", agents, "the Node rendering arrived")
+        self.assertEqual(agents.count("<!-- BEGIN:nextjs-agent-rules -->"), 1, "the block survives, once")
+        self.assertTrue(agents.rstrip().endswith("<!-- END:nextjs-agent-rules -->"))
+        self.assertFalse(os.path.exists(os.path.join(d, ".reef", "proposed", "AGENTS.md")))
+        r2 = init(d)
+        self.assertIn("skipped  AGENTS.md", r2.stdout, "nothing to do: the rendering plus the block is what is there")
+        # the owner edits OUTSIDE the block: a proposal as before, and the proposal carries the block too
+        write(d, "AGENTS.md", agents.replace("## Commands", "## Commands\nowner note\n", 1))
+        write(d, "package.json", json.dumps({"name": "late", "scripts": {"test": "vitest run", "build": "b"}}))
+        r3 = init(d)
+        self.assertIn("PROPOSED AGENTS.md", r3.stdout)
+        self.assertIn("<!-- END:nextjs-agent-rules -->", read(d, ".reef/proposed/AGENTS.md"))
+
     def test_a_file_anyone_touched_is_still_proposed_never_replaced(self):
         d = tempfile.mkdtemp(prefix="reef-init-touched.")
         subprocess.run(["git", "init", "-q", d], check=True)

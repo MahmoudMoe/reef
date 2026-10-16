@@ -95,7 +95,11 @@ def analyse(path):
                     else:
                         cats["prompt"] = cats.get("prompt", 0) + est_tokens(b)
             elif t == "attachment":
-                cats["attachment"] = cats.get("attachment", 0) + est_tokens(d.get("rendered") or d.get("attachment"))
+                # by type: a `file` diff view, a `queued_command` notification, a `skill_listing`, … — the real planning
+                # session (2026-10-16) had 54% of its context under one undifferentiated "attachment" bucket
+                akind = str((d.get("attachment") or {}).get("type") or "?") if isinstance(d.get("attachment"), dict) else "?"
+                k = f"attachment:{akind}"
+                cats[k] = cats.get(k, 0) + est_tokens(d.get("rendered") or d.get("attachment"))
             elif t == "system" and d.get("subtype") == "compact_boundary":
                 boundaries += 1
     ctxs = sorted(x["ctx"] for x in turns)

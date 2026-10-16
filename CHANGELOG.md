@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`reef-init.py`: another tool's block rides along.** `<!-- BEGIN:x --> … <!-- END:x -->` blocks in a file Reef renders
+  (Next.js's agent rules in `AGENTS.md`, re-added by `next dev`) are neither Reef's nor the owner's: a re-render keeps
+  them whole (`updated  AGENTS.md (+1 foreign block(s) kept)`), the manifest hashes the file without them, and a
+  proposal carries them too. First contact: every re-init proposed dropping the block and it was re-appended by hand.
+- `scripts/reef-repo`: the branch-protection payload file is removed after the call (it was left behind on a 403).
+- `reef-cost.py`: attachments by type (`attachment:file`, `attachment:queued_command`, `attachment:skill_listing` …) —
+  the real planning session had 54% of its context under one bucket.
+- `reef-guard.py`: the ceiling denial is an order (`/clear NOW … do nothing else in this session`); the warn names the
+  room left and that Bash is not refused at the ceiling. The real session kept going 80k past it.
+- `skills/reef-plan`: the grill batches independent questions (up to four per set), one at a time only when the answer
+  decides the next question; budget two sets plus two singles per row (twelve sequential questions planned one row).
 - **`reef-guard.py`, re-entry false positives**: `ls .reef/approvals 2>/dev/null` was denied as a hand-written approval
   record and a judge's `tar -xzO 2>/dev/null` as a write — `2>/dev/null` is no write (`/dev/null`, `/dev/stdout`,
   `/dev/stderr`, `/dev/tty` are never targets), and the record-dir and judge checks now look at the write TARGETS

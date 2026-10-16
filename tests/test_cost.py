@@ -85,6 +85,8 @@ class KnownCounts(unittest.TestCase):
         self.assertEqual(cats["tool_result:Bash"], 100)       # 400 chars / 4
         self.assertEqual(cats["tool_result:Read"], 300)
         self.assertIn("compact-summary", cats)
+        self.assertIn("attachment:file", cats, "attachments are split by type")
+        self.assertNotIn("attachment", cats, "no undifferentiated bucket")
         self.assertEqual(len(rep["subagents"]), 1)
         sub = rep["subagents"][0]
         self.assertEqual((sub["agent_type"], sub["turns"], sub["first_turn_context"], sub["context"]["max"]), ("verifier", 2, 500, 800))

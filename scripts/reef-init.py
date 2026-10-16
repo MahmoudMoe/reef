@@ -39,6 +39,7 @@ import filecmp
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -283,6 +284,20 @@ def project_config(existing, facts):
 # ---------------------------------------------------------------- the one rule
 
 MANIFEST = os.path.join(".reef", "init-manifest.json")
+# another tool's block in a file Reef renders (Next.js's `<!-- BEGIN:nextjs-agent-rules --> … <!-- END:… -->` in
+# AGENTS.md, written by `next dev` on every run): not Reef's, not the owner's — carried over whole on a re-render
+FOREIGN_BLOCK = re.compile(r"\n*<!-- BEGIN:([\w.-]+) -->.*?<!-- END:\1 -->\n*", re.S)
+
+
+def split_foreign(text):
+    """(core, blocks): the text without foreign blocks, and the blocks in order."""
+    blocks = [m.group(0).strip("\n") for m in FOREIGN_BLOCK.finditer(text)]
+    core = FOREIGN_BLOCK.sub("\n", text).rstrip("\n") + "\n" if blocks else text
+    return core, blocks
+
+
+def with_foreign(content, blocks):
+    return content if not blocks else content.rstrip("\n") + "\n\n" + "\n\n".join(blocks) + "\n"
 
 
 def sha(data):
@@ -320,19 +335,21 @@ class Writer:
         if os.path.exists(target):
             with open(target, "rb") as f:
                 current = f.read()
+            core, blocks = split_foreign(current.decode("utf-8", "replace"))
+            content = with_foreign(content, blocks)   # whatever happens, another tool's blocks ride along
             if current == content.encode("utf-8"):
                 self.skipped.append(rel)
-                self.manifest[rel] = sha(current)
+                self.manifest[rel] = sha(core)
                 return
-            if self.manifest.get(rel) == sha(current):
+            if self.manifest.get(rel) == sha(core):
                 # Reef's own rendering, byte-identical to what it placed last time — nobody touched it (first
                 # contact, 2026-10-16: four files init wrote on an empty repo came back as questions minutes
                 # later when the stack arrived; a question about replacing one's own untouched draft is noise)
                 if not self.dry:
                     with open(target, "w", encoding="utf-8", newline="") as f:
                         f.write(content)
-                    self.manifest[rel] = sha(content)
-                self.updated.append(rel)
+                    self.manifest[rel] = sha(split_foreign(content)[0])
+                self.updated.append(rel + (f" (+{len(blocks)} foreign block(s) kept)" if blocks else ""))
                 return
             prop = os.path.join(self.root, ".reef", "proposed", rel)
             if not self.dry:
@@ -480,7 +497,7 @@ def accept(root, paths):
             os.chmod(target, mode)
         os.unlink(prop)
         with open(target, "rb") as f:
-            manifest[rel] = sha(f.read())   # accepted = Reef's own again, until someone edits it
+            manifest[rel] = sha(split_foreign(f.read().decode("utf-8", "replace"))[0])   # accepted = Reef's own again
         print(f"accepted: {rel}")
     save_manifest(root, manifest)
 
