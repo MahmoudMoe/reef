@@ -191,6 +191,31 @@ class ReleaseOnlyCi(unittest.TestCase):
         r = init(d)
         self.assertIn("no test command detected", r.stdout)
         self.assertEqual(json.loads(read(d, ".reef/config.json"))["gates"]["full"], "")
+        dep = read(d, ".github/dependabot.yml")
+        # first contact (2026-10-16): no stack rendered the github-actions ecosystem twice
+        self.assertEqual(dep.count("package-ecosystem"), 1, dep)
+        self.assertNotIn('package-ecosystem: ""', dep)
+
+    def test_a_gate_init_left_empty_is_filled_when_the_stack_arrives(self):
+        # first contact (2026-10-16): init ran on an empty repo, the Next.js scaffold came after, and the re-run kept
+        # gates.full == "" under "a key the project has is never changed" — the owner had to hand-edit a guarded file.
+        # An EMPTY value was never set by anyone; a tuned value still wins (test_config_keys_added_values_never_changed).
+        d = tempfile.mkdtemp(prefix="reef-init-late-stack.")
+        subprocess.run(["git", "init", "-q", d], check=True)
+        init(d)
+        self.assertEqual(json.loads(read(d, ".reef/config.json"))["gates"]["full"], "")
+        write(d, "package.json", json.dumps({"name": "late", "scripts": {"test": "vitest run", "build": "next build"}}))
+        r = init(d)
+        cfg = json.loads(read(d, ".reef/config.json"))
+        self.assertEqual(cfg["gates"]["full"], "npm test", r.stdout)
+        self.assertEqual(cfg["gates"]["extra"], {"build": "npm run build"})
+        self.assertEqual(cfg["worktree"]["setup"], "npm ci")
+        self.assertIn(".reef/config.json (keys added)", r.stdout)
+        dep = read(d, ".reef/proposed/.github/dependabot.yml")
+        self.assertEqual(dep.count("package-ecosystem"), 2)
+        self.assertIn('package-ecosystem: "npm"', dep)
+        self.assertIn('target-branch: "develop"', dep)
+        self.assertNotIn("{{", dep)
 
 
 if __name__ == "__main__":
@@ -229,8 +254,12 @@ class DayZero(unittest.TestCase):
         self.assertIn("| 1 | Walking skeleton: one page end to end through browser, api, store", queue)
         self.assertIn("¹ host: fly.io", queue)
         self.assertIn("⁵ auth boundary: magic link", queue)
-        for adr in ("draft-1-hosting.md", "draft-1-data-store.md", "draft-1-auth-boundary.md"):
+        for adr in ("draft-1-shape.md", "draft-1-hosting.md", "draft-1-data-store.md", "draft-1-auth-boundary.md"):
             self.assertTrue(os.path.isfile(os.path.join(d, "reef", "architecture", "adr", adr)), adr)
+        shape = read(d, "reef/architecture/adr/draft-1-shape.md")
+        self.assertIn("modular monolith", shape)                 # the decision everyone argues about later, written down
+        self.assertIn("Microservices", shape)                     # with the alternative it rejects and why
+        self.assertIn("browser, api, store", shape)
         self.assertIn("## Diagram", read(d, "reef/architecture/adr/draft-1-hosting.md"))
         r2 = init(d, "--grill", os.path.join(d, "answers.json"))
         self.assertRegex(r2.stdout, r"\n  0 written, \d+ skipped, 0 proposed", "a second grill run writes nothing")

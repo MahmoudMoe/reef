@@ -99,7 +99,7 @@ def detect(root):
     """Stack facts the templates need. Only what the files say; nothing guessed is a gate."""
     has = lambda *p: os.path.isfile(os.path.join(root, *p))
     facts = {"name": os.path.basename(os.path.abspath(root)), "stack": "unknown", "test": "", "fast": "",
-             "build": "", "install": "", "ecosystem": "github-actions", "setup_steps": ""}
+             "build": "", "install": "", "ecosystem": "", "setup_steps": ""}
     if has("package.json"):
         try:
             with open(os.path.join(root, "package.json"), encoding="utf-8") as f:
@@ -124,6 +124,13 @@ def detect(root):
         facts.update(stack="go", ecosystem="gomod", install="go mod download", test="go test ./...", build="go build ./...",
                      setup_steps="      - uses: actions/setup-go@v5\n        with:\n          go-version: stable\n")
     facts["setup_steps"] = facts["setup_steps"] + AUDIT_SETUP.get(facts["stack"], "") + GITLEAKS_SETUP
+    # Dependabot: the stack's package entry only when there IS a stack — an unknown stack used to render the
+    # github-actions ecosystem twice (first contact, 2026-10-16)
+    facts["dependabot_stack_entry"] = (
+        f'  - package-ecosystem: "{facts["ecosystem"]}"\n    directory: "/"\n'
+        '    target-branch: "{{base}}"      # never against {{release}}: a PR there would sit and go stale\n'
+        '    schedule:\n      interval: "weekly"\n    groups:\n      all-dependencies:\n        patterns: ["*"]\n'
+        '    open-pull-requests-limit: 3\n') if facts["ecosystem"] else ""
     facts["date"] = datetime.date.today().isoformat()
     # 0.6: the layout — a fresh project gets the one tree; an existing 0.5 layout is kept. Once chosen it is
     # recorded in .reef/config.json paths.* and read back from there, so a second run never flips it.
@@ -195,6 +202,22 @@ def grill_facts(answers, facts):
             foot.append(f"{marks[i]} {q}: {v} ({facts['date']})")
     facts["footnotes"] = "\n".join(foot) if foot else "¹ <the owner's decision, in his words, with the date>"
     adrs = {}
+    if a["shape"]:
+        # the shape decision is the one everyone later argues about ("should we split services?") — written down
+        # with its reason, not left implicit in the C4 diagram (first contact, 2026-10-16)
+        parts = ", ".join(containers)
+        adrs["draft-1-shape.md"] = (f"# ADR draft-1-shape — Shape: {a['shape']}, one deployable (a monolith)\n\nStatus: Accepted (number at merge)\n\n"
+                                    f"## Context\nDay zero of {name}; the owner answered the architecture grill on {facts['date']}: shape {a['shape']}, "
+                                    f"scale in one year {a['scale'] or 'undecided'}, hosted on {a['host'] or 'undecided'}.\n\n"
+                                    f"## Decision\nOne deployable with the containers {parts}, built as a modular monolith: modules with explicit "
+                                    f"boundaries inside one process and one repository. No services split at this scale.\n\n"
+                                    f"## Alternatives rejected\n- Microservices: operational cost (deploys, networking, observability per service) with "
+                                    f"nothing at this scale to pay for it.\n- Serverless functions per feature: fragments the domain before it is known.\n\n"
+                                    f"## Consequences\n+ one deploy, one test suite, one gate\n- a module whose boundary is violated is a review finding, "
+                                    f"not a network error — `/reef-c4` checks the element-level drift\n- splitting a service later is a queue row with its own ADR, "
+                                    f"opened by a measured need (a scaling or team boundary), never by taste\n\n"
+                                    f"## Diagram\n```mermaid\nflowchart LR\n  owner --> {sid}[{name}: one deployable]\n  {sid} --> " +
+                                    " & ".join(c.replace("-", "_") for c in containers) + "\n```\n")
     for topic, value, title in (("hosting", a["host"], "Hosting"), ("data-store", a["store"], "Data store"), ("auth-boundary", a["auth"], "Auth boundary")):
         if value and value not in ("none", "no"):
             adrs[f"draft-1-{topic}.md"] = (f"# ADR draft-1-{topic} — {title}: {value}\n\nStatus: Accepted (number at merge)\n\n## Context\n"
@@ -207,8 +230,9 @@ def grill_facts(answers, facts):
 
 def render(template_text, facts):
     out = template_text
-    for k, v in facts.items():
-        out = out.replace("{{" + k + "}}", str(v))
+    for _ in range(2):   # a fact may itself carry placeholders (the Dependabot stack entry names {{base}})
+        for k, v in facts.items():
+            out = out.replace("{{" + k + "}}", str(v))
     return out
 
 
@@ -244,9 +268,12 @@ def project_config(existing, facts):
 
     def merge(base, over):
         for k, v in over.items():
-            if k in base and isinstance(base[k], dict) and isinstance(v, dict):
+            if k in base and isinstance(base[k], dict) and isinstance(v, dict) and base[k]:
                 merge(base[k], v)
-            elif k not in base:
+            elif k not in base or (base[k] in ("", {}, None) and v not in ("", {}, None)):
+                # a tuned value is never changed; a value that was never SET (the empty string init itself wrote
+                # before the stack existed — first contact, 2026-10-16: `gates.full` stayed "" after the Next.js
+                # scaffold arrived and the owner had to hand-edit a guarded file) is filled when the stack now says
                 base[k] = v
         return base
     return merge(existing, cfg) if existing is not None else cfg
