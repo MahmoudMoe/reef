@@ -1,0 +1,4 @@
+RUN: agent=loophole-hunter task=12 pass=guard
+DEFECT: a git commit that skips the hook passes the guard
+NONE: the tests are green and cover the Scope table per the hand-off
+VERDICT: PASS

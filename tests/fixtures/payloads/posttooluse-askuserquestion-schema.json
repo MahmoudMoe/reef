@@ -1,0 +1,65 @@
+{
+ "session_id": "3e114f08-f984-5a4b-a660-d1588cdcc4ef",
+ "transcript_path": "/home/user/.claude/projects/-home-user-project/3e114f08-f984-5a4b-a660-d1588cdcc4ef.jsonl",
+ "cwd": "/home/user/project",
+ "scratchpad_dir": "/tmp/claude-0/-home-user-project/3e114f08-f984-5a4b-a660-d1588cdcc4ef/scratchpad",
+ "prompt_id": "dcbcc4ee-9c4d-4234-a9ea-9c36c9709ecb",
+ "permission_mode": "bypassPermissions",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "PostToolUse",
+ "tool_name": "AskUserQuestion",
+ "tool_input": {
+  "questions": [
+   {
+    "question": "Approve plan csv-export-for-orders at 3f2a9c1d8e7b6a50?",
+    "header": "Plan",
+    "multiSelect": false,
+    "options": [
+     {
+      "label": "Approve",
+      "description": "write the approval record bound to this digest"
+     },
+     {
+      "label": "Edit",
+      "description": "change the plan first"
+     },
+     {
+      "label": "Cancel",
+      "description": "stop"
+     }
+    ]
+   }
+  ]
+ },
+ "tool_response": {
+  "questions": [
+   {
+    "question": "Approve plan csv-export-for-orders at 3f2a9c1d8e7b6a50?",
+    "header": "Plan",
+    "multiSelect": false,
+    "options": [
+     {
+      "label": "Approve",
+      "description": "write the approval record bound to this digest"
+     },
+     {
+      "label": "Edit",
+      "description": "change the plan first"
+     },
+     {
+      "label": "Cancel",
+      "description": "stop"
+     }
+    ]
+   }
+  ],
+  "answers": {
+   "Approve plan csv-export-for-orders at 3f2a9c1d8e7b6a50?": "Approve"
+  },
+  "annotations": {}
+ },
+ "tool_use_id": "toolu_01SCHEMA0000000000000000",
+ "_source": "schema-derived from the installed Claude Code 2.1.301 binary (zod: questions, answers: question text -> answer string, response?, annotations, afkTimeoutMs?); headless -p sessions exclude AskUserQuestion so no live capture was possible"
+}

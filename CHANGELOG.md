@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.0 — governance, spec, tiers, day zero, loop engine, one tree
+
+### Phase 0 — verify first, then measure
+- **0.0 Verified hook payloads** from a live Claude Code 2.1.301 session: `tests/fixtures/payloads/` (PreToolUse
+  inside a sub-agent carries `agent_id` + `agent_type`; Stop carries `stop_hook_active`; SessionStart carries
+  `source`; `hooks.json` accepts `timeout` and `onFailure: block`; AskUserQuestion's answers live in
+  `tool_response.answers` — schema-derived, headless sessions exclude the tool). Findings and consequences per
+  item: `docs/perf/payloads-2026-10-16.md`.
+- **0.1 `scripts/reef-cost.py`** — turns, context per turn (mean/p50/p90/max), compactions, cache writes vs reads,
+  context share by category, sub-agent transcripts, fix rounds per feature; `--session-start`; `--live` reads the
+  last 256 KB only. Tests: `tests/test_cost.py` (known counts exact; boundary+summary = one compaction; 50 MB
+  `--live` under 3 s).
+- **0.2 Baseline** on a real session: `docs/perf/baseline-2026-10-16.md` (first turn 91k tokens; 43% of context is
+  attachments, 31% raw Bash output).
+- **0.3 `scripts/reef-eval`** + frozen corpus `tests/eval/corpus/{verifier,hunter,plan-reviewer}.json` (6/6/5 real
+  diffs with ground truth, each building to a GREEN gate); live `run` via `claude -p` in a fresh worktree per run,
+  mechanical `score` (VERDICT / BLOCKER / `AC<n> FAIL` lines), `compare` (catch-rate and approve-precision must not
+  drop). Tests: `tests/test_eval.py` (parser, comparison rule, fixture replay: trusting the hand-off drops the
+  catch-rate and is refused; every corpus entry builds green and passes plan-check where the reviewer needs it).
+- **0.4 Baseline evals** k=3: `docs/perf/eval-baseline-2026-10-16.md`.
+
 ## 0.5.0 — the graph executor and the full project setup
 
 - **Task graph executed, not just declared.** `scripts/reef-graph.py` computes the ready set from

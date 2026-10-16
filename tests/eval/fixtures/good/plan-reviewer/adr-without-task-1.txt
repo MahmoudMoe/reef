@@ -1,0 +1,5 @@
+RUN: agent=plan-reviewer feature=orders-export
+PROJECT STATES NO INVARIANTS — question 1 not assessable.
+BLOCKING: none
+ADVISORY — Q3: docs/adr/0003-nightly.md decides a nightly job; no task delivers it — my read, your call.
+VERDICT: PASS

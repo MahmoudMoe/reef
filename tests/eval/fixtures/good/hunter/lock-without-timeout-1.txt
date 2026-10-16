@@ -1,0 +1,4 @@
+RUN: agent=loophole-hunter task=13 pass=guard
+DEFECT: a stuck heavy holder hangs every other caller
+BLOCKER: heavy.py:24 falls back to a BLOCKING fcntl.flock(LOCK_EX) with no deadline when every slot is busy — a holder that never exits hangs the caller forever; AC2's test (tests/test_heavy.py:11) only asserts the constant 75. fix: poll LOCK_NB against a monotonic deadline, return 75
+VERDICT: FAIL

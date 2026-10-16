@@ -1,0 +1,10 @@
+RUN: agent=verifier task=4
+RULE AC1: PASS iff test_bad_row_skipped exists and asserts the bad row is dropped; FAIL if the suite lacks it or the code raises
+RULE AC2: PASS iff test_bad_row_warns asserts a stderr line naming index 0; FAIL otherwise
+RULE AC3: PASS iff test_empty_input asserts {} for []; FAIL otherwise
+Gate: python3 -m unittest -q -> 4 tests OK (run by me)
+AC1 PASS — tests/test_core.py:12 asserts {'2026-01': 2.0}
+AC2 PASS — tests/test_core.py:17 asserts 'warning: row 0 skipped'
+AC3 PASS — tests/test_core.py:23
+Break paths: amount None -> skipped (TypeError); amount '' -> skipped; nested list -> skipped.
+VERDICT: PASS

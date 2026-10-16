@@ -1,0 +1,18 @@
+{
+ "session_id": "3e114f08-f984-5a4b-a660-d1588cdcc4ef",
+ "transcript_path": "/home/user/.claude/projects/-home-user-project/3e114f08-f984-5a4b-a660-d1588cdcc4ef.jsonl",
+ "cwd": "/home/user/project",
+ "scratchpad_dir": "/tmp/claude-0/-home-user-project/3e114f08-f984-5a4b-a660-d1588cdcc4ef/scratchpad",
+ "prompt_id": "dcbcc4ee-9c4d-4234-a9ea-9c36c9709ecb",
+ "permission_mode": "bypassPermissions",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "PreToolUse",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "echo hello-from-main > main.txt",
+  "description": "Write hello-from-main to main.txt"
+ },
+ "tool_use_id": "toolu_01KfN2xE56khwCWYfDF4zWGk"
+}

@@ -1,0 +1,128 @@
+{
+ "agent": "plan-reviewer",
+ "entries": [
+  {
+   "id": "brief-contradicts-adr",
+   "files": {
+    "CLAUDE.md": "# orders-export\n\nA CLI that exports orders to CSV. Storage: Postgres (the shared cluster), connection string from `DATABASE_URL`. Seams: `store.py` (read rows), `export.py` (write CSV), `cli.py` (entry point).\n\n## Owner decision points\nNone pending.\n",
+    ".reef/config.json": "{\n \"gates\": {\n  \"full\": \"python3 -m unittest -q\"\n },\n \"paths\": {\n  \"tasks\": \"tasks\",\n  \"adr\": \"docs/adr\"\n },\n \"invariants\": []\n}\n",
+    "store.py": "import sqlite3\n\n\ndef read_orders(path):\n    con = sqlite3.connect(path)\n    return [dict(zip(('id', 'date', 'total'), r)) for r in con.execute('select id, date, total from orders')]\n",
+    "export.py": "import csv\n\n\ndef write_csv(rows, out):\n    w = csv.writer(out)\n    w.writerow(['id', 'date', 'total'])\n    for r in rows:\n        w.writerow([r['id'], r['date'], r['total']])\n",
+    "tests/__init__.py": "",
+    "tests/test_smoke.py": "import unittest\n\n\nclass Smoke(unittest.TestCase):\n    def test_imports(self):\n        import store, export  # noqa\n",
+    "docs/glossary.md": "# Glossary\n| Term | Definition |\n|---|---|\n| Order | one sale: id, date, total |\n",
+    "docs/adr/0001-sqlite.md": "# ADR 0001 \u2014 SQLite is the only store\n\nStatus: Accepted\n\n## Context\nOne operator, one machine, no concurrent writers.\n\n## Decision\nOrders live in one SQLite file; no database server is introduced.\n\n## Consequences\n+ zero operations\n- no concurrent writers\n",
+    "docs/adr/0002-csv-comma.md": "# ADR 0002 \u2014 CSV uses a comma delimiter\n\nStatus: Accepted\n\n## Context\nThe downstream spreadsheet import expects RFC 4180.\n\n## Decision\nThe exporter writes comma-separated values, quoted per RFC 4180; no other delimiter is offered.\n\n## Consequences\n+ one shape\n- European locales re-import with a wizard\n",
+    "tasks/001-read-orders.md": "---\nid: 1\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 001 \u2014 read orders from the store\n\n## Scope\n`store.read_orders(path)` returns every row of the `orders` table as dicts.\n\n## Acceptance Criteria\n- AC1: rows come back with id, date, total \u2014 `test_read_orders_rows`\n\n## Out of scope\nAnything not named above.\n\n## Log\n",
+    "tasks/002-write-csv.md": "---\nid: 2\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 002 \u2014 write the CSV\n\n## Scope\n`export.write_csv(rows, out)` writes the rows as RFC 4180 CSV with a header.\n\n## Acceptance Criteria\n- AC1: a header row and one line per order, comma-separated \u2014 `test_write_csv_shape`\n\n## Out of scope\nAnything not named above.\n\n## Log\n",
+    "tasks/003-cli.md": "---\nid: 3\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 003 \u2014 the CLI\n\n## Scope\n`cli.main(argv)` wires store and export: `orders-export <db> <out.csv>`.\n\n## Acceptance Criteria\n- AC1: running the CLI on a fixture db produces the CSV \u2014 `test_cli_end_to_end`\n\n## Out of scope\nAnything not named above.\n\n## Log\n"
+   },
+   "prompt": "You are the plan-reviewer for feature orders-export. scripts/reef-plan-check.py has PASSED on this tree. Inputs: tasks/, docs/adr/, docs/glossary.md, the brief CLAUDE.md, .reef/config.json, and the source tree in this directory. Answer your five questions exactly. End with VERDICT: PASS or VERDICT: FAIL followed by a BLOCKING section and an ADVISORY section.",
+   "truth": {
+    "verdict": "FAIL",
+    "blockers": [
+     "postgres|sqlite|database_url"
+    ],
+    "notes": "Q2: the brief says Postgres, ADR 0001 says SQLite only \u2014 BLOCKING, brief is DERIVED"
+   }
+  },
+  {
+   "id": "invariant-not-true-today",
+   "files": {
+    "CLAUDE.md": "# orders-export\n\nA CLI that exports orders to CSV. Storage: SQLite file `orders.db` (no server). Seams: `store.py` (read rows), `export.py` (write CSV), `cli.py` (entry point).\n\n## Owner decision points\nNone pending.\n",
+    ".reef/config.json": "{\n \"gates\": {\n  \"full\": \"python3 -m unittest -q\"\n },\n \"paths\": {\n  \"tasks\": \"tasks\",\n  \"adr\": \"docs/adr\"\n },\n \"invariants\": [\n  \"every HTTP endpoint requires a bearer token\"\n ]\n}\n",
+    "store.py": "import sqlite3\n\n\ndef read_orders(path):\n    con = sqlite3.connect(path)\n    return [dict(zip(('id', 'date', 'total'), r)) for r in con.execute('select id, date, total from orders')]\n",
+    "export.py": "import csv\n\n\ndef write_csv(rows, out):\n    w = csv.writer(out)\n    w.writerow(['id', 'date', 'total'])\n    for r in rows:\n        w.writerow([r['id'], r['date'], r['total']])\n",
+    "tests/__init__.py": "",
+    "tests/test_smoke.py": "import unittest\n\n\nclass Smoke(unittest.TestCase):\n    def test_imports(self):\n        import store, export  # noqa\n",
+    "docs/glossary.md": "# Glossary\n| Term | Definition |\n|---|---|\n| Order | one sale: id, date, total |\n",
+    "docs/adr/0001-sqlite.md": "# ADR 0001 \u2014 SQLite is the only store\n\nStatus: Accepted\n\n## Context\nOne operator, one machine, no concurrent writers.\n\n## Decision\nOrders live in one SQLite file; no database server is introduced.\n\n## Consequences\n+ zero operations\n- no concurrent writers\n",
+    "docs/adr/0002-csv-comma.md": "# ADR 0002 \u2014 CSV uses a comma delimiter\n\nStatus: Accepted\n\n## Context\nThe downstream spreadsheet import expects RFC 4180.\n\n## Decision\nThe exporter writes comma-separated values, quoted per RFC 4180; no other delimiter is offered.\n\n## Consequences\n+ one shape\n- European locales re-import with a wizard\n",
+    "tasks/001-read-orders.md": "---\nid: 1\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 001 \u2014 read orders from the store\n\n## Scope\n`store.read_orders(path)` returns every row of the `orders` table as dicts.\n\n## Acceptance Criteria\n- AC1: rows come back with id, date, total \u2014 `test_read_orders_rows`\n\n## Out of scope\nAnything not named above.\n\n## Log\n",
+    "tasks/002-write-csv.md": "---\nid: 2\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 002 \u2014 write the CSV\n\n## Scope\n`export.write_csv(rows, out)` writes the rows as RFC 4180 CSV with a header.\n\n## Acceptance Criteria\n- AC1: a header row and one line per order, comma-separated \u2014 `test_write_csv_shape`\n\n## Out of scope\nAnything not named above.\n\n## Log\n",
+    "tasks/004-auth-token.md": "---\nid: 4\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 004 \u2014 require a token on the HTTP endpoint\n\n## Scope\n`app.py` gains a bearer-token check on `/export`; a missing token is 401.\n\n## Acceptance Criteria\n- AC1: no token \u2192 401 \u2014 `test_export_requires_token`\n\n## Out of scope\nAnything not named above.\n\n## Log\n",
+    "app.py": "def export(request):\n    return 200, 'id,date,total\\n'\n\n\nROUTES = {'/export': export}\n"
+   },
+   "prompt": "You are the plan-reviewer for feature orders-export. scripts/reef-plan-check.py has PASSED on this tree. Inputs: tasks/, docs/adr/, docs/glossary.md, the brief CLAUDE.md, .reef/config.json, and the source tree in this directory. Answer your five questions exactly. End with VERDICT: PASS or VERDICT: FAIL followed by a BLOCKING section and an ADVISORY section.",
+   "truth": {
+    "verdict": "FAIL",
+    "blockers": [
+     "invariant|token|auth|401"
+    ],
+    "notes": "Q1: the invariant is false of app.py today; task 004 would make it true \u2014 an AC in the wrong place"
+   }
+  },
+  {
+   "id": "consistent-plan",
+   "files": {
+    "CLAUDE.md": "# orders-export\n\nA CLI that exports orders to CSV. Storage: SQLite file `orders.db` (no server). Seams: `store.py` (read rows), `export.py` (write CSV), `cli.py` (entry point).\n\n## Owner decision points\nNone pending.\n",
+    ".reef/config.json": "{\n \"gates\": {\n  \"full\": \"python3 -m unittest -q\"\n },\n \"paths\": {\n  \"tasks\": \"tasks\",\n  \"adr\": \"docs/adr\"\n },\n \"invariants\": []\n}\n",
+    "store.py": "import sqlite3\n\n\ndef read_orders(path):\n    con = sqlite3.connect(path)\n    return [dict(zip(('id', 'date', 'total'), r)) for r in con.execute('select id, date, total from orders')]\n",
+    "export.py": "import csv\n\n\ndef write_csv(rows, out):\n    w = csv.writer(out)\n    w.writerow(['id', 'date', 'total'])\n    for r in rows:\n        w.writerow([r['id'], r['date'], r['total']])\n",
+    "tests/__init__.py": "",
+    "tests/test_smoke.py": "import unittest\n\n\nclass Smoke(unittest.TestCase):\n    def test_imports(self):\n        import store, export  # noqa\n",
+    "docs/glossary.md": "# Glossary\n| Term | Definition |\n|---|---|\n| Order | one sale: id, date, total |\n",
+    "docs/adr/0001-sqlite.md": "# ADR 0001 \u2014 SQLite is the only store\n\nStatus: Accepted\n\n## Context\nOne operator, one machine, no concurrent writers.\n\n## Decision\nOrders live in one SQLite file; no database server is introduced.\n\n## Consequences\n+ zero operations\n- no concurrent writers\n",
+    "docs/adr/0002-csv-comma.md": "# ADR 0002 \u2014 CSV uses a comma delimiter\n\nStatus: Accepted\n\n## Context\nThe downstream spreadsheet import expects RFC 4180.\n\n## Decision\nThe exporter writes comma-separated values, quoted per RFC 4180; no other delimiter is offered.\n\n## Consequences\n+ one shape\n- European locales re-import with a wizard\n",
+    "tasks/001-read-orders.md": "---\nid: 1\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 001 \u2014 read orders from the store\n\n## Scope\n`store.read_orders(path)` returns every row of the `orders` table as dicts.\n\n## Acceptance Criteria\n- AC1: rows come back with id, date, total \u2014 `test_read_orders_rows`\n\n## Out of scope\nAnything not named above.\n\n## Log\n",
+    "tasks/002-write-csv.md": "---\nid: 2\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 002 \u2014 write the CSV\n\n## Scope\n`export.write_csv(rows, out)` writes the rows as RFC 4180 CSV with a header.\n\n## Acceptance Criteria\n- AC1: a header row and one line per order, comma-separated \u2014 `test_write_csv_shape`\n\n## Out of scope\nAnything not named above.\n\n## Log\n",
+    "tasks/003-cli.md": "---\nid: 3\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 003 \u2014 the CLI\n\n## Scope\n`cli.main(argv)` wires store and export: `orders-export <db> <out.csv>`.\n\n## Acceptance Criteria\n- AC1: running the CLI on a fixture db produces the CSV \u2014 `test_cli_end_to_end`\n\n## Out of scope\nAnything not named above.\n\n## Log\n"
+   },
+   "prompt": "You are the plan-reviewer for feature orders-export. scripts/reef-plan-check.py has PASSED on this tree. Inputs: tasks/, docs/adr/, docs/glossary.md, the brief CLAUDE.md, .reef/config.json, and the source tree in this directory. Answer your five questions exactly. End with VERDICT: PASS or VERDICT: FAIL followed by a BLOCKING section and an ADVISORY section.",
+   "truth": {
+    "verdict": "PASS",
+    "blockers": [],
+    "notes": "brief, ADRs, tasks and seams agree; invariants empty (caveat line expected, not a finding)"
+   }
+  },
+  {
+   "id": "adr-without-task",
+   "files": {
+    "CLAUDE.md": "# orders-export\n\nA CLI that exports orders to CSV. Storage: SQLite file `orders.db` (no server). Seams: `store.py` (read rows), `export.py` (write CSV), `cli.py` (entry point).\n\n## Owner decision points\nNone pending.\n",
+    ".reef/config.json": "{\n \"gates\": {\n  \"full\": \"python3 -m unittest -q\"\n },\n \"paths\": {\n  \"tasks\": \"tasks\",\n  \"adr\": \"docs/adr\"\n },\n \"invariants\": []\n}\n",
+    "store.py": "import sqlite3\n\n\ndef read_orders(path):\n    con = sqlite3.connect(path)\n    return [dict(zip(('id', 'date', 'total'), r)) for r in con.execute('select id, date, total from orders')]\n",
+    "export.py": "import csv\n\n\ndef write_csv(rows, out):\n    w = csv.writer(out)\n    w.writerow(['id', 'date', 'total'])\n    for r in rows:\n        w.writerow([r['id'], r['date'], r['total']])\n",
+    "tests/__init__.py": "",
+    "tests/test_smoke.py": "import unittest\n\n\nclass Smoke(unittest.TestCase):\n    def test_imports(self):\n        import store, export  # noqa\n",
+    "docs/glossary.md": "# Glossary\n| Term | Definition |\n|---|---|\n| Order | one sale: id, date, total |\n",
+    "docs/adr/0001-sqlite.md": "# ADR 0001 \u2014 SQLite is the only store\n\nStatus: Accepted\n\n## Context\nOne operator, one machine, no concurrent writers.\n\n## Decision\nOrders live in one SQLite file; no database server is introduced.\n\n## Consequences\n+ zero operations\n- no concurrent writers\n",
+    "docs/adr/0002-csv-comma.md": "# ADR 0002 \u2014 CSV uses a comma delimiter\n\nStatus: Accepted\n\n## Context\nThe downstream spreadsheet import expects RFC 4180.\n\n## Decision\nThe exporter writes comma-separated values, quoted per RFC 4180; no other delimiter is offered.\n\n## Consequences\n+ one shape\n- European locales re-import with a wizard\n",
+    "docs/adr/0003-nightly.md": "# ADR 0003 \u2014 a nightly export job\n\nStatus: Accepted\n\n## Context\nThe operator wants yesterday's orders every morning.\n\n## Decision\nA scheduled job runs the exporter nightly at 02:00 and writes to `exports/<date>.csv`.\n\n## Consequences\n+ no manual step\n- a scheduler to operate\n",
+    "tasks/001-read-orders.md": "---\nid: 1\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 001 \u2014 read orders from the store\n\n## Scope\n`store.read_orders(path)` returns every row of the `orders` table as dicts.\n\n## Acceptance Criteria\n- AC1: rows come back with id, date, total \u2014 `test_read_orders_rows`\n\n## Out of scope\nAnything not named above.\n\n## Log\n",
+    "tasks/002-write-csv.md": "---\nid: 2\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 002 \u2014 write the CSV\n\n## Scope\n`export.write_csv(rows, out)` writes the rows as RFC 4180 CSV with a header.\n\n## Acceptance Criteria\n- AC1: a header row and one line per order, comma-separated \u2014 `test_write_csv_shape`\n\n## Out of scope\nAnything not named above.\n\n## Log\n",
+    "tasks/003-cli.md": "---\nid: 3\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 003 \u2014 the CLI\n\n## Scope\n`cli.main(argv)` wires store and export: `orders-export <db> <out.csv>`.\n\n## Acceptance Criteria\n- AC1: running the CLI on a fixture db produces the CSV \u2014 `test_cli_end_to_end`\n\n## Out of scope\nAnything not named above.\n\n## Log\n"
+   },
+   "prompt": "You are the plan-reviewer for feature orders-export. scripts/reef-plan-check.py has PASSED on this tree. Inputs: tasks/, docs/adr/, docs/glossary.md, the brief CLAUDE.md, .reef/config.json, and the source tree in this directory. Answer your five questions exactly. End with VERDICT: PASS or VERDICT: FAIL followed by a BLOCKING section and an ADVISORY section.",
+   "truth": {
+    "verdict": "PASS",
+    "blockers": [],
+    "notes": "Q3: ADR 0003's nightly job has no task \u2014 ADVISORY by the agent's own tier rule, so the verdict stays PASS"
+   }
+  },
+  {
+   "id": "task-contradicts-adr",
+   "files": {
+    "CLAUDE.md": "# orders-export\n\nA CLI that exports orders to CSV. Storage: SQLite file `orders.db` (no server). Seams: `store.py` (read rows), `export.py` (write CSV), `cli.py` (entry point).\n\n## Owner decision points\nNone pending.\n",
+    ".reef/config.json": "{\n \"gates\": {\n  \"full\": \"python3 -m unittest -q\"\n },\n \"paths\": {\n  \"tasks\": \"tasks\",\n  \"adr\": \"docs/adr\"\n },\n \"invariants\": []\n}\n",
+    "store.py": "import sqlite3\n\n\ndef read_orders(path):\n    con = sqlite3.connect(path)\n    return [dict(zip(('id', 'date', 'total'), r)) for r in con.execute('select id, date, total from orders')]\n",
+    "export.py": "import csv\n\n\ndef write_csv(rows, out):\n    w = csv.writer(out)\n    w.writerow(['id', 'date', 'total'])\n    for r in rows:\n        w.writerow([r['id'], r['date'], r['total']])\n",
+    "tests/__init__.py": "",
+    "tests/test_smoke.py": "import unittest\n\n\nclass Smoke(unittest.TestCase):\n    def test_imports(self):\n        import store, export  # noqa\n",
+    "docs/glossary.md": "# Glossary\n| Term | Definition |\n|---|---|\n| Order | one sale: id, date, total |\n",
+    "docs/adr/0001-sqlite.md": "# ADR 0001 \u2014 SQLite is the only store\n\nStatus: Accepted\n\n## Context\nOne operator, one machine, no concurrent writers.\n\n## Decision\nOrders live in one SQLite file; no database server is introduced.\n\n## Consequences\n+ zero operations\n- no concurrent writers\n",
+    "docs/adr/0002-csv-comma.md": "# ADR 0002 \u2014 CSV uses a comma delimiter\n\nStatus: Accepted\n\n## Context\nThe downstream spreadsheet import expects RFC 4180.\n\n## Decision\nThe exporter writes comma-separated values, quoted per RFC 4180; no other delimiter is offered.\n\n## Consequences\n+ one shape\n- European locales re-import with a wizard\n",
+    "tasks/001-read-orders.md": "---\nid: 1\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 001 \u2014 read orders from the store\n\n## Scope\n`store.read_orders(path)` returns every row of the `orders` table as dicts.\n\n## Acceptance Criteria\n- AC1: rows come back with id, date, total \u2014 `test_read_orders_rows`\n\n## Out of scope\nAnything not named above.\n\n## Log\n",
+    "tasks/002-write-csv.md": "---\nid: 2\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 002 \u2014 write the CSV\n\n## Scope\n`export.write_csv(rows, out)` writes the rows as semicolon-separated CSV with a header.\n\n## Acceptance Criteria\n- AC1: a header row and one line per order, semicolon-separated (European spreadsheets) \u2014 `test_write_csv_shape`\n\n## Out of scope\nAnything not named above.\n\n## Log\n",
+    "tasks/003-cli.md": "---\nid: 3\nfeature: orders-export\nstatus: pending\ncomplexity: mech\neffort: medium\nblocked-by: []\nresources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# 003 \u2014 the CLI\n\n## Scope\n`cli.main(argv)` wires store and export: `orders-export <db> <out.csv>`.\n\n## Acceptance Criteria\n- AC1: running the CLI on a fixture db produces the CSV \u2014 `test_cli_end_to_end`\n\n## Out of scope\nAnything not named above.\n\n## Log\n"
+   },
+   "prompt": "You are the plan-reviewer for feature orders-export. scripts/reef-plan-check.py has PASSED on this tree. Inputs: tasks/, docs/adr/, docs/glossary.md, the brief CLAUDE.md, .reef/config.json, and the source tree in this directory. Answer your five questions exactly. End with VERDICT: PASS or VERDICT: FAIL followed by a BLOCKING section and an ADVISORY section.",
+   "truth": {
+    "verdict": "FAIL",
+    "blockers": [
+     "halt|semicolon|comma|delimiter"
+    ],
+    "notes": "task 002 (semicolon) vs ADR 0002 (comma): two AUTHORITATIVE sources \u2014 a HALT, never an auto-fix"
+   }
+  }
+ ]
+}

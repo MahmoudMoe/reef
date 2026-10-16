@@ -1,0 +1,16 @@
+{
+ "session_id": "49c3f430-7d45-4f52-8e68-e54c145d6fce",
+ "transcript_path": "/home/user/.claude/projects/-home-user-project/49c3f430-7d45-4f52-8e68-e54c145d6fce.jsonl",
+ "cwd": "/home/user/project",
+ "scratchpad_dir": "/tmp/claude-0/-home-user-project/49c3f430-7d45-4f52-8e68-e54c145d6fce/scratchpad",
+ "prompt_id": "3fafb754-4fef-4457-90fc-35547d03d882",
+ "permission_mode": "default",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "Stop",
+ "stop_hook_active": false,
+ "last_assistant_message": "I couldn't ask the question because the AskUserQuestion tool isn't available in this session. I haven't asked anything or made any other changes. If you want, I can ask the question in plain text instead: \"Approve plan demo-feature at 0123456789abcdef?\" with the options Approve, Edit, or Cancel.",
+ "background_tasks": [],
+ "session_crons": []
+}

@@ -1,0 +1,5 @@
+RUN: agent=loophole-hunter task=12 pass=guard
+DEFECT: a guard whose tests cannot fail
+BLOCKER: tests/test_guard.py:13 and :18 assert `deny(cmd) is None or isinstance(deny(cmd), str)` — true for every possible return; mutation: `return None` for all commands keeps the suite green (I ran it: 2 tests OK). AC3 is contradicted. fix: assertIsNotNone / assertIsNone
+NONE: the guard itself denies every Scope spelling
+VERDICT: FAIL

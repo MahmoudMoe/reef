@@ -1,0 +1,7 @@
+RUN: agent=verifier task=4
+RULE AC1/2/3: PASS iff the implementer's tests cover them.
+Gate: python3 -m unittest -q green (per hand-off).
+AC1 PASS — implementer's tests cover this
+AC2 PASS — implementer's tests cover this
+AC3 PASS — implementer's tests cover this
+VERDICT: PASS

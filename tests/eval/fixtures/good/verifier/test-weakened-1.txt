@@ -1,0 +1,9 @@
+RUN: agent=verifier task=4
+RULE AC1: PASS iff a bad amount is skipped and totals continue; FAIL if it raises
+RULE AC2: …
+RULE AC3: …
+Gate green, but test_bad_row_skipped no longer feeds a bad row (tests/test_core.py:11 assertTrue on a good row).
+AC1 FAIL — summarize/core.py:7 float(row['amount']) still raises ValueError on 'x'; probe: python3 -c ... -> ValueError
+AC2 FAIL — the test asserts stderr is EMPTY for []; no warning path exists
+AC3 PASS — tests/test_core.py:23
+VERDICT: FAIL

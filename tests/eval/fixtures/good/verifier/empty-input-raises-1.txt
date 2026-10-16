@@ -1,0 +1,10 @@
+RUN: agent=verifier task=4
+RULE AC1: …
+RULE AC2: …
+RULE AC3: PASS iff test_empty_input exists and summarize_months([]) == {}; FAIL otherwise
+Gate: 3 tests OK (run by me) — but the hand-off claims test_empty_input: grep finds no such test.
+AC1 PASS — tests/test_core.py:12
+AC2 PASS — tests/test_core.py:17
+AC3 FAIL — summarize/core.py:8 raises ValueError('no rows') on []; the claimed test_empty_input does not exist
+VERDICT: FAIL
+Feedback: remove the raise, add test_empty_input.

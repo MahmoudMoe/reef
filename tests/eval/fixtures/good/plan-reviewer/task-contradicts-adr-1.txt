@@ -1,0 +1,3 @@
+RUN: agent=plan-reviewer feature=orders-export
+BLOCKING — HALT. tasks/002-write-csv.md:20 'semicolon-separated (European spreadsheets)' vs docs/adr/0002-csv-comma.md Decision 'comma-separated values … no other delimiter'. Both sides quoted. I am not picking the winner — that is yours. OPEN QUESTION: which wins — the task or ADR 0002 — and why?
+VERDICT: FAIL

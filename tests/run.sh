@@ -13,6 +13,8 @@ cd "$(dirname "$0")/.."
 #   test_contracts.py   the prose and the shipped defaults still say what the code expects
 #   test_init.py        reef-init: idempotent, never overwrites, one home per fact, release-only CI
 #   test_tier_queue.py  reef-tier (a tier only gets heavier); reef-queue (derived status, ready rows, check, ADR numbering)
+#   test_cost.py        reef-cost: known counts, a compaction counts once, --live reads only the tail
+#   test_eval.py        reef-eval: verdict parser, comparison rule, fixture replay (trusting the hand-off drops the catch-rate), corpus builds green
 # Shell suites: tests/test_hooks.sh (pre-commit, gate, snapshot), tests/test_ci_local.sh (reef-ci-local)
 # One suite: python3 -m unittest tests.test_graph -v
 echo "== python suites (guard / attempt / plan-check / graph) =="
