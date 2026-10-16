@@ -20,6 +20,9 @@
   2.4's `unrequested` were never built; 4.4 is prose) would remove ≈ 365 lines and still leave ≈ 3,480 — over the
   ceiling, and the two phases over budget (1 and 2) hold none of the listed items. Nothing was cut beyond the Read
   tripwire; every mechanism ships with its red test. The owner can order any cut in one line; each is one file.
+  **Owner decision (2026-10-16, at merge): no cuts; the ceiling is reset to what 0.6 measured — 3,850 net new script
+  lines in all, per phase 0 = 460, 1 = 775, 2 = 580, 3 = 740, 4 = 480, 5 = 500, 6 = 320. The 3,200 figure is history;
+  0.7 budgets start from these numbers.**
   (c) *5.7* — no project row ran in this session, so per-row growth is documented as a target and a command, not a number.
 - Cuts taken: **5.6 Read tripwire** (first in the cut order; `context.read_lines_max` stays reserved). Not built by
   design: 2.4 `unrequested` as a script (it is the acceptance review's finding).

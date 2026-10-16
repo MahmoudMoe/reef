@@ -132,5 +132,5 @@ under `writing.session_start_tokens`.
 - A reviewer lock is a token match for writes (tripwire); the snapshot hash remains the backstop.
 - `AskUserQuestion`'s result shape is schema-verified from the installed binary, not captured live (headless
   sessions exclude the tool); `reef-approval.py` reads `tool_response.answers` and falls back to `tool_input.answers`.
-- The size ceiling (decision 10) was not met: ~3,850 net new script lines against 3,200 — see the CHANGELOG's
-  Finishing section for the arithmetic and the cuts the owner can still order.
+- The size ceiling (decision 10) was reset at merge to what 0.6 measured (~3,850 net new script lines; per-phase
+  figures in the CHANGELOG's Finishing section). No cuts were ordered; 0.7 budgets start from the measured numbers.

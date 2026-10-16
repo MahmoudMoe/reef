@@ -44,7 +44,7 @@ Totals: ≈ 3,850 net new script lines (ceiling 3,200 — see "Deviations"); +96
 ## Open rows for 0.7
 1. Measure 5.7 on a real row and set `caps.context_warn` / `caps.context_tokens` from it; then decide `tiers.light.roles.author: sonnet` from an author eval (none exists yet — the corpus judges judges).
 2. The hunter's scope discipline (out-of-scope holes raised as BLOCKERs): an eval entry whose Scope names NEW-ROWs explicitly, and a prompt line if the number holds.
-3. The size ceiling: either the owner orders cuts from the list above, or the budgets are reset to what 0.6 measured.
+3. ~~The size ceiling~~ — closed at merge: the owner reset the budgets to what 0.6 measured (3,850; per phase in the CHANGELOG). No cuts.
 4. A live capture of the AskUserQuestion result once headless sessions expose the tool (or via the Agent SDK's `canUseTool`), replacing the schema-derived fixture.
 5. `reef-recalibrate --apply` on a real existing project (the fixture is synthetic); `reef-c4.py` detection for more stacks and route styles.
 6. `writing.report_words`: measure on a 5-AC fixture and set it (warn-only today).

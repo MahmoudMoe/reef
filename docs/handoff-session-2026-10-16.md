@@ -10,7 +10,7 @@ Read this and `docs/perf/report-0.6-2026-10-16.md`; nothing else is needed to re
 
 ## What is NOT done / decisions the owner still owes
 1. **Merge or review the branch.** Phases are commits, not per-phase PRs (session was bound to one branch).
-2. **Size ceiling (decision 10):** ≈3,850 net new script lines vs 3,200. Cut candidates, each one file: `scripts/reef-repo` (≈125), Mermaid export in `reef-c4.py` (≈35), `--diff` in `reef-c4.py` (≈45), stack opinions in `reef-init.py` (≈20), `cmd_apply` in `reef-recalibrate` (≈140). All cuts together still leave ≈3,480. Owner decides: cut, or reset the budget.
+2. **Size ceiling (decision 10):** ≈3,850 net new script lines vs 3,200. Cut candidates, each one file: `scripts/reef-repo` (≈125), Mermaid export in `reef-c4.py` (≈35), `--diff` in `reef-c4.py` (≈45), stack opinions in `reef-init.py` (≈20), `cmd_apply` in `reef-recalibrate` (≈140). All cuts together still leave ≈3,480. **Decided 2026-10-16: budget reset to the measured 3,850; no cuts.**
 3. **5.7 per-row growth** unmeasured (no project row ran). Command: `python3 scripts/reef-cost.py <transcript> --repo .`; target < 60k/row; then set `caps.context_warn` / `caps.context_tokens`.
 4. **`tiers.light.roles.author`** left unset (opus). Needs an author eval before sonnet.
 5. **Hunter false-FAIL 0.33 → 0.67** after 4.4 (one PASS entry, out-of-scope `#` shlex hole). Recorded; scope discipline is 0.7 row 2.
