@@ -252,6 +252,23 @@ class HandoffAndSessionStart(unittest.TestCase):
         r = subprocess.run([sys.executable, LOOP, "tick", "--session-start", "--hook", "--repo", empty], capture_output=True, text=True)
         self.assertEqual((r.returncode, r.stdout), (0, ""), "a directory without .reef/config.json gets nothing")
 
+    def test_session_start_strips_the_dead_sessions_ceiling_line_and_names_scripts_behind_the_plugin(self):
+        d = project()
+        write(d, "HANDOFF.md", "# Handoff\ntick 49e0690c50ee  loop=inactive  STOP=context ceiling: 171403 tokens > caps.context_tokens 150000 — checkpoint, then /clear\nrows to plan: -\n")
+        out = loop(d, "tick", "--session-start").stdout
+        self.assertNotIn("STOP=context ceiling", out, out)
+        self.assertIn("tick 49e0690c50ee  loop=inactive", out)
+        self.assertNotIn("behind the plugin", out, "no CLAUDE_PLUGIN_ROOT: no verdict")
+        plugin = tempfile.mkdtemp(prefix="reef-plugin.")
+        os.makedirs(os.path.join(plugin, "scripts"))
+        for n in ("reef-loop.py", "reef-cost.py"):
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(plugin, "scripts", n))
+        with open(os.path.join(plugin, "scripts", "reef-cost.py"), "a") as f:
+            f.write("\n# a newer plugin\n")
+        out = loop(d, "tick", "--session-start", env={"CLAUDE_PLUGIN_ROOT": plugin}).stdout
+        self.assertIn("reef: 1 project script(s) behind the plugin (reef-cost.py)", out)
+        self.assertIn("run /reef-init", out)
+
     def test_session_start_truncates_at_the_cap(self):
         d = project({"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md"}, "writing": {"session_start_tokens": 50}})
         write(d, "HANDOFF.md", "# Handoff\n" + "\n".join(f"line {i} " + "x" * 80 for i in range(40)))

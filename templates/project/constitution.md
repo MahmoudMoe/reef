@@ -13,7 +13,7 @@ No implementation starts without the feature's `SPEC.md` (the intent, keyed requ
 Each queue row is independently shippable: its own branch, its own PR into the integration branch, the app still working after it. No PR bundles two rows; no row spans two PRs without being split in the queue first. *Prevents:* a review that cannot say what it is reviewing.
 
 ## Article III — The round cap
-Each item gets at most the number of fix rounds in `.reef/config.json` `caps.attempts`, across review, verification and CI together. Not green after the last one: the loop halts on that item, writes the blocker into `docs/journal.md`, escalates. No "just one more fix". *Prevents:* the fourth round that fixes the third round's fix.
+Each item gets at most the number of fix rounds in `.reef/config.json` `caps.attempts`, across review, verification and CI together. Not green after the last one: the loop halts on that item, writes the blocker into `{{journal_path}}`, escalates. No "just one more fix". *Prevents:* the fourth round that fixes the third round's fix.
 
 ## Article IV — Decisions are recorded
 Any choice that forecloses an alternative — a model, a protocol, a data shape, a vendor, a process rule — becomes an ADR — the feature's under its folder's `adr/`, a project-wide one under `{{adr_path}}/` — before the PR that depends on it merges (drafts unnumbered; numbered at merge). "We discussed it" is not a record. *Prevents:* the same decision re-argued in every review.
