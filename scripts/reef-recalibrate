@@ -1,27 +1,13 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef recalibrate — an existing project's documents into Reef's structure, planned first, applied under
-one approval, undone with one revert (0.6, item 3.4).
-
-Usage:
-  reef-recalibrate plan    [--repo DIR]                writes reef/recalibration.md (+ .reef/recalibration.json)
-  reef-recalibrate history [--repo DIR]                how it was pushed: branches, commit convention, merge style,
-                                                        tags, CI triggers — JSON, with the derived branches.*
-  reef-recalibrate --apply [--repo DIR] [--list FILE] [--no-commit]
-                                                        applies the plan (the owner's edited list wins) in ONE commit
-
-The plan classifies every Markdown document outside Reef's layout: `decision` (ADR-shaped or under adr/decisions/
-rfcs) → converted to a Reef ADR under reef/architecture/adr/ (Nygard sections plus the one-line "in the context
-of … facing … decided … to achieve … accepting …" statement) with `Supersedes: reef/archive/<date>/<original>`;
-`spec` (under specs/, spec/, rfcs/ or named *spec*) for open work → a feature folder reef/features/<slug>/SPEC.md
-with FR keys and a queue row; `glossary` → terms merged into reef/glossary.md; everything else (`runbook`,
-`stale`, `duplicate`) → archived with `git mv` to reef/archive/<yyyy-mm-dd>/<original path>; reef/archive/README.md
-indexes original → new home with the reason. KEPT, never moved: README.md, LICENSE*, CONTRIBUTING.md,
-SECURITY.md, CHANGELOG.md, CODEOWNERS, documents a docs build serves (mkdocs.yml, docusaurus.config.*, conf.py,
-docs/package.json), and any file referenced from code, CI or the docs build — they move only on an explicit
-`move` line in the owner's edited list. Relative Markdown links in moved and remaining documents are rewritten;
-a broken link fails the apply and restores the tree. Undo is `git revert` of the apply commit.
-Exit 0 · 1 nothing to do / broken link / refused · 2 usage.
+"""Reef recalibrate — an existing project's documents into Reef's structure: planned, then applied under one approval.
+  reef-recalibrate plan    [--repo DIR]      reef/recalibration.md + .reef/recalibration.json (create/convert/move/keep + reason)
+  reef-recalibrate history [--repo DIR]      how it was pushed: branches, commit convention, merge style, tags, CI → derived branches.*
+  reef-recalibrate --apply [--repo DIR] [--list plan.json] [--no-commit]   ONE commit; undo = git revert
+decision → ADR with Supersedes: (Nygard + one-line statement); spec for open work → feature folder + queue row;
+glossary → merged; else → reef/archive/<date>/<path> with README index. README/LICENSE/CONTRIBUTING/SECURITY/
+CHANGELOG/CODEOWNERS, docs a docs build serves and files referenced from code/CI are kept unless the owner's list
+says move. Relative links rewritten; a broken link refuses and restores the tree. Exit 0 · 1 refused/nothing · 2 usage.
 """
 import datetime
 import json

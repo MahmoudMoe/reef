@@ -1,20 +1,10 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef C4 — one architecture model per project, generated from code with a proving path per element (0.6, 4.1).
-
-Usage:
-  reef-c4.py generate [--repo DIR] [--write]      detect -> reef/architecture/workspace.dsl (+ context.md, container.md)
-  reef-c4.py lint     [--repo DIR] [<dsl>]        dependency-free structural lint of the DSL
-  reef-c4.py --diff   [--repo DIR]                element-level drift: fresh detection vs the committed model
-
-Detection reads manifests (package.json, pyproject.toml, Cargo.toml, go.mod), infrastructure files (Dockerfile,
-compose, fly.toml, vercel.json, serverless.yml, terraform), dependencies (database drivers, queues, caches, HTTP
-clients) and routes (Express/FastAPI/Flask/Django/Gin/axum handlers) into containers, persons and external
-systems; at most 9 elements (the two most similar are collapsed and reported). The DSL is Structurizr: one model,
-L1 and L2 views, a `# proof: <file>` comment per element, Inferred elements tagged "Inferred". Mermaid exports
-`context.md` / `container.md` are marked generated and checked against the DSL (a hand edit is drift).
---diff: `missing` = detected now, absent from the committed model; `contradicts` = committed, no longer detected;
-`inferred` = detected with no proving path. Exit 0 ok · 1 drift / lint failure · 2 usage.
+"""Reef C4 — one architecture model per project, generated from code with a proving path per element.
+  reef-c4.py generate [--repo DIR] [--write]    detection → reef/architecture/workspace.dsl (Structurizr, L1/L2 views)
+  reef-c4.py lint [--repo DIR] [<dsl>]          dependency-free structural lint
+  reef-c4.py --diff [--repo DIR]                missing (in code, not in model) · contradicts (in model, not in code) · inferred
+Cap 9 elements (the most similar pair collapsed and reported); Inferred tagged. Exit 0 · 1 drift/lint · 2 usage.
 """
 import json
 import os

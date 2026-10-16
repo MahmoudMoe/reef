@@ -1,25 +1,13 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef loop — the loop engine's one read of the world: the TICK (0.6, items 5.1–5.4).
-
-Usage:
-  reef-loop.py tick  [--repo DIR] [--json] [--assert-no-idle] [--session-start] [--hash]
-  reef-loop.py start | stop | wait "<reason>" | clear-wait  [--repo DIR]
-
-`tick` reads the queue, the task files, the worktrees, .reef/inflight/, .reef/verifying/ and the open PRs
-(`gh pr list`, under a deadline, absent when gh fails) ONCE and prints the next-action set as data, under 30
-lines: rows to plan, tasks to dispatch now, PRs to review, rows to close, in flight, returned-but-unmerged,
-parked, pending owner questions, stop reason. In flight is mechanical: `.reef/inflight/<id>` written by the
-guard on an allowed dispatch, removed by /reef-task on the hand-back, treated as returned when older than
-loop.inflight_stale_minutes (default 90). `.reef/loop.json` holds: active, wait (a chat-side wait: a grill
-question, a HALT, a USER ACTION REQUIRED, a /clear request), the last K tick hashes (loop.no_progress_ticks,
-default 3 — K identical ticks with nothing in flight PARK the loop), the stop reason, the refused hash.
-Budgets (5.3): caps.feature_tokens / caps.batch_tokens (0 = off) checked through reef-cost.py on the session
-transcript (REEF_TRANSCRIPT or the last hook payload's path in .reef/loop.json); over a ceiling the loop parks.
---assert-no-idle (5.2, the Stop hook): exit 2 ONLY when a loop is active, no wait is recorded, ready tasks exist
-with free slots, nothing is in flight, no stop reason — and this tick's state hash was not refused before (the
-same state is never refused twice). --session-start (6.2): the handoff head + the tick + the next command, capped
-at writing.session_start_tokens. Exit 0 · 2 (assert-no-idle refusal) · 1 broken state.
+"""Reef loop — the loop engine's one read of the world: the TICK.
+  reef-loop.py tick [--repo DIR] [--json] [--assert-no-idle] [--session-start [--hook]] [--hash]
+  reef-loop.py start | stop | wait "<reason>" | clear-wait
+The next-action set as data under 30 lines (rows to plan, dispatch now, PRs, rows to close, in flight from
+.reef/inflight/ — stale after loop.inflight_stale_minutes = returned — parked, wait, stop). loop.no_progress_ticks
+identical ticks with nothing in flight park the loop; caps.feature_tokens/batch_tokens via reef-cost --live.
+--assert-no-idle (the Stop hook) exits 2 only for: active, no wait, ready work, nothing in flight, no stop — once per
+tick hash. --session-start: handoff head + tick + next command under writing.session_start_tokens. Exit 0 · 2 · 1.
 """
 import hashlib
 import json

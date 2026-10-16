@@ -1,17 +1,10 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef record — a review verdict bound to the FORGE-reported commit (0.6, item 1.1).
-
+"""Reef record — a review verdict bound to the FORGE-reported commit.
 Usage: reef-record <feature> <verdict> [--pr <number|url|branch>] [--root DIR]
-
-Writes .reef/review/<feature>.json = {sha, tree, verdict, base, pr, recorded_at} in the MAIN checkout:
-`sha` and `base` from `gh pr view --json headRefOid,baseRefName,url`, `tree` from
-`gh api repos/<owner>/<repo>/git/commits/<sha> --jq .tree.sha` — what the forge says the PR is, never what
-the local checkout remembers. /reef-review records after the acceptance review and after the diff review.
-Under merge.by: loop the guard refuses `gh pr merge` unless a PASS/GREEN record's sha equals the forge head
-(or the only commits since are a clean base merge / claims-only). Under merge.by: human the record is the
-journal's evidence of what was reviewed and gates nothing.
-Exit 0 = recorded · 2 = gh failed, no PR, or bad usage (nothing written).
+Writes .reef/review/<feature>.json = {sha, tree, verdict, base, pr, recorded_at} from `gh pr view` and
+`gh api …/git/commits/<sha>`; under merge.by: loop the guard refuses `gh pr merge` without a PASS/GREEN record on
+the forge head. Exit 0 recorded · 2 gh failed / no PR / bad usage (nothing written).
 """
 import json
 import os

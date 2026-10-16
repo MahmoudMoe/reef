@@ -2,6 +2,28 @@
 
 ## 0.6.0 — governance, spec, tiers, day zero, loop engine, one tree
 
+### Finishing
+- README: the flow as a graph, the honesty ledger with a class per mechanism (`tests/test_contracts.py::LedgerClasses`),
+  the tier table, every new setting with its default, "Measured", the one tree, 387 selftests.
+- Templates: AGENTS (≤ 80 rendered lines, the stack's conventions, the tick), constitution with the admission article
+  (VIII), queue with the walking-skeleton row and footnotes, journal with per-AC status, CI with `--ci --release` and the
+  auditor/gitleaks setup steps, `spec.md`, `stacks/`; `docs/design/graph-and-setup.md` §9–15.
+- Version 0.6.0 in `plugin.json`, both fields of `marketplace.json`, the README badge, `test_one_version_everywhere`.
+- Guard profile re-run on the final guard (`docs/perf/guard-profile-2026-10-16.md`): p95 ≤ 130 ms, every timeout 10 s.
+- Eval at k=3 on the final agent files: verifier after 2.3/2.6 (false-FAIL 0.33 → 0.00, nothing dropped), hunter after 4.4
+  (nothing dropped; false-FAIL 0.33 → 0.67 on the one PASS entry, recorded), plan-reviewer unchanged (baseline stands).
+- **Forced deviations, recorded:** (a) *branching* — this session was bound to one branch (`claude/new-session-4u0edl`),
+  so the phases are seven commits on it, not seven PRs into `main`; (b) *decision 10, the size ceiling* — net new script
+  lines are ~3,850 against the 3,200 ceiling (docstrings already compacted); per phase: 0 ≈ 460/500, 1 ≈ 775/700,
+  2 ≈ 580/500, 3 ≈ 740/800, 4 ≈ 480/500, 5 ≈ 500/500, 6 ≈ 320/600. Applying the whole fixed cut order (4.1 Mermaid
+  export ≈ 35, 3.2 `reef-repo` ≈ 125, 3.1b ≈ 20, 3.4 `--apply` ≈ 140, 4.1 `--diff` ≈ 45; 5.6's Read tripwire and
+  2.4's `unrequested` were never built; 4.4 is prose) would remove ≈ 365 lines and still leave ≈ 3,480 — over the
+  ceiling, and the two phases over budget (1 and 2) hold none of the listed items. Nothing was cut beyond the Read
+  tripwire; every mechanism ships with its red test. The owner can order any cut in one line; each is one file.
+  (c) *5.7* — no project row ran in this session, so per-row growth is documented as a target and a command, not a number.
+- Cuts taken: **5.6 Read tripwire** (first in the cut order; `context.read_lines_max` stays reserved). Not built by
+  design: 2.4 `unrequested` as a script (it is the acceptance review's finding).
+
 ### Phase 0 — verify first, then measure
 - **0.0 Verified hook payloads** from a live Claude Code 2.1.301 session: `tests/fixtures/payloads/` (PreToolUse
   inside a sub-agent carries `agent_id` + `agent_type`; Stop carries `stop_hook_active`; SessionStart carries

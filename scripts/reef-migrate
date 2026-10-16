@@ -1,22 +1,12 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef migrate — versioned, idempotent migrations and the layout move (0.6, items 6.1 and 6.3).
-
-Usage:
-  reef-migrate [--repo DIR] [--plugin DIR]            walk <plugin>/migrations/<from>-to-<to>.py from the
-                                                      project's .reef/version (absent = 0.5.0) up to the plugin's
-                                                      version; each script is idempotent and exits 0/1/2; the chain
-                                                      never gaps (one script per release, a placeholder when a
-                                                      release adds nothing). /reef-init runs this before rendering.
-  reef-migrate --layout [--repo DIR] [--no-commit]    move a 0.5 flat project to the one tree in ONE reviewed commit:
-                                                      docs/queue.md -> reef/queue.md, docs/journal.md -> reef/journal.md,
-                                                      docs/glossary.md, docs/day-zero.md, .specify/constitution.md ->
-                                                      reef/constitution.md, docs/adr/ -> reef/architecture/adr/, tasks/
-                                                      (by feature:) -> reef/features/<feature>/tasks/ with a SPEC.md
-                                                      stub per feature; paths.* updated; relative links rewritten (the
-                                                      mover shared with reef-recalibrate); a broken link refuses and
-                                                      restores. A second run moves nothing. Undo: git revert.
-Exit 0 · 1 refused / broken link · 2 usage.
+"""Reef migrate — versioned, idempotent migrations and the layout move.
+  reef-migrate [--repo DIR] [--plugin DIR]     walk <plugin>/migrations/<from>-to-<to>.py from .reef/version (absent =
+                                               0.5.0) to the plugin's version; a gap refuses; /reef-init runs it first
+  reef-migrate --layout [--repo DIR] [--no-commit]   0.5 flat layout → the one tree in ONE commit (queue, journal,
+                                               glossary, day-zero, constitution, ADRs, tasks by feature: + SPEC.md stubs),
+                                               paths.* updated, links rewritten (the mover shared with reef-recalibrate);
+                                               a broken link refuses and restores; a second run moves nothing
 """
 import importlib.machinery
 import importlib.util

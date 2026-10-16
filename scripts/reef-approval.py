@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef approval — the human's plan approval as a RECORD bound to the plan's digest (0.6, item 1.2).
-
-PostToolUse hook on AskUserQuestion (hooks/hooks.json). Reads the payload on stdin; for every question
-whose text is exactly `Approve plan <feature> at <16 hex>?` and whose chosen label is exactly `Approve`
-(payload shape verified in docs/perf/payloads-2026-10-16.md: tool_response.answers maps question text ->
-label; tool_input.answers is the host-supplied fallback), recomputes the feature's digest with
-scripts/reef-plan-check.py --digest and, only when its first 16 hex equal the question's, writes
-.reef/approvals/<feature>.json = {digest16, approved_at} in the MAIN checkout. A timeout answer
-(afkTimeoutMs set), another label, a free-text answer, or a stale digest writes nothing. Always exit 0:
-the hook never blocks; the guard and plan-check enforce the record's presence at dispatch.
-Usage: cat payload.json | reef-approval.py [--root DIR]      (prints what it wrote, or why nothing)
+"""Reef approval — the human's plan approval as a RECORD bound to the plan's digest (PostToolUse AskUserQuestion hook).
+Writes .reef/approvals/<feature>.json = {digest16, approved_at} only when a question `Approve plan <feature> at <16 hex>?`
+is answered exactly `Approve` and the 16 hex equal the current digest (reef-plan-check.py --digest); a timeout
+(afkTimeoutMs), another label or a stale digest writes nothing. Always exit 0; the guard enforces the record.
+Usage: cat payload.json | reef-approval.py [--root DIR]
 """
 import json
 import os

@@ -74,3 +74,63 @@ Zero-touch for execution: no `resources:` → no resource rule; no `graph` → p
 1. `PROJECT-SETUP.md` §1 names `specs/NNN/spec.md` and Reef `tasks/`; here the spec is the task file(s), and the journal is `paths.runlog`.
 2. `## Decision`: the method says the agent writes it except for the Design tier; Reef's prose now says the same, but `tier: design` is where the human writes.
 3. The method's §13 "until Reef's X lands" clauses (merge, CI, rollup, stamp, `gates.fast`, `roles.*`) have all landed in 0.4/0.5 and can be cut.
+
+---
+
+# 0.6 — governance, spec, tiers, day zero, loop engine, one tree
+
+Status: shipped in 0.6.0 on 0.5.0. The decisions are the eleven in the 0.6 handoff; this section records what each
+became in code and where its red test lives. The README's ledger is the authoritative class per mechanism.
+
+## 9. Governance is four questions answered by mechanism
+*Authority*: the human approves a plan through `AskUserQuestion`; the PostToolUse hook `scripts/reef-approval.py`
+turns the answer into `.reef/approvals/<slug>.json` bound to the plan's digest (`reef-plan-check.py --digest`), and
+only that record lets the first dispatch through (`--verify-stamp`, the guard). *Evidence*: a review verdict is a
+record bound to the forge head (`scripts/reef-record`), and `gh pr merge` under `merge.by: loop` is refused without a
+GREEN record on that head (a clean base merge or claims-only commits are the only carry-overs). *Enforcement*:
+every script carries `# CLASS: code|tripwire`, the ledger names the class, `tests/test_contracts.py` ties them.
+*Record*: approvals and review records are machine state in the main checkout's `.reef/`, written by hooks and
+scripts only (the guard denies hand-writes). The release stays the human's merge.
+
+## 10. Four tiers
+`critical | design | full | light`, a role table and an effort each (`tiers.<tier>`), resolved by `reef-attempt`
+and enforced by the guard from the `REEF-TASK:`/`REEF-FEATURE:` line every role dispatch carries. Path classes
+and `touches:` only raise a tier (`reef-tier.py`, `reef-plan-check.py`). An all-light plan needs no plan-reviewer
+(`--needs-agent` exit 3). `tiers.light.roles.author` ships unset until the eval shows sonnet safe and cheaper.
+
+## 11. The feature folder
+One row = one branch = one PR = one folder `reef/features/<slug>/` (SPEC.md with `Row:` and layered `FR-n`/`SC-n`
+keys, `specs/` for big features, `adr/`, `tasks/`). Plan-check validates the slug, the keys, the ACs' citations, the
+structure and `plan.max_tasks`; the stamp digest covers the folder; `reef-queue.py index` generates the one page;
+ADR numbers are one global sequence. The 0.5 flat layout keeps working from `paths.*`; `reef-migrate --layout`
+moves it in one reviewed commit. Criteria are one declarative sentence with their proof in a `## Proof` row (old
+shape still valid); `reef-converge` executes the rows before acceptance.
+
+## 12. Day zero
+New project: the architecture grill renders `reef/architecture/architecture.md` (C4 L1/L2), draft ADRs, the
+footnotes and the walking-skeleton row (`reef-init.py --grill`); stack opinions distil into AGENTS.md; `reef-repo`
+protects the forge. Existing project: `/reef-explore` fans out read-only Explore agents (locked by the guard),
+`/reef-assess` writes the four observed sections and the harnessability score, `reef-recalibrate plan` lists every
+document's fate, ONE approval, `--apply` converts decisions to ADRs with `Supersedes:`, specs to feature folders,
+archives the rest with an index and rewritten links, in one revertable commit; `reef-structure --check` keeps it so.
+
+## 13. Architecture and security as artifacts
+`reef-c4.py` generates one Structurizr model from code with a proof per element and checks element-level drift as a
+release gate; `reef-threat.py` lints the STRIDE table against the model's boundary crossings; unmitigated rows
+become found queue rows; the hunter's `pass=system` attacks the threat model against a running worktree. The
+dependency audit and the history secret scan are release gates, proposed on upgrade.
+
+## 14. The loop engine
+`reef-loop.py tick` is the one read of the world (under 30 lines); `.reef/inflight/` and `.reef/verifying/` are
+the guard's markers; the Stop hook refuses an idle turn end once per tick state; identical ticks park the loop;
+token budgets and the context ceiling (`reef-cost.py --live`, tail only) stop it; `reef-handoff` renders the
+handoff whole; gates print the failing block, never the log; SessionStart injects the handoff head and the tick
+under `writing.session_start_tokens`.
+
+## 15. What this still cannot cover
+- The Stop hook sees `background_tasks` but not a sub-agent's uncommitted work; the tick reads markers, not minds.
+- A reviewer lock is a token match for writes (tripwire); the snapshot hash remains the backstop.
+- `AskUserQuestion`'s result shape is schema-verified from the installed binary, not captured live (headless
+  sessions exclude the tool); `reef-approval.py` reads `tool_response.answers` and falls back to `tool_input.answers`.
+- The size ceiling (decision 10) was not met: ~3,850 net new script lines against 3,200 — see the CHANGELOG's
+  Finishing section for the arithmetic and the cuts the owner can still order.

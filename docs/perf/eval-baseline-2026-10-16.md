@@ -40,8 +40,19 @@ Reports: `.reef/eval/<agent>/<entry>-<k>.txt` (machine state, not committed); th
 | verifier (after) | 18 | **1.00** (was 1.00) | **1.00** (was 1.00) | **0.00** (was 0.33) | `reef-eval compare`: ok — nothing dropped, the verdicts moved toward truth |
 
 Every FAIL now names its kind (`failed acceptance criterion + regression`); the two correct diffs pass in all six
-runs with the weak-test remark filed under `NITS:`. Cost $4.79. The loophole-hunter (4.4) and the plan-reviewer
-files were not changed in 0.6 before this measurement; their after-numbers are taken at Finishing.
+runs with the weak-test remark filed under `NITS:`. Cost $4.79.
+
+## After 4.4 (`pass=system` added to `agents/loophole-hunter.md`), k=3
+
+| agent | runs | catch-rate | approve-precision | false-FAIL rate | compare |
+|---|---|---|---|---|---|
+| loophole-hunter (after) | 18 | **1.00** (was 1.00) | **1.00** (was 1.00) | 0.67 (was 0.33) | `reef-eval compare`: ok — the two rates decision 4 names did not drop |
+
+Honest reading: the false-FAIL rate on the one PASS entry rose from 1 of 3 runs to 2 of 3. Both failing runs raise
+the same out-of-scope hole (a mid-word `#` that shlex reads as a comment and bash does not — real, but the task's
+Scope declares spellings outside the test lists NEW-ROWs). The comparison rule does not cover the false-FAIL rate,
+so 4.4 ships; the number is recorded here, and the hunter's scope discipline is the first candidate for the 0.7 eval.
+Cost $6.60 (18 runs, $0.23–0.59). The plan-reviewer file was not changed in 0.6; its baseline stands.
 
 ## How to re-take
 ```

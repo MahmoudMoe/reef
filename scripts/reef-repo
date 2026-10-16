@@ -1,18 +1,9 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef repo — repository protection by script, gh-based and idempotent (0.6, item 3.2).
-
+"""Reef repo — repository protection by script, gh-based, idempotent (queries first, writes only on a difference).
 Usage: reef-repo [--repo DIR] [--create [--public]] [--yes] [--dry-run]
-
-Reads branches.release from .reef/config.json (default main) and the CI check name (ci.check_name, default the
-generated workflow's job `gates`) and makes the forge match, asking only before creating the repository:
-  1. create the repository, PRIVATE by default (`gh repo create` — only with --create; asks unless --yes)
-  2. protect the release branch: a PR is required, the CI check is required, no force-push, no deletion
-  3. secret-scanning push protection on
-  4. .github/CODEOWNERS (`* @<owner>`) written when absent
-Every step QUERIES first and acts only on a difference, so a second run issues no write. Prints what it did and
-what it could not (a missing permission is reported, never retried). Exit 0 · 1 something could not be done ·
-2 usage / gh missing.
+Release-branch protection (PR + the CI check required, no force-push, no deletion), secret-scanning push protection,
+.github/CODEOWNERS; --create makes the repository, private by default, after asking. Exit 0 · 1 could not · 2 usage.
 """
 import json
 import os

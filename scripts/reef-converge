@@ -1,21 +1,9 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef converge — the feature's Proof table executed against the feature branch, mechanically (0.6, 2.4).
-
-Usage: reef-converge <feature> [--repo DIR] [--base BRANCH] [--dry-run]
-
-For every task of the feature (its folder <paths.features>/<feature>/tasks/{,done} or the flat tasks dir),
-every acceptance criterion's proof — the ## Proof row (a backticked command, or a test name) or, for an
-old-shape task, the test names in the criterion — is checked against the tree:
-  missing     the named test does not exist anywhere under the repository, or the proof command fails
-              because nothing implements it (exit 127 / not found)
-  contradicts the test exists (or the command runs) but fails
-The findings are appended to the feature's rollup task (R<NN>-<feature>.md in the same tasks/, created from
-templates/task.md when absent) under a dated `## Converge` heading, so they go under the ONE cap. With
-nothing left: prints `Converged` and writes nothing. `unrequested` work is the acceptance-review agent's
-finding against SPEC.md, never this script's. Exit 0 converged · 1 findings written · 2 usage.
-A bare test name is run through converge.test_cmd ({name} placeholder) when set; otherwise the full gate
-runs once and a red gate marks every existing proof `contradicts`.
+"""Reef converge — the feature's Proof table executed against the branch: `missing` (test or command absent),
+`contradicts` (present but red), appended to the ONE rollup under a dated ## Converge; `Converged` writes nothing.
+Usage: reef-converge <feature> [--repo DIR] [--base BRANCH] [--dry-run]     Exit 0 converged · 1 findings · 2 usage
+A bare test name runs through converge.test_cmd ({name}) when set, else the full gate once.
 """
 import datetime
 import json

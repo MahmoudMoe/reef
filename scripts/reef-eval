@@ -1,23 +1,10 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef eval — a frozen corpus for every judging agent, so no agent prompt changes blind (decision 4).
+"""Reef eval — a frozen corpus for every judging agent (decision 4: no agent prompt change without it).
 
-Usage:
-  reef-eval run   <agent> [--k N] [--entry ID] [--model M] [--budget USD] [--out DIR] [--plugin DIR]
-        LIVE: for every corpus entry, k times, build a fresh worktree from the entry's files, spawn
-        `claude -p` headless with this plugin loaded and the agent file appended as system prompt,
-        save the report as <out>/<agent>/<entry>-<k>.txt. Needs the CLI and credentials; never in CI.
-  reef-eval score <agent> <dir> [--json]      mechanical: parse each report (VERDICT: PASS|FAIL,
-        BLOCKER: / BLOCKING / AC<n> FAIL lines), compare with the corpus truth, print the metrics.
-  reef-eval compare <baseline.json> <candidate.json>
-        exit 0 iff blocking catch-rate did not drop AND approve-precision did not drop; else 1.
-
-Corpus: tests/eval/corpus/<agent>.json = {"agent", "entries": [{id, files, after?, task?, prompt,
-truth: {verdict, blockers: [regex...]}}]}. `files` is the committed base state, `after` the working-tree
-state the agent judges (null deletes). Metrics: catch-rate = runs whose truth is FAIL where the report
-says FAIL and every truth blocker regex matches a blocking line; approve-precision = of the runs the
-agent PASSED, the share whose truth is PASS. A verdict moving toward truth is allowed; a drop is not.
-Exit 0 ok · 1 comparison failed / no reports · 2 usage.
+  reef-eval run <agent> [--k N] [--entry ID] [--model M] [--budget USD] [--out DIR] [--plugin DIR]   live, never in CI
+  reef-eval score <agent> <dir> [--json]        VERDICT / BLOCKER / AC<n> FAIL lines vs tests/eval/corpus/<agent>.json
+  reef-eval compare <baseline.json> <cand.json>  exit 0 iff catch-rate and approve-precision did not drop
 """
 import glob
 import json

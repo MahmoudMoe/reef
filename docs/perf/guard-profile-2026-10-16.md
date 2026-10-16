@@ -4,7 +4,7 @@
 
 | matcher | p50 (ms) | p95 (ms) | max (ms) | timeout (s) |
 |---|---|---|---|---|
-| `Bash` | 60 | 127 | 160 | 10 |
-| `Task|Agent` | 54 | 65 | 72 | 10 |
-| `Edit|Write|MultiEdit` | 59 | 78 | 81 | 10 |
-| `Stop` | 53 | 59 | 72 | 10 |
+| `Bash` | 66 | 126 | 134 | 10 |
+| `Task|Agent` | 56 | 83 | 83 | 10 |
+| `Edit|Write|MultiEdit` | 56 | 77 | 81 | 10 |
+| `Stop` | 62 | 78 | 80 | 10 |

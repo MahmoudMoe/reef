@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef handoff — HANDOFF.md rendered WHOLE from measured state, never from memory (0.6, item 5.5).
-
-Usage: reef-handoff [--repo DIR] [--write] [--questions FILE]
-
-Renders: the tick (scripts/reef-loop.py tick), the journal's last rows (paths.runlog, 5 rows), the open owner
-questions (--questions FILE, one per line, or .reef/questions.md when present), the release/base heads, open PRs
-and worktrees. Deterministic for a fixture (no clock in the body: the date comes from the last commit). --write
-replaces HANDOFF.md; without it the rendering is printed. The loop records a wait after writing it and asks the
-human to /clear — a fresh orchestrator reads only this head and the tick (6.2). Exit 0.
+"""Reef handoff — HANDOFF.md rendered WHOLE from measured state (the tick, the journal tail, the open questions,
+heads, PRs, worktrees); deterministic for a fixture (the date is the last commit's). Usage: reef-handoff [--repo DIR]
+[--write] [--questions FILE]. The loop records a wait after writing it and asks the human to /clear.
 """
 import json
 import os

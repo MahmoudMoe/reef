@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef structure — the one tree, checked (0.6, items 3.4 and 6.1). Usage: reef-structure --check [--repo DIR]
-
-Fails (exit 1) when a PROCESS DOCUMENT lives outside the layout: a decision record, a spec, a runbook or a
-plan written in Markdown anywhere but under reef/ (0.6) — or, for a project without `.reef/version`, outside
-the 0.5 places (docs/adr, docs/queue.md, docs/journal.md, tasks/). Kept out of the rule: README.md, LICENSE*,
-CONTRIBUTING.md, SECURITY.md, CHANGELOG.md, CODEOWNERS, anything a docs build serves (mkdocs.yml docs_dir,
-docusaurus `docs/`, sphinx `conf.py`'s directory, `docs/package.json`), reef/archive/, and any path referenced
-from code, CI or the docs build. Feature folders follow reef-queue.py's structure rules (slug, SPEC.md, allowed
-files). Joins gates.extra (`"structure": "python3 scripts/reef-structure --check"`). Exit 0 ok · 1 violations · 2 usage.
+"""Reef structure — the one tree, checked. Usage: reef-structure --check [--repo DIR]
+Exit 1 when a process document (decision, spec, runbook, plan) lives outside the layout — reef/ for 0.6, the
+docs/adr, docs/queue.md, docs/journal.md, tasks/ places for a project without .reef/version. Kept: README, LICENSE*,
+CONTRIBUTING, SECURITY, CHANGELOG, CODEOWNERS, docs a docs build serves, reef/archive/, anything referenced from
+code/CI. Feature-folder rules come from reef-queue.py. Joins gates.extra.
 """
 import os
 import re

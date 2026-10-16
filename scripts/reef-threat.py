@@ -1,19 +1,10 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef threat — the threat model as a boundary artifact, linted against the architecture (0.6, item 4.3).
-
-Usage:
-  reef-threat.py lint   [--repo DIR]        every trust-boundary crossing in reef/architecture/workspace.dsl has a
-                                            STRIDE row in reef/architecture/threat-model.md; every row names its
-                                            mitigation AND its proving test, or `accepted: <reason>`
-  reef-threat.py rows   [--repo DIR]        print the unmitigated rows as queue rows (Source found, touches: set)
-  reef-threat.py fresh  [--repo DIR]        exit 0 iff the threat model is newer than the architecture document
-
-Crossings: every `a -> b` relationship in the DSL whose ends sit on different sides of a boundary — a person to
-a container, a container to an external system, a container to a store (data at rest) — identified as `a -> b`.
-The table: `| crossing | STRIDE | threat | mitigation | proof |` where `proof` is a test identifier
-(test_x, TestX, it('…')) or a command in backticks, or the mitigation cell reads `accepted: <reason>`.
-Exit 0 ok · 1 lint failure / stale · 2 usage.
+"""Reef threat — the threat model linted against the architecture.
+  reef-threat.py lint  [--repo DIR]   every trust-boundary crossing in workspace.dsl has a STRIDE row in
+                                      reef/architecture/threat-model.md naming mitigation AND proof, or `accepted: <reason>`
+  reef-threat.py rows  [--repo DIR]   unmitigated rows as found queue rows (touches: set)
+  reef-threat.py fresh [--repo DIR]   exit 0 iff the threat model is at least as new as architecture.md
 """
 import os
 import re

@@ -1,18 +1,10 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef cost — what a session actually cost, read from the Claude Code transcript (stdlib only).
-
-Usage:
-  reef-cost.py [<transcript.jsonl>] [--repo DIR] [--format text|md|json]
-  reef-cost.py <transcript.jsonl> --session-start        first-turn context of the session (tokens)
-  reef-cost.py <transcript.jsonl> --live                 latest turn's context, from the file TAIL only
-  cat hook-payload.json | reef-cost.py --live            transcript_path taken from a hook payload
-
-Reports: API turns (one per requestId), context per turn (mean / p50 / p90 / max), compactions
-(counted once each: a compact_boundary record, or a summary record when no boundary exists), cache
-writes vs reads, context share by category (chars/4 — an estimate, said so), per sub-agent first-turn
-context and totals (<dir>/<session>/subagents/agent-*.jsonl), and fix rounds per feature from the
-done tasks and the journal (--repo). Exit 0; 2 on a missing or unreadable transcript.
+"""Reef cost — what a session cost, from the Claude Code transcript (stdlib only).
+Usage: reef-cost.py [<transcript.jsonl>] [--repo DIR] [--format text|md|json] | --session-start | --live
+       (cat hook-payload.json | reef-cost.py --live  reads transcript_path from the payload)
+Turns = one per requestId; context = input + cache writes + cache reads; a compaction counts once (boundary record,
+else summary record); --live reads the last 256 KB only. Exit 0; 2 on a missing transcript. See README "Measured".
 """
 import glob
 import json

@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef guard profile — how long each guard matcher takes, so the hook timeouts are measured, not guessed.
-
+"""Reef guard profile — p50/p95/max wall time of reef-guard.py per matcher over the recorded payloads.
 Usage: reef-guard-profile.py [--runs N] [--out docs/perf/guard-profile-<date>.md] [--check hooks/hooks.json]
-
-Runs scripts/reef-guard.py N times (default 30) per matcher over the recorded payloads
-(tests/fixtures/payloads/*.json for Bash and Agent; a synthetic Edit; the Stop shape) in a scratch project
-and reports p50 / p95 / max wall time per matcher plus the recommended `timeout` = max(10, ceil(5 × p95)) s
-(decision: timeout ≥ 5 × p95, floor 10 s). --check exits 1 when a matcher's hooks.json timeout is below the
-recommendation. The profile is re-run at Finishing after 1.1, 5.2 and 5.4 change the cost.
+Recommended timeout = max(10, ceil(5 × p95)) s; --check exits 1 when hooks.json is below it.
 """
 import datetime
 import glob
