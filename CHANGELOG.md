@@ -1,6 +1,30 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **First execution on a real project (101 of qassimha, 2026-10-16) — eight follow-ups.**
+  - `reef-graph.py worktree`: a task worktree lives under the MAIN checkout's `worktree.dir`, never nested inside the
+    feature worktree the task file was read from (the nested one's `.next/` was linted by the feature's commit gate).
+  - `reef-loop.py tick`: only PRs whose head is under `branches.feature_prefix` (default `feat/`) are the loop's;
+    Dependabot's and the owner's are counted aside (`(N other PR(s) into the base, not the loop's)`). A feature
+    worktree's plan is seen from the main checkout: its ready tasks go through the same approval/stamp gate into
+    `dispatch now` or `awaiting`, and its SPEC's `Row:` moves the row from "to plan" to "building" (the main
+    checkout's tick said "rows to plan: 1 · tasks: none" while 101 was being built).
+  - `reef-watch`: a transcript without a turn is not a session.
+  - `reef-plan-check.py`: a Proof row that writes files (a redirect, `rm`/`mv`/`touch`, `.env*`, `--force`) warns
+    unless tagged `[mechanic]` — the read-only verifier cannot run it; the mechanic does, verbatim.
+  - `skills/reef-task`: judge reports are saved VERBATIM (a shortened report is a rejected report — six ACs lost their
+    evidence that way); `[mechanic]` rows go to the mechanic, never the orchestrator; `worktree.setup` runs in the
+    orchestrator's checkout before a merge commit when the task added dependencies; `git worktree prune` at close.
+  - `skills/reef-plan-review`: step 0 finds the feature worktree and works there (every run tried the base first and
+    failed on "no task files"); whatever it commits it pushes.
+  - `agents/verifier`: the order is the contract — task file first, RULE lines and `Rules before diff: yes`, then the diff.
+  - Templates: `AGENTS.md` names `.reef/` as machine state excluded from lint/format/test and gives examples for the
+    owner's decision points; `day-zero.md` has the lint-ignores-`.reef/` step.
+- **`reef-plan-check.py`: the hunter's guard-pass record is execution state.** `scripts/reef-adversarial … guard` writes
+  `adversarial-guard:` into the task's frontmatter after the code exists; the stamp hashed it as plan content, so the
+  first design-tier task to merge (101, first contact 2026-10-16) staled the stamp and the guard refused the next
+  task. The key is stripped like `status`/`attempts`/`worktree`; `adversarial-plan` stays in the digest (the approved
+  plan is the hunted plan). `tests/test_tiers_lock.py::GuardPassRecordDoesNotStaleTheStamp`.
 - **`reef-approval.py`: the digest is computed where the plan lives.** The hook computed it in the main checkout;
   with the plan moved to a feature worktree and `develop` holding no feature files, an `Approve` matched nothing and
   wrote nothing (first contact, 2026-10-16). Now every checkout of the repository that holds the feature is a

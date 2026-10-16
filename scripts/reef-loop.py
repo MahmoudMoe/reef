@@ -9,6 +9,7 @@ identical ticks with nothing in flight park the loop; caps.feature_tokens/batch_
 --assert-no-idle (the Stop hook) exits 2 only for: active, no wait, ready work, nothing in flight, no stop — once per
 tick hash. --session-start: handoff head + tick + next command under writing.session_start_tokens. Exit 0 · 2 · 1.
 """
+import glob
 import hashlib
 import json
 import os
@@ -146,8 +147,41 @@ def tick(root):
             prs = json.loads(out)
         except ValueError:
             prs = []
+    # the loop reviews ITS PRs: heads under branches.feature_prefix (default feat/). Dependabot's and anyone else's
+    # into the base are the owner's (first contact: three dependabot PRs sat in "PRs to review")
+    prefix = str((cfg.get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
+    other_prs = [p for p in prs if not str(p.get("headRefName", "")).startswith(prefix)]
+    prs = [p for p in prs if str(p.get("headRefName", "")).startswith(prefix)]
     _, wt = run(["git", "worktree", "list", "--porcelain"], root)
     worktrees = [l[len("worktree "):] for l in wt.splitlines() if l.startswith("worktree ")][1:]
+    # a feature's plan lives on its branch, in its worktree, until the row closes: the main checkout's graph does not
+    # see it (first contact: "rows to plan: 1 · tasks: none" while 101 was being built). Feature worktrees (branch
+    # under the prefix) contribute their ready tasks and claim their rows; task worktrees (task/…) are copies and skipped
+    planned_elsewhere, extra_ready = set(), []
+    entry, branch = None, None
+    for l in wt.splitlines() + [""]:
+        if l.startswith("worktree "):
+            entry, branch = l[len("worktree "):].strip(), None
+        elif l.startswith("branch "):
+            branch = l[len("branch "):].strip()
+        elif not l and entry and entry != root and branch and branch.startswith("refs/heads/" + prefix):
+            fdir = os.path.join(entry, (cfg.get("paths") or {}).get("features", "reef/features"))
+            for spec in glob.glob(os.path.join(fdir, "*", "SPEC.md")):
+                m = re.search(r"^Row:\s*(\d+)", read(spec), re.M)
+                if m:
+                    planned_elsewhere.add(m.group(1))
+            rc_w, g_w = run([py, os.path.join(scripts, "reef-graph.py"), "ready", "--json", "--root", entry], entry)
+            try:
+                ready_w = json.loads(g_w) if rc_w == 0 and g_w.strip() else []
+            except ValueError:
+                ready_w = []
+            ready_w = [x for x in ready_w if str(x["id"]) not in inflight_ids and not str(x["id"]).startswith("R")]
+            go_w, held_w = plan_gate(entry, scripts, py, ready_w)
+            seen = {str(x["id"]) for x in dispatch_now}
+            extra_ready += [x for x in go_w if str(x["id"]) not in seen]
+            awaiting += [h for h in held_w if h not in awaiting]
+            entry = None
+    dispatch_now = dispatch_now + extra_ready
     parked = [l.split("\t")[0] for l in q_status.splitlines()] and []   # rows park through their tasks: status blocked
     rc_gs, g_status = run([py, os.path.join(scripts, "reef-graph.py"), "status", "--root", root], root)
     blocked = [l.split("\t")[0] for l in g_status.splitlines() if "\tblocked\t" in l]
@@ -165,9 +199,12 @@ def tick(root):
             if n > ceiling:
                 stop = stop or f"budget: {n} tokens > caps ceiling {ceiling} — the feature/batch parks (5.3)"
                 budget_note = stop
+    to_plan = [r for r in to_plan if r[0] not in planned_elsewhere]
+    building = building + [[r] for r in sorted(planned_elsewhere) if r not in {b[0] for b in building}]
     state = {
         "rows_to_plan": [r[0] for r in to_plan], "dispatch_now": [t["id"] for t in dispatch_now], "awaiting": awaiting,
-        "prs_to_review": [f"#{p['number']} {p['headRefName']}" for p in prs], "rows_to_close": [r[0] for r in to_close],
+        "prs_to_review": [f"#{p['number']} {p['headRefName']}" for p in prs], "other_prs": len(other_prs),
+        "rows_to_close": [r[0] for r in to_close],
         "in_flight": sorted(inflight_ids) + [f"verifying:{m['id']}" for m in verifying if not m["stale"]],
         "returned_unmerged": [m["id"] for m in returned], "parked": blocked, "building": [r[0] for r in building],
         "worktrees": len(worktrees), "wait": st.get("wait"), "active": bool(st.get("active")), "stop": stop,
@@ -198,7 +235,7 @@ def render(state):
              f"rows to plan: {', '.join(state['rows_to_plan']) or '-'}",
              f"dispatch now: {', '.join(state['dispatch_now']) or '-'}",
              f"awaiting: {'; '.join(state.get('awaiting') or []) or '-'}",
-             f"PRs to review: {', '.join(state['prs_to_review']) or '-'}",
+             f"PRs to review: {', '.join(state['prs_to_review']) or '-'}" + (f"  ({state['other_prs']} other PR(s) into the base, not the loop's)" if state.get("other_prs") else ""),
              f"rows to close: {', '.join(state['rows_to_close']) or '-'}",
              f"in flight: {', '.join(state['in_flight']) or '-'}",
              f"returned, unmerged: {', '.join(state['returned_unmerged']) or '-'}",

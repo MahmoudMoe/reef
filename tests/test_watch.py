@@ -73,6 +73,8 @@ class Watch(unittest.TestCase):
     def test_known_state_yields_exactly_those_counts(self):
         d = project()
         tdir = transcript(d)
+        with open(os.path.join(tdir, "ffff0000-empty.jsonl"), "w") as f:
+            f.write(json.dumps({"type": "user", "message": {"role": "user", "content": "hi"}}) + "\n")   # aborted: no turn
         r = watch("--repo", d, "--transcripts", tdir, "--since", "2026-10-01")
         self.assertEqual(r.returncode, 0, r.stderr)
         out = r.stdout

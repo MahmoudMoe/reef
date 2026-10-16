@@ -343,12 +343,26 @@ def cmd_check(task_path):
     return 2
 
 
+def main_checkout(root):
+    """The first entry of `git worktree list`: the main checkout. Task worktrees live under IT, never nested in the
+    feature worktree the task file was read from (first contact, 2026-10-16: `.reef/worktrees/<feature>/.reef/
+    worktrees/101`, and the feature worktree's lint walked into the nested build output)."""
+    try:
+        r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=10)
+        for line in r.stdout.splitlines():
+            if line.startswith("worktree "):
+                return line[len("worktree "):].strip()
+    except Exception:
+        pass
+    return root
+
+
 def cmd_worktree(task_path, base):
     root = repo_root(task_path)
     cfg = read_config(root)
     tasks = load_graph(project_dirs(root, cfg, task_path))
     t = find_task(tasks, task_path)
-    wt_root = os.path.join(root, cfg.get("worktree", {}).get("dir", ".reef/worktrees"))
+    wt_root = os.path.join(main_checkout(root), cfg.get("worktree", {}).get("dir", ".reef/worktrees"))
     wt = os.path.join(wt_root, t.canon)
     slug = re.sub(r"^R?\d+-", "", os.path.basename(t.path))[:-3]
     branch = f"task/{t.canon}-{slug}"
@@ -372,7 +386,7 @@ def cmd_worktree(task_path, base):
     with open(graph_lock_path(lock_key(root, cfg)), "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         fm, text = read_frontmatter(t.path)
-        set_keys(t.path, text, {"worktree": os.path.relpath(wt, root)})
+        set_keys(t.path, text, {"worktree": os.path.relpath(wt, main_checkout(root))})
     print(f"worktree: {wt}")
     print(f"branch: {branch}")
     return 0
