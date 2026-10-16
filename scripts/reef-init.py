@@ -325,13 +325,21 @@ def save_manifest(root, manifest):
 
 
 class Writer:
-    def __init__(self, root, dry):
+    def __init__(self, root, dry, write_once=()):
         self.root, self.dry = root, dry
         self.written, self.updated, self.skipped, self.proposed = [], [], [], []
         self.manifest = load_manifest(root)
+        self.write_once = set(write_once)
 
     def place(self, rel, content, executable=False):
         target = os.path.join(self.root, rel)
+        if rel in self.write_once and os.path.exists(target):
+            # a RECORD (the handoff, the journal, the queue and its archive) is rendered once, at birth; afterwards it
+            # is the project's history — never re-rendered, never proposed (first contact, 2026-10-16: init offered
+            # to replace HANDOFF.md and reef/journal.md with their blank templates; accepting would have erased the
+            # owner's gate decision)
+            self.skipped.append(rel + " (record, never re-rendered)")
+            return
         if os.path.exists(target):
             with open(target, "rb") as f:
                 current = f.read()
@@ -389,7 +397,9 @@ class Writer:
 
 
 def run(root, facts, dry):
-    w = Writer(root, dry)
+    lay0 = LAYOUTS[facts["layout"]]
+    w = Writer(root, dry, write_once={"HANDOFF.md", lay0["journal"], lay0["queue"],
+                                       os.path.join(os.path.dirname(lay0["queue"]), "queue-archive.md")})
     # config: merged, never a value changed
     cfg_path = os.path.join(root, ".reef", "config.json")
     existing = None
@@ -569,7 +579,7 @@ def main(argv):
         print(f"  PROPOSED {rel} differs from the rendering — NOT overwritten; see .reef/proposed/{rel}")
         print("".join("    " + l for l in diff.splitlines(True)), end="")
     if w.proposed:
-        print("  to apply one after reading its diff: python3 scripts/reef-init.py --accept <path>")
+        print(f"  to apply one after reading its diff: python3 {os.path.abspath(__file__)} --root {os.path.abspath(root)} --accept <path>")
     if not facts["test"]:
         print("  NOTE: no test command detected — gates.full is empty and the gate FAILS LOUDLY until you set it")
     print(f"  {len(w.written)} written, " + (f"{len(w.updated)} updated, " if w.updated else "") +

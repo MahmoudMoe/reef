@@ -209,6 +209,30 @@ def render(state):
     return "\n".join(lines[:MAX_LINES]) + "\n"
 
 
+def scripts_behind_plugin(root):
+    """Project copies of scripts/reef-* that differ from the plugin's (CLAUDE_PLUGIN_ROOT, set by Claude Code for a
+    hook). First contact (2026-10-16): the project's reef-loop.py was a day behind the plugin's and nobody could tell."""
+    plugin = os.environ.get("CLAUDE_PLUGIN_ROOT") or ""
+    pdir = os.path.join(plugin, "scripts")
+    if not plugin or not os.path.isdir(pdir):
+        return []
+    behind = []
+    sdir = os.path.join(root, "scripts")
+    for name in sorted(os.listdir(sdir) if os.path.isdir(sdir) else []):
+        if not name.startswith("reef-"):
+            continue
+        theirs = os.path.join(pdir, name)
+        if not os.path.isfile(theirs):
+            continue
+        try:
+            with open(os.path.join(sdir, name), "rb") as a, open(theirs, "rb") as b:
+                if a.read() != b.read():
+                    behind.append(name)
+        except OSError:
+            continue
+    return behind
+
+
 def session_start(root, state, cfg):
     cap = int((cfg.get("writing") or {}).get("session_start_tokens", 8000) or 8000)
     head = ""
@@ -216,7 +240,13 @@ def session_start(root, state, cfg):
         p = os.path.join(root, cand)
         if os.path.isfile(p):
             head = "\n".join(read(p).splitlines()[:40])
-    text = (head + "\n\n" if head else "") + render(state) + f"\nnext command: {'/reef-loop' if state['rows_to_plan'] or state['dispatch_now'] or state['prs_to_review'] else '/reef-plan <row> or /reef-assess'}\n"
+            # the handoff was rendered by the session that hit the ceiling; its STOP line is that session's, not
+            # this one's (first contact: a fresh orchestrator read "171k tokens" and planned a /clear it did not need)
+            head = re.sub(r"[ \t]*STOP=context ceiling:[^\n]*", "", head)
+    behind = scripts_behind_plugin(root)
+    note = (f"reef: {len(behind)} project script(s) behind the plugin ({', '.join(behind[:4])}{'…' if len(behind) > 4 else ''})"
+            f" — run /reef-init and accept scripts/* before dispatching\n") if behind else ""
+    text = (head + "\n\n" if head else "") + note + render(state) + f"\nnext command: {'/reef-loop' if state['rows_to_plan'] or state['dispatch_now'] or state['prs_to_review'] else '/reef-plan <row> or /reef-assess'}\n"
     if len(text) // 4 > cap:
         text = text[: cap * 4] + f"\n[truncated: writing.session_start_tokens {cap}]\n"
     return text

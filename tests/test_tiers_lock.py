@@ -243,6 +243,44 @@ class HumanOnlyApproval(unittest.TestCase):
         self.assertIn("approval: STALE", r.stdout)
 
 
+class ApprovalInAWorktree(unittest.TestCase):
+    """First contact (2026-10-16): the plan was moved to a feature worktree; the hook computed the digest in the main
+    checkout (develop had no feature files) and an 'Approve' wrote nothing. The digest is computed where the plan
+    lives; the record still lands in the main checkout."""
+
+    def test_plan_in_a_feature_worktree_is_approved_and_recorded_in_main(self):
+        d = project({"gates": {"test": "true"}}, {"007-demo.md": task_text(7, "demo", "full", "design")})
+        wt = os.path.join(tempfile.mkdtemp(prefix="reef-wt."), "feat")
+        git(d, "worktree", "add", "-q", "-b", "feat/demo", wt)
+        tp = os.path.join(wt, "tasks", "007-demo.md")
+        with open(tp) as f:
+            t = f.read()
+        with open(tp, "w") as f:
+            f.write(t.replace("## Scope\nx", "## Scope\nx, planned further in the worktree"))
+        self.assertEqual(plan_check(wt).returncode, 0)
+        wt_digest = plan_check(wt, "--digest", "--feature", "demo").stdout.split()[-1]
+        main_digest = plan_check(d, "--digest", "--feature", "demo").stdout.split()[-1]
+        self.assertNotEqual(wt_digest[:16], main_digest[:16])
+        q = f"Approve plan demo at {wt_digest[:16]}?"
+        resp = {"questions": [{"question": q, "options": [{"label": "Approve"}]}], "answers": {q: "Approve"}}
+        payload = {"tool_name": "AskUserQuestion", "hook_event_name": "PostToolUse", "cwd": d,
+                   "tool_input": {"questions": resp["questions"]}, "tool_response": resp}
+        r = subprocess.run([sys.executable, APPROVAL], input=json.dumps(payload), capture_output=True, text=True)
+        rec = os.path.join(d, ".reef", "approvals", "demo.json")
+        self.assertTrue(os.path.exists(rec), r.stdout)
+        with open(rec) as f:
+            self.assertEqual(json.load(f)["digest16"], wt_digest[:16])
+        self.assertFalse(os.path.exists(os.path.join(wt, ".reef", "approvals", "demo.json")), "the record lives in the main checkout only")
+        self.assertEqual(plan_check(wt, "--verify-stamp", "--feature", "demo").returncode, 0, "the guard's check in the worktree passes")
+        # a digest nobody's checkout holds still writes nothing
+        q2 = f"Approve plan demo at {'f' * 16}?"
+        payload["tool_response"] = {"questions": [{"question": q2, "options": [{"label": "Approve"}]}], "answers": {q2: "Approve"}}
+        os.unlink(rec)
+        r = subprocess.run([sys.executable, APPROVAL], input=json.dumps(payload), capture_output=True, text=True)
+        self.assertFalse(os.path.exists(rec))
+        self.assertIn("matches no checkout", r.stdout)
+
+
 class ReviewerLock(unittest.TestCase):
     """1.3: agent_type from the payload decides; a judge never mutates."""
 

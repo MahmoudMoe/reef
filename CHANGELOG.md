@@ -1,6 +1,19 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`reef-approval.py`: the digest is computed where the plan lives.** The hook computed it in the main checkout;
+  with the plan moved to a feature worktree and `develop` holding no feature files, an `Approve` matched nothing and
+  wrote nothing (first contact, 2026-10-16). Now every checkout of the repository that holds the feature is a
+  candidate, the question's digest must match one of them, and the record still lands in the main checkout where
+  `reef-plan-check.py --verify-stamp` and the guard read it (`tests/test_tiers_lock.py::ApprovalInAWorktree`).
+- `reef-init.py`: records are written once — `HANDOFF.md`, the journal, the queue and its archive are never
+  re-rendered nor proposed after birth (a re-run offered their blank templates; accepting would have erased the owner's
+  gate decision); the `--accept` hint names the script that is running (the project has no `reef-init.py` copy).
+- `reef-loop.py tick --session-start`: the dead session's `STOP=context ceiling` line is stripped from the injected
+  handoff head, and when `CLAUDE_PLUGIN_ROOT` is set the project's `scripts/reef-*` copies are compared with the
+  plugin's — `reef: N project script(s) behind the plugin (…) — run /reef-init and accept scripts/*`. The project's
+  copies had been a day behind and nobody could tell.
+- `templates/project/constitution.md`: the journal path is the layout's (`{{journal_path}}`), not `docs/journal.md`.
 - **`reef-init.py`: another tool's block rides along.** `<!-- BEGIN:x --> … <!-- END:x -->` blocks in a file Reef renders
   (Next.js's agent rules in `AGENTS.md`, re-added by `next dev`) are neither Reef's nor the owner's: a re-render keeps
   them whole (`updated  AGENTS.md (+1 foreign block(s) kept)`), the manifest hashes the file without them, and a

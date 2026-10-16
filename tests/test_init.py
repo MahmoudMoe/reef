@@ -223,6 +223,26 @@ class ReleaseOnlyCi(unittest.TestCase):
         self.assertNotIn("{{", dep)
         self.assertIn("setup-node", read(d, ".github/workflows/ci.yml"))
 
+    def test_records_are_never_re_rendered_or_proposed(self):
+        # first contact (2026-10-16): a re-run offered to replace HANDOFF.md and reef/journal.md with blank templates
+        d = tempfile.mkdtemp(prefix="reef-init-records.")
+        subprocess.run(["git", "init", "-q", d], check=True)
+        init(d)
+        with open(os.path.join(d, "reef", "journal.md"), "a", encoding="utf-8") as f:
+            f.write("\n## 2026-10-16 — owner decision: the audit gate covers production only\n")
+        write(d, "HANDOFF.md", "# Handoff — rendered by the guard at the ceiling\n")
+        with open(os.path.join(d, "reef", "queue.md"), "a", encoding="utf-8") as f:
+            f.write("| 2 | A second row | 1 | planned | 1 | |\n")
+        write(d, "package.json", json.dumps({"name": "late", "scripts": {"test": "vitest run"}}))   # a real re-render trigger
+        r = init(d)
+        for rel in ("HANDOFF.md", "reef/journal.md", "reef/queue.md"):
+            self.assertIn(f"skipped  {rel} (record, never re-rendered)", r.stdout)
+            self.assertFalse(os.path.exists(os.path.join(d, ".reef", "proposed", rel)), f"{rel} proposed")
+        self.assertIn("owner decision: the audit gate", read(d, "reef/journal.md"))
+        self.assertIn("A second row", read(d, "reef/queue.md"))
+        self.assertIn("`reef/journal.md`", read(d, "reef/constitution.md"), "the constitution names the layout's journal path")
+        self.assertNotIn("docs/journal.md", read(d, "reef/constitution.md"))
+
     def test_another_tools_block_in_a_rendered_file_rides_along(self):
         # first contact (2026-10-16): `next dev` appends `<!-- BEGIN:nextjs-agent-rules --> … <!-- END:… -->` to AGENTS.md
         # on every run; every re-init proposed dropping it, and the orchestrator re-appended it by hand (once twice)
@@ -260,6 +280,8 @@ class ReleaseOnlyCi(unittest.TestCase):
         write(d, "package.json", json.dumps({"name": "late", "scripts": {"test": "vitest run"}}))
         r = init(d)
         self.assertIn("PROPOSED .github/workflows/ci.yml", r.stdout)
+        self.assertIn("python3 " + os.path.join(ROOT, "scripts", "reef-init.py") + " --root", r.stdout,
+                      "the accept hint names the script that is running (the project has no reef-init.py copy)")
         self.assertIn("# the owner's note", read(d, ".github/workflows/ci.yml"))
         self.assertNotIn("updated  .github/workflows/ci.yml", r.stdout)
         # the manifest is the only evidence; without it (a clone from before 0.7, a deleted .reef/), every
