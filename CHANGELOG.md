@@ -1,6 +1,16 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`reef-init.py`, three first-contact fixes** (an empty repo, then a Next.js scaffold, 2026-10-16):
+  - a config value init itself left EMPTY (`gates.full`, `gates.extra`, `worktree.setup` before the stack existed)
+    is filled when a later run detects the stack; a tuned value is still never changed. Before, the owner had to
+    hand-edit a guarded file to set the gate (`test_a_gate_init_left_empty_is_filled_when_the_stack_arrives`);
+  - no stack no longer renders the `github-actions` Dependabot ecosystem twice — the stack entry exists only when
+    there is a stack (`test_unknown_stack_leaves_gate_empty_and_says_so`);
+  - the grill writes a fourth draft ADR, `draft-1-shape.md`: one deployable, a modular monolith, microservices and
+    per-feature functions rejected with the reason, a split later being a queue row opened by a measured need. The
+    decision everyone argues about in a year was implicit in the C4 diagram
+    (`test_grill_renders_architecture_adrs_and_the_skeleton_row_once`).
 - **`reef-guard.py`: first-contact false positives fixed, one bypass closed.** On the first real project (an empty
   repo, 2026-10-16) the guard denied `cat > .reef/grill.json <<'EOF' … EOF` followed on the next line by
   `python3 …/scripts/reef-init.py`, and then `python3 …/reef-init.py … >/dev/null`, both as "Bash write to
