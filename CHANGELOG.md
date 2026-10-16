@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- `skills/reef-init`: step 4b, the empty repository — the gate's loud failure is the signal to run the stack's generator
+  as the start of row 1 (one question: which generator), re-run init so the gate fills from the detected stack, then
+  commit init and the skeleton together. First contact (2026-10-16): the orchestrator improvised exactly this, then asked
+  the owner to set the gate by hand; neither should depend on improvisation.
 - **`reef-init.py`, three first-contact fixes** (an empty repo, then a Next.js scaffold, 2026-10-16):
   - a config value init itself left EMPTY (`gates.full`, `gates.extra`, `worktree.setup` before the stack existed)
     is filled when a later run detects the stack; a tuned value is still never changed. Before, the owner had to
