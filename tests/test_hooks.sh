@@ -333,6 +333,23 @@ printf '{"gates": {"test": "true"}}\n' > .reef/config.json
 sh scripts/reef-gate.sh fastt >/dev/null 2>&1
 t "  an unknown gate mode FAILS LOUDLY (never silently runs some gate)" 1
 
+# ---------- the gate runs OUTSIDE git's hook environment ----------
+# git exports GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE / GIT_PREFIX to a hook; a suite that runs its own
+# `git init` / `git commit` in temp dirs would act on the real repository (0.7 dogfood: Reef's own suite
+# re-initialised the repo as bare). The gate must see none of them, on both the in-place and the dance path.
+mkrepo "$TMP/r13" "sh scripts/envcheck.sh"
+cat > scripts/envcheck.sh <<'EOF'
+for v in GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX; do
+  eval "val=\${$v-}"; [ -z "$val" ] || { echo "envcheck: $v leaked into the gate" >&2; exit 1; }
+done
+exit 0
+EOF
+( echo v1 > f.txt && git add . && git commit -qm c1 ) >/dev/null 2>&1
+t "gate sees no GIT_DIR/GIT_INDEX_FILE (in-place path, first commit)" 0
+echo v2 > f.txt; git add f.txt; echo v3-dirty > f.txt
+git commit -qm c2 >/dev/null 2>&1
+t "gate sees no GIT_DIR/GIT_INDEX_FILE (index dance path)" 0
+
 echo
 echo "hooks suite: $PASS passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

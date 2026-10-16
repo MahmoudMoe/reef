@@ -202,6 +202,21 @@ def cmd_report(repo, path, task_path):
     bad = []
     if not re.search(r"^RUN:\s*agent=(verifier|loophole-hunter)\b.*\btask=", text, re.M):
         bad.append("no `RUN: agent=verifier|loophole-hunter task=<id>` header")
+    hunter = bool(re.search(r"^RUN:\s*agent=loophole-hunter\b", text, re.M))
+    if hunter:
+        # the hunter judges a defect class, not criteria: its shape is DEFECT / BLOCKER / NEW-ROW / NONE / VERDICT
+        # (agents/loophole-hunter.md); demanding RULE AC lines of it rejected every live hunter report (0.7 dogfood)
+        ids = []
+        if not re.search(r"^\**DEFECT\**:", text, re.M):
+            bad.append("no `DEFECT:` line (the hunter names the defect class it attacked)")
+        blockers = [l for l in text.splitlines() if re.match(r"^\**BLOCKER\**:\s*(?!none\b)\S", l, re.I)]
+        verdict_fail = re.search(r"^VERDICT:\s*FAIL\b", text, re.M)
+        if verdict_fail and not blockers:
+            bad.append("VERDICT: FAIL with no BLOCKER line")
+        for l in blockers:
+            if not re.search(r"[\w/.-]+\.[a-z]+:\d+|`[^`]+`", l):
+                bad.append("a BLOCKER without a citation (a path:line or a command in backticks)")
+                break
     rules = {m.group(1): m.group(2) for m in re.finditer(r"^RULE\s+AC-?(\d+)\s*:(.*)$", text, re.M)}
     for n in ids:
         if n not in rules:

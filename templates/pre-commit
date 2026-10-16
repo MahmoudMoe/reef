@@ -25,6 +25,10 @@ LIST="$GITDIR/reef-precommit.paths"
 IBACK="$GITDIR/reef-precommit.index-bak"
 
 fail_gate() { echo "pre-commit: gate failed — commit rejected." >&2; exit 1; }
+# git exports GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE / GIT_PREFIX to a hook; a test suite that runs its
+# own `git init` / `git commit` in temp dirs would then act on THIS repository (seen live, 0.7 dogfood:
+# Reef's own suite re-initialised the repo as bare and moved the branch 17 commits). The gate runs clean.
+run_gate() { ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX; sh scripts/reef-gate.sh fast ); }
 
 # A tier: design (or critical) task closes only after the loophole-hunter's SECOND pass, on the finished
 # guard (scripts/reef-adversarial <task> guard <report> writes adversarial-guard:). Checked on
@@ -41,7 +45,7 @@ git diff --cached --name-only --diff-filter=AR -z | tr '\0' '\n' | grep -E '(^|/
 in_place() {
   rm -f "$PATCH" "$LIST" "$IBACK"
   [ -n "$1" ] && echo "pre-commit: NOTE — gate tested the WORKTREE, not the index ($1)." >&2
-  sh scripts/reef-gate.sh fast || fail_gate
+  run_gate || fail_gate
   exit 0
 }
 
@@ -86,4 +90,4 @@ restore() {
 }
 trap restore EXIT
 xargs -0 git checkout -q -- <"$LIST"   # changed tracked files = index state; ita untouched
-sh scripts/reef-gate.sh fast || fail_gate
+run_gate || fail_gate

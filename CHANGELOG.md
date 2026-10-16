@@ -18,6 +18,17 @@
   and a path citation (`adr/draft-1-x.md`) became the dead `adr/ADR 0001.md`; the ledger dogfood's close fixed four
   spots by hand. The title keeps one `ADR`, a path citation becomes the new filename
   (`tests/test_tier_queue.py::test_adr_number_title_and_path_citations`, red before the fix).
+- **`templates/pre-commit` (and the pre-merge-commit it also renders): the gate runs outside git's hook environment.**
+  git exports `GIT_DIR`, `GIT_INDEX_FILE`, `GIT_WORK_TREE`, `GIT_PREFIX` to a hook; a test suite that runs its own
+  `git init` / `git commit` in temp dirs then acts on the real repository. Seen live: Reef's own suite, run by the
+  commit gate on the Reef-on-itself row, re-initialised the clone as bare, created three fixture branches and moved
+  the task branch 17 commits; the orchestrator restored everything from the reflog, refused to touch a critical path
+  outside its plan, and stopped with USER ACTION REQUIRED. The gate now runs in a subshell with those four variables
+  unset (`tests/test_hooks.sh`: two checks, red before the fix; 72 hooks checks).
+- `reef-claims.py report`: a loophole-hunter report has its own shape (DEFECT / BLOCKER / NEW-ROW / NONE / VERDICT) and
+  never carries `RULE AC<n>` lines, yet `/reef-task` sends it through the same check, which rejected every live hunter
+  report. The hunter shape is now checked on its own terms: a DEFECT line, a FAIL needs a cited BLOCKER
+  (`tests/test_feature_spec.py::test_hunter_report_has_its_own_shape`, red before the fix).
 - **Row 2, the hunter's scope discipline.** Corpus entry `scope-names-later-rows` (truth PASS: a sound path guard whose
   Scope names its three known holes as later rows). `agents/loophole-hunter.md`: the Scope draws the BLOCKER/NEW-ROW
   line, an out-of-scope hole is a NEW-ROW even when it will happen or is a regression (marked `regression`). Measured,
