@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7 (unreleased)
+- `reef-plan-check.py`: `adr/README.md` (written by `reef-init` on every fresh 0.6 project) is the directory's
+  explainer, not an ADR without a Status — the first plan check of a new project no longer fails on it
+  (`tests/test_plan_check.py::test_adr_readme_is_not_an_adr`, red before the fix). Found while running the 5.7
+  measurement row on Reef itself.
+
 ## 0.6.0 — governance, spec, tiers, day zero, loop engine, one tree
 
 ### Finishing
