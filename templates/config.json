@@ -131,7 +131,7 @@
     },
     "handback_words": 150,
     "prompt_words": 120,
-    "report_words": 0,
+    "report_words": 900,
     "journal_words": 40000,
     "queue_words": 35000,
     "sentence_words": 25,

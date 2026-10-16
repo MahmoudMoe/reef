@@ -41,6 +41,11 @@
   0.5 project keeps `0` / `0` (off), decision 11 (`tests/test_layout.py::Migrations` pins it;
   `tests/test_init.py::test_fresh_init_sets_the_measured_context_caps` pins the new default). The README settings
   row says why the default is wider than the 40/60 rule of thumb.
+- **Row 6: `writing.report_words` set from measured reports** — four real judge reports (two verifiers on `ledger`,
+  the verifier and the hunter on the Reef row) ran 538–706 words for 6–7 criteria, about 95 words per criterion; the
+  template's cap is now `900` (30% above the largest) and `reef-claims.py report` rejects over it instead of warning
+  (`tests/test_feature_spec.py::test_report_words_cap_is_set_and_enforced`, red before: the template said 0). A
+  migrated project gains the key with the other `writing.*` caps.
 - **Row 2, the hunter's scope discipline.** Corpus entry `scope-names-later-rows` (truth PASS: a sound path guard whose
   Scope names its three known holes as later rows). `agents/loophole-hunter.md`: the Scope draws the BLOCKER/NEW-ROW
   line, an out-of-scope hole is a NEW-ROW even when it will happen or is a regression (marked `regression`). Measured,
