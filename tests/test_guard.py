@@ -86,6 +86,12 @@ DENY_BASH = [
     'python3 -m pytest -q | tail -3',
     'npx vitest run | tail',
     'nice -n 5 npm test | tail',
+    # first contact (2026-10-16): newline-separated and heredoc-fed writes to a guarded file
+    'echo x\ncp evil.py scripts/reef-guard.py',               # a bare newline separates commands — the cp is real
+    "cat > scripts/reef-guard.py <<'EOF'\nx\nEOF",             # the redirect target is the guard
+    "python3 - <<'EOF' > scripts/reef-guard.py\nprint(1)\nEOF",
+    'python3 gen.py | tee scripts/reef-guard.py',
+    'sed -i s/a/b/ scripts/reef-guard.py',
 ]
 
 ALLOW_BASH = [
@@ -126,6 +132,12 @@ ALLOW_BASH = [
     'git log --oneline | head -5',
     'grep -rn pytest tests/ | head',                         # a gate WORD, not a gate — only the head counts
     'git log --grep pytest | head',
+    # first contact (2026-10-16): the guard denied `cat > .reef/grill.json <<'EOF' … EOF` + `python3 …/reef-init.py`
+    # on the next line as a write to reef-init.py — a heredoc body is data and a guarded path that is RUN is no target
+    "mkdir -p .reef && cat > .reef/grill.json <<'EOF'\n{\"host\": \"Vercel\"}\nEOF\npython3 /x/reef/scripts/reef-init.py --root . --base develop",
+    'python3 scripts/reef-init.py --root . > init.log',       # the redirect's target is the log, the script is run
+    "cat > notes.md <<'EOF'\nnever run git commit --no-verify\nEOF",   # a bypass mentioned INSIDE a heredoc body
+    "cat <<-END\n\tgit commit -n -m x\n\tEND",                     # <<- form
     'echo npm test | cat',
     'rg vitest src | wc -l',
     'npm run lint | tail',                                   # not the test gate

@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`reef-guard.py`: first-contact false positives fixed, one bypass closed.** On the first real project (an empty
+  repo, 2026-10-16) the guard denied `cat > .reef/grill.json <<'EOF' … EOF` followed on the next line by
+  `python3 …/scripts/reef-init.py`, and then `python3 …/reef-init.py … >/dev/null`, both as "Bash write to
+  reef-init.py". Cause: a newline was whitespace to the tokenizer (one segment), heredoc bodies were read as shell,
+  and any guarded path in a segment with a redirect counted as its target. Now a bare newline is an operator,
+  heredoc bodies are stripped (`strip_heredocs`), and only the redirect's target and a write head's arguments are
+  targets (`write_targets`). Closed on the way: `echo x⏎cp evil.py scripts/reef-guard.py` was allowed before (the
+  `cp` hid behind `echo` in the merged segment) and is denied now. `tests/test_guard.py`: four allow shapes, five
+  deny shapes.
 - `reef-plan-check.py`: `adr/README.md` (written by `reef-init` on every fresh 0.6 project) is the directory's
   explainer, not an ADR without a Status — the first plan check of a new project no longer fails on it
   (`tests/test_plan_check.py::test_adr_readme_is_not_an_adr`, red before the fix). Found while running the 5.7
