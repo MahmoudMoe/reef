@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The queue has one home** — `paths.queue` on `branches.base` in the main checkout. `reef-plan-check.py` fails a
+  feature branch whose queue (or archive) differs from its fork point with the base; `/reef-plan` commits the grill's
+  rows on the base and pushes before it creates `feat/<slug>`; a hunter's NEW-ROW goes there too. First contact
+  (2026-10-16): the roadmap, rows 2–15, lived only on `feat/receipt-upload-skeleton`, and the tick (which reads the
+  main checkout) never saw them.
 - `reef-cost.py`: a **Tasks** table — per task (from the `REEF-TASK:` line of every dispatch) the main-session growth
   over its span and the dispatches per role (`implementer ×1, verifier ×2, loophole-hunter ×1`); `--format json` adds
   `tasks`. The first real execution could not say which role cost what.

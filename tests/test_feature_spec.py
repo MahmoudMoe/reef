@@ -142,6 +142,35 @@ def fails(r):
     return [l for l in r.stdout.splitlines() if l.startswith("FAIL") or l.startswith("warning")]
 
 
+class QueueHasOneHome(unittest.TestCase):
+    def test_queue_rows_added_on_a_feature_branch_fail_and_a_feature_merely_behind_passes(self):
+        # first contact (2026-10-16): /reef-plan committed the roadmap (rows 2–15) with the spec on feat/…; the tick reads
+        # the main checkout's queue and never saw them. The check compares against the fork point, not the base's head.
+        d = project(cfg={"gates": {"test": "true"}, "paths": {"features": "reef/features"}, "branches": {"base": "main"}})
+        feature(d)
+        g = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], capture_output=True, text=True)
+        write(d, ".gitignore", "tasks/.plan-review.json\n")
+        g("add", "-A"); g("commit", "-qm", "base")
+        g("checkout", "-q", "-b", "feat/csv-export-for-orders")
+        r = check(d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        with open(os.path.join(d, "docs/queue.md"), "a", encoding="utf-8") as f:
+            f.write("| 13 | pdf export | 12 | planned | 1 | |\n")
+        r = check(d)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("docs/queue.md: changed on feat/csv-export-for-orders", r.stdout)
+        self.assertIn("git checkout main -- docs/queue.md", r.stdout)
+        g("checkout", "--", "docs/queue.md")
+        g("checkout", "-q", "main")
+        with open(os.path.join(d, "docs/queue.md"), "a", encoding="utf-8") as f:
+            f.write("| 13 | pdf export | 12 | planned | 1 | |\n")
+        g("add", "-A"); g("commit", "-qm", "row 13 on the base")
+        g("checkout", "-q", "feat/csv-export-for-orders")
+        r = check(d)
+        self.assertEqual(r.returncode, 0, "a feature behind the base is not blamed for the base's new row:\n" + r.stdout)
+        self.assertNotIn("changed on", r.stdout)
+
+
 class FeatureFolder(unittest.TestCase):
     def test_fresh_06_project_without_tasks_dir_gets_its_stamp(self):
         # 0.7: reef-init on a fresh 0.6 project creates no tasks/ (tasks live in the feature folder); the
