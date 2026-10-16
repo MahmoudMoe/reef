@@ -14,4 +14,4 @@ Follow the reef-verify skill contract exactly. **Order is the contract:** your v
 
 **Browser evidence (0.6).** When a Proof row names a rendered surface (a page, a route, a screenshot, a printed document), say per criterion whether you observed it in a browser (how: the URL, what you saw) or list that criterion under `Not verified in a browser:` with the probe you ran instead. Never write "renders correctly" from reading templates.
 
-Report starts `RUN: agent=verifier task=<id>` followed by the RULE lines (each `RULE AC<n>` cites the Proof row's test or command when the task has a ## Proof table), ends `VERDICT: PASS` or `VERDICT: FAIL` + concrete feedback.
+Your report has a word budget — the `report: budget=N words` line of your prompt (RULE lines are free); write it to fit the first time, evidence not prose: a report over budget is rejected and rewritten, a round the task pays for. Report starts `RUN: agent=verifier task=<id>` followed by the RULE lines (each `RULE AC<n>` cites the Proof row's test or command when the task has a ## Proof table), ends `VERDICT: PASS` or `VERDICT: FAIL` + concrete feedback.

@@ -240,6 +240,27 @@ class ContextCeiling(unittest.TestCase):
         payload = {"tool_name": "Task", "cwd": d, "transcript_path": transcript, "tool_input": {"subagent_type": "reef:mechanic", "prompt": "rebase"}}
         return subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True)
 
+    def test_a_new_task_is_refused_inside_the_reserve_but_a_judge_is_not(self):
+        # first contact (2026-10-16): the orchestrator started task 103 at 126k of 150k and had to stop right after —
+        # the task's judges could only run in the next session. Under the reserve no implementer starts; the task in
+        # hand still gets its verifier.
+        d = project({"gates": {"full": "true"}, "caps": {"context_tokens": 10000, "context_warn": 5000, "dispatch_reserve": 3000}})
+        tp = self.transcript(d, 8000)
+        payload = {"tool_name": "Task", "cwd": d, "transcript_path": tp, "tool_input": {"subagent_type": "reef:implementer", "prompt": "REEF-TASK: none"}}
+        r = subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("context reserve", r.stderr)
+        self.assertIn("2000 of room left", r.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(d, "HANDOFF.md")), "the checkpoint is the guard's")
+        self.assertTrue(json.loads(open(os.path.join(d, ".reef", "loop.json")).read())["stop"].startswith("context ceiling"),
+                        "the stop carries the prefix --session-start clears")
+        r = self.dispatch(d, tp)   # a mechanic (the task in hand) is still allowed, with the warning
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("additionalContext", r.stdout)
+        payload["transcript_path"] = self.transcript(d, 6000)
+        r = subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True)
+        self.assertNotIn("context reserve", r.stderr, "4000 of room ≥ the reserve: the room is not what stops this dispatch")
+
     def test_over_denied_and_recorded_under_allowed_missing_allowed_and_said(self):
         d = project({"gates": {"full": "true"}, "caps": {"context_tokens": 10000, "context_warn": 5000}})
         r = self.dispatch(d, self.transcript(d, 20000))

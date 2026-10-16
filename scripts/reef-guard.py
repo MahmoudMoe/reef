@@ -1014,14 +1014,42 @@ def check_stop(payload):
         deny("the loop is active and ready work sits undispatched: " + r.stderr.strip().splitlines()[-1][:300] + "\n" + r.stdout[-600:])
 
 
-def check_context_ceiling(payload):
+def checkpoint(root, tp, stop):
+    """loop.json stop + HANDOFF.md rendered from measured state, before a denial that ends the session."""
+    try:
+        st_p = os.path.join(root, ".reef", "loop.json")
+        st = json.load(open(st_p)) if os.path.isfile(st_p) else {}
+        st["stop"] = stop
+        st["transcript"] = tp
+        os.makedirs(os.path.dirname(st_p), exist_ok=True)
+        with open(st_p, "w", encoding="utf-8") as f:
+            json.dump(st, f, indent=1)
+    except Exception:
+        pass
+    # 0.7: the checkpoint itself is the guard's, not the model's — HANDOFF.md is rendered from measured state here,
+    # before the denial, so a session cut at the ceiling never leaves the next one without a handoff
+    for script in (os.path.join(root, "scripts", "reef-handoff"),
+                   os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-handoff")):
+        if os.path.isfile(script):
+            try:
+                subprocess.run([sys.executable, script, "--repo", root, "--write"], capture_output=True, text=True, timeout=20)
+            except Exception:
+                pass
+            break
+
+
+def check_context_ceiling(payload, tool_input=None):
     """Task/Agent dispatch: the dispatching session's live context (reef-cost.py --live on transcript_path) against
-    caps.context_tokens (0 = off); from caps.context_warn the hook adds a warning as additionalContext."""
+    caps.context_tokens (0 = off); from caps.context_warn the hook adds a warning as additionalContext. An IMPLEMENTER
+    dispatch (a new task starting) is refused already when the room left is under caps.dispatch_reserve: a task
+    started at 126k of 150k (first contact, 2026-10-16) is split across two sessions — its judges cannot be dispatched
+    in the one that started it. Judges and mechanics stay allowed up to the ceiling: they finish the task in hand."""
     tp = payload.get("transcript_path")
     cwd = payload.get("cwd") or os.getcwd()
     cfg = read_config(main_checkout(cwd)) or read_config(cwd)
     caps = cfg.get("caps") or {}
     ceiling, warn = int(caps.get("context_tokens", 0) or 0), int(caps.get("context_warn", 0) or 0)
+    reserve = int(caps.get("dispatch_reserve", 0) or 0)
     if not (ceiling or warn):
         return
     if not tp or not os.path.isfile(tp):
@@ -1036,28 +1064,18 @@ def check_context_ceiling(payload):
     if not m:
         return
     n = int(m.group(1))
+    sub = str((tool_input or {}).get("subagent_type") or "")
+    if ceiling and reserve and "implementer" in sub and n <= ceiling and ceiling - n < reserve:
+        checkpoint(main_checkout(cwd), tp, f"context ceiling: {n} tokens + caps.dispatch_reserve {reserve} > caps.context_tokens "
+                                           f"{ceiling} — a new task was not started; /clear now (HANDOFF.md is written)")
+        deny(f"/clear NOW. context reserve: this session is at {n} tokens, {ceiling - n} of room left to caps.context_tokens "
+             f"{ceiling} < caps.dispatch_reserve {reserve}. A task started now is split across two sessions (its judges "
+             f"cannot be dispatched in this one). Checkpoint done: HANDOFF.md written from measured state, nothing is lost. "
+             f"Do nothing else here: tell the human to run /clear and paste `<the command you were running> — re-entry: see "
+             f"HANDOFF.md`; the fresh orchestrator dispatches this task whole")
     if ceiling and n > ceiling:
         root = main_checkout(cwd)
-        try:
-            st_p = os.path.join(root, ".reef", "loop.json")
-            st = json.load(open(st_p)) if os.path.isfile(st_p) else {}
-            st["stop"] = f"context ceiling: {n} tokens > caps.context_tokens {ceiling} — /clear now (HANDOFF.md is written)"
-            st["transcript"] = tp
-            os.makedirs(os.path.dirname(st_p), exist_ok=True)
-            with open(st_p, "w", encoding="utf-8") as f:
-                json.dump(st, f, indent=1)
-        except Exception:
-            pass
-        # 0.7: the checkpoint itself is the guard's, not the model's — HANDOFF.md is rendered from measured state here,
-        # before the denial, so a session cut at the ceiling never leaves the next one without a handoff
-        for script in (os.path.join(root, "scripts", "reef-handoff"),
-                       os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-handoff")):
-            if os.path.isfile(script):
-                try:
-                    subprocess.run([sys.executable, script, "--repo", root, "--write"], capture_output=True, text=True, timeout=20)
-                except Exception:
-                    pass
-                break
+        checkpoint(root, tp, f"context ceiling: {n} tokens > caps.context_tokens {ceiling} — /clear now (HANDOFF.md is written)")
         deny(f"/clear NOW. context ceiling: this session is at {n} tokens > caps.context_tokens {ceiling}. "
              f"checkpoint done: HANDOFF.md written from measured state (scripts/reef-handoff --write), nothing is lost. "
              f"Do nothing else in this session — no more Bash, no edits, no summary (the real session kept going 80k past "
@@ -1101,13 +1119,14 @@ def main():
             deny(f"guard internal error reading its context — failing closed: {e}")
         check_bash(str(tool_input.get("command") or ""))
     elif tool in ("Task", "Agent"):
-        check_dispatch(tool_input, payload)
+        # the ceiling first: a dispatch denied for room must not have written its inflight/verifying marker
         try:
-            check_context_ceiling(payload)
+            check_context_ceiling(payload, tool_input)
         except SystemExit:
             raise
         except Exception as e:
             print(f"reef-guard: context ceiling check error ignored: {e}", file=sys.stderr)
+        check_dispatch(tool_input, payload)
     elif tool in ("Edit", "Write", "MultiEdit"):
         try:
             check_edit(tool_input, payload, context_for(payload))

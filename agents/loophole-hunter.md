@@ -24,9 +24,9 @@ You assume the guard is flawed and go looking. You do not weigh it fairly; the p
 
 **Output** — tiered, cited, short:
 ```
-RUN: agent=loophole-hunter task=<id> pass=plan|guard|system
+RUN: agent=loophole-hunter task=<id> pass=plan|guard|system          (budget: the `hunter-report: budget=N words` line of your prompt — fit it the first time)
 DEFECT: <one line>   (pass=system: one DEFECT line per threat row attacked, each prefixed THREAT: <crossing> <STRIDE>)
-BLOCKER: <hole> — will happen: <why, file:line / command> — fix: <the named move>
+BLOCKER: <hole> — will happen: <why, file:line / command> — fix: <the named move>      (no hole: exactly `BLOCKER: none`)
 NEW-ROW: <hole> — possible, not now: <why> — queue it
 NONE: <check you tried to break and could not — one line each>
 VERDICT: PASS | FAIL

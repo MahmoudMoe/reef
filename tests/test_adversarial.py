@@ -77,6 +77,13 @@ class Record(unittest.TestCase):
         r = adv(self.t, "plan", rp)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("adversarial-plan", fm_of(self.t))
+        # first contact (2026-10-16): "BLOCKER: none found." was refused as a hole and the hunter re-sent its report for wording
+        for wording in ("BLOCKER: none found.", "BLOCKER: None — every hole is a NEW-ROW", "BLOCKER: no blockers here"):
+            with self.subTest(wording=wording):
+                rp = write(self.d, "r2.txt", REPORT_PASS.format(p="plan").replace("NONE: tried y", wording + "\nNONE: tried y"))
+                self.assertEqual(adv(self.t, "plan", rp).returncode, 0, wording)
+        rp = write(self.d, "r3.txt", REPORT_PASS.format(p="plan").replace("NONE: tried y", "BLOCKER: nonexistent key is accepted\nNONE: tried y"))
+        self.assertEqual(adv(self.t, "plan", rp).returncode, 2, "a hole that merely starts with 'none…' is still a hole")
 
     def test_refuses_wrong_pass_fail_and_blocker(self):
         cases = [

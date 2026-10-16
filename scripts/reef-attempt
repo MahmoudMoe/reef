@@ -268,10 +268,18 @@ def run(cap_flag, path, failure):
         effort = "high" if attempts > 0 else base
         print(f"dispatch: model={model} effort={effort} attempt={attempts + 1}/{cap}")
         print(f"author: model={model} tier={tier}")
+        rw = int((cfg.get("writing") or {}).get("report_words", 0) or 0) if isinstance(cfg.get("writing"), dict) else 0
+        acs = re.search(r"^##\s+Acceptance Criteria\s*$(.*?)(?=^##\s|\Z)", task.text, re.M | re.S)
+        n_ac = len([l for l in (acs.group(1) if acs else "").splitlines()
+                    if re.match(r"^\s*[-*+]\s+|^\s*\d+[.)]\s+", l) and "HUMAN AC" not in l])
         if task.get("verify") == "judge":
             print(f"verifier: model={verifier}")
+            if rw:  # the judge is told its budget before it writes (first contact: 1693 words, unknown cap, a rewrite round)
+                print(f"report: budget={rw + 40 * max(0, n_ac - 8)} words, RULE lines free ({n_ac} criteria)")
         if tier in ("design", "critical"):
             print(f"adversary: model={adversary}")
+            if rw:
+                print(f"hunter-report: budget={rw} words")
         # absolute: the guard resolves this against the SESSION cwd, which need not
         # be the cwd this script happened to run from
         print(f"REEF-TASK: {os.path.abspath(path)}")

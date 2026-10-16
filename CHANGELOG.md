@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Judges learn their report budget before they write**: `reef-attempt` prints `report: budget=N words, RULE lines free
+  (k criteria)` and `hunter-report: budget=N words`; the task skill passes the line in the dispatch prompt; the agent
+  definitions name it. `reef-claims.py report` no longer counts RULE lines (the contract's length is the plan's) and the
+  budget grows 40 words per criterion past 8. First contact (2026-10-16): a 15-criterion verifier report of 1693 words
+  and a hunter report of 952 were rejected against a 900 cap measured on 6–7 criteria, two rewrite rounds.
+- `reef-adversarial`: `BLOCKER: none found.`, `None — …`, `no blockers here` are no blocker (only the bare word was);
+  the hunter re-sent its report for wording at first contact.
+- **`caps.dispatch_reserve`** (template `30000`): an implementer dispatch with less room than that left under
+  `caps.context_tokens` is denied after the guard's checkpoint — a task started at 126k of 150k was split across two
+  sessions; judges and mechanics stay allowed to the ceiling. The ceiling check now runs before the dispatch check, so a
+  denied dispatch writes no marker.
 - **The queue has one home** — `paths.queue` on `branches.base` in the main checkout. `reef-plan-check.py` fails a
   feature branch whose queue (or archive) differs from its fork point with the base; `/reef-plan` commits the grill's
   rows on the base and pushes before it creates `feat/<slug>`; a hunter's NEW-ROW goes there too. First contact

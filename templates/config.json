@@ -8,7 +8,8 @@
     "feature_tokens": 0,
     "batch_tokens": 0,
     "context_tokens": 150000,
-    "context_warn": 100000
+    "context_warn": 100000,
+    "dispatch_reserve": 30000
   },
   "roles": {
     "author": "opus",

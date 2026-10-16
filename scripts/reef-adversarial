@@ -110,7 +110,7 @@ def check_report(report, want_pass):
         if not bare.upper().startswith("BLOCKER"):
             continue
         rest = re.sub(r"^BLOCKER\s*:?\s*", "", bare, flags=re.I).strip().rstrip(".").lower()
-        if rest and rest not in ("none", "no blocker", "no blockers", "nothing"):
+        if rest and not re.match(r"^(none|no blockers?|nothing)\b", rest):   # "none found." / "none — all NEW-ROW" (seen live, first contact)
             die("a BLOCKER line with VERDICT: PASS is a contradiction — not recorded")
 
 

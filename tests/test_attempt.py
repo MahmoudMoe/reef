@@ -197,6 +197,22 @@ class Attempt(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("verifier: model=sonnet", r.stdout)
 
+    def test_report_budget_is_printed_for_the_judges(self):
+        # first contact (2026-10-16): the verifier never learned the 900-word cap and wrote 1693 words for 15 criteria;
+        # the dispatch printout now names the budget (RULE lines free, +40 per criterion past 8) and the hunter's
+        os.makedirs(os.path.join(self.dir, ".reef"), exist_ok=True)
+        open(os.path.join(self.dir, ".reef", "config.json"), "w").write('{"writing": {"report_words": 900}}')
+        acs = "".join(f"- AC-{i}: holds.\n" for i in range(1, 16)) + "- HUMAN AC: looks right on a phone.\n"
+        p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: medium\nverify: judge\ntier: design\nattempts: 0\n",
+                      body="# demo\n\n## Acceptance Criteria\n" + acs + "\n## Log\n")
+        r = run(p)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("report: budget=1180 words, RULE lines free (15 criteria)", r.stdout)
+        self.assertIn("hunter-report: budget=900 words", r.stdout)
+        p = make_task(self.dir, name="008-small.md", fm="id: 8\nstatus: pending\neffort: medium\nverify: judge\nattempts: 0\n",
+                      body="# small\n\n## Acceptance Criteria\n- AC-1: holds.\n\n## Log\n")
+        self.assertIn("report: budget=900 words, RULE lines free (1 criteria)", run(p).stdout)
+
     def test_verifier_model_defaults_to_agent_default(self):
         p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: medium\nverify: judge\nattempts: 0\n")
         self.assertIn("verifier: model=opus", run(p).stdout)

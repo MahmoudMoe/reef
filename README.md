@@ -172,6 +172,7 @@ seven NEW-ROWs. Its eval: catch-rate 1.00, precision 1.00, false-FAIL 0.17 at k=
 |---|---|---|
 | `gates.fast` / `gates.full` / `gates.extra` / **`gates.release`** | `""` / stack test / `{}` / c4 drift + gitleaks + the stack's audit (new project; proposed on upgrade) | commit gate / verify, review, CI / other gates / release-branch gates (`reef-ci-local.sh --release`; a missing tool is exit 77 = skipped = exit 2) |
 | `caps.attempts` | `3` | fix rounds per task, and per item on its rollup |
+| **`caps.dispatch_reserve`** | `30000` (new project); `0` (off) | room that must be left under `caps.context_tokens` for an **implementer** dispatch (a new task starting): under it the guard checkpoints (HANDOFF.md) and denies with "/clear NOW"; judges and mechanics stay allowed to the ceiling and finish the task in hand. First contact: a task started at 126k of 150k was split across two sessions. |
 | **`caps.context_tokens` / `caps.context_warn`** | `150000` / `100000` (new project); `0` / `0` (off) on a migrated 0.5 project | the dispatching session's context ceiling / warning. Set from the measured rows (`docs/perf/dogfood-2026-10-16.md` §E): session maxima 58k–159k, p90 148k, so the warning fires late in a planning or critical-row session and the ceiling only on a runaway; a 60%-of-window ceiling would have cut the critical row in two. Tighten per project if its rows are smaller |
 | **`caps.feature_tokens` / `caps.batch_tokens`** | `0` / `0` (off) | token budgets the tick checks; over one, the feature or batch parks |
 | **`tiers.<tier>.roles` / `.effort` / `.paths`** | the table above; design paths auth/crypto/secrets/migrations; critical paths `.githooks/**`, `scripts/reef-*`, `hooks/**`, `.reef/config.json` | model per role, effort, path classes that force the tier |
@@ -244,7 +245,7 @@ Task|Agent · Edit|Write|MultiEdit; PostToolUse AskUserQuestion; Stop; SessionSt
 
 ## Selftests
 
-`sh tests/run.sh` — 435 sabotage and contract tests (346 Python + 89 shell, as the suite runs them). Every mechanism in
+`sh tests/run.sh` — 438 sabotage and contract tests (349 Python + 89 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
 script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials
