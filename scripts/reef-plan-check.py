@@ -164,7 +164,7 @@ FEATURE_GATE = ("ci", "local")
 
 def parse_args(argv):
     verify, feature, args = False, None, []
-    flags = {"digest": False, "needs_agent": False}
+    flags = {"digest": False, "needs_agent": False, "rules": False}
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -174,6 +174,8 @@ def parse_args(argv):
             flags["digest"] = True
         elif a == "--needs-agent":
             flags["needs_agent"] = True
+        elif a == "--rules":
+            flags["rules"] = True
         elif a == "--feature":
             if i + 1 >= len(argv) or not argv[i + 1].strip():
                 print("FAIL: --feature requires a feature slug")
@@ -189,6 +191,40 @@ def parse_args(argv):
             args.append(a)
         i += 1
     return verify, feature, args, flags
+
+
+def print_rules(cfg):
+    """--rules: the rules this checker enforces, with the project's numbers, under 40 lines. The planner runs this
+    once instead of reading the checker's source (measured: a fifth of a planning session's context went to
+    `sed`/`grep` over this file — docs/design/plan-cost.md). One home stays the code; this is rendered from it."""
+    w = cfg.get("writing") if isinstance(cfg.get("writing"), dict) else {}
+    tw = w.get("task_words") if isinstance(w.get("task_words"), dict) else {}
+    plan = cfg.get("plan") if isinstance(cfg.get("plan"), dict) else {}
+    tiers = cfg.get("tiers") if isinstance(cfg.get("tiers"), dict) else {}
+    dpaths = (tiers.get("design") or {}).get("paths") or []
+    cpaths = (tiers.get("critical") or {}).get("paths") or []
+    print("reef-plan-check rules (write the files, run the check, fix each failing line; never read this script's source)")
+    print(f"slug: 2-5 kebab-case words, /{SLUG_RE.pattern}/, no bare number, none of {sorted(GENERIC_SLUGS)}")
+    print("folder: <paths.features>/<slug>/ holds SPEC.md, specs/, adr/, tasks/ and nothing else; one feature = one queue row")
+    print("SPEC.md: `Row: <id>`, `Slug:`, Intent, Grill (Q/A), Scope, Non-goals, Already shipped, Requirements FR-n tagged [infra|data|backend|frontend],")
+    print("         Success criteria SC-n, Owner decisions, Architecture impact; child specs/<part>.md carry `Parent: FR-n`; keys unique in the folder")
+    print("task file: frontmatter per schemas/task.schema.json (id, feature, status, complexity mech|design, effort, blocked-by, resources, tier,")
+    print("         touches, verify judge|gate-only, attempts, dispatches, last_failure_sig); filename NNN-<slug>.md with the id as prefix; ids unique")
+    print(f"criteria: `AC-n (FR-m[, SC-k])` one declarative sentence <= writing.criterion_words {w.get('criterion_words', 50)} words,")
+    print("         no test name, no `run`, no `Shown by`; keys cited must belong to this feature's folder; every AC has a `## Proof` row")
+    print("proof: `| AC-n | test_name or a command that exits 0 iff it holds |`; no test name claimed by two task files")
+    print(f"prose: every sentence <= writing.sentence_words {w.get('sentence_words', 25)} words (fenced code ignored); a task file <=")
+    print(f"         writing.task_words per tier {tw or {'light': 600, 'full': 2500, 'design': 2500, 'critical': 2500}} (plan.max_words {plan.get('max_words', 0)} otherwise)")
+    print("tiers: light (mech only, allowlisted paths, no risk path) | full (default) | design (judge; `## Decision` non-empty) | critical;")
+    print("         design/critical -> verify: judge; a design task needs `adversarial-plan:` (the loophole-hunter's plan pass) before dispatch")
+    print(f"rails: touches pii|money|auth -> critical; migration -> at least design + a `Rollback:` line in ## Decision; paths {dpaths} -> design,")
+    print(f"         {cpaths} -> critical; a tier only gets heavier")
+    print("graph: blocked-by ids resolve (tasks/ or tasks/done/), no cycles; a rollup R<NN>-<slug>.md is one per feature")
+    print(f"size: at most plan.max_tasks {plan.get('max_tasks', 12)} tasks per feature, else split into dependent queue rows, each with its own folder")
+    print("ADRs: Status is Accepted (never Proposed, never the template placeholder); `draft-<row>-<slug>.md` may stay Proposed until adr-number")
+    print("brief: AGENTS.md/CLAUDE.md carries no `Open Questions` heading")
+    print("stamp: the check writes <paths.tasks>/.plan-review.json on success; the human's approval (`Approve plan <slug> at <digest16>?`)")
+    print("         must match --digest; any edit after it stales both")
 
 
 def version_marker(root):
@@ -257,6 +293,9 @@ def main():
     except Exception as e:
         print(f"FAIL: cannot read {cfg_path}: {e}")
         sys.exit(1)
+    if flags["rules"]:
+        print_rules(cfg)
+        sys.exit(0)
     paths = cfg.get("paths", {})
     tasks_dir = os.path.join(root, paths.get("tasks", "tasks"))
     adr_dir = os.path.join(root, paths.get("adr", "docs/adr"))

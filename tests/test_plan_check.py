@@ -177,6 +177,17 @@ class Decoration(unittest.TestCase):
         repo(tmp)
         self.assertEqual(run(tmp).returncode, 0, "a fresh bootstrap with zero ADRs must be able to pass")
 
+    def test_rules_prints_the_projects_numbers_in_under_40_lines(self):
+        # 0.7 (docs/design/plan-cost.md): the planner runs --rules once instead of reading this script's source
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp, extra_cfg={"writing": {"sentence_words": 17, "criterion_words": 41}, "plan": {"max_tasks": 7}})
+        r = run(tmp, "--rules")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertLessEqual(len(r.stdout.splitlines()), 40)
+        for needle in ("sentence_words 17", "criterion_words 41", "max_tasks 7", "Proof", "touches", "Approve plan"):
+            self.assertIn(needle, r.stdout)
+        self.assertNotIn("FAIL", r.stdout)
+
     def test_adr_readme_is_not_an_adr(self):
         # 0.7: reef-init writes adr/README.md on every fresh 0.6 project; it has no Status and must not
         # be read as an undecided ADR, or the first plan check of every new project fails
