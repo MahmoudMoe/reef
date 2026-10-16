@@ -413,9 +413,29 @@ class HandbackAndReport(unittest.TestCase):
         long = write(self.d, "long.md", head + " ".join(["evidence"] * 1000) + "\nVERDICT: PASS\n")
         r = self.claims("report", long, "--task", self.task)
         self.assertEqual(r.returncode, 1)
-        self.assertIn("words > writing.report_words 900", r.stdout)
+        self.assertIn("words (RULE lines free) > writing.report_words 900", r.stdout)
         fine = write(self.d, "fine.md", head + " ".join(["evidence"] * 600) + "\nVERDICT: PASS\n")
         self.assertEqual(self.claims("report", fine, "--task", self.task).returncode, 0)
+
+    def test_report_budget_frees_rule_lines_and_grows_with_criteria(self):
+        # first contact (2026-10-16): a 15-criterion task's honest verifier report ran 1693 words (≈650 of them the RULE
+        # lines the contract demands) against a cap measured on 6-7 criteria, and was rejected into a rewrite round
+        write(self.d, ".reef/config.json", json.dumps({"gates": {"full": "true"}, "paths": {"features": "reef/features"},
+                                                        "writing": {"report_words": 900}}))
+        n = 15
+        acs = "".join(f"- AC-{i} (FR-1): criterion {i} holds.\n" for i in range(1, n + 1))
+        proof = "".join(f"| AC-{i} | `test_c{i}` |\n" for i in range(1, n + 1))
+        task = write(self.d, "t15.md", "---\nid: 1202\nstatus: pending\n---\n# t\n\n## Acceptance Criteria\n" + acs +
+                     "\n## Proof\n| AC | Proof |\n|---|---|\n" + proof)
+        rules = "".join(f"RULE AC{i}: PASS iff test_c{i} is green " + " ".join(["and"] * 40) + "; FAIL otherwise\n" for i in range(1, n + 1))
+        verdicts = "".join(f"AC{i} PASS — tests/t.py:{i} test_c{i}\n" for i in range(1, n + 1))
+        body = " ".join(["evidence"] * 1000)   # 1000 + ~90 words of verdicts: over 900, under 900 + 40×7 = 1180
+        r = self.claims("report", write(self.d, "r15.md", f"RUN: agent=verifier task=1202\n{rules}{verdicts}{body}\nVERDICT: PASS\n"), "--task", task)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        body = " ".join(["evidence"] * 1200)
+        r = self.claims("report", write(self.d, "r15b.md", f"RUN: agent=verifier task=1202\n{rules}{verdicts}{body}\nVERDICT: PASS\n"), "--task", task)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("(RULE lines free) > writing.report_words 900 + 280 (15 criteria)", r.stdout)
 
     def test_hunter_report_has_its_own_shape(self):
         # 0.7 dogfood: reef-task sends the hunter's report through `report`, which demanded RULE AC lines the hunter

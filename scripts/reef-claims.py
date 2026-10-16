@@ -233,9 +233,14 @@ def cmd_report(repo, path, task_path):
     if not re.search(r"^VERDICT:\s*(PASS|FAIL)\b", text, re.M):
         bad.append("no `VERDICT: PASS|FAIL` line")
     cap = int((cfg.get("writing") or {}).get("report_words", 0) or 0)
-    words = len(re.findall(r"\S+", text))
-    if cap and words > cap:
-        bad.append(f"{words} words > writing.report_words {cap}")
+    # RULE lines are the contract and their length is the plan's (one per criterion), so they are free; the budget
+    # grows 40 words per criterion past 8 (the cap was measured on 6-7 criteria; a 15-criterion task's honest report
+    # ran 1693 words and was rejected into a rewrite round, first contact 2026-10-16)
+    words = len(re.findall(r"\S+", "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("RULE "))))
+    budget = report_budget(cap, len(ids))
+    if cap and words > budget:
+        extra = f" + {budget - cap} ({len(ids)} criteria)" if budget > cap else ""
+        bad.append(f"{words} words (RULE lines free) > writing.report_words {cap}{extra}")
     elif not cap:
         print(f"note: report {words} words (writing.report_words unset — warn only until measured)")
     if bad:
@@ -245,6 +250,11 @@ def cmd_report(repo, path, task_path):
         return 1
     print(f"ok: report covers {len(ids)} criteria with rules and evidence")
     return 0
+
+
+def report_budget(cap, n_criteria):
+    """The report's word budget: writing.report_words plus 40 per criterion past 8; RULE lines never count."""
+    return cap + 40 * max(0, int(n_criteria) - 8) if cap else 0
 
 
 DIMENSIONS = ("type safety", "module boundaries", "framework opinionation", "test signal", "lint baseline")
