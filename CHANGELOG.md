@@ -21,6 +21,36 @@
   catch-rate and is refused; every corpus entry builds green and passes plan-check where the reviewer needs it).
 - **0.4 Baseline evals** k=3: `docs/perf/eval-baseline-2026-10-16.md`.
 
+### Phase 3 — day zero
+- **3.1 Architecture grill in `/reef-init`.** One batched question set (host, shape, scale, store, auth boundary,
+  one-year non-goals); `reef-init.py --grill answers.json` renders `reef/architecture/architecture.md` (intent, C4
+  L1/L2 in Mermaid, the answers verbatim), draft ADRs for host/store/auth, the queue footnotes in the owner's words
+  and batch 1 row 1 = the walking skeleton. A fresh project gets the 0.6 one tree (`reef/…`, `paths.*` follow); an
+  existing 0.5 layout is kept and the choice is sticky through `paths.queue`. Tests: `tests/test_init.py::DayZero`
+  (the fixture answers render the files; a second run writes nothing; the legacy layout is kept).
+- **3.1b Stack opinions** `templates/stacks/{node,python,rust,go}.md` (≤ 10 lines each) distilled into AGENTS.md's
+  `## Conventions` at init, never copied. Tests: `test_init.py` (a Node fixture gets Node, not Python).
+- **3.2 `scripts/reef-repo`** — gh-based, idempotent: private repository on `--create` (asks), release-branch
+  protection (PR required, the CI check required, no force-push, no deletion), secret-scanning push protection,
+  `.github/CODEOWNERS`; queries first, writes only on a difference. Tests: `tests/test_dayzero.py::RepoProtection`
+  (a mocked gh records the exact calls; a second run issues none).
+- **3.3 `/reef-explore`** (`skills/reef-explore/SKILL.md`, `commands/explore.md`): N `Explore` agents in one message,
+  Observed/Inferred with a proving path; locked by 1.3. Tests: `tests/test_dayzero.py::ExploreLock`.
+- **3.4 `/reef-assess` + `scripts/reef-recalibrate` + `scripts/reef-structure`.** `plan` classifies every document
+  (decision → ADR with `Supersedes:` and the one-line statement; spec for open work → feature folder with FR keys and
+  a queue row; glossary → merged; runbook/stale/duplicate → `reef/archive/<date>/<path>` with its index; README,
+  LICENSE, CONTRIBUTING, SECURITY, CHANGELOG, CODEOWNERS, docs a docs build serves and anything referenced from
+  code or CI are kept) into `reef/recalibration.md`; `--apply` is ONE commit with relative links rewritten and a
+  broken link refusing and restoring; `history` derives `branches.*`, `merge.by`, the commit convention, merge style,
+  tags and CI triggers; `reef-structure --check` fails a process document outside the layout (both layouts) and joins
+  `gates.extra`. Tests: `tests/test_dayzero.py::Recalibrate` (the fixture yields Reef ADRs with `Supersedes:`, the
+  archive tree with its index, zero broken links; a file referenced by mkdocs.yml or code stays; a second apply moves
+  nothing; `git revert` restores the fixture byte for byte; the structure check fails on a stray document; derived
+  branches match a develop → main history).
+- **3.5 Existing spec tooling is read, not duplicated.** `reef-init` detects `.specify/constitution.md`,
+  `.specify/memory/constitution.md` and `specs/*/spec.md`, points AGENTS.md at them and writes no second
+  constitution. Tests: `test_init.py::DayZero::test_existing_constitution_is_pointed_at_never_duplicated`.
+
 ### Phase 2 — spec and quality
 - **2.1 The feature folder and its spec.** `<paths.features>/<slug>/{SPEC.md, specs/, adr/, tasks/}` (0.6 projects;
   a 0.5 project keeps flat `tasks/`): `templates/spec.md` (Row, grill, scope, non-goals, Already shipped, `FR-n [layer]`,

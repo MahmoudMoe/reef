@@ -33,7 +33,7 @@ AGENTS = {"verifier": "verifier", "hunter": "loophole-hunter", "plan-reviewer": 
 VERDICT = re.compile(r"^[\s`*#_>-]*VERDICT[`*_]*:[\s`*_]*(PASS|FAIL)\b", re.M | re.I)
 SECTION = re.compile(r"^[\s`*#_]*(BLOCKING|ADVISORY|NEW-ROW|NONE|VERDICT)\b", re.I)
 # a finding line; a "RULE AC<n>: PASS iff …; FAIL if …" line names FAIL but is a rule, never a finding
-BLOCKING_LINE = re.compile(r"^\s*(?:[-*]\s*)?\**(?!RULE\b)(BLOCKER:|BLOCKING\b|HALT\b|AC\s*\d+\b.*\bFAIL\b|FAIL\b.*\bAC\s*\d+\b)", re.I)
+BLOCKING_LINE = re.compile(r"^\s*(?:[-*|]\s*)?\**(?!RULE\b)(BLOCKER:|BLOCKING\b|HALT\b|AC-?\s*\d+\b.*\bFAIL\b|FAIL\b.*\bAC-?\s*\d+\b)", re.I)
 
 
 def die(msg, code=2):

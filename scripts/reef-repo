@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+# CLASS: code
+"""Reef repo — repository protection by script, gh-based and idempotent (0.6, item 3.2).
+
+Usage: reef-repo [--repo DIR] [--create [--public]] [--yes] [--dry-run]
+
+Reads branches.release from .reef/config.json (default main) and the CI check name (ci.check_name, default the
+generated workflow's job `gates`) and makes the forge match, asking only before creating the repository:
+  1. create the repository, PRIVATE by default (`gh repo create` — only with --create; asks unless --yes)
+  2. protect the release branch: a PR is required, the CI check is required, no force-push, no deletion
+  3. secret-scanning push protection on
+  4. .github/CODEOWNERS (`* @<owner>`) written when absent
+Every step QUERIES first and acts only on a difference, so a second run issues no write. Prints what it did and
+what it could not (a missing permission is reported, never retried). Exit 0 · 1 something could not be done ·
+2 usage / gh missing.
+"""
+import json
+import os
+import subprocess
+import sys
+
+GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "30"))
+
+
+def gh(args, cwd, check=True):
+    try:
+        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=GH_TIMEOUT, cwd=cwd)
+    except FileNotFoundError:
+        print("reef-repo: gh is not installed", file=sys.stderr)
+        sys.exit(2)
+    except subprocess.TimeoutExpired:
+        return 124, "", f"gh {' '.join(args[:2])} timed out"
+    return r.returncode, r.stdout.strip(), r.stderr.strip()
+
+
+def main(argv):
+    repo, create, public, yes, dry = ".", False, False, False, False
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--repo":
+            repo = argv[i + 1]; i += 2
+        elif a == "--create":
+            create = True; i += 1
+        elif a == "--public":
+            public = True; i += 1
+        elif a == "--yes":
+            yes = True; i += 1
+        elif a == "--dry-run":
+            dry = True; i += 1
+        else:
+            print(f"reef-repo: unknown option {a}", file=sys.stderr)
+            return 2
+    try:
+        with open(os.path.join(repo, ".reef", "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = {}
+    release = str((cfg.get("branches") or {}).get("release", "main") or "main")
+    check_name = str((cfg.get("ci") or {}).get("check_name", "every gate, once") or "every gate, once")
+    did, could_not = [], []
+
+    def act(label, args):
+        if dry:
+            did.append(f"(dry) {label}: gh {' '.join(args)}")
+            return 0
+        rc, out, err = gh(args, repo)
+        (did if rc == 0 else could_not).append(f"{label}" + ("" if rc == 0 else f" — gh exited {rc}: {err[:160]}"))
+        return rc
+
+    rc, out, err = gh(["repo", "view", "--json", "nameWithOwner,visibility,owner"], repo)
+    if rc != 0:
+        if not create:
+            print("reef-repo: no repository on the forge for this checkout (pass --create to make one, private by default)")
+            return 1
+        if not yes and not dry:
+            ans = input(f"create a {'PUBLIC' if public else 'private'} repository for this checkout? [y/N] ").strip().lower()
+            if ans not in ("y", "yes"):
+                print("reef-repo: not created")
+                return 1
+        name = os.path.basename(os.path.abspath(repo))
+        act("create repository", ["repo", "create", name, "--public" if public else "--private", "--source", repo, "--push"])
+        rc, out, err = gh(["repo", "view", "--json", "nameWithOwner,visibility,owner"], repo)
+    view = json.loads(out) if rc == 0 and out else {}
+    nwo = view.get("nameWithOwner", "")
+    owner = (view.get("owner") or {}).get("login") or nwo.split("/")[0]
+    if not nwo:
+        could_not.append("read the repository (gh repo view failed) — the protection steps need it")
+    else:
+        # 2. branch protection: query, then write only the parts that differ
+        rc, out, _ = gh(["api", f"repos/{nwo}/branches/{release}/protection"], repo)
+        prot = json.loads(out) if rc == 0 and out else {}
+        want_checks = [check_name]
+        have_checks = [c.get("context") for c in (prot.get("required_status_checks") or {}).get("checks", []) or []]
+        ok_prot = (prot.get("required_pull_request_reviews") is not None and sorted(have_checks) == sorted(want_checks)
+                   and (prot.get("allow_force_pushes") or {}).get("enabled") is False
+                   and (prot.get("allow_deletions") or {}).get("enabled") is False)
+        if ok_prot:
+            did.append(f"branch {release}: already protected (PR required, check {check_name!r}, no force-push, no deletion)")
+        else:
+            body = json.dumps({"required_status_checks": {"strict": True, "checks": [{"context": check_name}]},
+                               "enforce_admins": False,
+                               "required_pull_request_reviews": {"required_approving_review_count": 0},
+                               "restrictions": None, "allow_force_pushes": False, "allow_deletions": False})
+            tmp = os.path.join(repo, ".reef", "repo-protection.json")
+            os.makedirs(os.path.dirname(tmp), exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(body)
+            act(f"protect branch {release}", ["api", "-X", "PUT", f"repos/{nwo}/branches/{release}/protection",
+                                              "-H", "Accept: application/vnd.github+json", "--input", tmp])
+        # 3. secret scanning push protection
+        rc, out, _ = gh(["api", f"repos/{nwo}", "--jq", ".security_and_analysis.secret_scanning_push_protection.status"], repo)
+        if rc == 0 and out == "enabled":
+            did.append("secret-scanning push protection: already enabled")
+        else:
+            act("enable secret-scanning push protection",
+                ["api", "-X", "PATCH", f"repos/{nwo}", "-f", 'security_and_analysis[secret_scanning_push_protection][status]=enabled'])
+    # 4. CODEOWNERS
+    co = os.path.join(repo, ".github", "CODEOWNERS")
+    if os.path.isfile(co):
+        did.append(".github/CODEOWNERS: present")
+    elif owner:
+        if not dry:
+            os.makedirs(os.path.dirname(co), exist_ok=True)
+            with open(co, "w", encoding="utf-8") as f:
+                f.write(f"# every path needs the owner's review before it merges into {release}\n* @{owner}\n")
+        did.append(".github/CODEOWNERS: written (commit it)")
+    for d in did:
+        print(f"  did      {d}")
+    for c in could_not:
+        print(f"  COULD NOT {c}")
+    return 1 if could_not else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

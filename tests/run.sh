@@ -18,6 +18,7 @@ cd "$(dirname "$0")/.."
 #   test_tiers_lock.py  0.6 phase 1: four tiers at dispatch, digest-bound approval, reviewer lock, guard deadline, the guard guards itself
 #   test_record.py      0.6 phase 1: review records bound to the forge SHA (fake gh): push after GREEN, rebase, slow gh all DENY
 #   test_feature_spec.py 0.6 phase 2: feature folder + SPEC keys, proof split, rails/touches, hand-back/report checks, reef-converge
+#   test_dayzero.py     0.6 phase 3: reef-repo (mocked gh), the Explore lock, reef-recalibrate plan/apply/revert, reef-structure
 # Shell suites: tests/test_hooks.sh (pre-commit, gate, snapshot), tests/test_ci_local.sh (reef-ci-local)
 # One suite: python3 -m unittest tests.test_graph -v
 echo "== python suites (guard / attempt / plan-check / graph) =="
