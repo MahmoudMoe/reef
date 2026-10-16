@@ -1,0 +1,203 @@
+"""Sabotage suite for 0.6 Phase 5: reef-loop.py tick (5.1: a merge that unblocks a row appears in the next tick; a
+stale in-flight marker is listed as returned; output never exceeds the line cap), the Stop hook (5.2: a ready
+undispatched task is refused with its id; the same state is never refused twice; a wait, an inactive loop or a
+stop reason allow), no-progress parking and the budgets (5.3), the context ceiling (5.4), the deterministic
+handoff (5.5) and the lean session start (6.2 part: under the cap; nothing for a directory without Reef)."""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOOP = os.path.join(ROOT, "scripts", "reef-loop.py")
+GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
+HANDOFF = os.path.join(ROOT, "scripts", "reef-handoff")
+
+
+def write(root, rel, text):
+    p = os.path.join(root, rel)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(text)
+    return p
+
+
+def task(tid, feature, status="pending", blocked="[]"):
+    return (f"---\nid: {tid}\nfeature: {feature}\nstatus: {status}\ncomplexity: mech\neffort: medium\nblocked-by: {blocked}\n"
+            f"resources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# {tid}\n\n## Scope\nx\n\n"
+            f"## Acceptance Criteria\n- test_t{tid} goes red first\n\n## Log\n")
+
+
+def project(cfg=None):
+    d = tempfile.mkdtemp(prefix="reef-loop.")
+    subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+    os.makedirs(os.path.join(d, "scripts"))
+    for n in ("reef-queue.py", "reef-graph.py", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-plan-check.py"):
+        shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(d, "scripts", n))
+    write(d, ".reef/config.json", json.dumps(cfg or {"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md", "runlog": "reef/journal.md"}}))
+    write(d, ".reef/version", "0.6.0\n")
+    write(d, "reef/queue.md", "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 1 | first | | planned | 1 | |\n| 2 | second | 1 | planned | 1 | |\n")
+    write(d, "reef/journal.md", "# Journal\n| Task | Implementer | Verifier | Attempts | Result | ACs | Escaped defects |\n|---|---|---|---|---|---|---|\n| 101 | opus | - | 0 | PASS | AC-1 achieved | - |\n")
+    write(d, "HANDOFF.md", "# Handoff\nline 1\n")
+    os.makedirs(os.path.join(d, "tasks", "done"))
+    write(d, "tasks/101-a.md", task(101, "1"))
+    write(d, "tasks/102-b.md", task(102, "1", blocked="[101]"))
+    subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], check=True, capture_output=True)
+    return d
+
+
+def loop(d, *args, env=None):
+    e = dict(os.environ, PATH="/nonexistent-gh:" + os.environ["PATH"])
+    e.update(env or {})
+    return subprocess.run([sys.executable, LOOP, *args, "--repo", d], capture_output=True, text=True, env=e)
+
+
+def stop_hook(d, **extra):
+    payload = {"hook_event_name": "Stop", "cwd": d, "stop_hook_active": False, "last_assistant_message": "done", "background_tasks": [], "session_crons": []}
+    payload.update(extra)
+    return subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True)
+
+
+class Tick(unittest.TestCase):
+    def test_merge_unblocks_a_task_in_the_next_tick_and_output_is_capped(self):
+        d = project()
+        r = loop(d, "tick", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        st = json.loads(r.stdout)
+        self.assertEqual(st["dispatch_now"], ["101"])
+        self.assertEqual(st["rows_to_plan"], ["2"] if "2" in st["rows_to_plan"] else st["rows_to_plan"])
+        # 101 merges (done) -> 102 is ready in the very next tick
+        write(d, "tasks/101-a.md", task(101, "1", status="done"))
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["dispatch_now"], ["102"])
+        text = loop(d, "tick").stdout
+        self.assertLessEqual(len(text.splitlines()), 30)
+        self.assertIn("dispatch now: 102", text)
+
+    def test_stale_inflight_marker_is_returned_fresh_one_is_in_flight(self):
+        d = project()
+        p = write(d, ".reef/inflight/101", json.dumps({"id": 101, "tier": "light"}))
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["in_flight"], ["101"])
+        self.assertEqual(st["dispatch_now"], [], "an in-flight task is not dispatched again")
+        old = time.time() - 120 * 60
+        os.utime(p, (old, old))
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["returned_unmerged"], ["101"])
+        self.assertEqual(st["dispatch_now"], ["101"], "a returned task is ready again")
+
+    def test_no_progress_parks_after_k_identical_ticks(self):
+        d = project({"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md"}, "loop": {"no_progress_ticks": 2}})
+        loop(d, "start")
+        loop(d, "tick")
+        self.assertIsNone(json.loads(open(os.path.join(d, ".reef", "loop.json")).read()).get("parked"))
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertIn("no progress: 2 identical ticks", st["parked_loop"])
+
+    def test_budget_ceiling_parks(self):
+        d = project({"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md"}, "caps": {"feature_tokens": 1000}})
+        t = write(d, "t.jsonl", json.dumps({"type": "assistant", "requestId": "r1", "message": {"usage": {"input_tokens": 5000, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 1}, "content": []}}) + "\n")
+        st = json.loads(loop(d, "tick", "--json", env={"REEF_TRANSCRIPT": t}).stdout)
+        self.assertIn("budget: 5000 tokens > caps ceiling 1000", st["stop"])
+
+
+class StopHook(unittest.TestCase):
+    def test_ready_undispatched_refused_once_then_allowed(self):
+        d = project()
+        self.assertEqual(stop_hook(d).returncode, 0, "no loop.json yet: the stop hook stays silent")
+        loop(d, "start")
+        r = stop_hook(d)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("101", r.stderr)
+        r = stop_hook(d)
+        self.assertEqual(r.returncode, 0, "the same state is never refused twice")
+        # the state changes (a new ready task) -> refused again, once
+        write(d, "tasks/103-c.md", task(103, "1"))
+        self.assertEqual(stop_hook(d).returncode, 2)
+        self.assertEqual(stop_hook(d).returncode, 0)
+
+    def test_wait_inactive_inflight_stop_and_active_flag_allow(self):
+        d = project()
+        loop(d, "start")
+        loop(d, "wait", "grill question pending")
+        self.assertEqual(stop_hook(d).returncode, 0, "a recorded wait allows the stop")
+        loop(d, "clear-wait")
+        loop(d, "stop")
+        self.assertEqual(stop_hook(d).returncode, 0, "an inactive loop allows the stop")
+        loop(d, "start")
+        self.assertEqual(stop_hook(d, stop_hook_active=True).returncode, 0, "stop_hook_active is honoured")
+        self.assertEqual(stop_hook(d, background_tasks=[{"id": "x", "type": "subagent", "status": "running"}]).returncode, 0, "sub-agents running = in flight")
+        write(d, ".reef/inflight/101", json.dumps({"id": 101}))
+        self.assertEqual(stop_hook(d).returncode, 0, "something in flight allows the stop")
+        os.unlink(os.path.join(d, ".reef", "inflight", "101"))
+        st = json.loads(open(os.path.join(d, ".reef", "loop.json")).read())
+        st["stop"] = "context ceiling: checkpoint, then /clear"
+        st["refused"] = None
+        write(d, ".reef/loop.json", json.dumps(st))
+        self.assertEqual(stop_hook(d).returncode, 0, "a stop reason allows the stop")
+
+
+class ContextCeiling(unittest.TestCase):
+    def transcript(self, d, tokens):
+        return write(d, "session.jsonl", json.dumps({"type": "assistant", "requestId": "r1", "message": {"usage": {"input_tokens": tokens, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 1}, "content": []}}) + "\n")
+
+    def dispatch(self, d, transcript):
+        payload = {"tool_name": "Task", "cwd": d, "transcript_path": transcript, "tool_input": {"subagent_type": "reef:mechanic", "prompt": "rebase"}}
+        return subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True)
+
+    def test_over_denied_and_recorded_under_allowed_missing_allowed_and_said(self):
+        d = project({"gates": {"full": "true"}, "caps": {"context_tokens": 10000, "context_warn": 5000}})
+        r = self.dispatch(d, self.transcript(d, 20000))
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("context ceiling", r.stderr)
+        self.assertIn("checkpoint", r.stderr)
+        self.assertIn("context ceiling", json.loads(open(os.path.join(d, ".reef", "loop.json")).read())["stop"])
+        r = self.dispatch(d, self.transcript(d, 7000))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("additionalContext", r.stdout, "between warn and ceiling the hook warns the model")
+        self.assertEqual(self.dispatch(d, self.transcript(d, 1000)).returncode, 0)
+        r = self.dispatch(d, os.path.join(d, "nope.jsonl"))
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("cannot be measured", r.stderr)
+
+
+class HandoffAndSessionStart(unittest.TestCase):
+    def test_handoff_is_deterministic_and_session_start_under_the_cap(self):
+        d = project()
+        e = dict(os.environ, PATH="/nonexistent-gh:" + os.environ["PATH"])
+        a = subprocess.run([sys.executable, HANDOFF, "--repo", d], capture_output=True, text=True, env=e).stdout
+        b = subprocess.run([sys.executable, HANDOFF, "--repo", d], capture_output=True, text=True, env=e).stdout
+        self.assertEqual(a, b)
+        self.assertIn("## The tick", a)
+        self.assertIn("| 101 | opus |", a, "the journal tail")
+        self.assertNotRegex(a, r"\d\d:\d\d:\d\d", "no clock in the body")
+        r = subprocess.run([sys.executable, HANDOFF, "--repo", d, "--write"], capture_output=True, text=True, env=e)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("# Handoff —", open(os.path.join(d, "HANDOFF.md")).read())
+        r = loop(d, "tick", "--session-start")
+        self.assertLess(len(r.stdout) // 4, 8000)
+        self.assertIn("next command:", r.stdout)
+        r = loop(d, "tick", "--session-start", "--hook")
+        env = json.loads(r.stdout)
+        self.assertEqual(env["hookSpecificOutput"]["hookEventName"], "SessionStart")
+        self.assertIn("tick", env["hookSpecificOutput"]["additionalContext"])
+        empty = tempfile.mkdtemp(prefix="reef-noreef.")
+        subprocess.run(["git", "init", "-q", empty], check=True)
+        r = subprocess.run([sys.executable, LOOP, "tick", "--session-start", "--hook", "--repo", empty], capture_output=True, text=True)
+        self.assertEqual((r.returncode, r.stdout), (0, ""), "a directory without .reef/config.json gets nothing")
+
+    def test_session_start_truncates_at_the_cap(self):
+        d = project({"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md"}, "writing": {"session_start_tokens": 50}})
+        write(d, "HANDOFF.md", "# Handoff\n" + "\n".join(f"line {i} " + "x" * 80 for i in range(40)))
+        r = loop(d, "tick", "--session-start")
+        self.assertLessEqual(len(r.stdout) // 4, 50 + 20)
+        self.assertIn("[truncated: writing.session_start_tokens 50]", r.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -21,6 +21,30 @@
   catch-rate and is refused; every corpus entry builds green and passes plan-check where the reviewer needs it).
 - **0.4 Baseline evals** k=3: `docs/perf/eval-baseline-2026-10-16.md`.
 
+### Phase 5 — loop engine and context budget
+- **5.1 `scripts/reef-loop.py tick`** — one read of the queue, the task files, the worktrees, `.reef/inflight/`,
+  `.reef/verifying/` and the open PRs; the next-action set as data under 30 lines; in flight is the guard's marker
+  (stale after `loop.inflight_stale_minutes` → returned); `start | stop | wait | clear-wait` in `.reef/loop.json`.
+  Tests: `tests/test_loop.py::Tick`.
+- **5.2 The missing dispatch becomes mechanical at turn end.** A `Stop` entry in `hooks/hooks.json` runs the guard,
+  which dispatches on `hook_event_name` and calls `tick --assert-no-idle`: refused only when the loop is active, no
+  wait, ready tasks, nothing in flight, no stop reason — the same tick hash is never refused twice;
+  `stop_hook_active` and `background_tasks` honoured. Tests: `tests/test_loop.py::StopHook`.
+- **5.3 No-progress parking and budgets.** K identical ticks (`loop.no_progress_ticks`) with nothing in flight park
+  the loop; `caps.feature_tokens` / `caps.batch_tokens` (0 = off) checked through `reef-cost.py --live`. Tests:
+  `tests/test_loop.py::Tick::test_no_progress_parks…`, `test_budget_ceiling_parks`.
+- **5.4 Context ceiling** on Task/Agent dispatches: `reef-cost.py --live` on the payload's `transcript_path` against
+  `caps.context_tokens` (deny: "checkpoint, then /clear", stop reason recorded) and `caps.context_warn` (the hook
+  warns through `additionalContext` — verified possible in 0.0). Defaults 0 (off). Tests: `tests/test_loop.py::ContextCeiling`.
+- **5.5 Checkpoint and clear.** `scripts/reef-handoff --write` renders HANDOFF.md whole from the tick, the journal
+  tail and the open questions (deterministic, no clock); the loop skill lists the ceiling among its stops. Tests:
+  `tests/test_loop.py::HandoffAndSessionStart`, `tests/test_contracts.py`.
+- **5.6 Reports, never raw material.** `reef-gate.sh --failures` and `reef-ci-local.sh` print the exit code plus the
+  failing block (`context.failure_lines`, 60) from the log in `.reef/ci-local/`; truncation inside the gate keeps
+  the exit code. The optional Read tripwire was CUT (first in the cut order). Tests: `tests/test_hooks.sh`
+  (a 5,000-line failing log → a block under 60 lines with the exit code).
+- **5.7 Measured target**: see `docs/perf/baseline-2026-10-16.md` (per-row growth measured at Finishing).
+
 ### Phase 4 — architecture and security
 - **4.1 `scripts/reef-c4.py`.** Detection (manifests, infrastructure files, dependencies, routes) → persons,
   containers, stores, external systems (cap 9, the most similar pair collapsed and reported) → `reef/architecture/

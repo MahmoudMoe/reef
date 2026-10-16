@@ -935,6 +935,69 @@ def check_edit(tool_input, payload, ctx):
          "taken with python3 scripts/reef-init.py --accept <path>")
 
 
+# ---------------- 0.6: the Stop hook (5.2) and the context ceiling (5.4) ----------------
+
+def check_stop(payload):
+    """Stop: refuse the turn's end only when the loop is active, no wait is recorded, ready tasks exist with free
+    slots, nothing is in flight and no stop reason holds — and never twice for the same tick state
+    (reef-loop.py tick --assert-no-idle keeps the refused hash). stop_hook_active is honoured."""
+    if payload.get("stop_hook_active"):
+        return
+    if payload.get("background_tasks"):
+        return   # sub-agents still running: the world is in flight
+    cwd = payload.get("cwd") or os.getcwd()
+    root = main_checkout(cwd)
+    loop = os.path.join(root, "scripts", "reef-loop.py")
+    if not os.path.isfile(loop) or not os.path.isfile(os.path.join(root, ".reef", "loop.json")):
+        return
+    try:
+        r = subprocess.run([sys.executable, loop, "tick", "--assert-no-idle", "--repo", root], capture_output=True, text=True, timeout=DEADLINE - 1)
+    except subprocess.TimeoutExpired:
+        return   # a slow tick never blocks the turn's end
+    if r.returncode == 2:
+        deny("the loop is active and ready work sits undispatched: " + r.stderr.strip().splitlines()[-1][:300] + "\n" + r.stdout[-600:])
+
+
+def check_context_ceiling(payload):
+    """Task/Agent dispatch: the dispatching session's live context (reef-cost.py --live on transcript_path) against
+    caps.context_tokens (0 = off); from caps.context_warn the hook adds a warning as additionalContext."""
+    tp = payload.get("transcript_path")
+    cwd = payload.get("cwd") or os.getcwd()
+    cfg = read_config(main_checkout(cwd)) or read_config(cwd)
+    caps = cfg.get("caps") or {}
+    ceiling, warn = int(caps.get("context_tokens", 0) or 0), int(caps.get("context_warn", 0) or 0)
+    if not (ceiling or warn):
+        return
+    if not tp or not os.path.isfile(tp):
+        print("reef-guard: no transcript_path in the payload — the context ceiling cannot be measured; allowing", file=sys.stderr)
+        return
+    cost = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-cost.py")
+    try:
+        r = subprocess.run([sys.executable, cost, tp, "--live"], capture_output=True, text=True, timeout=5)
+    except subprocess.TimeoutExpired:
+        return
+    m = re.search(r"context_tokens=(\d+)", r.stdout)
+    if not m:
+        return
+    n = int(m.group(1))
+    if ceiling and n > ceiling:
+        root = main_checkout(cwd)
+        try:
+            st_p = os.path.join(root, ".reef", "loop.json")
+            st = json.load(open(st_p)) if os.path.isfile(st_p) else {}
+            st["stop"] = f"context ceiling: {n} tokens > caps.context_tokens {ceiling} — checkpoint, then /clear"
+            st["transcript"] = tp
+            os.makedirs(os.path.dirname(st_p), exist_ok=True)
+            with open(st_p, "w", encoding="utf-8") as f:
+                json.dump(st, f, indent=1)
+        except Exception:
+            pass
+        deny(f"context ceiling: this session is at {n} tokens > caps.context_tokens {ceiling} — checkpoint (scripts/reef-handoff --write), then /clear; a fresh orchestrator dispatches")
+    if warn and n > warn:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
+                                                 "additionalContext": f"reef: context at {n} tokens (> caps.context_warn {warn}, ceiling {ceiling or 'unset'}) — finish this wave, write the handoff, /clear soon."}}))
+
+
 def arm_deadline():
     """A hung guard must deny, not time out into an allow (onFailure: block is the host's belt)."""
     def on_alarm(signum, frame):
@@ -953,6 +1016,14 @@ def main():
         sys.exit(0)
     tool = payload.get("tool_name", "")
     tool_input = payload.get("tool_input") or {}
+    if payload.get("hook_event_name") == "Stop":
+        try:
+            check_stop(payload)
+        except SystemExit:
+            raise
+        except Exception as e:
+            print(f"reef-guard: stop check error ignored (the turn may end): {e}", file=sys.stderr)
+        sys.exit(0)
     if tool == "Bash":
         try:
             CTX.update(context_for(payload))
@@ -961,6 +1032,12 @@ def main():
         check_bash(str(tool_input.get("command") or ""))
     elif tool in ("Task", "Agent"):
         check_dispatch(tool_input, payload)
+        try:
+            check_context_ceiling(payload)
+        except SystemExit:
+            raise
+        except Exception as e:
+            print(f"reef-guard: context ceiling check error ignored: {e}", file=sys.stderr)
     elif tool in ("Edit", "Write", "MultiEdit"):
         try:
             check_edit(tool_input, payload, context_for(payload))

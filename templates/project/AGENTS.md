@@ -13,8 +13,9 @@ make setup                       # git hooks (core.hooksPath .githooks) — once
 {{test}}                         # the full gate (gates.full)
 sh scripts/reef-gate.sh fast     # the commit gate (gates.fast)
 sh scripts/reef-ci-local.sh      # every gate CI runs, locally, every exit code read — before any push
-python3 scripts/reef-graph.py status   # the task graph: ready, in flight, waiting, blocked
-python3 scripts/reef-queue.py ready    # the queue rows that can start now
+python3 scripts/reef-loop.py tick      # the ONE read of the world: rows to plan, dispatch now, PRs, in flight, parked, stop reason
+python3 scripts/reef-graph.py status   # the task graph with reasons, when the tick says to look
+sh scripts/reef-gate.sh full --failures   # the exit code and the failing block, never the raw log
 ```
 
 ## Layout

@@ -4,7 +4,11 @@
     "full": ""
   },
   "caps": {
-    "attempts": 3
+    "attempts": 3,
+    "feature_tokens": 0,
+    "batch_tokens": 0,
+    "context_tokens": 0,
+    "context_warn": 0
   },
   "roles": {
     "author": "opus",
@@ -132,5 +136,17 @@
     "sentence_words": 25,
     "criterion_words": 50,
     "session_start_tokens": 8000
+  },
+  "loop": {
+    "inflight_stale_minutes": 90,
+    "no_progress_ticks": 3
+  },
+  "context": {
+    "failure_lines": 60,
+    "read_lines_max": 300,
+    "explore_files": 40
+  },
+  "converge": {
+    "test_cmd": ""
   }
 }

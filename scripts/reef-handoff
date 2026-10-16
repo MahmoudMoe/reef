@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+# CLASS: code
+"""Reef handoff — HANDOFF.md rendered WHOLE from measured state, never from memory (0.6, item 5.5).
+
+Usage: reef-handoff [--repo DIR] [--write] [--questions FILE]
+
+Renders: the tick (scripts/reef-loop.py tick), the journal's last rows (paths.runlog, 5 rows), the open owner
+questions (--questions FILE, one per line, or .reef/questions.md when present), the release/base heads, open PRs
+and worktrees. Deterministic for a fixture (no clock in the body: the date comes from the last commit). --write
+replaces HANDOFF.md; without it the rendering is printed. The loop records a wait after writing it and asks the
+human to /clear — a fresh orchestrator reads only this head and the tick (6.2). Exit 0.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+MAX_LINES = 60
+
+
+def read(p):
+    with open(p, encoding="utf-8", errors="replace") as f:
+        return f.read()
+
+
+def run(cmd, cwd, timeout=20):
+    try:
+        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def render(root, questions):
+    cfg = {}
+    try:
+        cfg = json.loads(read(os.path.join(root, ".reef", "config.json")))
+    except Exception:
+        pass
+    base = str((cfg.get("branches") or {}).get("base", "main") or "main")
+    release = str((cfg.get("branches") or {}).get("release", "main") or "main")
+    date = run(["git", "log", "-1", "--format=%cs"], root) or "unknown"
+    tick = run([sys.executable, os.path.join(root, "scripts", "reef-loop.py"), "tick", "--repo", root], root) or "(tick unavailable)"
+    heads = {b: (run(["git", "rev-parse", "--short=12", b], root) or "absent") for b in sorted({base, release})}
+    prs = run(["gh", "pr", "list", "--base", base, "--json", "number,headRefName,title", "--limit", "10"], root, timeout=5)
+    try:
+        prs = json.loads(prs) if prs else []
+    except ValueError:
+        prs = []
+    journal = os.path.join(root, (cfg.get("paths") or {}).get("runlog", "reef/journal.md"))
+    rows = [l for l in read(journal).splitlines() if l.startswith("|") and "---" not in l][1:] if os.path.isfile(journal) else []
+    tail = rows[-5:]
+    wts = [l[len("worktree "):] for l in run(["git", "worktree", "list", "--porcelain"], root).splitlines() if l.startswith("worktree ")][1:]
+    out = [f"# Handoff — {date}", "",
+           "Rendered whole by `scripts/reef-handoff` from measured state; never amended by hand. A fresh orchestrator reads this head and `python3 scripts/reef-loop.py tick`, nothing else, at start.",
+           "", "## Where things stand",
+           "- " + " · ".join(f"`{b}` at {h}" for b, h in heads.items()) + f" · open PRs: {', '.join(f'#{p['number']} {p['headRefName']}' for p in prs) or 'none'} · worktrees: {len(wts)}",
+           "", "## The tick", "```", tick.rstrip(), "```", "", "## The owner's questions (one question set)"]
+    out += [f"- {q}" for q in questions] or ["- none pending"]
+    out += ["", "## Last merges (journal tail)"]
+    out += tail or ["- none yet"]
+    out += ["", "## Unverified", "- what the tick cannot see: a sub-agent's uncommitted work in a worktree (`git -C <worktree> status`), CI on PRs into the release branch."]
+    return "\n".join(out[:MAX_LINES]) + "\n"
+
+
+def main(argv):
+    repo, write, qfile = ".", False, None
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--repo":
+            repo = argv[i + 1]; i += 2
+        elif argv[i] == "--write":
+            write = True; i += 1
+        elif argv[i] == "--questions":
+            qfile = argv[i + 1]; i += 2
+        else:
+            print(f"reef-handoff: unknown option {argv[i]}", file=sys.stderr)
+            return 2
+    root = run(["git", "rev-parse", "--show-toplevel"], repo) or os.path.abspath(repo)
+    qfile = qfile or (os.path.join(root, ".reef", "questions.md") if os.path.isfile(os.path.join(root, ".reef", "questions.md")) else None)
+    questions = [l.strip("- ").strip() for l in read(qfile).splitlines() if l.strip()] if qfile and os.path.isfile(qfile) else []
+    text = render(root, questions)
+    if write:
+        with open(os.path.join(root, "HANDOFF.md"), "w", encoding="utf-8") as f:
+            f.write(text)
+        print(f"HANDOFF.md written ({len(text.splitlines())} lines)")
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

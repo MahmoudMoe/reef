@@ -1,6 +1,9 @@
 #!/bin/sh
 # CLASS: code
-# Reef portable test gate. Usage: reef-gate.sh [fast|full]   (no mode = full)
+# Reef portable test gate. Usage: reef-gate.sh [fast|full] [--failures]   (no mode = full)
+#   --failures (0.6, 5.6): the whole output goes to .reef/ci-local/gate-<mode>.log; stdout gets the exit code and
+#   the FAILING BLOCK only (at most context.failure_lines lines, default 60, from the first failure marker to the
+#   end) — never the raw log. Truncation happens here, so the exit code is the gate's, not a pipe's.
 #   fast — the pre-commit gate:  gates.fast > gates.test > gates.full
 #   full — review / verify / CI: gates.full > gates.test
 # gates.test is the pre-0.4 single gate, kept as an alias, so a config that only sets it runs
@@ -9,11 +12,14 @@
 # Never silently passes, never silently substitutes a different command: a no-op gate is
 # worse than none, and a guessed gate is a no-op gate wearing a costume.
 set -e
-MODE=${1:-full}
-case "$MODE" in
-  fast|full) ;;
-  *) echo "reef-gate: unknown mode '$MODE' (fast|full)" >&2; exit 1 ;;
-esac
+MODE=full; FAILURES=0
+for a in "$@"; do
+  case "$a" in
+    fast|full) MODE=$a ;;
+    --failures) FAILURES=1 ;;
+    *) echo "reef-gate: unknown argument '$a' (fast|full|--failures)" >&2; exit 1 ;;
+  esac
+done
 ROOT=$(git rev-parse --show-toplevel) || { echo "reef-gate: not a git repository" >&2; exit 1; }
 cd "$ROOT"
 CMD=''    # never inherit a caller's environment as the gate
@@ -38,6 +44,25 @@ else
   [ -n "$CMD" ] || { echo "reef-gate: USER ACTION REQUIRED — no test command found; run /reef-init or set gates.full in .reef/config.json" >&2; exit 1; }
 fi
 echo "reef-gate ($MODE): $CMD" >&2
+if [ "$FAILURES" -eq 1 ]; then
+  mkdir -p .reef/ci-local
+  LOG=.reef/ci-local/gate-$MODE.log
+  MAXL=$(python3 -c "import json;print(int(json.load(open('.reef/config.json')).get('context',{}).get('failure_lines',60) or 60))" 2>/dev/null || echo 60)
+  RC=0
+  sh -c "$CMD" >"$LOG" 2>&1 || RC=$?    # set -e must not end the script before the block is printed
+  echo "reef-gate ($MODE): exit $RC — full log: $LOG ($(wc -l <"$LOG" | tr -d ' ') lines)"
+  if [ "$RC" -ne 0 ]; then
+    # the failing block: from the first failure marker to the end, capped — the exit code above is the verdict
+    START=$(grep -n -m1 -E 'FAIL|Error|error\[|FAILED|panicked|not ok|AssertionError|Traceback' "$LOG" | cut -d: -f1)
+    TOTAL_LINES=$(wc -l <"$LOG" | tr -d ' ')
+    [ -n "$START" ] || START=$(( TOTAL_LINES - MAXL + 1 ))
+    [ "$START" -lt 1 ] && START=1
+    BLOCK=$(( TOTAL_LINES - START + 1 ))
+    tail -n +"$START" "$LOG" | head -n "$MAXL"
+    [ "$BLOCK" -gt "$MAXL" ] && echo "[... $((BLOCK - MAXL)) more lines in $LOG]"
+  fi
+  exit $RC
+fi
 # the gate is a shell command line, not an argv list — parse it as the human wrote it
 # (unquoted `exec $CMD` would word-split and glob, mangling quoted args and operators).
 exec sh -c "$CMD"

@@ -176,7 +176,10 @@ class LedgerClasses(unittest.TestCase):
                 for h in e["hooks"]:
                     if key in table:
                         self.assertGreaterEqual(h["timeout"], table[key], f"{key}: hooks.json timeout below the profile")
-                    self.assertEqual(h.get("onFailure"), "block", key)
+                    # a GUARD matcher (PreToolUse) fails closed; Stop/SessionStart/PostToolUse must never wedge the
+                    # session on a hook failure, so they continue
+                    self.assertEqual(h.get("onFailure"), "block" if ev == "PreToolUse" else "continue", f"{ev}/{key}")
+                    self.assertIn("timeout", h, f"{ev}/{key}: every hook carries a timeout")
 
 
 class Templates(unittest.TestCase):

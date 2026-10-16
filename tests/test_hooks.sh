@@ -186,6 +186,25 @@ t "  fallback announced itself on stderr (never silent)" 0
 [ "$(cat d.dat)" = "precious lower" ]
 t "  unstaged filtered content untouched (no clean-filter corruption)" 0
 
+# ---------- 0.6 (5.6): a 5,000-line failing log yields a block under 60 lines WITH the exit code ----------
+mkrepo "$TMP/r56" "sh red.sh"
+printf 'i=0\nwhile [ $i -lt 5000 ]; do echo line $i; i=$((i+1)); done\necho "FAIL: the one that matters"\nexit 3\n' > red.sh
+OUT=$(sh scripts/reef-gate.sh full --failures 2>/dev/null); RC=$?
+[ "$RC" -eq 3 ]
+t "--failures preserves the gate's exit code (3)" 0
+[ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" -le 62 ]
+t "  the output is a block under 60 lines, not 5,000" 0
+printf '%s\n' "$OUT" | grep -q 'exit 3'
+t "  the block names the exit code" 0
+printf '%s\n' "$OUT" | grep -q 'FAIL: the one that matters'
+t "  the block starts at the failure marker" 0
+[ -f .reef/ci-local/gate-full.log ] && [ "$(wc -l <.reef/ci-local/gate-full.log | tr -d ' ')" -eq 5001 ]
+t "  the whole log is on disk for whoever needs it" 0
+sh scripts/reef-gate.sh fast --failures >/dev/null 2>&1; true
+mkrepo "$TMP/r56b" "true"
+sh scripts/reef-gate.sh full --failures >/dev/null 2>&1
+t "--failures on a green gate: exit 0" 0
+
 # ---------- 0.6: a tier: critical task closes like design; a Task dispatch with no python3 is denied ----------
 mkrepo "$TMP/r6c" "true"
 mkdir -p tasks/done

@@ -74,7 +74,14 @@ for row in $GATES; do
     case ",$REQUIRE," in *",$name,"*) REQUIRED_SKIP=$((REQUIRED_SKIP+1)); echo "           required by --require: counts as a failure" ;; esac
   else
     FAILED=$((FAILED+1)); echo "  FAIL     $name (exit $rc) — $LOGDIR/$name.log"
-    tail -n 5 "$LOGDIR/$name.log" | sed 's/^/           | /'
+    # the failing block, never the whole log (5.6): from the first failure marker, capped by context.failure_lines
+    MAXL=$(python3 -c "import json;print(int(json.load(open('.reef/config.json')).get('context',{}).get('failure_lines',60) or 60))" 2>/dev/null || echo 60)
+    TOTAL_LINES=$(wc -l <"$LOGDIR/$name.log" | tr -d ' ')
+    START=$(grep -n -m1 -E 'FAIL|Error|error\[|FAILED|panicked|not ok|AssertionError|Traceback' "$LOGDIR/$name.log" | cut -d: -f1)
+    [ -n "$START" ] || START=$(( TOTAL_LINES - MAXL + 1 ))
+    [ "$START" -lt 1 ] && START=1
+    tail -n +"$START" "$LOGDIR/$name.log" | head -n "$MAXL" | sed 's/^/           | /'
+    [ $(( TOTAL_LINES - START + 1 )) -gt "$MAXL" ] && echo "           | [... more in $LOGDIR/$name.log]"
   fi
 done
 IFS=$OLDIFS
