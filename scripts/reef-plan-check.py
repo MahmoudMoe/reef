@@ -893,6 +893,8 @@ def main():
     for feat in digests:
         if feat not in planned and (marker or feat in folders):
             planned[feat] = marker or "0.6.0"
+    # a fresh 0.6 project has no tasks/ yet (its tasks live under reef/features/<slug>/tasks/): make the stamp's home
+    os.makedirs(os.path.dirname(stamp_path) or ".", exist_ok=True)
     with open(stamp_path, "w") as f:
         json.dump({"features": digests, "checks": len(results), "planned_under": planned}, f, indent=2, sort_keys=True)
         f.write("\n")

@@ -5,6 +5,10 @@
   explainer, not an ADR without a Status — the first plan check of a new project no longer fails on it
   (`tests/test_plan_check.py::test_adr_readme_is_not_an_adr`, red before the fix). Found while running the 5.7
   measurement row on Reef itself.
+- `reef-plan-check.py`: on a fresh 0.6 project there is no `tasks/` yet, and the stamp's home is
+  `<paths.tasks>/.plan-review.json`; the check now creates that directory instead of dying with ENOENT after
+  reporting zero failures (`tests/test_feature_spec.py::test_fresh_06_project_without_tasks_dir_gets_its_stamp`,
+  red before the fix). Same measurement row.
 
 ## 0.6.0 — governance, spec, tiers, day zero, loop engine, one tree
 

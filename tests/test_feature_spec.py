@@ -128,6 +128,19 @@ def fails(r):
 
 
 class FeatureFolder(unittest.TestCase):
+    def test_fresh_06_project_without_tasks_dir_gets_its_stamp(self):
+        # 0.7: reef-init on a fresh 0.6 project creates no tasks/ (tasks live in the feature folder); the
+        # stamp still lives at <paths.tasks>/.plan-review.json, so the check must create its home or the
+        # first plan check of every new project dies with ENOENT after reporting 0 failures
+        import shutil
+        d = project()
+        feature(d)
+        shutil.rmtree(os.path.join(d, "tasks"))
+        r = check(d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("internal error", r.stdout)
+        self.assertTrue(os.path.isfile(os.path.join(d, "tasks", ".plan-review.json")), "the stamp was written")
+
     def test_well_formed_feature_passes_and_is_06_planned(self):
         d = project()
         feature(d)
