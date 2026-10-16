@@ -54,6 +54,31 @@ Scope declares spellings outside the test lists NEW-ROWs). The comparison rule d
 so 4.4 ships; the number is recorded here, and the hunter's scope discipline is the first candidate for the 0.7 eval.
 Cost $6.60 (18 runs, $0.23–0.59). The plan-reviewer file was not changed in 0.6; its baseline stands.
 
+## 0.7 — the hunter's scope discipline (row 2), k=3
+
+New corpus entry `scope-names-later-rows` (truth PASS): a sound path guard whose Scope names its three known holes
+(percent-encoding, symlinks, Windows separators) as rows 15–17. Its first k=3 failed 3/3 on a real contradiction in
+the fixture's own Log (it claimed 7 of 9 spellings red and an unchanged allow test; the old guard misses 8 of 10 and
+denies the legitimate `..hidden/x`) — the hunter was right about the corpus again; the Log now carries the measured
+numbers. With the Log fixed, 3/3 PASS with every hole filed as NEW-ROW naming its row: explicit Scope wording works
+without any prompt change.
+
+Then the prompt line in `agents/loophole-hunter.md` ("the task's Scope draws that line, not you … a NEW-ROW even when
+it will happen here and even when the previous guard caught it — write `regression`"), measured over the WHOLE corpus:
+
+| agent | runs | catch-rate | approve-precision | false-FAIL rate | compare |
+|---|---|---|---|---|---|
+| loophole-hunter (before: 4.4 after-runs + the new entry) | 21 | 1.00 | 1.00 | 0.33 | — |
+| loophole-hunter (after the Scope line) | 21 | **1.00** | **1.00** | **0.17** | `reef-eval compare`: ok — nothing dropped |
+
+`sound-guard` went 2/3 FAIL → 1/3: the remaining FAIL is not the `#`-in-a-word hole any more but a quoted `<<TAG`
+inside a commit message that the heredoc stripper treats as a real heredoc, deleting the real command lines after it
+(`git commit -m "fix <<EOF parsing"\ngit commit -n -m y\nEOF` is allowed; bash runs line 2). The hunter argues it is in
+scope because it breaks the Decision ("inspect every token position of every segment"), not a new spelling. That is a
+defensible reading of a Scope that says "the two test lists ARE the scope" — the eval's PASS truth stands, and the
+entry's Scope could name heredoc edge cases as a row the way `scope-names-later-rows` does. Cost: $0.97 + $0.74 (entry
+runs) + $5.96 (after, 21 runs).
+
 ## How to re-take
 ```
 python3 scripts/reef-eval run verifier --k 3 --out .reef/eval-after      # live, ~$5 per agent, never in CI

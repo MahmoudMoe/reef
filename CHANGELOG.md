@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.7 (unreleased)
+- `reef-plan-check.py`: `adr/README.md` (written by `reef-init` on every fresh 0.6 project) is the directory's
+  explainer, not an ADR without a Status — the first plan check of a new project no longer fails on it
+  (`tests/test_plan_check.py::test_adr_readme_is_not_an_adr`, red before the fix). Found while running the 5.7
+  measurement row on Reef itself.
+- `reef-plan-check.py`: on a fresh 0.6 project there is no `tasks/` yet, and the stamp's home is
+  `<paths.tasks>/.plan-review.json`; the check now creates that directory instead of dying with ENOENT after
+  reporting zero failures (`tests/test_feature_spec.py::test_fresh_06_project_without_tasks_dir_gets_its_stamp`,
+  red before the fix). Same measurement row.
+- `reef-adversarial`: a live PASS report that says `BLOCKER: none.` was refused as "a BLOCKER line with VERDICT: PASS",
+  so a design-tier row could not be dispatched without re-running the hunter for wording; and a hole written in
+  markdown bold (`**BLOCKER:** …`, also seen live) was NOT read as a blocker. Both fixed: the bold is stripped and the
+  words are read (`tests/test_adversarial.py::test_blocker_none_is_no_blocker`, red before; the bold case joins the
+  refusal cases). Found recording the hunter's round-7 PASS on the measurement row.
+- `reef-queue.py adr-number`: the draft title `reef-init` writes (`# ADR draft-1-x — …`) became `# ADR ADR 0001 — …`,
+  and a path citation (`adr/draft-1-x.md`) became the dead `adr/ADR 0001.md`; the ledger dogfood's close fixed four
+  spots by hand. The title keeps one `ADR`, a path citation becomes the new filename
+  (`tests/test_tier_queue.py::test_adr_number_title_and_path_citations`, red before the fix).
+- **`templates/pre-commit` (and the pre-merge-commit it also renders): the gate runs outside git's hook environment.**
+  git exports `GIT_DIR`, `GIT_INDEX_FILE`, `GIT_WORK_TREE`, `GIT_PREFIX` to a hook; a test suite that runs its own
+  `git init` / `git commit` in temp dirs then acts on the real repository. Seen live: Reef's own suite, run by the
+  commit gate on the Reef-on-itself row, re-initialised the clone as bare, created three fixture branches and moved
+  the task branch 17 commits; the orchestrator restored everything from the reflog, refused to touch a critical path
+  outside its plan, and stopped with USER ACTION REQUIRED. The gate now runs in a subshell with those four variables
+  unset (`tests/test_hooks.sh`: two checks, red before the fix; 72 hooks checks).
+- `reef-claims.py report`: a loophole-hunter report has its own shape (DEFECT / BLOCKER / NEW-ROW / NONE / VERDICT) and
+  never carries `RULE AC<n>` lines, yet `/reef-task` sends it through the same check, which rejected every live hunter
+  report. The hunter shape is now checked on its own terms: a DEFECT line, a FAIL needs a cited BLOCKER
+  (`tests/test_feature_spec.py::test_hunter_report_has_its_own_shape`, red before the fix).
+- **Row 1 delivered: `reef-cost.py` reports per-feature context growth** (`rows`: feature, first and last turn,
+  growth as the sum of positive context deltas across the span, compactions in span, turns, dispatches; text, md and
+  json). Built by Reef on itself as queue row 1 of the dogfood clone (tier critical: plan pass 7 rounds, implementer
+  opus one round, verifier fable PASS, hunter guard pass PASS), then carried onto this branch. Six tests in
+  `tests/test_cost.py` (`test_rows_*`). Live: the ledger task-graph session reads one row, growth 39,665 over 4
+  dispatches; the Reef row session 34,098 over 3; a session that launched roles through `claude -p` reads `rows: []`.
+- **Row 1, second half: the context caps are set from the measurement.** `templates/config.json`
+  `caps.context_warn: 100000`, `caps.context_tokens: 150000` for a NEW project (session maxima measured 58k–159k,
+  p90 148k: the warning fires late in a planning or critical-row session, the ceiling only on a runaway); a migrated
+  0.5 project keeps `0` / `0` (off), decision 11 (`tests/test_layout.py::Migrations` pins it;
+  `tests/test_init.py::test_fresh_init_sets_the_measured_context_caps` pins the new default). The README settings
+  row says why the default is wider than the 40/60 rule of thumb.
+- **Row 2, the hunter's scope discipline.** Corpus entry `scope-names-later-rows` (truth PASS: a sound path guard whose
+  Scope names its three known holes as later rows). `agents/loophole-hunter.md`: the Scope draws the BLOCKER/NEW-ROW
+  line, an out-of-scope hole is a NEW-ROW even when it will happen or is a regression (marked `regression`). Measured,
+  k=3 over the whole corpus (21 runs): catch 1.00 → 1.00, precision 1.00 → 1.00, false-FAIL 0.33 → 0.17
+  (`sound-guard` 2/3 → 1/3; the remaining FAIL is a quoted-heredoc hole the hunter argues is in scope);
+  `reef-eval compare` ok. Details: `docs/perf/eval-baseline-2026-10-16.md` §0.7.
+
 ## 0.6.0 — governance, spec, tiers, day zero, loop engine, one tree
 
 ### Finishing

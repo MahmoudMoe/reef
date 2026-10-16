@@ -7,8 +7,8 @@
     "attempts": 3,
     "feature_tokens": 0,
     "batch_tokens": 0,
-    "context_tokens": 0,
-    "context_warn": 0
+    "context_tokens": 150000,
+    "context_warn": 100000
   },
   "roles": {
     "author": "opus",

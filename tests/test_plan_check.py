@@ -177,6 +177,19 @@ class Decoration(unittest.TestCase):
         repo(tmp)
         self.assertEqual(run(tmp).returncode, 0, "a fresh bootstrap with zero ADRs must be able to pass")
 
+    def test_adr_readme_is_not_an_adr(self):
+        # 0.7: reef-init writes adr/README.md on every fresh 0.6 project; it has no Status and must not
+        # be read as an undecided ADR, or the first plan check of every new project fails
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        for d in (os.path.join(tmp, "docs", "adr"), os.path.join(tmp, "reef", "architecture", "adr")):
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "README.md"), "w") as f:
+                f.write("# Architecture decision records\n\nOne short file per decision.\n")
+        r = run(tmp)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("README.md", r.stdout)
+
     def test_commonmark_bullet_indentation(self):
         # round-3 overturned round-2 here: per CommonMark, 0-3 leading spaces is a
         # SIBLING list item (a real criterion); 4+ spaces is a continuation

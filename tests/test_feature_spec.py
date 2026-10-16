@@ -128,6 +128,19 @@ def fails(r):
 
 
 class FeatureFolder(unittest.TestCase):
+    def test_fresh_06_project_without_tasks_dir_gets_its_stamp(self):
+        # 0.7: reef-init on a fresh 0.6 project creates no tasks/ (tasks live in the feature folder); the
+        # stamp still lives at <paths.tasks>/.plan-review.json, so the check must create its home or the
+        # first plan check of every new project dies with ENOENT after reporting 0 failures
+        import shutil
+        d = project()
+        feature(d)
+        shutil.rmtree(os.path.join(d, "tasks"))
+        r = check(d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("internal error", r.stdout)
+        self.assertTrue(os.path.isfile(os.path.join(d, "tasks", ".plan-review.json")), "the stamp was written")
+
     def test_well_formed_feature_passes_and_is_06_planned(self):
         d = project()
         feature(d)
@@ -342,6 +355,23 @@ class HandbackAndReport(unittest.TestCase):
         self.assertIn("no `RULE AC2:` line", self.claims("report", rp, "--task", self.task).stdout)
         rp = write(self.d, "r4.md", good.replace("RULE AC1: PASS iff test_csv_header_and_rows is green", "RULE AC1: PASS iff it works"))
         self.assertIn("RULE AC1 does not cite its Proof row", self.claims("report", rp, "--task", self.task).stdout)
+
+    def test_hunter_report_has_its_own_shape(self):
+        # 0.7 dogfood: reef-task sends the hunter's report through `report`, which demanded RULE AC lines the hunter
+        # never writes (its shape is DEFECT / BLOCKER / NEW-ROW / NONE / VERDICT) — every live hunter report was rejected
+        good = ("RUN: agent=loophole-hunter task=1201 pass=guard\nDEFECT: a row the header does not cover is exported silently\n"
+                "NEW-ROW: a BOM header — possible, not now — queue it\nNONE: tried an empty file; refused at export.py:9\nVERDICT: PASS\n")
+        rp = write(self.d, "h.md", good)
+        r = self.claims("report", rp, "--task", self.task)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        rp = write(self.d, "h2.md", good.replace("VERDICT: PASS", "VERDICT: FAIL"))
+        r = self.claims("report", rp, "--task", self.task)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("VERDICT: FAIL with no BLOCKER line", r.stdout)
+        rp = write(self.d, "h3.md", good.replace("VERDICT: PASS", "BLOCKER: it just feels wrong — will happen\nVERDICT: FAIL"))
+        self.assertIn("BLOCKER without a citation", self.claims("report", rp, "--task", self.task).stdout)
+        rp = write(self.d, "h4.md", good.replace("VERDICT: PASS", "BLOCKER: the header check reads only toks[0] — export.py:14 — fix: scan every token\nVERDICT: FAIL"))
+        self.assertEqual(self.claims("report", rp, "--task", self.task).returncode, 0)
 
 
 class Converge(unittest.TestCase):

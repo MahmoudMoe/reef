@@ -327,11 +327,13 @@ def main():
     for b, ps in sorted(basenames.items()):
         if len(ps) > 1:
             fail(f"same task filename in tasks/ and tasks/done/ (stamp keys by basename): {b}")
+    # README.md is the directory's own explainer (reef-init writes one), never a decision record
+    is_adr = lambda f: f.endswith(".md") and f != "README.md"
     adr_files = sorted(os.path.join(adr_dir, f) for f in os.listdir(adr_dir)
-                       if f.endswith(".md")) if os.path.isdir(adr_dir) else []
+                       if is_adr(f)) if os.path.isdir(adr_dir) else []
     arch_adr = os.path.join(root, "reef", "architecture", "adr")
     if os.path.isdir(arch_adr) and os.path.abspath(arch_adr) != os.path.abspath(adr_dir):
-        adr_files += sorted(os.path.join(arch_adr, f) for f in os.listdir(arch_adr) if f.endswith(".md"))
+        adr_files += sorted(os.path.join(arch_adr, f) for f in os.listdir(arch_adr) if is_adr(f))
 
     def folder_files(fdir):
         """Every file of a feature folder (SPEC.md, specs/, adr/, tasks/ — the stamp covers it whole)."""
@@ -891,6 +893,8 @@ def main():
     for feat in digests:
         if feat not in planned and (marker or feat in folders):
             planned[feat] = marker or "0.6.0"
+    # a fresh 0.6 project has no tasks/ yet (its tasks live under reef/features/<slug>/tasks/): make the stamp's home
+    os.makedirs(os.path.dirname(stamp_path) or ".", exist_ok=True)
     with open(stamp_path, "w") as f:
         json.dump({"features": digests, "checks": len(results), "planned_under": planned}, f, indent=2, sort_keys=True)
         f.write("\n")

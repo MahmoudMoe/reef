@@ -70,11 +70,21 @@ class Record(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("never runs on a mech", r.stderr)
 
+    def test_blocker_none_is_no_blocker(self):
+        # 0.7 dogfood: the hunter's live PASS report said "BLOCKER: none." and the record was refused as a
+        # contradiction; a design-tier row could not be dispatched without re-running the hunter for wording
+        rp = write(self.d, "r.txt", REPORT_PASS.format(p="plan").replace("NONE: tried y", "BLOCKER: none.\nNONE: tried y"))
+        r = adv(self.t, "plan", rp)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("adversarial-plan", fm_of(self.t))
+
     def test_refuses_wrong_pass_fail_and_blocker(self):
         cases = [
             (REPORT_PASS.format(p="guard"), "not 'plan'"),
             (REPORT_PASS.format(p="plan").replace("VERDICT: PASS", "VERDICT: FAIL"), "FAIL is not recorded"),
             (REPORT_PASS.format(p="plan").replace("NONE: tried y", "BLOCKER: hole — will happen"), "contradiction"),
+            # a hole written in markdown bold is still a hole (seen live in the 0.7 eval runs)
+            (REPORT_PASS.format(p="plan").replace("NONE: tried y", "**BLOCKER:** the heredoc stripper eats the line"), "contradiction"),
             ("RUN: agent=verifier task=1\nVERDICT: PASS\n", "loophole-hunter"),
             (REPORT_PASS.format(p="plan").replace("VERDICT: PASS\n", ""), "no VERDICT"),
         ]

@@ -76,6 +76,13 @@ class Idempotent(unittest.TestCase):
         self.assertEqual(cfg["graph"]["parallel"], 10)        # missing keys arrive
         self.assertEqual(cfg["branches"], {"base": "develop", "release": "main"})
 
+    def test_fresh_init_sets_the_measured_context_caps(self):
+        # 0.7: the caps come from the measured rows (docs/perf/dogfood-2026-10-16.md §E); a migrated 0.5 project
+        # keeps 0/0 (tests/test_layout.py::Migrations), a NEW project gets the measured defaults
+        init(self.d)
+        cfg = json.loads(read(self.d, ".reef/config.json"))
+        self.assertEqual((cfg["caps"]["context_warn"], cfg["caps"]["context_tokens"]), (100000, 150000))
+
     def test_gitignore_and_makefile_appended_not_rewritten(self):
         write(self.d, ".gitignore", "node_modules/\n")
         write(self.d, "Makefile", "build:\n\techo b\n")
