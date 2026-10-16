@@ -157,6 +157,10 @@ class ContextCeiling(unittest.TestCase):
         self.assertIn("context ceiling", r.stderr)
         self.assertIn("checkpoint", r.stderr)
         self.assertIn("context ceiling", json.loads(open(os.path.join(d, ".reef", "loop.json")).read())["stop"])
+        # 0.7: the guard writes the checkpoint itself before denying — a model that ignores the denial's instruction
+        # cannot leave the next session without a handoff
+        self.assertTrue(os.path.isfile(os.path.join(d, "HANDOFF.md")), "HANDOFF.md rendered by the guard at the ceiling")
+        self.assertIn("HANDOFF.md written", r.stderr)
         r = self.dispatch(d, self.transcript(d, 7000))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("additionalContext", r.stdout, "between warn and ceiling the hook warns the model")

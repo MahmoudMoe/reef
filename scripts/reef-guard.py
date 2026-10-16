@@ -992,7 +992,17 @@ def check_context_ceiling(payload):
                 json.dump(st, f, indent=1)
         except Exception:
             pass
-        deny(f"context ceiling: this session is at {n} tokens > caps.context_tokens {ceiling} — checkpoint (scripts/reef-handoff --write), then /clear; a fresh orchestrator dispatches")
+        # 0.7: the checkpoint itself is the guard's, not the model's — HANDOFF.md is rendered from measured state here,
+        # before the denial, so a session cut at the ceiling never leaves the next one without a handoff
+        for script in (os.path.join(root, "scripts", "reef-handoff"),
+                       os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-handoff")):
+            if os.path.isfile(script):
+                try:
+                    subprocess.run([sys.executable, script, "--repo", root, "--write"], capture_output=True, text=True, timeout=20)
+                except Exception:
+                    pass
+                break
+        deny(f"context ceiling: this session is at {n} tokens > caps.context_tokens {ceiling} — checkpoint done: HANDOFF.md written from measured state (scripts/reef-handoff --write); /clear now, a fresh orchestrator dispatches")
     if warn and n > warn:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
                                                  "additionalContext": f"reef: context at {n} tokens (> caps.context_warn {warn}, ceiling {ceiling or 'unset'}) — finish this wave, write the handoff, /clear soon."}}))

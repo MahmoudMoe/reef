@@ -66,6 +66,17 @@
   specs with one title get distinct feature slugs instead of the second overwriting the first's SPEC.md
   (`tests/test_dayzero.py::test_slugs_drop_id_tokens_and_never_collide`); a link dead before the apply is listed, not
   a refusal (`test_a_link_broken_before_the_apply_does_not_block_it`; the old refusal test now asserts the new rule).
+- **The guard writes the checkpoint at the context ceiling.** `reef-guard.py` runs `scripts/reef-handoff --write`
+  (the project's copy, else the plugin's) before denying the over-ceiling dispatch, so a session cut at the ceiling
+  never leaves the next one without `HANDOFF.md`; the denial now says it was written (`tests/test_loop.py`, the
+  ceiling test asserts the file). Prose-guarded-by-code became code.
+- **`scripts/reef-watch`** — one screen on a project's Reef state from disk, no model: the tick, tasks by status and
+  attempts (AT CAP, BLOCKED named), journal rows since a date, found rows, stops and waits from `.reef/loop.json`,
+  sessions since a date with per-feature growth from `reef-cost rows` (flagged over `caps.context_warn`), judge
+  reports `reef-claims.py report` rejects. Deterministic, under 60 lines, `--json`. For the human who was not in the
+  room and for a scheduled observer session (`docs/testplans/split-the-bill.md` §6). `tests/test_watch.py`.
+- `docs/testplans/split-the-bill.md` — the plan for testing Reef on a real product (Split the Bill), then on Sophia,
+  and the three options for watching Reef between sessions.
 - **Row 2, the hunter's scope discipline.** Corpus entry `scope-names-later-rows` (truth PASS: a sound path guard whose
   Scope names its three known holes as later rows). `agents/loophole-hunter.md`: the Scope draws the BLOCKER/NEW-ROW
   line, an out-of-scope hole is a NEW-ROW even when it will happen or is a regression (marked `regression`). Measured,
