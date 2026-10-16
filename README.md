@@ -115,7 +115,9 @@ carries `# CLASS:` in its header and `tests/test_contracts.py` ties each row bel
 | One cap per item after GREEN (acceptance + diff + CI share it); one rollup per feature | `reef-attempt` and the guard refuse a second rollup | **code** |
 | Draft ADRs in parallel branches, numbered at merge in ONE global sequence across `reef/architecture/adr/` and every feature `adr/`; path citations stay files | `reef-queue.py adr-number`; `reef-plan-check.py` exempts `draft-*.md` | **code** |
 | Queue status has one home (the task files, a folder's `SPEC.md Row:` links slug to row); `reef/features/README.md` is generated | `reef-queue.py status|ready|check|index` | **code** |
-| Context ceiling: a dispatch over `caps.context_tokens` is denied ("checkpoint, then /clear"); from `caps.context_warn` the hook warns the model | `reef-guard.py` on Task/Agent via `scripts/reef-cost.py --live` on the payload's `transcript_path` (tail only) | **code** (defaults set from the measured rows; 0 = off on a migrated project) |
+| Context ceiling: a dispatch over `caps.context_tokens` is denied and the guard itself renders `HANDOFF.md` from measured state first ("/clear now"); from `caps.context_warn` the hook warns the model | `reef-guard.py` on Task/Agent via `scripts/reef-cost.py --live` on the payload's `transcript_path` (tail only), then `scripts/reef-handoff --write` | **code** (defaults set from the measured rows; 0 = off on a migrated project) |
+| What happened while nobody was in the room: the tick, tasks by status and attempts, journal rows since a date, found rows, stops, sessions with per-feature growth, rejected judge reports — one screen, no model | `scripts/reef-watch [--since] [--json]` | **code** (a report, not a gate) |
+| `/reef-assess` writes data, not an essay: the observed sections present, every claim `Observed — path:line` or `Inferred`, the harnessability table's five dimensions summing to its heading | `scripts/reef-claims.py assess` (fixture: the real ledger report) | **code** |
 | No-progress parking (`loop.no_progress_ticks` identical ticks, nothing in flight) and token budgets (`caps.feature_tokens`, `caps.batch_tokens`) | `scripts/reef-loop.py tick` | **code** |
 | Reports, never raw material: the exit code plus the failing block (`context.failure_lines`), the whole log on disk | `reef-gate.sh --failures`, `reef-ci-local.sh` (truncation inside the gate keeps the exit code) | **code** |
 | Session start under `writing.session_start_tokens`: the handoff head + the tick + the next command, nothing else read | `hooks.json` SessionStart → `reef-loop.py tick --session-start --hook`; `AGENTS.md` ≤ 80 lines and the skills' re-entry sections (contracts) | **code** for the cap, **prose** for what the model then reads |
@@ -232,14 +234,14 @@ The plugin itself: `skills/` (init, assess, explore, loop, plan, plan-review, ta
 [--rules|--digest|--needs-agent|--verify-stamp], `reef-converge`, `reef-adversarial`, `reef-claims.py`
 [check|--handback|report|claims-only], `reef-tier.py`, `reef-queue.py` [status|ready|check|adr-number|index],
 `reef-structure`, `reef-recalibrate`, `reef-repo`, `reef-c4.py`, `reef-threat.py`, `reef-ci-local.sh` [--ci|--release],
-`reef-snapshot.sh`, `reef-cost.py`, `reef-eval`, `reef-guard-profile.py`) · `hooks/hooks.json` (PreToolUse Bash ·
+`reef-snapshot.sh`, `reef-cost.py`, `reef-watch`, `reef-eval`, `reef-guard-profile.py`) · `hooks/hooks.json` (PreToolUse Bash ·
 Task|Agent · Edit|Write|MultiEdit; PostToolUse AskUserQuestion; Stop; SessionStart) · `migrations/` ·
 `schemas/task.schema.json` · `templates/` (config, task, spec, adr, glossary, runlog, pre-commit, stacks/, project/) ·
 `tests/eval/` (the corpus) · `tests/fixtures/payloads/` · `docs/perf/`
 
 ## Selftests
 
-`sh tests/run.sh` — 408 sabotage and contract tests (319 Python + 89 shell, as the suite runs them). Every mechanism in
+`sh tests/run.sh` — 416 sabotage and contract tests (327 Python + 89 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
 script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials
@@ -253,9 +255,10 @@ merge, nothing in between; a row costs real tokens (a two-task row ran about $16
 on a subscription that is plan usage, not an invoice); and a `gh`-authenticated forge is needed for the review, record
 and merge steps (without one, Reef stops with USER ACTION REQUIRED and says exactly what it would have run).
 
-Open for 0.7, in `CHANGELOG.md` under "0.7 (unreleased)" and the dogfood report: the planning session's context cost
-(`docs/design/plan-cost.md`), a live capture of the AskUserQuestion payload, fixtures for `/reef-assess`, a sonnet author
-for the `light` tier once an author eval exists, and the found rows the Reef-on-itself run filed.
+Open for 0.7, in `CHANGELOG.md` under "0.7 (unreleased)" and the dogfood report: a live capture of the AskUserQuestion payload (needs an interactive
+session), a sonnet author for the `light` tier once an author eval exists, recalibrating a project that already runs Reef, and
+the found rows the Reef-on-itself run filed. Done this cycle: the planning cut (`docs/design/plan-cost.md`), `/reef-assess` as data,
+the guard's own checkpoint at the ceiling, `reef-watch`.
 
 ## Acknowledgments
 

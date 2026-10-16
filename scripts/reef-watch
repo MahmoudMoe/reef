@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+# CLASS: code
+"""Reef watch — one screen on a project's Reef state, from disk, no model: what a human (or a scheduled observer
+session) reads when nobody was in the room. Deterministic for the same tree and transcripts.
+Usage: reef-watch [--repo DIR] [--since ISO-8601] [--transcripts DIR] [--json]
+Sections (under 60 lines): the tick · tasks by status, attempts used, tasks at the cap · journal rows since --since
+· found rows in the queue · stops and waits recorded in .reef/loop.json · sessions since --since (turns, first and
+max context, per-feature growth from reef-cost rows, flagged over caps.context_warn) · judge reports rejected by
+reef-claims.py report. Exit 0 = report printed · 2 = no .reef/config.json.
+"""
+import datetime
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+MAX_LINES = 60
+FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
+
+
+def read(p):
+    with open(p, encoding="utf-8", errors="replace") as f:
+        return f.read()
+
+
+def frontmatter(text):
+    m = FENCE.match(text)
+    out = {}
+    for line in (m.group(1) if m else "").splitlines():
+        if ":" in line and not line.startswith((" ", "\t")):
+            k, v = line.split(":", 1)
+            out[k.strip()] = v.strip().strip('"')
+    return out
+
+
+def script(root, name):
+    for p in (os.path.join(root, "scripts", name), os.path.join(HERE, name)):
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def run(args, cwd, timeout=60):
+    try:
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout).stdout
+    except Exception:
+        return ""
+
+
+def task_files(root, cfg):
+    paths = cfg.get("paths") or {}
+    out = []
+    for base in (os.path.join(root, paths.get("features", "reef/features")), os.path.join(root, paths.get("tasks", "tasks"))):
+        for dp, dn, fn in os.walk(base) if os.path.isdir(base) else []:
+            dn[:] = [d for d in dn if d not in (".git", "node_modules")]
+            if os.path.basename(dp) not in ("tasks", "done"):
+                continue
+            for f in fn:
+                if re.match(r"^(\d+|R\d+)-.*\.md$", f):
+                    out.append(os.path.join(dp, f))
+    return sorted(set(out))
+
+
+def section_tasks(root, cfg):
+    cap = int((cfg.get("caps") or {}).get("attempts", 3) or 3)
+    by, attempts, at_cap, blocked = {}, [], [], []
+    for p in task_files(root, cfg):
+        fm = frontmatter(read(p))
+        st = "done" if os.path.basename(os.path.dirname(p)) == "done" else fm.get("status", "pending")
+        by[st] = by.get(st, 0) + 1
+        try:
+            a = int(fm.get("attempts", "0") or 0)
+        except ValueError:
+            a = 0
+        attempts.append(a)
+        if a >= cap:
+            at_cap.append(os.path.basename(p))
+        if st == "blocked":
+            blocked.append(os.path.basename(p))
+    line = "tasks: " + (", ".join(f"{k} {v}" for k, v in sorted(by.items())) or "none")
+    line += f" · attempts used {sum(attempts)} (max {max(attempts) if attempts else 0}, cap {cap})"
+    extra = []
+    if at_cap:
+        extra.append("AT CAP: " + ", ".join(at_cap[:5]))
+    if blocked:
+        extra.append("BLOCKED: " + ", ".join(blocked[:5]))
+    return [line] + ["  " + e for e in extra]
+
+
+def table_rows(text):
+    return [l for l in text.splitlines() if l.startswith("|") and "---" not in l and not re.match(r"^\|\s*(Task|Id)\s*\|", l)]
+
+
+def section_journal(root, cfg, since):
+    p = os.path.join(root, (cfg.get("paths") or {}).get("runlog", "reef/journal.md"))
+    if not os.path.isfile(p):
+        return ["journal: none"]
+    rows = table_rows(read(p))
+    recent = [r for r in rows if not since or any(d >= since for d in re.findall(r"\d{4}-\d{2}-\d{2}", r))]
+    names = [c.strip("|").split("|")[0].strip() for c in recent[-3:]]
+    return [f"journal: {len(rows)} row(s), {len(recent)} since {since or 'ever'}" + (": " + "; ".join(n[:40] for n in names) if names else "")]
+
+
+def section_queue(root, cfg):
+    p = os.path.join(root, (cfg.get("paths") or {}).get("queue", "reef/queue.md"))
+    if not os.path.isfile(p):
+        return ["queue: none"]
+    rows = table_rows(read(p))
+    found = [r for r in rows if re.search(r"\|\s*found\s*\|", r)]
+    return [f"queue: {len(rows)} open row(s), {len(found)} found" + (": " + "; ".join(re.split(r"\s*\|\s*", r.strip("| "))[1][:50] for r in found[:3]) if found else "")]
+
+
+def section_stops(root):
+    p = os.path.join(root, ".reef", "loop.json")
+    if not os.path.isfile(p):
+        return ["loop: no state"]
+    try:
+        st = json.loads(read(p))
+    except ValueError:
+        return ["loop: loop.json unreadable"]
+    out = [f"loop: {'active' if st.get('active') else 'inactive'}"]
+    for k in ("stop", "wait", "parked"):
+        if st.get(k):
+            out.append(f"  {k.upper()}: {str(st[k])[:110]}")
+    return out
+
+
+def transcripts_dir(root):
+    return os.path.expanduser(os.path.join("~", ".claude", "projects", os.path.abspath(root).replace("/", "-")))
+
+
+def section_sessions(root, cfg, since, tdir):
+    cost = script(root, "reef-cost.py")
+    files = sorted(glob.glob(os.path.join(tdir, "*.jsonl"))) if tdir and os.path.isdir(tdir) else []
+    if since:
+        cutoff = datetime.datetime.fromisoformat(since).timestamp()
+        files = [f for f in files if os.path.getmtime(f) >= cutoff]
+    if not files:
+        return [f"sessions: none in {tdir or 'n/a'}" + (f" since {since}" if since else "")]
+    warn = int((cfg.get("caps") or {}).get("context_warn", 0) or 0)
+    out = [f"sessions: {len(files)} transcript(s)" + (f" since {since}" if since else "")]
+    for f in files[-6:]:
+        raw = run([sys.executable, cost, f, "--repo", root, "--format", "json"], root) if cost else ""
+        try:
+            d = json.loads(raw)
+        except ValueError:
+            out.append(f"  {os.path.basename(f)[:8]}: unreadable")
+            continue
+        s = d.get("session") or {}
+        ctx = s.get("context") or {}
+        rows = d.get("rows") or []
+        rtxt = "; ".join(f"{r['feature']} growth {r['growth']:,} over {r['dispatches']} dispatch(es)" for r in rows[:3]) or "no rows"
+        flag = " OVER WARN" if warn and int(ctx.get("max", 0) or 0) > warn else ""
+        out.append(f"  {os.path.basename(f)[:8]}: {s.get('turns', 0)} turns, first {int(s.get('first_turn_context', 0) or 0):,}, max {int(ctx.get('max', 0) or 0):,}{flag} · {rtxt}")
+    return out
+
+
+def section_reports(root, cfg):
+    claims = script(root, "reef-claims.py")
+    reports = sorted(glob.glob(os.path.join(root, ".reef", "ci-local", "report-*.md")))
+    if not reports or not claims:
+        return ["reports: none"]
+    tasks = {frontmatter(read(p)).get("id"): p for p in task_files(root, cfg)}
+    rejected = []
+    for rp in reports:
+        tid = re.search(r"report-(\d+)", os.path.basename(rp))
+        tp = tasks.get(tid.group(1)) if tid else None
+        if not tp:
+            continue
+        r = subprocess.run([sys.executable, claims, "report", rp, "--task", tp, "--repo", root], capture_output=True, text=True)
+        if r.returncode != 0:
+            rejected.append(os.path.basename(rp))
+    return [f"reports: {len(reports)} judge report(s), {len(rejected)} rejected by reef-claims" + (": " + ", ".join(rejected[:4]) if rejected else "")]
+
+
+def main(argv):
+    root, since, tdir, as_json = ".", None, None, False
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--repo":
+            root = argv[i + 1]; i += 1
+        elif a == "--since":
+            since = argv[i + 1]; i += 1
+        elif a == "--transcripts":
+            tdir = argv[i + 1]; i += 1
+        elif a == "--json":
+            as_json = True
+        else:
+            print(f"reef-watch: unknown option {a!r}", file=sys.stderr)
+            return 2
+        i += 1
+    root = os.path.abspath(root)
+    cfg_p = os.path.join(root, ".reef", "config.json")
+    if not os.path.isfile(cfg_p):
+        print("reef-watch: no .reef/config.json — not a Reef project", file=sys.stderr)
+        return 2
+    cfg = json.loads(read(cfg_p))
+    tick = script(root, "reef-loop.py")
+    # the tick records its own state (hash history for no-progress parking) on every call; an observer must leave no
+    # footprint, or watching the loop would park it — snapshot .reef/loop.json and put it back exactly
+    loop_p = os.path.join(root, ".reef", "loop.json")
+    before = read(loop_p) if os.path.isfile(loop_p) else None
+    tick_lines = run([sys.executable, tick, "tick", "--repo", root], root).splitlines()[:10] if tick else ["tick: reef-loop.py missing"]
+    if before is None:
+        if os.path.isfile(loop_p):
+            os.unlink(loop_p)
+    elif (read(loop_p) if os.path.isfile(loop_p) else None) != before:
+        with open(loop_p, "w", encoding="utf-8") as f:
+            f.write(before)
+    lines = [f"reef-watch {os.path.basename(root)}" + (f" since {since}" if since else "")]
+    lines += ["  " + l for l in tick_lines]
+    lines += section_tasks(root, cfg)
+    lines += section_journal(root, cfg, since)
+    lines += section_queue(root, cfg)
+    lines += section_stops(root)
+    lines += section_sessions(root, cfg, since, tdir or transcripts_dir(root))
+    lines += section_reports(root, cfg)
+    lines = lines[:MAX_LINES]
+    if as_json:
+        print(json.dumps({"lines": lines}, indent=1))
+    else:
+        print("\n".join(lines))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -66,6 +66,22 @@
   specs with one title get distinct feature slugs instead of the second overwriting the first's SPEC.md
   (`tests/test_dayzero.py::test_slugs_drop_id_tokens_and_never_collide`); a link dead before the apply is listed, not
   a refusal (`test_a_link_broken_before_the_apply_does_not_block_it`; the old refusal test now asserts the new rule).
+- **The guard writes the checkpoint at the context ceiling.** `reef-guard.py` runs `scripts/reef-handoff --write`
+  (the project's copy, else the plugin's) before denying the over-ceiling dispatch, so a session cut at the ceiling
+  never leaves the next one without `HANDOFF.md`; the denial now says it was written (`tests/test_loop.py`, the
+  ceiling test asserts the file). Prose-guarded-by-code became code.
+- **`scripts/reef-watch`** — one screen on a project's Reef state from disk, no model: the tick, tasks by status and
+  attempts (AT CAP, BLOCKED named), journal rows since a date, found rows, stops and waits from `.reef/loop.json`,
+  sessions since a date with per-feature growth from `reef-cost rows` (flagged over `caps.context_warn`), judge
+  reports `reef-claims.py report` rejects. Deterministic, under 60 lines, `--json`. For the human who was not in the
+  room and for a scheduled observer session. `tests/test_watch.py`.
+- **`reef-claims.py assess [<root>]`** — `/reef-assess`'s output as data: `architecture.md` has its "How it works today"
+  section and `conventions.md` its eight (lint, type strictness, tests, errors, logging, naming, module layout, how it was
+  pushed); every top-level bullet in an observed section is `Observed — <path:line | path | command>` or `Inferred — …`
+  (proposals under Open / Gap to target / "should take" are exempt); `day-zero.md` carries `## Harnessability — level (N/5)`
+  with the five dimensions scored 0/1, an Observed cell each, the sum equal to N and the level consistent (5 high, 3–4
+  moderate, else low). The fixture under `tests/fixtures/assess/ledger/` is the real report from the ledger dogfood
+  (19 turns, growth 78,090, 4 Explore sub-agents, moderate 3/5); `tests/test_assess.py` replays it and each lie.
 - **Row 2, the hunter's scope discipline.** Corpus entry `scope-names-later-rows` (truth PASS: a sound path guard whose
   Scope names its three known holes as later rows). `agents/loophole-hunter.md`: the Scope draws the BLOCKER/NEW-ROW
   line, an out-of-scope hole is a NEW-ROW even when it will happen or is a regression (marked `regression`). Measured,
