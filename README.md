@@ -43,7 +43,7 @@ Arabic manual: [`docs/manual/ar/index.html`](docs/manual/ar/index.html) · Desig
 | You have | Do | What happens |
 |---|---|---|
 | **A new project** | `/reef-init` | One batched question set: the branches and the **architecture grill** (host, shape, scale, store, auth boundary, one-year non-goals). Reef renders the one tree from templates adapted to your stack: `.reef/config.json` (every number, once), `AGENTS.md`, the constitution, the queue with batch 1 row 1 = **the walking skeleton**, `reef/architecture/architecture.md` (intent, C4 L1/L2) with draft ADRs for shape, host, store and auth, journal, glossary, day-zero, a release-only CI, Dependabot, the git hooks, every `scripts/reef-*`. |
-| **An existing project** | `/reef-init`, then `/reef-assess` | **Nothing you wrote is overwritten**: a differing rendering lands in `.reef/proposed/<path>` with a diff, and `python3 scripts/reef-init.py --accept <path>` applies the ones you choose. `/reef-assess` reads how the project works, was written and was pushed (every claim Observed with a proving path, or Inferred), scores how well a harness can hold it, and **recalibrates** its documents into the tree under ONE batched approval: archive, never delete, undo with one `git revert`. |
+| **An existing project** | `/reef-init`, then `/reef-assess` | **Nothing you wrote is overwritten**: a differing rendering lands in `.reef/proposed/<path>` with a diff (Reef's own untouched draft, per `.reef/init-manifest.json`, is just updated), and `python3 scripts/reef-init.py --accept <path>` applies the ones you choose. `/reef-assess` reads how the project works, was written and was pushed (every claim Observed with a proving path, or Inferred), scores how well a harness can hold it, and **recalibrates** its documents into the tree under ONE batched approval: archive, never delete, undo with one `git revert`. |
 | **A feature to build** | `/reef-plan <row>` → `/reef-plan-review` → `/reef-task <slug>` → `/reef-review <slug>` | The grill, the spec and the tasks; the deterministic check and the semantic review; the task graph (every ready task at once, each in its worktree, verified by a fresh judge); the PR, the acceptance against `SPEC.md`, the diff review, the merge and the close. |
 | **A queue of rows** | `/reef-loop` | The outer graph: every ready row through the four commands above, in parallel where rows do not collide, stopping only for the owner's decisions, a missing credential, a wrong spec, or a cap. |
 | **A fresh clone** | `make setup` | Hooks are local git config and do not survive a clone. |
@@ -241,7 +241,7 @@ Task|Agent · Edit|Write|MultiEdit; PostToolUse AskUserQuestion; Stop; SessionSt
 
 ## Selftests
 
-`sh tests/run.sh` — 417 sabotage and contract tests (328 Python + 89 shell, as the suite runs them). Every mechanism in
+`sh tests/run.sh` — 418 sabotage and contract tests (329 Python + 89 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
 script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials

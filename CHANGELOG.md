@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`reef-init.py`: its own untouched rendering is replaced without a question.** `.reef/init-manifest.json` records
+  the sha256 of every file init placed (written or `--accept`ed). On a later run, a differing file whose current bytes
+  still match the manifest is Reef's own draft that nobody touched: it is `updated` in place. One byte of anyone's
+  edit, a file another generator rewrote, or a file the manifest does not know (a clone from before 0.7) is proposed
+  under `.reef/proposed/` exactly as before. First contact (2026-10-16): four files init wrote on an empty repo came
+  back as four questions minutes later when the stack arrived (`tests/test_init.py`, two tests).
 - `skills/reef-init`: step 4b, the empty repository — the gate's loud failure is the signal to run the stack's generator
   as the start of row 1 (one question: which generator), re-run init so the gate fills from the detected stack, then
   commit init and the skeleton together. First contact (2026-10-16): the orchestrator improvised exactly this, then asked
