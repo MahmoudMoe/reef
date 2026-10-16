@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`reef-loop.py tick`: a ready task of an unapproved or unreviewed plan is `awaiting`, not `dispatch now`.** The tick
+  now runs the guard's own `reef-plan-check.py --verify-stamp --feature` per feature of the ready set and holds the
+  feature back with the reason (`approval`, `re-approval (plan edited after approval)`, `plan review`); the handoff and
+  the SessionStart injection inherit the line. First contact (2026-10-16): the ceiling handoff told the next
+  orchestrator "dispatch now: 101" for a plan nobody had approved or reviewed; the guard would have refused the
+  dispatch, but the one read of the world was a lie (`tests/test_loop.py`, the fixture now carries a stamp and an
+  approval record, as a dispatchable plan does).
 - **`reef-init.py`: its own untouched rendering is replaced without a question.** `.reef/init-manifest.json` records
   the sha256 of every file init placed (written or `--accept`ed). On a later run, a differing file whose current bytes
   still match the manifest is Reef's own draft that nobody touched: it is `updated` in place. One byte of anyone's

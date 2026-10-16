@@ -114,6 +114,7 @@ carries `# CLASS:` in its header and `tests/test_contracts.py` ties each row bel
 | Hand-backs ≤ `writing.handback_words` with a claims list; verifier reports carry `RUN:`, one `RULE AC<n>` per criterion citing its Proof row, evidence per AC; hunter reports carry `DEFECT`, cited `BLOCKER`s, `VERDICT`; every report ≤ `writing.report_words`; a fix round's claims point inside its own diff; after GREEN only claims-only commits | `scripts/reef-claims.py check --handback` / `report` / `check <range>` / `claims-only` | **code** when run (reef-task prose) |
 | One cap per item after GREEN (acceptance + diff + CI share it); one rollup per feature | `reef-attempt` and the guard refuse a second rollup | **code** |
 | Draft ADRs in parallel branches, numbered at merge in ONE global sequence across `reef/architecture/adr/` and every feature `adr/`; path citations stay files | `reef-queue.py adr-number`; `reef-plan-check.py` exempts `draft-*.md` | **code** |
+| The tick never advertises a task whose plan lacks the human's approval at the current digest or a fresh review stamp: it is `awaiting: <feature> (approval \| re-approval \| plan review)` | `scripts/reef-loop.py tick` runs `reef-plan-check.py --verify-stamp --feature` per ready feature | **code** |
 | Queue status has one home (the task files, a folder's `SPEC.md Row:` links slug to row); `reef/features/README.md` is generated | `reef-queue.py status|ready|check|index` | **code** |
 | Context ceiling: a dispatch over `caps.context_tokens` is denied and the guard itself renders `HANDOFF.md` from measured state first ("/clear now"); from `caps.context_warn` the hook warns the model | `reef-guard.py` on Task/Agent via `scripts/reef-cost.py --live` on the payload's `transcript_path` (tail only), then `scripts/reef-handoff --write` | **code** (defaults set from the measured rows; 0 = off on a migrated project) |
 | What happened while nobody was in the room: the tick, tasks by status and attempts, journal rows since a date, found rows, stops, sessions with per-feature growth, rejected judge reports — one screen, no model | `scripts/reef-watch [--since] [--json]` | **code** (a report, not a gate) |
@@ -241,7 +242,7 @@ Task|Agent · Edit|Write|MultiEdit; PostToolUse AskUserQuestion; Stop; SessionSt
 
 ## Selftests
 
-`sh tests/run.sh` — 418 sabotage and contract tests (329 Python + 89 shell, as the suite runs them). Every mechanism in
+`sh tests/run.sh` — 419 sabotage and contract tests (330 Python + 89 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
 script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials
