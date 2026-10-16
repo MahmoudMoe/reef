@@ -53,6 +53,11 @@ def main(argv):
         print(f"merge-base: merged {base} into {branch} ({behind} commit(s)), no conflicts")
         return 0
     conflicted = [l for l in git(root, "diff", "--name-only", "--diff-filter=U").stdout.splitlines() if l]
+    if not conflicted:
+        # the merge failed for another reason (no identity, a dirty tree, a gate): say which, leave nothing half-done
+        git(root, "merge", "--abort")
+        print(f"merge-base: `git merge {base}` failed without conflicts — {(r.stderr or r.stdout).strip()[:400]}")
+        return 2
     queue = paths.get("queue", "docs/queue.md")
     records = {paths.get("runlog", "docs/journal.md"), queue, os.path.join(os.path.dirname(queue), "queue-archive.md"), "HANDOFF.md"}
     left = []

@@ -30,6 +30,8 @@ def read(d, rel):
 def repo():
     d = tempfile.mkdtemp(prefix="reef-mb.")
     subprocess.run(["git", "init", "-q", "-b", "develop", d], check=True)
+    subprocess.run(["git", "-C", d, "config", "user.email", "t@t"], check=True)   # the merge commit needs an identity (CI runner has none)
+    subprocess.run(["git", "-C", d, "config", "user.name", "t"], check=True)
     write(d, ".reef/config.json", json.dumps({"branches": {"base": "develop", "release": "main"},
                                               "paths": {"runlog": "reef/journal.md", "queue": "reef/queue.md"}}))
     write(d, "reef/journal.md", "# Journal\n| Task | Result |\n|---|---|\n")
