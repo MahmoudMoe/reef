@@ -14,6 +14,9 @@ You are the orchestrator: grill, draft, gate, write. You do not implement. Read 
 ## 1. Grill
 One question at a time, each with a recommended answer. Only ask what the codebase cannot answer (explore first). Stop when scope, edge cases, non-goals, and ADR-worthy decisions are clear.
 
+## 1b. The feature folder and its SPEC (0.6)
+One feature = one queue row = one folder `<paths.features>/<feature-slug>/` (default `reef/features`; a 0.5 project keeps flat `tasks/` until `--layout`). The slug is 2–5 descriptive kebab-case words (`csv-export-for-orders`), never a number or a generic word (`reef-queue.py check` refuses it). Write `SPEC.md` from `${CLAUDE_PLUGIN_ROOT}/templates/spec.md` first: `Row: <id>`, the grill as Q/A, scope, non-goals, `## Already shipped` (grep the repository for the row's nouns, search merged PRs for the row id; `none` is an answer), requirements `FR-n` each tagged `[infra|data|backend|frontend]`, success criteria `SC-n`, owner decisions, `## Architecture impact`. Child specs `specs/<part>.md` (`Parent: FR-n`) only for a big feature; the feature's ADR under `adr/` (one by default, `## Diagram` in Mermaid); tasks under `tasks/`. Nothing else goes in the folder. An existing constitution or spec directory (`.specify/`, `specs/*/spec.md`) is read as input and its keys carried; it is never duplicated.
+
 ## 2. Draft (nothing written to disk)
 Split into vertical slices:
 - A slice goes ALL THE WAY THROUGH: it touches every layer its behavior needs (schema to output), thin but end-to-end — never "the database part" alone.
@@ -24,6 +27,8 @@ Split into vertical slices:
   - Bad: "003 multi-month — grouping already works, task adds a blank line." (This exact padding shipped in the pilot and cost a full round-trip.)
 - Wide mechanical refactors are the exception: expand -> migrate-in-batches -> contract, each batch its own task.
 Per task, draft the full file from `${CLAUDE_PLUGIN_ROOT}/templates/task.md` (schema: `${CLAUDE_PLUGIN_ROOT}/schemas/task.schema.json`):
+- Criteria (0.6 shape): `AC-n (FR-m)` is ONE declarative sentence under 50 words citing the keys it delivers, no test name, no command; the `## Proof` table maps each `AC-n` to its test name or a command that exits 0 iff it holds. Sentences everywhere under 25 words (`writing.sentence_words`). A feature over `plan.max_tasks` (12) is split into dependent queue rows, each with its own folder.
+- `touches:` names the risk classes (`pii`, `money`, `auth` force `critical`; `migration` forces at least `design` and a `Rollback:` line in `## Decision`).
 - `complexity`: mech = a junior copies an existing example without one question; design = two people would produce materially different solutions.
 - `tier`: light (mech only: allowlisted paths, no privacy/money/auth/data path, no migration, no ADR) / full (default) / design (replaces a mechanism that failed twice, or touches privacy, money or a guard — the `loophole-hunter` runs on the plan before code and on the finished guard after). `scripts/reef-plan-check.py` refuses a tier that does not match the complexity.
 - `verify`: design -> judge; mech -> gate-only.

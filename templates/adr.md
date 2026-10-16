@@ -11,3 +11,10 @@ Status: Proposed | Accepted | Superseded by NNNN
 ## Consequences
 + <what gets easier>
 - <what gets harder — every decision has a cost; "none" is a lie>
+
+## Diagram
+```mermaid
+flowchart LR
+  A[<container touched>] --> B[<what changes>]
+```
+<a feature ADR draws the change; a project-wide ADR under reef/architecture/adr/ may draw the boundary it moves>

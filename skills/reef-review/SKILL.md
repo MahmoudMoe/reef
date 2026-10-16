@@ -32,7 +32,7 @@ After a GREEN verdict from any step below, the only commit allowed before the ne
 **Records (0.6).** A verdict is a RECORD bound to the forge's commit, not a sentence in the chat: after the acceptance review and after the diff review run `scripts/reef-record <feature> GREEN` (or `FAIL`), which reads the PR head from `gh` and writes `.reef/review/<feature>.json`. Under `merge.by: loop` the guard refuses `gh pr merge` unless a GREEN record names the PR's current head (a clean base merge or a claims-only commit on top is the one carry-over); under `merge.by: human` the record is the journal's evidence and gates nothing. Never write that file by hand (the guard denies it).
 
 ## 2. Acceptance review (whole feature, user's perspective)
-Fresh-context review of the feature against the ORIGINAL grilled spec (not the task files — tasks can drift from intent):
+First the mechanical half: `scripts/reef-converge <feature>` executes every Proof row against the branch — `missing` and `contradicts` land on the rollup under the cap; `Converged` means every proof holds. Then the fresh-context review of the feature against its `SPEC.md` (the intent, FR/SC keys — not the task files, which can drift, and not the conversation); `unrequested` work is this review's finding against the spec:
 - Walk the user-visible behavior end to end; run the actual entry point.
 - Question: "would the human who wrote the spec accept this?" List gaps as concrete product issues.
 - Issues found → the feature's rollup (above) → `/reef-task` → re-run this step. Passed → `scripts/reef-record <feature> GREEN`.

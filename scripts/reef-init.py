@@ -299,7 +299,38 @@ def main(argv):
     if not facts["test"]:
         print("  NOTE: no test command detected — gates.full is empty and the gate FAILS LOUDLY until you set it")
     print(f"  {len(w.written)} written, {len(w.skipped)} skipped, {len(w.proposed)} proposed")
+    for line in rails_report(root):
+        print("  " + line)
     return 0
+
+
+RAILS = {"pii": "critical", "money": "critical", "auth": "critical", "migration": "design"}
+RANK = {"light": 0, "full": 1, "design": 2, "critical": 3}
+
+
+def rails_report(root):
+    """0.6 path-class rails apply to features planned under 0.6; an older in-flight task whose `touches:`
+    (or a path under tiers.design/critical.paths it names in its Scope) would raise its tier is LISTED here
+    so the owner can re-plan it — never refused."""
+    import re
+    out = []
+    tdir = os.path.join(root, "tasks")
+    for d in (tdir,):
+        for f in (sorted(os.listdir(d)) if os.path.isdir(d) else []):
+            if not re.match(r"^\d+-.*\.md$", f):
+                continue
+            with open(os.path.join(d, f), encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            m = re.match(r"\A---\r?\n(.*?\r?\n)---", text, re.S)
+            if not m:
+                continue
+            fm = dict(l.partition(":")[::2] for l in m.group(1).splitlines() if ":" in l)
+            tier = fm.get("tier", "").strip() or "full"
+            touches = [t.strip().strip("\"'") for t in fm.get("touches", "").strip().strip("[]").split(",") if t.strip()]
+            forced = max((RAILS[t] for t in touches if t in RAILS), key=lambda t: RANK[t], default=None)
+            if forced and RANK.get(tier, 1) < RANK[forced]:
+                out.append(f"RAILS: tasks/{f} is tier {tier} but touches {touches} would make it {forced} under 0.6 — re-plan it (not refused: planned before 0.6)")
+    return out
 
 
 if __name__ == "__main__":

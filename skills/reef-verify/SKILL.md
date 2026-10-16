@@ -18,4 +18,5 @@ Judge, don't fix. Fresh eyes on the diff (`git diff` or the named task's changes
 - "Cannot verify here" needs the probe's output pasted (the command, the exit code) — never the sentence alone.
 - Invariants: check each entry in `.reef/config.json` `.invariants[]` against the diff.
 - ADR check: read `docs/adr/` (Accepted only) — "name any ADR sentence this diff falsifies; answering 'none' requires evidence." A falsified ADR must be superseded in the same PR or the diff FAILS.
-- Begin the report with `RUN: agent=verifier task=<id>`, then the `RULE AC<n>` lines; end with `VERDICT: PASS` or `VERDICT: FAIL` + the concrete feedback an implementer needs.
+- A FAIL is one of four kinds only: regression, outside-actor code-execution or approval bypass, correctness bug, failed acceptance criterion (including a Proof row whose test or command is absent or red). Everything else is a NIT and never fails the task. A Proof row naming a rendered surface is observed in a browser or listed under `Not verified in a browser:`.
+- Begin the report with `RUN: agent=verifier task=<id>`, then the `RULE AC<n>` lines (citing the Proof row when there is a ## Proof table); end with `VERDICT: PASS` or `VERDICT: FAIL` + the concrete feedback an implementer needs. `scripts/reef-claims.py report <report> --task <task>` checks the shape.

@@ -21,6 +21,32 @@
   catch-rate and is refused; every corpus entry builds green and passes plan-check where the reviewer needs it).
 - **0.4 Baseline evals** k=3: `docs/perf/eval-baseline-2026-10-16.md`.
 
+### Phase 2 — spec and quality
+- **2.1 The feature folder and its spec.** `<paths.features>/<slug>/{SPEC.md, specs/, adr/, tasks/}` (0.6 projects;
+  a 0.5 project keeps flat `tasks/`): `templates/spec.md` (Row, grill, scope, non-goals, Already shipped, `FR-n [layer]`,
+  `SC-n`, owner decisions, Architecture impact); plan-check validates the slug (2–5 kebab words, no number, no
+  generic word), SPEC keys and layer tags, child specs' `Parent:`, ACs citing keys of their own folder, the
+  structure, `plan.max_tasks` (12 → split); the stamp covers the whole folder; `reef-queue.py check` runs the
+  structure and slug checks, `index` generates `reef/features/README.md`, `adr-number` numbers one global sequence
+  across `reef/architecture/adr/` and every feature `adr/`. Tests: `tests/test_feature_spec.py::FeatureFolder`
+  (missing key → fail; spec edit → stale stamp; 13 tasks → split; bad slugs refused; stray Markdown → fail;
+  pre-0.6 → warning).
+- **2.2 Criterion and proof split, dual-shape.** `templates/task.md`: `AC-n (FR-m)` one sentence, `## Proof` table;
+  plan-check enforces the new shape only when the table exists (old shape stays valid), reads Proof rows for the
+  claimed-twice check; prose lints `writing.sentence_words` 25 / `writing.criterion_words` 50 fail under 0.6, warn
+  older; journal rows carry per-AC statuses (`reef-queue.py check`). Tests: `tests/test_feature_spec.py::ProofSplit`.
+- **2.3 Four-kind blocking bar** in `agents/verifier.md` and `skills/reef-review/SKILL.md` (regression, bypass,
+  correctness, failed AC; all else NIT). Eval before/after: `docs/perf/eval-baseline-2026-10-16.md`.
+- **2.4 `scripts/reef-converge <feature>`** executes the Proof table: `missing` / `contradicts` appended to the one
+  rollup, `Converged` writes nothing. Tests: `tests/test_feature_spec.py::Converge`.
+- **2.5 Path-class rails.** `tiers.design.paths`, `tiers.critical.paths`, `touches:` (pii/money/auth → critical,
+  migration → design + `Rollback:`); `reef-tier.py` computes design/critical and only raises; `reef-init` lists
+  older tasks the rails would move. Tests: `tests/test_feature_spec.py::Rails`.
+- **2.6 Browser evidence** in `agents/verifier.md` (observed in a browser, or `Not verified in a browser:`).
+- **2.7 Hand-back and report checks as code.** `reef-claims.py check --handback <file>` (150 words, a claims list),
+  `reef-claims.py report <file> --task <task>` (RUN header, `RULE AC<n>` per criterion citing its Proof row,
+  evidence per AC, `writing.report_words` warn-only until measured). Tests: `tests/test_feature_spec.py::HandbackAndReport`.
+
 ### Phase 1 — foundations and trust binding
 - **1.0 Version marker and four tiers.** `reef-init` writes `.reef/version`; `tier: critical | design | full | light`
   (`schemas/task.schema.json`, `touches:`); the tier table `tiers.<tier>.{roles,effort,paths}` in
