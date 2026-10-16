@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The plan reviewer's verdict is a RECORD the guard requires.** `scripts/reef-record plan-review <slug> PASS|FAIL
+  [--report FILE]` writes `.reef/review/plan-<slug>.json` bound to the plan's digest (in the main checkout, like the
+  approval). `reef-plan-check.py --verify-stamp` — hence the guard at every implementer dispatch and the tick's
+  `awaiting` — requires a PASS at the current digest for any feature with a task above `light`
+  (`review: MISSING | STALE | FAILED | OK | not required`). The deterministic stamp alone never meant the semantic
+  review passed (first contact, 2026-10-16: three reviews of one plan, none recorded; a plan edited after a PASS
+  carried the same stamp). `/reef-plan-review` saves the agent's report verbatim and records the verdict.
+  Upgrading a plan already reviewed: run `scripts/reef-record plan-review <slug> PASS --report <saved report>` once.
 - **First execution on a real project (101 of qassimha, 2026-10-16) — eight follow-ups.**
   - `reef-graph.py worktree`: a task worktree lives under the MAIN checkout's `worktree.dir`, never nested inside the
     feature worktree the task file was read from (the nested one's `.next/` was linted by the feature's commit gate).

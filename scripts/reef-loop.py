@@ -106,6 +106,10 @@ def plan_gate(root, scripts, py, tasks):
             verdict[feat] = "approval"
         elif re.search(r"^approval: STALE", out, re.M):
             verdict[feat] = "re-approval (plan edited after approval)"
+        elif re.search(r"^review: (MISSING|STALE)", out, re.M):
+            verdict[feat] = "plan review verdict (run /reef-plan-review)"
+        elif re.search(r"^review: FAILED", out, re.M):
+            verdict[feat] = "plan review FAILED (fix the findings)"
         else:
             verdict[feat] = "plan review"
     go = [t for t in tasks if verdict.get(task_feature(t.get("path", ""))) is None]

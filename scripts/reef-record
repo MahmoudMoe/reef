@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef record — a review verdict bound to the FORGE-reported commit.
+"""Reef record — a review verdict bound to the FORGE-reported commit, or a plan review verdict bound to the plan's digest.
 Usage: reef-record <feature> <verdict> [--pr <number|url|branch>] [--root DIR]
+       reef-record plan-review <feature> <PASS|FAIL> [--report FILE] [--root DIR]
+  plan-review writes .reef/review/plan-<feature>.json = {digest16, verdict, report_sha256, recorded_at} in the MAIN
+  checkout; the digest is computed where the plan is (--root, default cwd). `reef-plan-check.py --verify-stamp` requires
+  a PASS at the current digest for any feature with a task above `light`, so the guard refuses the first dispatch of a
+  plan whose semantic review never passed (first contact, 2026-10-16: the stamp recorded the scripted check only).
 Writes .reef/review/<feature>.json = {sha, tree, verdict, base, pr, recorded_at} from `gh pr view` and
 `gh api …/git/commits/<sha>`; under merge.by: loop the guard refuses `gh pr merge` without a PASS/GREEN record on
 the forge head. Exit 0 recorded · 2 gh failed / no PR / bad usage (nothing written).
@@ -44,7 +49,53 @@ def main_checkout(cwd):
     return cwd
 
 
+def plan_digest(root, feature):
+    script = os.path.join(root, "scripts", "reef-plan-check.py")
+    if not os.path.isfile(script):
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
+    r = subprocess.run([sys.executable, script, root, "--digest", "--feature", feature], capture_output=True, text=True, timeout=60)
+    m = re.search(r"^digest: \S+ ([0-9a-f]{64})", r.stdout, re.M)
+    return m.group(1) if m else None
+
+
+def cmd_plan_review(argv):
+    import hashlib
+    report, root, pos = None, None, []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--report":
+            report = argv[i + 1]; i += 2
+        elif argv[i] == "--root":
+            root = argv[i + 1]; i += 2
+        else:
+            pos.append(argv[i]); i += 1
+    if len(pos) != 2 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", pos[0]) or pos[1].upper() not in ("PASS", "FAIL"):
+        die("usage: reef-record plan-review <feature> <PASS|FAIL> [--report FILE] [--root DIR]")
+    feature, verdict = pos[0], pos[1].upper()
+    root = os.path.abspath(root or os.getcwd())
+    digest = plan_digest(root, feature)
+    if not digest:
+        die(f"cannot compute the plan digest for {feature!r} in {root} — run from the checkout that holds the plan")
+    rec = {"digest16": digest[:16], "verdict": verdict, "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    if report:
+        try:
+            with open(report, "rb") as f:
+                rec["report_sha256"] = hashlib.sha256(f.read()).hexdigest()
+            rec["report"] = os.path.relpath(os.path.abspath(report), root)
+        except OSError as e:
+            die(f"cannot read the report {report}: {e}")
+    d = os.path.join(main_checkout(root), ".reef", "review")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, f"plan-{feature}.json"), "w", encoding="utf-8") as f:
+        json.dump(rec, f, indent=1)
+        f.write("\n")
+    print(f"recorded plan review {feature}: {verdict} at {digest[:16]} -> .reef/review/plan-{feature}.json")
+    return 0
+
+
 def main(argv):
+    if argv and argv[0] == "plan-review":
+        return cmd_plan_review(argv[1:])
     pr, root, pos = None, None, []
     i = 0
     while i < len(argv):
