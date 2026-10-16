@@ -211,11 +211,43 @@ class ReleaseOnlyCi(unittest.TestCase):
         self.assertEqual(cfg["gates"]["extra"], {"build": "npm run build"})
         self.assertEqual(cfg["worktree"]["setup"], "npm ci")
         self.assertIn(".reef/config.json (keys added)", r.stdout)
-        dep = read(d, ".reef/proposed/.github/dependabot.yml")
+        # the four stack-specific files init itself wrote minutes ago, untouched since, are REPLACED, not proposed
+        # (first contact, 2026-10-16: they came back as four questions about Reef's own untouched drafts)
+        for rel in (".github/dependabot.yml", ".github/workflows/ci.yml", "reef/day-zero.md"):
+            self.assertFalse(os.path.exists(os.path.join(d, ".reef", "proposed", rel)), f"{rel} was proposed")
+            self.assertIn(f"updated  {rel}", r.stdout)
+        dep = read(d, ".github/dependabot.yml")
         self.assertEqual(dep.count("package-ecosystem"), 2)
         self.assertIn('package-ecosystem: "npm"', dep)
         self.assertIn('target-branch: "develop"', dep)
         self.assertNotIn("{{", dep)
+        self.assertIn("setup-node", read(d, ".github/workflows/ci.yml"))
+
+    def test_a_file_anyone_touched_is_still_proposed_never_replaced(self):
+        d = tempfile.mkdtemp(prefix="reef-init-touched.")
+        subprocess.run(["git", "init", "-q", d], check=True)
+        init(d)
+        with open(os.path.join(d, ".github", "workflows", "ci.yml"), "a", encoding="utf-8") as f:
+            f.write("# the owner's note\n")                      # one byte of human intent
+        manifest = json.loads(read(d, ".reef/init-manifest.json"))
+        self.assertIn(".github/workflows/ci.yml", manifest)
+        write(d, "package.json", json.dumps({"name": "late", "scripts": {"test": "vitest run"}}))
+        r = init(d)
+        self.assertIn("PROPOSED .github/workflows/ci.yml", r.stdout)
+        self.assertIn("# the owner's note", read(d, ".github/workflows/ci.yml"))
+        self.assertNotIn("updated  .github/workflows/ci.yml", r.stdout)
+        # the manifest is the only evidence; without it (a clone from before 0.7, a deleted .reef/), every
+        # differing file is proposed as before
+        os.unlink(os.path.join(d, ".reef", "init-manifest.json"))
+        r = init(d, "--accept", ".github/workflows/ci.yml")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(read(d, ".reef/init-manifest.json")).keys() & {".github/workflows/ci.yml"},
+                         {".github/workflows/ci.yml"}, "an accepted file is Reef's own again")
+        os.unlink(os.path.join(d, ".reef", "init-manifest.json"))
+        write(d, ".github/workflows/ci.yml", "name: ci\non: push\n")   # a rendering from before the manifest existed
+        r = init(d)
+        self.assertIn("PROPOSED .github/workflows/ci.yml", r.stdout)
+        self.assertEqual(read(d, ".github/workflows/ci.yml"), "name: ci\non: push\n")
 
 
 if __name__ == "__main__":
