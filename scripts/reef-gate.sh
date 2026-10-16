@@ -1,4 +1,5 @@
 #!/bin/sh
+# CLASS: code
 # Reef portable test gate. Usage: reef-gate.sh [fast|full]   (no mode = full)
 #   fast — the pre-commit gate:  gates.fast > gates.test > gates.full
 #   full — review / verify / CI: gates.full > gates.test

@@ -186,6 +186,26 @@ t "  fallback announced itself on stderr (never silent)" 0
 [ "$(cat d.dat)" = "precious lower" ]
 t "  unstaged filtered content untouched (no clean-filter corruption)" 0
 
+# ---------- 0.6: a tier: critical task closes like design; a Task dispatch with no python3 is denied ----------
+mkrepo "$TMP/r6c" "true"
+mkdir -p tasks/done
+printf -- '---\nid: 9\nfeature: f\nstatus: pending\ncomplexity: design\ntier: critical\nverify: judge\nattempts: 0\n---\n# 9\n' > tasks/009-c.md
+git add -A && git commit -qm plan >/dev/null 2>&1
+git mv tasks/009-c.md tasks/done/009-c.md
+git commit -qm close >/dev/null 2>&1
+t "critical-tier task moved to done/ WITHOUT adversarial-guard: rejected" 1
+git reset -q --hard HEAD >/dev/null 2>&1; mkdir -p tasks/done; git mv tasks/009-c.md tasks/done/009-c.md 2>/dev/null
+printf -- '---\nid: 9\nfeature: f\nstatus: pending\ncomplexity: design\ntier: critical\nverify: judge\nattempts: 0\nadversarial-plan: abc\nadversarial-guard: def@1234567\n---\n# 9\n' > tasks/done/009-c.md
+git add -A && git commit -qm close >/dev/null 2>&1
+t "critical-tier task WITH adversarial-guard: accepted" 0
+# the Task|Agent hook command with python3 absent from PATH must DENY (exit 2), never allow
+TASKCMD=$(python3 -c "import json;print([h for h in json.load(open('$ROOT/hooks/hooks.json'))['hooks']['PreToolUse'] if h['matcher']=='Task|Agent'][0]['hooks'][0]['command'])")
+NOPY="$TMP/nopy"; mkdir -p "$NOPY"; for b in sh grep echo cat; do p=$(command -v $b) && ln -sf "$p" "$NOPY/$b"; done
+echo '{"tool_name":"Task","tool_input":{"subagent_type":"reef:implementer","prompt":"x"}}' | env -i PATH="$NOPY" CLAUDE_PLUGIN_ROOT="$ROOT" sh -c "$TASKCMD" >/dev/null 2>&1
+t "Task dispatch hook with NO python3: denied (exit 2)" 2
+echo '{"tool_name":"Bash","tool_input":{"command":"ls"}}' | env -i PATH="$NOPY" CLAUDE_PLUGIN_ROOT="$ROOT" sh -c "$(python3 -c "import json;print([h for h in json.load(open('$ROOT/hooks/hooks.json'))['hooks']['PreToolUse'] if h['matcher']=='Bash'][0]['hooks'][0]['command'])")" >/dev/null 2>&1
+t "Bash hook with NO python3 on an innocent command: allowed (degraded)" 0
+
 # ---------- 0.5.0: a tier: design task closes only with the guard pass recorded ----------
 mkrepo "$TMP/r12" "true"
 mkdir -p tasks/done

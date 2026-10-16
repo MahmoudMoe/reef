@@ -1,4 +1,5 @@
 #!/bin/sh
+# CLASS: code
 # Reef local CI: every gate CI runs, run here, every exit code read.
 #   sh scripts/reef-ci-local.sh [--ci] [--require name,name]
 # Gates come from .reef/config.json: gates.full first (as `full`), then every gates.extra.<name>

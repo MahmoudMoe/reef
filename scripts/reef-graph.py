@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# CLASS: code
 """Reef graph scheduler — the task set as a DAG that is EXECUTED, not just declared.
 
 Usage:

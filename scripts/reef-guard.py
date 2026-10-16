@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# CLASS: code, tripwire
 """Reef PreToolUse guard — the mechanical layer behind the plugin's "hard" rules.
 
 Reads the hook JSON on stdin. Two duties:
@@ -37,6 +38,20 @@ Reads the hook JSON on stdin. Two duties:
    (R<NN>) is refused when another rollup of the same feature exists: one rollup
    per feature carries acceptance, diff and CI rounds under ONE cap.
 
+3. 0.6 — the guard reads the TIER: a dispatch's model is resolved through the task's
+   tier table (tiers.<tier>.roles.<role>, from the REEF-TASK: or REEF-FEATURE: line every
+   role dispatch carries; without the line, roles.* as in 0.5); `critical` needs the
+   adversarial plan pass like `design`. REVIEWER LOCK (payload agent_type, verified in
+   docs/perf/payloads-2026-10-16.md): a verifier, loophole-hunter, plan-reviewer or Explore
+   sub-agent gets no mutating git, no Bash write, no CI wait; a typeless sub-agent call is
+   locked too while .reef/verifying/<task> exists (written here when a verifier/hunter
+   dispatch is allowed). The guard GUARDS ITSELF (Edit/Write/MultiEdit matcher and Bash
+   writes): scripts/reef-*, .githooks/*, hooks/hooks.json and the roles/caps/gates/tiers keys
+   of .reef/config.json change only under a critical task in flight or inside the plugin's
+   own repository; .reef/approvals/ and .reef/review/ are written by hooks and scripts
+   only. A DEADLINE (signal alarm, REEF_GUARD_DEADLINE seconds) denies before the host's
+   hook timeout: a hung guard is a denial, never an allow.
+
 Exit 0 = allow. Exit 2 = deny (reason on stderr). Anything unparseable that
 smells like a bypass is denied; anything unparseable and innocent is allowed.
 """
@@ -46,9 +61,26 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
+import time
+
+DEADLINE = float(os.environ.get("REEF_GUARD_DEADLINE", "8"))
+TIER_ORDER = ["light", "full", "design", "critical"]
+LOCKED_TYPES = ("verifier", "loophole-hunter", "plan-reviewer", "Explore")
+AGENT_TYPES = LOCKED_TYPES + ("implementer", "mechanic")
+MUTATING_GIT = {"commit", "add", "rm", "mv", "checkout", "switch", "restore", "reset", "merge", "rebase", "push",
+                "stash", "apply", "am", "cherry-pick", "revert", "clean", "worktree", "submodule", "init", "clone"}
+WRITE_HEADS = {"tee", "cp", "mv", "rm", "touch", "mkdir", "rmdir", "truncate", "dd", "install", "ln", "chmod", "chown", "shred", "unlink"}
+REDIRECTS = {">", ">>", ">|"}
+RECORD_DIRS = re.compile(r"(^|/)\.reef/(approvals|review)(/|$)")
+GUARD_FILES = re.compile(r"(^|/)(scripts/reef-[^/]+|\.githooks/[^/]+|hooks/hooks\.json|\.reef/config\.json)$")
+PROTECTED_KEYS = ("roles", "caps", "gates", "tiers")
+GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "5"))
+PR_MERGE_API = re.compile(r"repos/([^/]+)/([^/]+)/pulls/(\d+)/merge")
+GOOD_VERDICTS = ("PASS", "GREEN", "APPROVED")
 
 DEFAULT_CAP = 3
 OPS = {";", "&", "|", "&&", "||", ";;", ";&", "|&", "(", ")"}
@@ -76,7 +108,7 @@ def tokenize(cmd):
     just separates tokens — and default commenters='#' ends a comment exactly at its own
     line's newline. Command boundaries do not matter because check_segment scans every token
     position for git/rm/chmod, so two newline-separated commands are still both inspected."""
-    lex = shlex.shlex(cmd, posix=True, punctuation_chars="();|&")
+    lex = shlex.shlex(cmd, posix=True, punctuation_chars="();|&<>")
     lex.whitespace_split = True
     try:
         return list(lex)
@@ -116,6 +148,78 @@ def _check_bash(cmd, depth=0):
             seg = []
         else:
             seg.append(t)
+
+
+def is_write(seg):
+    """A segment that can change a file: a redirect, a write head, `sed -i`/`perl -i`, `git apply`."""
+    if any(t in REDIRECTS for t in seg):
+        return True
+    i = 0
+    while i < len(seg) and (ENV_ASSIGN.match(seg[i]) or seg[i] in PREFIX_WORDS or seg[i].startswith("-") or seg[i].isdigit()):
+        i += 1
+    if i >= len(seg):
+        return False
+    head, rest = os.path.basename(seg[i]), seg[i + 1:]
+    if head in WRITE_HEADS:
+        return True
+    if head in ("sed", "perl") and any(re.match(r"^-[a-zA-Z]*i", a) for a in rest):
+        return True
+    return False
+
+
+def check_record_dirs(seg):
+    """.reef/approvals/ and .reef/review/ are written by scripts/reef-approval.py and scripts/reef-record
+    only: a hand-written record would be an approval nobody gave (tripwire; the digest check is the code)."""
+    if any(RECORD_DIRS.search(t) for t in seg) and is_write(seg):
+        deny("writing under .reef/approvals/ or .reef/review/ by hand — these records are written by the "
+             "AskUserQuestion hook and scripts/reef-record, bound to a digest or a forge SHA")
+
+
+def check_guard_files(seg, ctx):
+    """scripts/reef-*, .githooks/*, hooks/hooks.json, .reef/config.json: a Bash write (redirect, cp, mv, sed -i …)
+    is allowed only inside the plugin's own repository or under a critical task in flight. rm/mv/chmod on the
+    hook files keep their 0.5 denial regardless."""
+    if not is_write(seg) or any(os.path.basename(t) == "chmod" for t in seg):
+        return   # chmod on the hook files is check_chmod's business (pure +x is reef-init's install)
+    hits = [t for t in seg if GUARD_FILES.search(t)]
+    if hits and not ctx.get("plugin_root") and not ctx.get("critical_inflight"):
+        deny(f"Bash write to {hits[0]!r}: the guard's own files and the roles/caps/gates/tiers keys change only under "
+             "a tier: critical task (none is in flight) or inside Reef's own repository — plan it as a critical task "
+             "(python3 scripts/reef-init.py --accept <path> is the allowed way to take a proposed script)")
+
+
+def check_reviewer_lock(seg, ctx):
+    """agent_type from the payload: a judge never mutates. Also no CI wait for any Reef sub-agent."""
+    agent_type = ctx.get("agent_type") or ""
+    locked = any(t in agent_type for t in LOCKED_TYPES) or ctx.get("typeless_locked")
+    who = agent_type or "a sub-agent without agent_type (a verifier/hunter is in flight)"
+    i = 0
+    while i < len(seg) and (ENV_ASSIGN.match(seg[i]) or seg[i] in PREFIX_WORDS or seg[i].startswith("-") or seg[i].isdigit()):
+        i += 1
+    head = os.path.basename(seg[i]) if i < len(seg) else ""
+    rest = seg[i + 1:]
+    if any(t in agent_type for t in AGENT_TYPES) or ctx.get("typeless_locked"):
+        if head == "gh" and (rest[:2] == ["pr", "checks"] and "--watch" in rest or rest[:2] == ["run", "watch"]):
+            deny(f"{who}: `gh {' '.join(rest[:2])} --watch` parks an agent on CI — the orchestrator waits with a Monitor "
+                 "or a scheduled wake-up, never a sub-agent")
+        if head == "sleep" and rest and re.match(r"^\d+(\.\d+)?[smh]?$", rest[0]):
+            n = float(re.match(r"^\d+(\.\d+)?", rest[0]).group(0)) * {"m": 60, "h": 3600}.get(rest[0][-1], 1)
+            if n >= 60:
+                deny(f"{who}: sleep {rest[0]} — a sub-agent never waits a minute for the world to change")
+    if not locked:
+        return
+    for j, t in enumerate(seg):
+        if os.path.basename(t) == "git":
+            args = seg[j + 1:]
+            sub = next((a for a in args if not a.startswith("-")), None)
+            if sub in MUTATING_GIT:
+                deny(f"{who} is read-only: `git {sub}` mutates the tree or the refs the orchestrator hash-checks")
+            if sub in ("branch", "tag") and any(a in ("-d", "-D", "-m", "-M", "-c", "-C", "-f") for a in args) \
+               or sub == "config" and not any(a in ("--get", "--get-all", "--list", "-l", "get", "list") for a in args):
+                deny(f"{who} is read-only: `git {sub} {' '.join(args[1:3])}` writes")
+            break
+    if is_write(seg):
+        deny(f"{who} is read-only: {' '.join(seg[:4])!r} writes a file — judge, don't fix")
 
 
 SHELLS = ("sh", "bash", "dash", "zsh", "ksh")
@@ -161,12 +265,19 @@ def is_gate(seg):
     return False
 
 
+CTX = {}   # per-invocation facts the Bash checks need: agent_type, plugin_root, critical_inflight, typeless_locked
+
+
 def check_segment(seg, depth=0, next_op=";", pipefail=False):
     """Position-independent: `env X=y git ...`, `nohup git ...`, `nice -n5 git ...`,
     `xargs git ...`, `(git ...)` — a prefix word must never hide the real command."""
     for t in seg:
         if ENV_ASSIGN.match(t) and HOOKSPATH.search(t):
             deny(f"environment assignment smuggles hooksPath: {t!r}")
+    check_record_dirs(seg)
+    check_guard_files(seg, CTX)
+    check_reviewer_lock(seg, CTX)
+    check_forge_merge(seg, CTX)
     if next_op in ("|", "|&") and not pipefail and is_gate(seg):
         deny(f"gate {' '.join(seg[:3])!r} piped into another command — the pipe reports the LAST "
              "command's exit code, so a red gate passes unnoticed; use `set -o pipefail`, or redirect "
@@ -189,6 +300,102 @@ def check_segment(seg, depth=0, next_op=";", pipefail=False):
                     check_bash(rest[k + 1], depth + 1)   # `sh -c "git commit -n"` is not a tunnel
         elif b == "eval":
             check_bash(" ".join(rest), depth + 1)
+
+
+def gh(args, cwd):
+    """A forge call under its own deadline; any failure is a denial (fail closed)."""
+    try:
+        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=GH_TIMEOUT, cwd=cwd)
+    except FileNotFoundError:
+        deny("gh is not installed — the merge check needs the forge's view of the PR")
+    except subprocess.TimeoutExpired:
+        deny(f"gh {' '.join(args[:2])} did not answer within {GH_TIMEOUT:g}s — refusing to merge blind")
+    if r.returncode != 0:
+        deny(f"gh {' '.join(args[:2])} failed ({r.returncode}): {r.stderr.strip()[:200]} — refusing to merge blind")
+    return r.stdout.strip()
+
+
+def git_version_ok(cwd):
+    v = os.environ.get("REEF_GIT_VERSION_OVERRIDE")   # test seam: pretend an older git
+    if not v:
+        r = subprocess.run(["git", "--version"], capture_output=True, text=True, cwd=cwd)
+        m = re.search(r"(\d+)\.(\d+)", r.stdout)
+        v = f"{m.group(1)}.{m.group(2)}" if m else "0.0"
+    major, minor = (int(x) for x in v.split(".")[:2])
+    return (major, minor) >= (2, 38)
+
+
+def check_forge_merge(seg, ctx):
+    """merge.by: loop — `gh pr merge` / `gh api …/pulls/N/merge` only when a PASS/GREEN review record
+    (.reef/review/<feature>.json, written by scripts/reef-record from the forge's own view) names the PR's
+    current head. A head that moved since the record merges only when the record is still an ancestor and
+    either `git merge-tree --write-tree <recorded> <base tip>` equals the forge's tree (a clean base merge)
+    or every commit since is claims-only. A rebase, a code push after GREEN, a slow or failing gh: DENY."""
+    i = 0
+    while i < len(seg) and (ENV_ASSIGN.match(seg[i]) or seg[i] in PREFIX_WORDS or seg[i].startswith("-") or seg[i].isdigit()):
+        i += 1
+    if i >= len(seg) or os.path.basename(seg[i]) != "gh":
+        return
+    rest = seg[i + 1:]
+    ident = None
+    if rest[:2] == ["pr", "merge"]:
+        ident = next((a for a in rest[2:] if not a.startswith("-")), None)
+    elif rest[:1] == ["api"] and any(PR_MERGE_API.search(a) for a in rest[1:]) and any(a in ("-X", "--method") and "PUT" in rest for a in rest):
+        ident = PR_MERGE_API.search(next(a for a in rest[1:] if PR_MERGE_API.search(a))).group(3)
+    elif rest[:1] == ["api"] and any(PR_MERGE_API.search(a) for a in rest[1:]):
+        ident = PR_MERGE_API.search(next(a for a in rest[1:] if PR_MERGE_API.search(a))).group(3)
+    else:
+        return
+    roots = sorted(ctx.get("roots") or [ctx.get("cwd") or os.getcwd()])
+    cfg = next((read_config(r) for r in roots if os.path.isfile(os.path.join(r, ".reef", "config.json"))), {})
+    if str((cfg.get("merge") or {}).get("by", "human")).strip() != "loop":
+        return   # under merge.by: human the record is evidence, not a gate (the human merges)
+    cwd = ctx.get("cwd") or os.getcwd()
+    view = json.loads(gh(["pr", "view", *([ident] if ident else []), "--json", "headRefOid,baseRefName,url"], cwd) or "{}")
+    head, base, url = str(view.get("headRefOid", "")), str(view.get("baseRefName", "")), str(view.get("url", ""))
+    m = re.search(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)", url)
+    if not re.fullmatch(r"[0-9a-f]{40}", head) or not m:
+        deny(f"gh pr view gave no usable head/url for {ident or 'the current PR'}: {view}")
+    records = []
+    for r in roots:
+        d = os.path.join(r, ".reef", "review")
+        for f in (sorted(os.listdir(d)) if os.path.isdir(d) else []):
+            try:
+                with open(os.path.join(d, f), encoding="utf-8") as fh:
+                    rec = json.load(fh)
+            except Exception:
+                continue
+            if str(rec.get("verdict", "")).upper() in GOOD_VERDICTS and re.fullmatch(r"[0-9a-f]{40}", str(rec.get("sha", ""))):
+                records.append(rec)
+    if any(rec["sha"] == head for rec in records):
+        return
+    if not records:
+        deny(f"no PASS/GREEN review record under .reef/review/ for PR head {head[:12]} — run scripts/reef-record <feature> GREEN after the review")
+    owner, repo = m.group(1), m.group(2)
+    for rec in records:
+        anc = subprocess.run(["git", "merge-base", "--is-ancestor", rec["sha"], head], cwd=cwd, capture_output=True)
+        if anc.returncode != 0:
+            continue   # a rebase or an unrelated record: the reviewed commit is not in this head
+        if not git_version_ok(cwd):
+            deny("the PR head moved since the review and this git predates 2.38 (no merge-tree --write-tree) — re-review the head")
+        base_tip = gh(["api", f"repos/{owner}/{repo}/git/ref/heads/{base}", "--jq", ".object.sha"], cwd)
+        forge_tree = gh(["api", f"repos/{owner}/{repo}/git/commits/{head}", "--jq", ".tree.sha"], cwd)
+        have = subprocess.run(["git", "cat-file", "-e", f"{base_tip}^{{commit}}"], cwd=cwd, capture_output=True).returncode == 0
+        if have:
+            mt = subprocess.run(["git", "merge-tree", "--write-tree", rec["sha"], base_tip], cwd=cwd, capture_output=True, text=True)
+            if mt.returncode == 0 and mt.stdout.strip().splitlines()[:1] == [forge_tree]:
+                return   # the only change since the review is a clean merge of the base
+        claims = load_plugin_module("reef-claims.py", "reef_claims")
+        try:
+            import io, contextlib
+            with contextlib.redirect_stdout(io.StringIO()):
+                if claims.cmd_claims_only(cwd, f"{rec['sha']}..{head}") == 0:
+                    return   # docs, comments, blank lines only since GREEN
+        except SystemExit:
+            pass
+        deny(f"PR head {head[:12]} moved since the GREEN record at {rec['sha'][:12]} and the new commits are code "
+             "(not a clean base merge, not claims-only) — re-review and re-record before merging")
+    deny(f"the reviewed commit is not an ancestor of PR head {head[:12]} (rebased or re-pushed) — re-review and re-record the current head")
 
 
 def check_chmod(args):
@@ -353,7 +560,7 @@ def check_adversarial_plan(path, fm, text):
     """tier: design — the loophole-hunter's pass on the PLAN is recorded (scripts/reef-adversarial)
     as adversarial-plan: <hash of the plan content>; an edited plan voids it. A mech/light task
     never needs one (the stage never runs on mech)."""
-    if fm.get("tier") != "design":
+    if fm.get("tier") not in ("design", "critical"):
         return
     adv = load_plugin_module("reef-adversarial", "reef_adversarial")
     want = adv.plan_hash(text)
@@ -459,28 +666,104 @@ def check_single_rollup(path, fm):
 # routing (2026-10-04): fable plans, opus writes/attacks/verifies/reviews, sonnet does light
 # mechanical work. Each project overrides per role; an unset role is not checked.
 ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "plan_reviewer",
-           "loophole-hunter": "adversary", "mechanic": "mechanic"}
+           "loophole-hunter": "adversary", "mechanic": "mechanic", "Explore": "mechanic"}
 
 
-def check_role_model(sub, tool_input, root):
+def read_config(root):
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+        return cfg if isinstance(cfg, dict) else {}
+    except Exception:
+        return {}
+
+
+def task_tier(fm):
+    return fm.get("tier") or ("light" if fm.get("complexity") == "mech" else "full")
+
+
+def feature_tier(root, feature):
+    """The heaviest tier among a feature's task files (flat tasks/ + done/, or the feature folder)."""
+    graph = load_graph_module()
+    cfg = read_config(root)
+    dirs = [graph.tasks_dir_for(root, cfg)]
+    feat_dir = os.path.join(root, (cfg.get("paths") or {}).get("features", "reef/features"), feature, "tasks")
+    if os.path.isdir(feat_dir):
+        dirs.append(feat_dir)
+    best = None
+    for base in dirs:
+        for d in (base, os.path.join(base, "done")):
+            if not os.path.isdir(d):
+                continue
+            for f in os.listdir(d):
+                if not f.endswith(".md"):
+                    continue
+                try:
+                    fm, _ = read_frontmatter(os.path.join(d, f))
+                except Exception:
+                    continue
+                if fm and fm.get("feature") == feature:
+                    t = task_tier(fm)
+                    if t in TIER_ORDER and (best is None or TIER_ORDER.index(t) > TIER_ORDER.index(best)):
+                        best = t
+    return best
+
+
+def dispatch_tier(prompt, cwd):
+    """(tier, root) from the dispatch prompt's REEF-TASK: or REEF-FEATURE: line; (None, cwd) without one."""
+    m = re.search(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", prompt, re.M)
+    if m:
+        path = m.group(1) if os.path.isabs(m.group(1)) else os.path.join(cwd, m.group(1))
+        if os.path.isfile(path):
+            root = task_root(path, cwd)
+            try:
+                fm, _ = read_frontmatter(path)
+                return (task_tier(fm) if fm else None), root
+            except Exception:
+                return None, root
+        return None, cwd
+    m = re.search(r"^REEF-FEATURE:[ \t]*(\S+)", prompt, re.M)
+    if m:
+        return feature_tier(cwd, m.group(1)), cwd
+    return None, cwd
+
+
+def check_role_model(sub, tool_input, root, tier=None):
     """A dispatch runs on the CONFIGURED model for its role, not on the agent file's default
-    and not on whatever the orchestrator remembered: when roles.<role> is set, the Agent
-    call must carry exactly that `model` parameter."""
+    and not on whatever the orchestrator remembered: when tiers.<tier>.roles.<role> (0.6) or
+    roles.<role> is set, the Agent call must carry exactly that `model` parameter."""
     role = next((r for name, r in ROLE_OF.items() if name in sub), None)
     if role is None:
         return
-    try:
-        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
-            roles = json.load(f).get("roles", {})
-    except Exception:
-        return   # no readable config: nothing is configured, nothing to enforce
-    if not isinstance(roles, dict) or not roles.get(role):
+    cfg = read_config(root)
+    roles = cfg.get("roles", {}) if isinstance(cfg.get("roles", {}), dict) else {}
+    tiers = cfg.get("tiers", {}) if isinstance(cfg.get("tiers", {}), dict) else {}
+    want, where = None, f"roles.{role}"
+    troles = (tiers.get(tier) or {}).get("roles") if tier and isinstance(tiers.get(tier), dict) else None
+    if isinstance(troles, dict) and troles.get(role):
+        want, where = str(troles[role]).strip(), f"tiers.{tier}.roles.{role}"
+    elif roles.get(role):
+        want = str(roles[role]).strip()
+    if not want:
         return
-    want = str(roles[role]).strip()
+    if want.lower() == "none":
+        deny(f"{sub} is not dispatched for tier {tier}: {where} is 'none' (the deterministic check alone stamps)")
     got = str(tool_input.get("model") or "").strip()
     if got != want:
-        deny(f"{sub} must run on roles.{role} = {want!r} (.reef/config.json); the Agent call "
+        deny(f"{sub} must run on {where} = {want!r} (.reef/config.json); the Agent call "
              f"passed model={got or 'none'!r} — pass model={want!r}")
+
+
+def write_marker(root, sub, kind, payload):
+    """Machine state the loop and the lock read: .reef/inflight/<id> (an allowed implementer dispatch) and
+    .reef/verifying/<id> (an allowed verifier/hunter dispatch). Removed by /reef-task on the hand-back."""
+    d = os.path.join(root, ".reef", kind)
+    try:
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, str(payload["id"])), "w", encoding="utf-8") as f:
+            json.dump(dict(payload, agent=sub, at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())), f)
+    except OSError as e:
+        deny(f"cannot record the dispatch under {d}: {e}")
 
 
 def check_dispatch(tool_input, payload):
@@ -497,10 +780,16 @@ def check_dispatch(tool_input, payload):
 def _check_dispatch(tool_input, payload):
     sub = str(tool_input.get("subagent_type") or "")
     cwd = payload.get("cwd") or os.getcwd()
-    check_role_model(sub, tool_input, cwd)
-    if "implementer" not in sub:
-        return
     prompt = str(tool_input.get("prompt") or "")
+    tier, troot = dispatch_tier(prompt, cwd)
+    check_role_model(sub, tool_input, troot if tier else cwd, tier)
+    if "implementer" not in sub:
+        if tier and any(t in sub for t in ("verifier", "loophole-hunter")):
+            m = re.search(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", prompt, re.M)
+            path = m.group(1) if os.path.isabs(m.group(1)) else os.path.join(cwd, m.group(1))
+            fm, _ = read_frontmatter(path)
+            write_marker(troot, sub, "verifying", {"id": fm.get("id", "?"), "task": os.path.abspath(path), "tier": tier})
+        return
     m = re.search(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", prompt, re.M)
     if not m:
         deny("implementer dispatch without a 'REEF-TASK: <task-file>' line — run scripts/reef-attempt "
@@ -511,7 +800,7 @@ def _check_dispatch(tool_input, payload):
     if not os.path.isfile(path):
         deny(f"REEF-TASK file not found: {path}")
     root = task_root(path, cwd)
-    if os.path.abspath(root) != os.path.abspath(cwd):
+    if os.path.abspath(root) != os.path.abspath(cwd) and not tier:
         check_role_model(sub, tool_input, root)
     try:
         pre_fm, _ = read_frontmatter(path)
@@ -560,9 +849,104 @@ def _check_dispatch(tool_input, payload):
         # every check passed: the odometer moves and the task becomes in-progress as
         # part of the dispatch itself (it now holds its resources and a parallel slot)
         bump_dispatches(path, text, dispatches, mark_in_progress=(fm.get("status", "pending") != "in-progress"))
+        write_marker(root, sub, "inflight", {"id": fm.get("id", "?"), "task": os.path.abspath(path),
+                                             "feature": fm.get("feature", ""), "tier": task_tier(fm)})
+
+
+# ---------------- 0.6: the guard guards itself (Edit/Write/MultiEdit) ----------------
+
+def main_checkout(cwd):
+    """The main checkout (first `git worktree list --porcelain` entry); machine state lives there."""
+    try:
+        r = subprocess.run(["git", "-C", cwd, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=5)
+        for line in r.stdout.splitlines():
+            if line.startswith("worktree "):
+                return line[len("worktree "):].strip()
+    except Exception:
+        pass
+    return task_root(os.path.join(cwd, "x"), cwd)
+
+
+def context_for(payload):
+    """Facts the Bash and Edit checks share, computed once per hook call."""
+    cwd = payload.get("cwd") or os.getcwd()
+    roots = {main_checkout(cwd), task_root(os.path.join(cwd, "x"), cwd)}
+    plugin = os.environ.get("CLAUDE_PLUGIN_ROOT") or ""
+    plugin_root = bool(plugin) and os.path.realpath(cwd).startswith(os.path.realpath(plugin))
+    critical = False
+    verifying = False
+    for root in roots:
+        d = os.path.join(root, ".reef", "inflight")
+        for f in (os.listdir(d) if os.path.isdir(d) else []):
+            try:
+                with open(os.path.join(d, f), encoding="utf-8") as fh:
+                    critical = critical or json.load(fh).get("tier") == "critical"
+            except Exception:
+                continue
+        v = os.path.join(root, ".reef", "verifying")
+        verifying = verifying or (os.path.isdir(v) and bool(os.listdir(v)))
+    return {"cwd": cwd, "roots": roots, "plugin_root": plugin_root, "critical_inflight": critical,
+            "agent_type": str(payload.get("agent_type") or ""),
+            "typeless_locked": bool(payload.get("agent_id")) and not payload.get("agent_type") and verifying}
+
+
+def check_edit(tool_input, payload, ctx):
+    path = str(tool_input.get("file_path") or "")
+    if not path:
+        return
+    rel = os.path.relpath(path, ctx["cwd"]) if os.path.isabs(path) else path
+    if RECORD_DIRS.search(path) or RECORD_DIRS.search(rel):
+        deny("editing under .reef/approvals/ or .reef/review/ — these records are written by the AskUserQuestion "
+             "hook and scripts/reef-record, bound to a digest or a forge SHA; a hand-written one is an approval nobody gave")
+    if not (GUARD_FILES.search(path) or GUARD_FILES.search(rel)):
+        return
+    if ctx["plugin_root"] or ctx["critical_inflight"]:
+        return
+    if os.path.basename(path) == "config.json":
+        try:
+            with open(path, encoding="utf-8") as f:
+                before = json.load(f)
+        except Exception:
+            before = {}
+        after_text = None
+        if "content" in tool_input:
+            after_text = str(tool_input.get("content") or "")
+        else:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    cur = f.read()
+            except OSError:
+                cur = ""
+            edits = tool_input.get("edits") or [{"old_string": tool_input.get("old_string", ""), "new_string": tool_input.get("new_string", "")}]
+            for e in edits:
+                cur = cur.replace(str(e.get("old_string", "")), str(e.get("new_string", "")))
+            after_text = cur
+        try:
+            after = json.loads(after_text)
+        except Exception:
+            deny(".reef/config.json edit does not parse as JSON — refusing a write that could blank the gates")
+        changed = [k for k in PROTECTED_KEYS if before.get(k) != after.get(k)]
+        if not changed:
+            return
+        deny(f".reef/config.json keys {changed} change only under a tier: critical task (none is in flight) or inside "
+             "Reef's own repository — plan it as a critical task")
+    deny(f"{rel}: the guard's own files (scripts/reef-*, .githooks/*, hooks/hooks.json) change only under a tier: critical "
+         "task (none is in flight) or inside Reef's own repository — plan it as a critical task; a proposed script is "
+         "taken with python3 scripts/reef-init.py --accept <path>")
+
+
+def arm_deadline():
+    """A hung guard must deny, not time out into an allow (onFailure: block is the host's belt)."""
+    def on_alarm(signum, frame):
+        deny(f"guard deadline of {DEADLINE:g}s exceeded — failing closed")
+    signal.signal(signal.SIGALRM, on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, DEADLINE)
 
 
 def main():
+    arm_deadline()
+    if os.environ.get("REEF_GUARD_TEST_HANG"):
+        time.sleep(60)   # the red test for the deadline: the alarm must deny before this returns
     try:
         payload = json.load(sys.stdin)
     except Exception:
@@ -570,9 +954,20 @@ def main():
     tool = payload.get("tool_name", "")
     tool_input = payload.get("tool_input") or {}
     if tool == "Bash":
+        try:
+            CTX.update(context_for(payload))
+        except Exception as e:
+            deny(f"guard internal error reading its context — failing closed: {e}")
         check_bash(str(tool_input.get("command") or ""))
     elif tool in ("Task", "Agent"):
         check_dispatch(tool_input, payload)
+    elif tool in ("Edit", "Write", "MultiEdit"):
+        try:
+            check_edit(tool_input, payload, context_for(payload))
+        except SystemExit:
+            raise
+        except Exception as e:
+            deny(f"guard internal error on an edit of a guarded path — failing closed: {e}")
     sys.exit(0)
 
 

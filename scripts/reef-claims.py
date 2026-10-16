@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# CLASS: code
 """Reef claims — a fix round's sentences bound to its own diff, and "nothing after GREEN".
 
 Usage:

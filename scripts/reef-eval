@@ -30,7 +30,8 @@ import tempfile
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AGENTS = {"verifier": "verifier", "hunter": "loophole-hunter", "plan-reviewer": "plan-reviewer"}
-VERDICT = re.compile(r"^\s*\**VERDICT\**:\s*\**(PASS|FAIL)\b", re.M | re.I)
+VERDICT = re.compile(r"^[\s`*#_>-]*VERDICT[`*_]*:[\s`*_]*(PASS|FAIL)\b", re.M | re.I)
+SECTION = re.compile(r"^[\s`*#_]*(BLOCKING|ADVISORY|NEW-ROW|NONE|VERDICT)\b", re.I)
 # a finding line; a "RULE AC<n>: PASS iff …; FAIL if …" line names FAIL but is a rule, never a finding
 BLOCKING_LINE = re.compile(r"^\s*(?:[-*]\s*)?\**(?!RULE\b)(BLOCKER:|BLOCKING\b|HALT\b|AC\s*\d+\b.*\bFAIL\b|FAIL\b.*\bAC\s*\d+\b)", re.I)
 
@@ -58,9 +59,22 @@ def agent_prompt(agent):
 
 
 def parse(report):
-    """(verdict or None, [blocking lines]). The LAST verdict line decides."""
+    """(verdict or None, [blocking lines]). The LAST verdict line decides. A finding is a BLOCKER:/HALT/`AC<n> FAIL`
+    line anywhere, or any non-empty line inside a BLOCKING section (a `**BLOCKING**` / `## BLOCKING` heading up to
+    the next ADVISORY/NEW-ROW/NONE/VERDICT heading) — the plan-reviewer's shape."""
     vs = VERDICT.findall(report)
-    blocking = [l.strip() for l in report.splitlines() if BLOCKING_LINE.match(l)]
+    blocking, in_section = [], False
+    for l in report.splitlines():
+        m = SECTION.match(l)
+        if m:
+            in_section = m.group(1).upper() == "BLOCKING"
+            if in_section and ":" in l or "—" in l:
+                blocking.append(l.strip())    # `BLOCKING — HALT. …` on one line
+            continue
+        if BLOCKING_LINE.match(l):
+            blocking.append(l.strip())
+        elif in_section and l.strip() and l.strip().lower() not in ("none", "none.", "- none", "- none."):
+            blocking.append(l.strip())
     return (vs[-1].upper() if vs else None), blocking
 
 

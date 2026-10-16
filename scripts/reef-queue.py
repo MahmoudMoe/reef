@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# CLASS: code
 """Reef queue — the outer graph: one row per unit of work, status DERIVED from the task files.
 
 Usage:

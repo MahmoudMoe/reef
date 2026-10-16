@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# CLASS: code
 """Reef init — the full project setup, generated from templates, idempotent.
 
 Usage:
@@ -47,7 +48,9 @@ TEMPLATES = {          # published path -> template under templates/project (or 
     ".githooks/pre-commit": "pre-commit",
     ".githooks/pre-merge-commit": "pre-commit",
 }
-GITIGNORE_LINES = [".reef/worktrees/", ".reef/proposed/", ".reef/ci-local/", "tasks/.plan-review.json", ".env"]
+GITIGNORE_LINES = [".reef/worktrees/", ".reef/proposed/", ".reef/ci-local/", ".reef/approvals/", ".reef/review/",
+                   ".reef/verifying/", ".reef/inflight/", ".reef/loop.json", "tasks/.plan-review.json", ".env"]
+VERSION = "0.6.0"   # written to .reef/version; absent = a 0.5 project (every 0.6 check warns instead of failing)
 MAKEFILE_TARGET = "\nsetup: ## git hooks (once per clone) — reef\n\tgit config core.hooksPath .githooks\n\tchmod +x .githooks/*\n"
 
 
@@ -110,10 +113,8 @@ def project_config(existing, facts):
     cfg["paths"]["runlog"] = "docs/journal.md"
     cfg["paths"]["queue"] = "docs/queue.md"
     cfg["worktree"]["setup"] = facts["install"]
-    cfg["tiers"] = {"light": {"allow": ["docs/**", "README.md"], "max_lines": 80,
-                              "migrations": ["migrations/**", "prisma/migrations/**", "alembic/**"]}}
-    cfg["writing"] = {"task_words": {"light": 600, "full": 2500, "design": 2500}, "handback_words": 150,
-                      "prompt_words": 120, "journal_words": 40000, "queue_words": 35000}
+    # the tier table (models per role, effort, light allowlist) and the writing caps come from the
+    # plugin's templates/config.json — one home; nothing is restated here
 
     def merge(base, over):
         for k, v in over.items():
@@ -198,6 +199,16 @@ def run(root, facts, dry):
                 f.write("\n")
         w.written.append(".reef/config.json" + (" (keys added)" if existing is not None else ""))
     # templates
+    # the version marker: every 0.6 check reads it (absent = 0.5: warn, never fail)
+    vpath = os.path.join(root, ".reef", "version")
+    if not os.path.isfile(vpath):
+        if not dry:
+            os.makedirs(os.path.dirname(vpath), exist_ok=True)
+            with open(vpath, "w", encoding="utf-8") as f:
+                f.write(VERSION + "\n")
+        w.written.append(".reef/version")
+    else:
+        w.skipped.append(".reef/version")
     for rel, tpl in TEMPLATES.items():
         with open(os.path.join(PLUGIN, "templates", tpl), encoding="utf-8") as f:
             w.place(rel, render(f.read(), facts), executable=rel.startswith(".githooks/"))

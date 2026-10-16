@@ -118,6 +118,67 @@ class InitSkill(unittest.TestCase):
             self.assertIn(f"project/{name}", src, f"templates/project/{name} is not wired into reef-init.py")
 
 
+class LedgerClasses(unittest.TestCase):
+    """0.6 item 1.6: every script carries `# CLASS: code|tripwire`; each README ledger row classed code or
+    tripwire names a script whose header carries that class; the hook timeouts match the measured profile."""
+
+    def headers(self):
+        out = {}
+        for d, pat in (("scripts", "reef-"), ("templates", "pre-commit")):
+            for n in os.listdir(os.path.join(ROOT, d)):
+                if n.startswith(pat):
+                    with open(os.path.join(ROOT, d, n), encoding="utf-8") as f:
+                        head = "".join(f.readline() for _ in range(3))
+                    m = re.search(r"^# CLASS: ([a-z, ]+)$", head, re.M)
+                    out[n] = {c.strip() for c in m.group(1).split(",")} if m else None
+        return out
+
+    def test_every_script_has_a_class_header(self):
+        for name, classes in self.headers().items():
+            self.assertIsNotNone(classes, f"{name}: no `# CLASS: code|tripwire` header in its first 3 lines")
+            self.assertTrue(classes <= {"code", "tripwire"}, f"{name}: {classes}")
+
+    def test_ledger_rows_name_a_script_of_their_class(self):
+        headers = self.headers()
+        rows = [l for l in read("README.md").splitlines() if l.startswith("|") and "|---" not in l]
+        checked = 0
+        for row in rows:
+            cells = [c.strip() for c in row.strip("|").split("|")]
+            if len(cells) < 3 or cells[0] == "Rule":
+                continue
+            layer = cells[-1].lower()
+            cls = "code" if "code" in layer else ("tripwire" if "tripwire" in layer else None)
+            if cls is None or "prose" in layer and cls == "code" and "mechanism" not in layer and "hash" not in layer:
+                continue
+            names = set(re.findall(r"(reef-[a-z-]+(?:\.py|\.sh)?|pre-commit)", row))
+            named = {n for n in names if n in headers}
+            if not named:
+                continue
+            self.assertTrue(any(cls in (headers[n] or set()) for n in named),
+                            f"ledger row classed {cls!r} names {sorted(named)} but none carries that class: {row[:90]}")
+            checked += 1
+        self.assertGreaterEqual(checked, 8, "the ledger lost its script-naming rows")
+
+    def test_hook_timeouts_match_the_profile(self):
+        import glob
+        profiles = sorted(glob.glob(os.path.join(ROOT, "docs", "perf", "guard-profile-*.md")))
+        self.assertTrue(profiles, "docs/perf/guard-profile-<date>.md is missing — run scripts/reef-guard-profile.py")
+        table = {}
+        for l in read("docs", "perf", os.path.basename(profiles[-1])).splitlines():
+            m = re.match(r"\| `([^`]+)` \| \d+ \| \d+ \| \d+ \| (\d+) \|", l)
+            if m:
+                table[m.group(1)] = int(m.group(2))
+        self.assertTrue(table)
+        hooks = json.loads(read("hooks", "hooks.json"))["hooks"]
+        for ev, entries in hooks.items():
+            for e in entries:
+                key = e.get("matcher", ev)
+                for h in e["hooks"]:
+                    if key in table:
+                        self.assertGreaterEqual(h["timeout"], table[key], f"{key}: hooks.json timeout below the profile")
+                    self.assertEqual(h.get("onFailure"), "block", key)
+
+
 class Templates(unittest.TestCase):
     def test_runlog_has_no_subagent_tokens_column(self):
         self.assertNotIn("Subagent tokens", read("templates", "runlog.md"))

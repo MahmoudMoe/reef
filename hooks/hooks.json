@@ -6,7 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'if command -v python3 >/dev/null 2>&1; then exec python3 \"$0\"; fi; if grep -qiE \"no-?verify|hookspath\"; then echo \"reef-guard (no python3, degraded): possible gate bypass — denied\" >&2; exit 2; fi; exit 0' \"${CLAUDE_PLUGIN_ROOT}/scripts/reef-guard.py\""
+            "timeout": 10,
+            "onFailure": "block",
+            "command": "sh -c 'if command -v python3 >/dev/null 2>&1; then exec python3 \"$0\"; fi; if grep -qiE \"no-?verify|hookspath\"; then echo \"reef-guard (no python3, degraded): possible gate bypass \u2014 denied\" >&2; exit 2; fi; exit 0' \"${CLAUDE_PLUGIN_ROOT}/scripts/reef-guard.py\""
           }
         ]
       },
@@ -15,6 +17,19 @@
         "hooks": [
           {
             "type": "command",
+            "timeout": 10,
+            "onFailure": "block",
+            "command": "sh -c 'command -v python3 >/dev/null 2>&1 && exec python3 \"$0\"; echo \"reef-guard: python3 is required to check a dispatch \u2014 denied\" >&2; exit 2' \"${CLAUDE_PLUGIN_ROOT}/scripts/reef-guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 10,
+            "onFailure": "block",
             "command": "sh -c 'command -v python3 >/dev/null 2>&1 && exec python3 \"$0\"; exit 0' \"${CLAUDE_PLUGIN_ROOT}/scripts/reef-guard.py\""
           }
         ]

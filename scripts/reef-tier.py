@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# CLASS: code
 """Reef tier — effort matched to risk, recomputed from the DIFF; it can only make it heavier.
 
 Usage:
@@ -23,7 +24,7 @@ import sys
 import json
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
-ORDER = {"light": 0, "full": 1, "design": 2}
+ORDER = {"light": 0, "full": 1, "design": 2, "critical": 3}
 DEFAULT_TESTS = ["tests/**", "test/**", "**/*.test.*", "**/*_test.*", "**/test_*.py", "**/*.spec.*"]
 
 
@@ -108,7 +109,7 @@ def main(argv):
     dm = re.search(r"^tier:[ \t]*(\S+)", m.group(1), re.M)
     declared = dm.group(1).strip('"') if dm else "full"
     if declared not in ORDER:
-        die(f"{task}: tier={declared!r} not in light/full/design", 1)
+        die(f"{task}: tier={declared!r} not in light/full/design/critical", 1)
     cfg = {}
     try:
         with open(os.path.join(subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=repo, capture_output=True,

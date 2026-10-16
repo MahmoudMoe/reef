@@ -21,6 +21,44 @@
   catch-rate and is refused; every corpus entry builds green and passes plan-check where the reviewer needs it).
 - **0.4 Baseline evals** k=3: `docs/perf/eval-baseline-2026-10-16.md`.
 
+### Phase 1 — foundations and trust binding
+- **1.0 Version marker and four tiers.** `reef-init` writes `.reef/version`; `tier: critical | design | full | light`
+  (`schemas/task.schema.json`, `touches:`); the tier table `tiers.<tier>.{roles,effort,paths}` in
+  `templates/config.json` (critical: fable judges, opus author, effort high; light: `plan_reviewer: none`);
+  `reef-attempt` resolves `author:`/`verifier:`/`adversary:` through it (effort only rises); `reef-plan-check.py`
+  gains `critical`, `--needs-agent` (exit 3 on an all-light plan), `--digest`; the guard resolves the tier from
+  the `REEF-TASK:`/`REEF-FEATURE:` line every role dispatch carries, treats critical like design for the
+  adversarial pass, maps `Explore → mechanic`; the pre-commit closes critical like design. Tests:
+  `tests/test_tiers_lock.py::FourTiers` (light with opus → DENY; critical with sonnet → DENY; critical without
+  `adversarial-plan` → DENY; one full task still needs the reviewer; an unset table is exactly 0.5),
+  `tests/test_hooks.sh` (critical into done/ without `adversarial-guard:` → rejected).
+- **1.1 Review records bound to the forge SHA.** `scripts/reef-record <feature> <verdict>` writes
+  `.reef/review/<feature>.json` from `gh pr view` / `gh api …/git/commits`; under `merge.by: loop` the guard
+  refuses `gh pr merge` / `gh api …/merge` unless a GREEN record names the forge head — a clean base merge
+  (`git merge-tree --write-tree`, git ≥ 2.38) or claims-only commits are the only carry-overs; gh under its own
+  deadline, fail closed. Tests: `tests/test_record.py` (push after GREEN → DENY; gh fails/slow → DENY; clean
+  base merge → allow; rebase → DENY; old git → DENY; merge.by human → nothing gated).
+- **1.2 Human-only plan approval.** `/reef-plan` asks `Approve plan <slug> at <digest16>?`; the PostToolUse hook
+  `scripts/reef-approval.py` writes `.reef/approvals/<slug>.json` only on `Approve` with the current digest (a
+  timeout, another label or a stale digest writes nothing); `--verify-stamp` and the guard require it for
+  features planned under 0.6 (`planned_under` in the stamp), warn for older ones; hand-written records are denied
+  (Bash writes and the new `Edit|Write|MultiEdit` matcher). Tests: `tests/test_tiers_lock.py::HumanOnlyApproval`.
+- **1.3 Reviewer lock.** `agent_type` in the payload (class code, verified live): verifier, loophole-hunter,
+  plan-reviewer and Explore get no mutating git, no Bash write, no CI wait; `.reef/verifying/<id>` (written on an
+  allowed judge dispatch) locks typeless sub-agent calls too; `gh pr checks --watch`, `gh run watch`, `sleep ≥ 60`
+  denied for every sub-agent. Tests: `tests/test_tiers_lock.py::ReviewerLock`.
+- **1.4 Fail-closed guard with a deadline.** `timeout` + `onFailure: block` on every matcher (schema verified);
+  `signal.alarm` deadline inside the guard (`REEF_GUARD_DEADLINE`); `scripts/reef-guard-profile.py` →
+  `docs/perf/guard-profile-2026-10-16.md` (timeout ≥ 5 × p95, floor 10 s); no python3 → a dispatch is denied.
+  Tests: `tests/test_tiers_lock.py::Deadline`, `tests/test_contracts.py::LedgerClasses::test_hook_timeouts_match_the_profile`,
+  `tests/test_hooks.sh` (no python3 → exit 2).
+- **1.5 The guard guards itself.** `scripts/reef-*`, `.githooks/*`, `hooks/hooks.json` and the
+  `roles|caps|gates|tiers` keys of `.reef/config.json` change only under a `critical` task in flight
+  (`.reef/inflight/<id>`, written by the guard on an allowed implementer dispatch) or inside Reef's own
+  repository (`CLAUDE_PLUGIN_ROOT`); `reef-init --accept` stays allowed. Tests: `tests/test_tiers_lock.py::GuardGuardsItself`.
+- **1.6 `# CLASS: code|tripwire` headers** on every script and the pre-commit; `tests/test_contracts.py::LedgerClasses`
+  ties README ledger rows to a script of that class; `.github/workflows/ci.yml` job `code-change-needs-a-test`.
+
 ## 0.5.0 — the graph executor and the full project setup
 
 - **Task graph executed, not just declared.** `scripts/reef-graph.py` computes the ready set from

@@ -1,14 +1,136 @@
 {
-  "gates": { "fast": "", "full": "" },
-  "caps": { "attempts": 3 },
-  "roles": { "author": "opus", "verifier": "opus", "plan_reviewer": "fable", "planner": "fable", "adversary": "opus", "reviewer": "opus", "security": "opus", "mechanic": "sonnet" },
-  "merge": { "by": "human" },
-  "ci": { "feature_gate": "ci" },
-  "branches": { "base": "main", "release": "main" },
-  "plan": { "test_re": "", "max_words": 0 },
-  "paths": { "tasks": "tasks", "adr": "docs/adr", "glossary": "docs/glossary.md", "runlog": "docs/runlog.md" },
+  "gates": {
+    "fast": "",
+    "full": ""
+  },
+  "caps": {
+    "attempts": 3
+  },
+  "roles": {
+    "author": "opus",
+    "verifier": "opus",
+    "plan_reviewer": "fable",
+    "planner": "fable",
+    "adversary": "opus",
+    "reviewer": "opus",
+    "security": "opus",
+    "mechanic": "sonnet"
+  },
+  "merge": {
+    "by": "human"
+  },
+  "ci": {
+    "feature_gate": "ci"
+  },
+  "branches": {
+    "base": "main",
+    "release": "main"
+  },
+  "plan": {
+    "test_re": "",
+    "max_words": 0
+  },
+  "paths": {
+    "tasks": "tasks",
+    "adr": "docs/adr",
+    "glossary": "docs/glossary.md",
+    "runlog": "docs/runlog.md"
+  },
   "invariants": [],
-  "graph": { "parallel": 10 },
-  "resources": { "heavy": { "slots": 2 } },
-  "worktree": { "dir": ".reef/worktrees", "setup": "" }
+  "graph": {
+    "parallel": 10
+  },
+  "resources": {
+    "heavy": {
+      "slots": 2
+    }
+  },
+  "worktree": {
+    "dir": ".reef/worktrees",
+    "setup": ""
+  },
+  "tiers": {
+    "critical": {
+      "roles": {
+        "planner": "fable",
+        "plan_reviewer": "fable",
+        "adversary": "fable",
+        "verifier": "fable",
+        "reviewer": "fable",
+        "security": "fable",
+        "author": "opus"
+      },
+      "effort": "high",
+      "paths": [
+        ".githooks/**",
+        "scripts/reef-*",
+        "hooks/**",
+        ".reef/config.json"
+      ]
+    },
+    "design": {
+      "roles": {
+        "planner": "fable",
+        "plan_reviewer": "fable",
+        "adversary": "opus",
+        "verifier": "opus",
+        "reviewer": "opus",
+        "security": "opus",
+        "author": "opus"
+      },
+      "effort": "high",
+      "paths": [
+        "**/auth/**",
+        "**/crypto/**",
+        "**/secrets/**",
+        "migrations/**",
+        "prisma/migrations/**",
+        "alembic/**"
+      ]
+    },
+    "full": {
+      "roles": {
+        "planner": "fable",
+        "plan_reviewer": "fable",
+        "adversary": "opus",
+        "verifier": "opus",
+        "reviewer": "opus",
+        "security": "opus",
+        "author": "opus"
+      },
+      "effort": "medium"
+    },
+    "light": {
+      "roles": {
+        "plan_reviewer": "none"
+      },
+      "effort": "low",
+      "allow": [
+        "docs/**",
+        "README.md"
+      ],
+      "max_lines": 80,
+      "migrations": [
+        "migrations/**",
+        "prisma/migrations/**",
+        "alembic/**"
+      ]
+    }
+  },
+  "writing": {
+    "task_words": {
+      "light": 600,
+      "full": 2500,
+      "design": 2500,
+      "critical": 2500
+    },
+    "handback_words": 150,
+    "prompt_words": 120,
+    "report_words": 0,
+    "journal_words": 40000,
+    "queue_words": 35000,
+    "sentence_words": 25,
+    "criterion_words": 50,
+    "session_start_tokens": 8000
+  }
 }

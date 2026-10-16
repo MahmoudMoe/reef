@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# CLASS: code
 """Reef plan check — the deterministic, blocking layer between plan approval and implementation.
 Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
 - Checks task files, ADRs, brief, and .reef/config.json for structural defects. No model, no network.
@@ -14,7 +15,14 @@ Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
   Never written on failure.
 - --verify-stamp: recompute, print one line, exit 0 = unchanged since last review, 1 = changed
   or no stamp. With --feature SLUG only that feature is compared (the guard passes the
-  dispatched task's feature); without it every feature present must match.
+  dispatched task's feature); without it every feature present must match. 0.6: a feature planned
+  under 0.6 (the stamp records planned_under >= 0.6.0 — `.reef/version` existed when it was first
+  stamped) must also have the human's approval record `.reef/approvals/<feature>.json` (written by
+  the AskUserQuestion hook, scripts/reef-approval.py) whose digest16 equals the digest's first 16 hex;
+  a pre-0.6 feature only warns. The approvals live in the MAIN checkout's .reef/, never a worktree's.
+- --digest FEATURE: print `digest: <feature> <sha256>` — the same digest the stamp uses — and exit.
+- --needs-agent: exit 0 when the plan-reviewer agent is needed (some task heavier than light, or no
+  tier table), 3 when every task is light and tiers.light.roles.plan_reviewer is "none".
 Rule for the orchestrator: this script is deterministic; never argue with it, never work around it.
 """
 import hashlib, json, os, re, subprocess, sys
@@ -23,7 +31,8 @@ STATUS = {"pending", "in-progress", "blocked", "done"}
 COMPLEXITY = {"mech", "design"}
 EFFORT = {"low", "medium", "high"}
 VERIFY = {"judge", "gate-only"}
-TIER = {"light", "full", "design"}       # effort matched to risk; mech <=> light (design §4)
+TIER = {"light", "full", "design", "critical"}   # effort matched to risk; mech <=> light (design §4); 0.6 adds critical
+TIER_ORDER = ["light", "full", "design", "critical"]
 REQUIRED = ["id", "feature", "status", "complexity", "effort", "blocked-by", "verify", "attempts"]
 # Test-name conventions across the stacks reef-init advertises. Left/right anchored so
 # prose like "latest_figures" cannot satisfy the gate. Overridable via .reef/config.json
@@ -120,11 +129,16 @@ FEATURE_GATE = ("ci", "local")
 
 def parse_args(argv):
     verify, feature, args = False, None, []
+    flags = {"digest": False, "needs_agent": False}
     i = 0
     while i < len(argv):
         a = argv[i]
         if a == "--verify-stamp":
             verify = True
+        elif a == "--digest":
+            flags["digest"] = True
+        elif a == "--needs-agent":
+            flags["needs_agent"] = True
         elif a == "--feature":
             if i + 1 >= len(argv) or not argv[i + 1].strip():
                 print("FAIL: --feature requires a feature slug")
@@ -139,7 +153,47 @@ def parse_args(argv):
         else:
             args.append(a)
         i += 1
-    return verify, feature, args
+    return verify, feature, args, flags
+
+
+def version_marker(root):
+    """`.reef/version` (written by reef-init 0.6); absent = a 0.5 project: every new check warns."""
+    try:
+        with open(os.path.join(root, ".reef", "version"), encoding="utf-8") as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
+def main_checkout(root):
+    """The main checkout's path: the first entry of `git worktree list --porcelain`. Approvals and
+    review records are machine state resolved there, never from a task worktree."""
+    try:
+        r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=10)
+        for line in r.stdout.splitlines():
+            if line.startswith("worktree "):
+                return line[len("worktree "):].strip()
+    except Exception:
+        pass
+    return root
+
+
+def planned_under_06(stamp, feat):
+    v = (stamp.get("planned_under") or {}).get(feat, "")
+    return bool(v) and tuple(int(x) for x in re.findall(r"\d+", v)[:3]) >= (0, 6, 0)
+
+
+def approval_state(root, feat, digest):
+    """(ok, line): the human's approval record must carry this digest's first 16 hex."""
+    p = os.path.join(main_checkout(root), ".reef", "approvals", f"{feat}.json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            rec = json.load(f)
+    except Exception:
+        return False, f"approval: MISSING for {feat!r} ({os.path.relpath(p, root)}) — the human approves the plan in /reef-plan's gate; the hook writes the record"
+    if str(rec.get("digest16", "")) != digest[:16]:
+        return False, f"approval: STALE for {feat!r} (approved {rec.get('digest16')}, plan is {digest[:16]}) — re-approve the current plan"
+    return True, f"approval: OK for {feat!r} ({digest[:16]}, {rec.get('approved_at', '?')})"
 
 
 def fm_value(text, key):
@@ -152,7 +206,7 @@ def fm_value(text, key):
 
 
 def main():
-    verify_stamp, feature_filter, args = parse_args(sys.argv[1:])
+    verify_stamp, feature_filter, args, flags = parse_args(sys.argv[1:])
     if args:
         root = args[0]
     else:
@@ -272,6 +326,14 @@ def main():
         return h.hexdigest()
 
     digests = {feat: digest_for(feat) for feat in by_feature}
+    marker = version_marker(root)
+
+    if flags["digest"]:
+        if feature_filter is None:
+            print("FAIL: --digest requires --feature SLUG")
+            sys.exit(1)
+        print(f"digest: {feature_filter} {digest_for(feature_filter)}")
+        sys.exit(0)
 
     if verify_stamp:
         try:
@@ -286,14 +348,27 @@ def main():
         if feature_filter is not None:
             same = feature_filter in stamped and stamped[feature_filter] == digest_for(feature_filter)
             scope = f"feature {feature_filter!r}"
+            feats = [feature_filter]
         else:
             same = stamped == digests
             scope = "every feature"
-        if same:
-            print(f"stamp: MATCH — plan unchanged since last review ({scope})")
-            sys.exit(0)
-        print(f"stamp: STALE — plan artifacts changed since last review ({scope}); re-review required")
-        sys.exit(1)
+            feats = sorted(digests)
+        if not same:
+            print(f"stamp: STALE — plan artifacts changed since last review ({scope}); re-review required")
+            sys.exit(1)
+        print(f"stamp: MATCH — plan unchanged since last review ({scope})")
+        # 0.6: the human's approval is a RECORD bound to the digest, not a sentence in the chat
+        rc = 0
+        for feat in feats:
+            okd, line = approval_state(root, feat, digest_for(feat))
+            if okd:
+                print(line)
+            elif planned_under_06(stamp, feat):
+                print(line)
+                rc = 1
+            else:
+                print(f"warning: {line} (feature planned before 0.6 — not enforced)")
+        sys.exit(rc)
 
     # ---- per-task parse + checks, ordered by file
     tasks = {}          # path -> frontmatter (only files that parsed)
@@ -332,7 +407,7 @@ def main():
         tier, cx = fm.get("tier"), fm.get("complexity")
         if tier == "light" and cx == "design":
             errs.append("tier light on a design task (light <=> mech only)")
-        if tier in ("full", "design") and cx == "mech":
+        if tier in ("full", "design", "critical") and cx == "mech":
             errs.append(f"tier {tier} on a mech task (mech <=> light; make it design or lower the tier)")
         if errs:
             fail(f"{rel}: schema — " + "; ".join(errs))
@@ -600,11 +675,33 @@ def main():
     print(f"{len(results)} checks, {failed} failed")
     if failed:
         sys.exit(1)
+    # planned_under: a feature first stamped while `.reef/version` exists is a 0.6 plan (approval
+    # enforced); a feature already in the old stamp keeps its old standing (warning only)
+    try:
+        old = json.loads(read(stamp_path))
+        planned = dict(old.get("planned_under") or {})
+    except Exception:
+        planned = {}
+    for feat in digests:
+        if feat not in planned and marker:
+            planned[feat] = marker
     with open(stamp_path, "w") as f:
-        json.dump({"features": digests, "checks": len(results)}, f, indent=2, sort_keys=True)
+        json.dump({"features": digests, "checks": len(results), "planned_under": planned}, f, indent=2, sort_keys=True)
         f.write("\n")
+    # the plan-reviewer's model comes from the heaviest tier among the stamped features' tasks
+    # (tiers.<tier>.roles.plan_reviewer, then roles.plan_reviewer, then fable); "none" on an
+    # all-light plan means the deterministic check alone stamps
     roles = cfg.get("roles", {}) if isinstance(cfg.get("roles", {}), dict) else {}
-    print(f"plan-reviewer: model={roles.get('plan_reviewer') or 'fable'}")
+    tiers_cfg = cfg.get("tiers", {}) if isinstance(cfg.get("tiers", {}), dict) else {}
+    present = [fm.get("tier") or ("light" if fm.get("complexity") == "mech" else "full") for rel, fm in tasks.items()
+               if not os.path.basename(rel).startswith("R") and (feature_filter is None or fm.get("feature") == feature_filter)]
+    heaviest = max(present, key=lambda t: TIER_ORDER.index(t) if t in TIER_ORDER else 1, default="full")
+    trole = (tiers_cfg.get(heaviest, {}) or {}).get("roles", {}) if isinstance(tiers_cfg.get(heaviest, {}), dict) else {}
+    model = str((trole or {}).get("plan_reviewer") or roles.get("plan_reviewer") or "fable")
+    if model.lower() == "none":
+        print(f"plan-reviewer: none (heaviest tier {heaviest}: the deterministic check alone stamps)")
+        sys.exit(3 if flags["needs_agent"] else 0)
+    print(f"plan-reviewer: model={model} (heaviest tier {heaviest})")
     sys.exit(0)
 
 
