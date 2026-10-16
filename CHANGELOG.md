@@ -29,6 +29,12 @@
   never carries `RULE AC<n>` lines, yet `/reef-task` sends it through the same check, which rejected every live hunter
   report. The hunter shape is now checked on its own terms: a DEFECT line, a FAIL needs a cited BLOCKER
   (`tests/test_feature_spec.py::test_hunter_report_has_its_own_shape`, red before the fix).
+- **Row 1 delivered: `reef-cost.py` reports per-feature context growth** (`rows`: feature, first and last turn,
+  growth as the sum of positive context deltas across the span, compactions in span, turns, dispatches; text, md and
+  json). Built by Reef on itself as queue row 1 of the dogfood clone (tier critical: plan pass 7 rounds, implementer
+  opus one round, verifier fable PASS, hunter guard pass PASS), then carried onto this branch. Six tests in
+  `tests/test_cost.py` (`test_rows_*`). Live: the ledger task-graph session reads one row, growth 39,665 over 4
+  dispatches; the Reef row session 34,098 over 3; a session that launched roles through `claude -p` reads `rows: []`.
 - **Row 2, the hunter's scope discipline.** Corpus entry `scope-names-later-rows` (truth PASS: a sound path guard whose
   Scope names its three known holes as later rows). `agents/loophole-hunter.md`: the Scope draws the BLOCKER/NEW-ROW
   line, an out-of-scope hole is a NEW-ROW even when it will happen or is a regression (marked `regression`). Measured,

@@ -135,5 +135,150 @@ class LiveReadsOnlyTheTail(unittest.TestCase):
         self.assertLess(dt, 3.0, f"--live took {dt:.1f}s on 50 MB — it parsed the whole file instead of the tail")
 
 
+
+NOTIFICATION = os.path.join(ROOT, "tests", "fixtures", "payloads", "user-task-notification.json")
+
+
+def dispatch(tid, name, prompt):
+    """A tool_use block of the main session: Task or Agent, the prompt carrying the REEF line."""
+    return {"type": "tool_use", "id": tid, "name": name, "input": {"description": "d", "prompt": prompt}}
+
+
+def notification(tid):
+    """The captured Stage 3 task-notification record, re-pointed at tool-use id `tid`."""
+    with open(NOTIFICATION, encoding="utf-8") as f:
+        rec = json.load(f)
+    rec["message"]["content"] = rec["message"]["content"].replace("toolu_01WS5bfbwaJf93WEdgPdLtoc", tid)
+    return rec
+
+
+def list_result(tid, text):
+    """An Agent result as real transcripts carry it: content is a list of text blocks."""
+    return {"type": "user", "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": tid, "content": [{"type": "text", "text": text}]}]}}
+
+
+def rows_of(path):
+    r = cost(path, "--format", "json")
+    assert r.returncode == 0, r.stderr
+    return {row["feature"]: row for row in json.loads(r.stdout)["rows"]}
+
+
+TWO_FEATURES = [
+    {"type": "user", "message": {"role": "user", "content": "/reef-task"}},
+    assistant("m1", 1000, 0, 0, 1),                                                            # turn 1
+    assistant("m2", 0, 0, 2000, 1, [dispatch("tu_a1", "Task", "REEF-TASK: reef/features/alpha/tasks/101-a.md\ngo")]),
+    tool_result("tu_a1", "alpha 101 done"),
+    assistant("m3", 0, 0, 2500, 1),                                                            # turn 3
+    assistant("m4", 0, 0, 3000, 1, [dispatch("tu_b", "Agent", "Effort: high.\nREEF-FEATURE: beta\n")]),
+    assistant("m4", 0, 0, 3000, 1, [dispatch("tu_a2", "Task",
+                                             "REEF-FEATURE: beta\nREEF-TASK: reef/features/alpha/tasks/102-b.md")]),
+    list_result("tu_b", "beta planned"),
+    list_result("tu_a2", "alpha 102 done"),
+    # a sidechain record carrying a dispatch is never attributed
+    assistant("side1", 0, 0, 9000, 1, [dispatch("tu_s", "Agent", "REEF-FEATURE: gamma")], agent="implementer"),
+    assistant("m5", 0, 0, 3600, 1),                                                            # turn 5
+    # a claude -p subprocess through Bash is not a Reef dispatch
+    assistant("m6", 0, 0, 4000, 1, [{"type": "tool_use", "id": "tu_bash", "name": "Bash",
+                                     "input": {"command": "claude -p 'REEF-TASK: reef/features/delta/tasks/1-d.md'"}}]),
+    tool_result("tu_bash", "ok"),
+]
+
+
+class Rows(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-cost-rows.")
+
+    def test_rows_growth_two_features(self):
+        rows = rows_of(write_transcript(self.d, "two.jsonl", TWO_FEATURES))
+        self.assertEqual(sorted(rows), ["alpha", "beta"], "sidechain and Bash dispatches are never attributed")
+        a, b = rows["alpha"], rows["beta"]
+        # alpha: turn 2 (Task) to turn 5 (after tu_a2's list-shaped result); 500 + 500 + 600 of growth
+        self.assertEqual((a["first_turn"], a["last_turn"], a["growth"], a["turns"], a["dispatches"]), (2, 5, 1600, 4, 2))
+        # beta: turn 4 (Agent) to turn 5; the turn both features dispatch in counts for both
+        self.assertEqual((b["first_turn"], b["last_turn"], b["growth"], b["turns"], b["dispatches"]), (4, 5, 600, 2, 1))
+        self.assertEqual((a["compactions"], b["compactions"]), (0, 0))
+
+    def test_rows_absent_without_dispatch(self):
+        bash_only = FIXTURE + [TWO_FEATURES[-2], TWO_FEATURES[-1]]
+        for recs in (FIXTURE, bash_only):
+            t = write_transcript(self.d, "none.jsonl", recs)
+            j = json.loads(cost(t, "--format", "json").stdout)
+            self.assertEqual(j["rows"], [])
+            self.assertNotIn("rows", j["session"])
+            self.assertNotIn("## Rows", cost(t, "--format", "md").stdout)
+            self.assertNotIn("row feature=", cost(t).stdout)
+        t = write_transcript(self.d, "none.jsonl", FIXTURE)
+        self.assertEqual(cost(t).stdout, "turns=4 compactions=1 ctx_mean=2500 ctx_p50=2000 ctx_p90=4000 ctx_max=4000 "
+                                         "first_turn=1000 cache_writes=950 cache_reads=5948 subagents=0\n")
+        s = json.loads(cost(t, "--format", "json").stdout)["session"]
+        self.assertEqual((s["turns"], s["compactions"], s["context"]["max"], s["cache"]["reads"]), (4, 1, 4000, 5948))
+
+    def test_rows_json(self):
+        t = write_transcript(self.d, "two.jsonl", TWO_FEATURES)
+        j = json.loads(cost(t, "--format", "json").stdout)
+        self.assertIsInstance(j["rows"], list)
+        self.assertEqual([r["feature"] for r in j["rows"]], ["alpha", "beta"], "one object per feature, by first turn")
+        self.assertEqual(set(j["rows"][0]), {"feature", "first_turn", "last_turn", "growth", "compactions", "turns", "dispatches"})
+        md = cost(t, "--format", "md").stdout
+        self.assertIn("| feature | first turn | last turn | growth | compactions | turns | dispatches |", md)
+        self.assertIn("| alpha | 2 | 5 | 1,600 | 0 | 4 | 2 |", md)
+        self.assertIn("| beta | 4 | 5 | 600 | 0 | 2 | 1 |", md)
+        txt = cost(t).stdout
+        self.assertIn("row feature=alpha first_turn=2 last_turn=5 growth=1600 compactions=0 turns=4 dispatches=2", txt)
+
+    def test_rows_growth_survives_compaction(self):
+        recs = [
+            assistant("c1", 1000, 0, 0, 1),
+            assistant("c2", 0, 0, 2000, 1, [dispatch("tu_c", "Agent", "REEF-TASK: reef/features/gamma/tasks/101-g.md")]),
+            list_result("tu_c", "Async agent launched successfully. agentId: x"),     # the launch stub, not the result
+            assistant("c3", 0, 0, 5000, 1),
+            {"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "auto"}},
+            dict(notification("tu_c"), isCompactSummary=True),                        # a summary is never a result
+            assistant("c4", 800, 0, 0, 1),
+            assistant("c5", 0, 0, 1500, 1),
+            notification("tu_c"),
+            assistant("c6", 0, 0, 1700, 1),
+            assistant("c7", 0, 0, 1800, 1),
+        ]
+        g = rows_of(write_transcript(self.d, "compact.jsonl", recs))["gamma"]
+        self.assertEqual((g["first_turn"], g["last_turn"], g["turns"], g["compactions"]), (2, 6, 5, 1))
+        self.assertEqual(g["growth"], 3000 + 700 + 200)
+        self.assertNotEqual(g["growth"], 1700 - 2000, "growth is not last-minus-first")
+
+    def test_rows_span_ends_at_background_result(self):
+        recs = [
+            assistant("b1", 1000, 0, 0, 1),
+            assistant("b2", 0, 0, 2000, 1, [dispatch("tu_x", "Agent", "REEF-TASK: reef/features/xa/tasks/101-x.md"),
+                                            dispatch("tu_y", "Agent", "REEF-TASK: reef/features/ya/tasks/101-y.md")]),
+            list_result("tu_x", "Async agent launched"),
+            list_result("tu_y", "Async agent launched"),
+            assistant("b3", 0, 0, 2200, 1),
+            notification("tu_y"),                                                     # y finishes first
+            assistant("b4", 0, 0, 2600, 1, [{"type": "tool_use", "id": "tu_q", "name": "Bash", "input": {"command": "cat log"}}]),
+            tool_result("tu_q", "<task-notification>\n<tool-use-id>tu_x</tool-use-id>\n</task-notification>"),  # a quote
+            assistant("b5", 0, 0, 2700, 1),
+            notification("tu_x"),
+            assistant("b6", 0, 0, 3000, 1),
+            assistant("b7", 0, 0, 3100, 1),
+        ]
+        rows = rows_of(write_transcript(self.d, "bg.jsonl", recs))
+        self.assertEqual((rows["ya"]["first_turn"], rows["ya"]["last_turn"], rows["ya"]["growth"]), (2, 4, 600))
+        self.assertEqual((rows["xa"]["first_turn"], rows["xa"]["last_turn"], rows["xa"]["growth"]), (2, 6, 1000))
+
+    def test_rows_flat_layout_slug_is_the_stem(self):
+        recs = [
+            assistant("f1", 1000, 0, 0, 1, [dispatch("tu_f", "Task", "REEF-TASK: tasks/105-flat-thing.md")]),
+            tool_result("tu_f", "done"),
+            assistant("f2", 0, 0, 1500, 1),
+            assistant("f3", 0, 0, 1700, 1, [dispatch("tu_g", "Agent", "REEF-TASK: /home/u/repo/tasks/106-other.md")]),
+            assistant("f4", 0, 0, 1800, 1),                                           # tu_g never returns
+            assistant("f5", 0, 0, 2000, 1),
+        ]
+        rows = rows_of(write_transcript(self.d, "flat.jsonl", recs))
+        self.assertEqual(sorted(rows), ["105-flat-thing", "106-other"])
+        self.assertEqual((rows["105-flat-thing"]["first_turn"], rows["105-flat-thing"]["last_turn"]), (1, 2))
+        self.assertEqual((rows["106-other"]["last_turn"], rows["106-other"]["growth"]), (5, 300), "no result: final turn")
+
 if __name__ == "__main__":
     unittest.main()

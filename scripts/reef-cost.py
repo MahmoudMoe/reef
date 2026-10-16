@@ -4,7 +4,8 @@
 Usage: reef-cost.py [<transcript.jsonl>] [--repo DIR] [--format text|md|json] | --session-start | --live
        (cat hook-payload.json | reef-cost.py --live  reads transcript_path from the payload)
 Turns = one per requestId; context = input + cache writes + cache reads; a compaction counts once (boundary record,
-else summary record); --live reads the last 256 KB only. Exit 0; 2 on a missing transcript. See README "Measured".
+else summary record); --live reads the last 256 KB only. Rows: per feature dispatched through Task/Agent
+(REEF-TASK:/REEF-FEATURE:), main-session growth = sum of positive context deltas over its span. Exit 0; 2 on a missing transcript. See README "Measured".
 """
 import glob
 import json
@@ -14,6 +15,9 @@ import sys
 
 TAIL_BYTES = 256 * 1024
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
+REEF_TASK = re.compile(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", re.M)      # the guard's own regexes
+REEF_FEATURE = re.compile(r"^REEF-FEATURE:[ \t]*(\S+)", re.M)
+NOTIFIED_ID = re.compile(r"<tool-use-id>\s*([^<\s]+)\s*</tool-use-id>")
 
 
 def die(msg):
@@ -109,6 +113,91 @@ def analyse(path):
     }
 
 
+def feature_slug(prompt):
+    """The feature a dispatch prompt names: its REEF-TASK: line wins over its REEF-FEATURE: line."""
+    m = REEF_TASK.search(prompt)
+    if m:
+        p = m.group(1)
+        if "/features/" in p and "/tasks/" in p:
+            return p.rsplit("/tasks/", 1)[0].rsplit("/", 1)[-1]
+        return os.path.splitext(os.path.basename(p))[0]
+    m = REEF_FEATURE.search(prompt)
+    return m.group(1) if m else None
+
+
+def feature_rows(path):
+    """Per feature: the main-session span from its first Task/Agent dispatch turn to the latest turn
+    after one of its dispatches' results (a task-notification for the id, else its tool_result)."""
+    turn_pos, turn_ctx, turn_of = [], [], {}
+    dispatches = []                     # (feature, tool_use id, dispatch turn)
+    notified, returned = {}, {}         # tool_use id -> record position
+    boundary_pos, summary_pos = [], []
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for pos, line in enumerate(f):
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(d, dict):
+                continue
+            t = d.get("type")
+            if t == "system" and d.get("subtype") == "compact_boundary":
+                boundary_pos.append(pos)
+                continue
+            if t == "user" and d.get("isCompactSummary"):
+                summary_pos.append(pos)
+                continue
+            if d.get("isSidechain") or t not in ("assistant", "user"):
+                continue
+            msg = d.get("message") or {}
+            content = msg.get("content")
+            if t == "assistant":
+                rid = d.get("requestId") or msg.get("id") or d.get("uuid")
+                if rid not in turn_of and msg.get("usage"):
+                    turn_pos.append(pos)
+                    turn_ctx.append(ctx(msg["usage"]))
+                    turn_of[rid] = len(turn_pos)
+                for b in content if isinstance(content, list) else []:
+                    if not (isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ("Task", "Agent")):
+                        continue
+                    prompt = (b.get("input") or {}).get("prompt")
+                    feat = feature_slug(prompt) if isinstance(prompt, str) else None
+                    if feat:
+                        dispatches.append((feat, b.get("id"), turn_of.get(rid, max(len(turn_pos), 1))))
+            elif isinstance(content, str):
+                if content.startswith("<task-notification>"):
+                    for tid in NOTIFIED_ID.findall(content):
+                        notified.setdefault(tid, pos)
+            else:
+                for b in content or []:
+                    if isinstance(b, dict) and b.get("type") == "tool_result":
+                        returned.setdefault(b.get("tool_use_id"), pos)
+    n = len(turn_pos)
+    if not n:
+        return []
+
+    def result_turn(tid):
+        pos = notified.get(tid, returned.get(tid))
+        if pos is None:
+            return n
+        return next((i + 1 for i, p in enumerate(turn_pos) if p > pos), n)
+
+    spans = {}
+    for feat, tid, turn in dispatches:
+        first, last, count = spans.get(feat, (turn, turn, 0))
+        spans[feat] = (min(first, turn), max(last, turn, result_turn(tid)), count + 1)
+    rows = []
+    for feat, (first, last, count) in spans.items():
+        first, last = min(first, n), min(last, n)
+        lo, hi = turn_pos[first - 1], turn_pos[last - 1]
+        b = sum(1 for p in boundary_pos if lo < p < hi)
+        s = sum(1 for p in summary_pos if lo < p < hi)
+        rows.append({"feature": feat, "first_turn": first, "last_turn": last,
+                     "growth": sum(max(0, turn_ctx[i] - turn_ctx[i - 1]) for i in range(first, last)),
+                     "compactions": b if b else s, "turns": last - first + 1, "dispatches": count})
+    return sorted(rows, key=lambda r: (r["first_turn"], r["feature"]))
+
+
 def subagent_paths(path):
     base = os.path.splitext(os.path.abspath(path))[0]
     return sorted(glob.glob(os.path.join(base, "subagents", "agent-*.jsonl")))
@@ -168,7 +257,7 @@ def live_context(path):
     return None
 
 
-def render_md(rep, subs, rounds):
+def render_md(rep, subs, rounds, rows=()):
     c, k = rep["context"], rep["cache"]
     out = [f"# reef-cost — {os.path.basename(rep['path'])}", "",
            f"- API turns: **{rep['turns']}** · compactions: **{rep['compactions']}** · models: {', '.join(rep['models']) or '?'}",
@@ -184,6 +273,11 @@ def render_md(rep, subs, rounds):
         for s in subs:
             out.append(f"| {os.path.basename(s['path'])[6:-6]} | {s['agent_type'] or '?'} | {s['turns']} | "
                        f"{s['first_turn_context']:,} | {s['context']['max']:,} | {s['cache']['output']:,} |")
+    if rows:
+        out += ["", "## Rows (main-session context per feature)", "",
+                "| feature | first turn | last turn | growth | compactions | turns | dispatches |", "|---|---|---|---|---|---|---|"]
+        out += [f"| {r['feature']} | {r['first_turn']} | {r['last_turn']} | {r['growth']:,} | {r['compactions']} | "
+                f"{r['turns']} | {r['dispatches']} |" for r in rows]
     if rounds is not None:
         out += ["", "## Fix rounds per feature (done tasks' attempts:)", ""]
         out += [f"- {f or '(no feature)'}: {n}" for f, n in sorted(rounds["by_feature"].items())] or ["- none recorded"]
@@ -226,15 +320,19 @@ def main(argv):
     rep = analyse(path)
     subs = [analyse(p) for p in subagent_paths(path)]
     rounds = fix_rounds(repo) if repo else None
+    rows = feature_rows(path)
     if fmt == "json":
-        print(json.dumps({"session": rep, "subagents": subs, "fix_rounds": rounds}, indent=1))
+        print(json.dumps({"session": rep, "subagents": subs, "fix_rounds": rounds, "rows": rows}, indent=1))
     elif fmt == "md":
-        sys.stdout.write(render_md(rep, subs, rounds))
+        sys.stdout.write(render_md(rep, subs, rounds, rows))
     else:
         c = rep["context"]
         print(f"turns={rep['turns']} compactions={rep['compactions']} ctx_mean={c['mean']} ctx_p50={c['p50']} "
               f"ctx_p90={c['p90']} ctx_max={c['max']} first_turn={rep['first_turn_context']} "
               f"cache_writes={rep['cache']['writes']} cache_reads={rep['cache']['reads']} subagents={len(subs)}")
+        for r in rows:
+            print(f"row feature={r['feature']} first_turn={r['first_turn']} last_turn={r['last_turn']} growth={r['growth']} "
+                  f"compactions={r['compactions']} turns={r['turns']} dispatches={r['dispatches']}")
     return 0
 
 

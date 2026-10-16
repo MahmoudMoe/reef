@@ -339,7 +339,7 @@ t "  an unknown gate mode FAILS LOUDLY (never silently runs some gate)" 1
 # re-initialised the repo as bare). The gate must see none of them, on both the in-place and the dance path.
 mkrepo "$TMP/r13" "sh scripts/envcheck.sh"
 cat > scripts/envcheck.sh <<'EOF'
-for v in GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX; do
+for v in GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; do
   eval "val=\${$v-}"; [ -z "$val" ] || { echo "envcheck: $v leaked into the gate" >&2; exit 1; }
 done
 exit 0
@@ -347,8 +347,8 @@ EOF
 ( echo v1 > f.txt && git add . && git commit -qm c1 ) >/dev/null 2>&1
 t "gate sees no GIT_DIR/GIT_INDEX_FILE (in-place path, first commit)" 0
 echo v2 > f.txt; git add f.txt; echo v3-dirty > f.txt
-git commit -qm c2 >/dev/null 2>&1
-t "gate sees no GIT_DIR/GIT_INDEX_FILE (index dance path)" 0
+git -c probe.leak=1 commit -qm c2 >/dev/null 2>&1   # a committer's -c must not reach the gate's git either
+t "gate sees no GIT_DIR/GIT_INDEX_FILE/GIT_CONFIG_PARAMETERS (index dance path, git -c)" 0
 
 echo
 echo "hooks suite: $PASS passed, $FAILED failed"
