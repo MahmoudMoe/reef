@@ -208,6 +208,37 @@ class Rows(unittest.TestCase):
         self.assertEqual((b["first_turn"], b["last_turn"], b["growth"], b["turns"], b["dispatches"]), (4, 5, 600, 2, 1))
         self.assertEqual((a["compactions"], b["compactions"]), (0, 0))
 
+    def test_tasks_table_growth_per_task_and_dispatches_per_role(self):
+        # 0.7: the first real execution could not say which role cost what; the main-session span per task and the
+        # roles dispatched for it (implementer, verifier, loophole-hunter, mechanic) come from the REEF-TASK: lines
+        d = tempfile.mkdtemp(prefix="reef-cost-tasks.")
+        prompt101 = "REEF-TASK: reef/features/demo/tasks/101-page.md\nimplement"
+        recs = [
+            assistant("r1", 1000, 0, 0, 5, [dispatch("tu_i", "Task", prompt101)]),
+            {"type": "assistant", "requestId": "r1", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "tu_i2", "name": "Task",
+             "input": {"prompt": prompt101, "subagent_type": "reef:implementer"}}]}},
+            list_result("tu_i", "done"), list_result("tu_i2", "done"),
+            assistant("r2", 3000, 0, 0, 5, [{"type": "tool_use", "id": "tu_v", "name": "Task", "input": {"prompt": prompt101, "subagent_type": "reef:verifier"}}]),
+            list_result("tu_v", "PASS"),
+            assistant("r3", 5000, 0, 0, 5, [{"type": "tool_use", "id": "tu_h", "name": "Task", "input": {"prompt": prompt101, "subagent_type": "reef:loophole-hunter"}}]),
+            list_result("tu_h", "PASS"),
+            assistant("r4", 5500, 0, 0, 5, [{"type": "tool_use", "id": "tu_x", "name": "Task", "input": {"prompt": "REEF-TASK: reef/features/demo/tasks/102-upload.md\nimplement", "subagent_type": "reef:implementer"}}]),
+            list_result("tu_x", "done"),
+            assistant("r5", 9000, 0, 0, 5),
+        ]
+        path = write_transcript(d, "s.jsonl", recs)
+        j = json.loads(cost(path, "--format", "json").stdout)
+        by = {x["task"]: x for x in j["tasks"]}
+        self.assertEqual(set(by), {"101", "102"})
+        self.assertEqual(by["101"]["roles"], {"?": 1, "implementer": 1, "loophole-hunter": 1, "verifier": 1})
+        self.assertEqual((by["101"]["first_turn"], by["101"]["last_turn"]), (1, 4))
+        self.assertEqual(by["101"]["growth"], 4500)          # 1000 -> 3000 -> 5000 -> 5500
+        self.assertEqual(by["102"]["roles"], {"implementer": 1})
+        self.assertEqual(by["102"]["growth"], 3500)          # 5500 -> 9000
+        md = cost(path, "--format", "md").stdout
+        self.assertIn("## Tasks (main-session growth per task, dispatches per role)", md)
+        self.assertIn("| 101 | 4 | 4,500 | ? ×1, implementer ×1, loophole-hunter ×1, verifier ×1 |", md)
+
     def test_rows_absent_without_dispatch(self):
         bash_only = FIXTURE + [TWO_FEATURES[-2], TWO_FEATURES[-1]]
         for recs in (FIXTURE, bash_only):

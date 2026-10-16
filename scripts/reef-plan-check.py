@@ -480,6 +480,14 @@ def main():
         sys.exit(0)
 
     if verify_stamp:
+        plugin = os.environ.get("CLAUDE_PLUGIN_ROOT") or ""
+        theirs = os.path.join(plugin, "scripts", "reef-plan-check.py")
+        try:
+            if plugin and os.path.isfile(theirs) and open(theirs, "rb").read() != open(os.path.abspath(__file__), "rb").read():
+                print("warning: this scripts/reef-plan-check.py differs from the plugin's — digests may differ between checkouts; "
+                      "run /reef-init and scripts/reef-merge-base in the feature worktree")
+        except OSError:
+            pass
         try:
             stamp = json.loads(read(stamp_path))
             stamped = stamp["features"]

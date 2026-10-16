@@ -243,7 +243,7 @@ Task|Agent · Edit|Write|MultiEdit; PostToolUse AskUserQuestion; Stop; SessionSt
 
 ## Selftests
 
-`sh tests/run.sh` — 430 sabotage and contract tests (341 Python + 89 shell, as the suite runs them). Every mechanism in
+`sh tests/run.sh` — 434 sabotage and contract tests (345 Python + 89 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
 script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials

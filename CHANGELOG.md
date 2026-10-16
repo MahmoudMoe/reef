@@ -1,6 +1,16 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- `reef-cost.py`: a **Tasks** table — per task (from the `REEF-TASK:` line of every dispatch) the main-session growth
+  over its span and the dispatches per role (`implementer ×1, verifier ×2, loophole-hunter ×1`); `--format json` adds
+  `tasks`. The first real execution could not say which role cost what.
+- **`scripts/reef-merge-base`** (copied into projects by `reef-init`): `/reef-task` step 0 brings `branches.base` into
+  the feature branch before a wave's first dispatch. A task worktree branches from the feature, so a stale `scripts/`
+  there computed a different plan digest than the records carried (first contact: develop said `9bcedd14`, the
+  feature's copy said `cc218e66`, the owner merged by hand and resolved two conflicts). Record files (journal, queue,
+  archive, HANDOFF) keep both sides — records only grow; a code conflict aborts, names the file and is the human's
+  (exit 2). `reef-plan-check.py --verify-stamp` warns when the project's copy differs from the plugin's.
+  `tests/test_merge_base.py`.
 - **The plan reviewer's verdict is a RECORD the guard requires.** `scripts/reef-record plan-review <slug> PASS|FAIL
   [--report FILE]` writes `.reef/review/plan-<slug>.json` bound to the plan's digest (in the main checkout, like the
   approval). `reef-plan-check.py --verify-stamp` — hence the guard at every implementer dispatch and the tick's

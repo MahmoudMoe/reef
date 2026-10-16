@@ -23,6 +23,7 @@ cd "$(dirname "$0")/.."
 #   test_loop.py        0.6 phase 5: the tick, the Stop hook (refused once per state), parking and budgets, the context ceiling, handoff, session start
 #   test_layout.py      0.6 phase 6: one graph across feature folders, a 0.5 project untouched, reef-migrate --layout, versioned migrations
 #   test_assess.py      0.7: reef-claims.py assess — /reef-assess's output as data (the real ledger report passes; an unlabelled or proofless claim, an inconsistent harnessability table, a missing section fail)
+#   test_merge_base.py  0.7: reef-merge-base — the base into the feature before a wave; record files keep both sides, a code conflict aborts and names itself
 #   test_watch.py       0.7: reef-watch — the one-screen report from disk (counts exact, deterministic, under the cap, exit 2 off a Reef project)
 # Shell suites: tests/test_hooks.sh (pre-commit, gate, snapshot), tests/test_ci_local.sh (reef-ci-local)
 # One suite: python3 -m unittest tests.test_graph -v

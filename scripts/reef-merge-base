@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+# CLASS: code
+"""Reef merge-base — bring the integration branch into the feature branch before the first dispatch of a wave.
+Usage: reef-merge-base [--repo DIR]   (run in the FEATURE worktree)
+Why: scripts/, the lint config and the records drift between develop and feat/<slug>; a task worktree branches from
+the feature, so an old `reef-plan-check.py` there computes a different plan digest than the records carry (first
+contact, 2026-10-16: develop said 9bcedd14, the feature's copy said cc218e66, and the owner merged by hand).
+Conflicts in RECORD files (paths.runlog, paths.queue, the queue archive, HANDOFF.md) are resolved by keeping BOTH
+sides in order — records only grow. Any other conflict aborts the merge and names the files: exit 2, the human or the
+orchestrator decides. Exit 0 merged or already up to date · 2 conflict left for a person · 1 not a feature worktree.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+HUNK = re.compile(r"<<<<<<< [^\n]*\n(.*?)=======\n(.*?)>>>>>>> [^\n]*\n", re.S)
+
+
+def git(root, *args, check=False):
+    r = subprocess.run(["git", "-C", root, *args], capture_output=True, text=True)
+    if check and r.returncode != 0:
+        print(f"reef-merge-base: git {' '.join(args[:2])} failed: {r.stderr.strip()[:300]}", file=sys.stderr)
+        sys.exit(1)
+    return r
+
+
+def main(argv):
+    root = os.path.abspath(argv[argv.index("--repo") + 1] if "--repo" in argv else ".")
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        print("reef-merge-base: no .reef/config.json here", file=sys.stderr)
+        return 1
+    base = str((cfg.get("branches") or {}).get("base", "main") or "main")
+    prefix = str((cfg.get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
+    paths = cfg.get("paths") or {}
+    branch = git(root, "rev-parse", "--abbrev-ref", "HEAD", check=True).stdout.strip()
+    if not branch.startswith(prefix):
+        print(f"reef-merge-base: {branch!r} is not a feature branch ({prefix}…) — run in the feature worktree", file=sys.stderr)
+        return 1
+    if git(root, "rev-parse", "-q", "--verify", f"refs/heads/{base}").returncode != 0:
+        print(f"reef-merge-base: no local branch {base!r}", file=sys.stderr)
+        return 1
+    behind = git(root, "rev-list", "--count", f"HEAD..{base}").stdout.strip()
+    if behind == "0":
+        print(f"merge-base: {branch} already has every commit of {base}")
+        return 0
+    r = git(root, "merge", "--no-edit", "--no-ff", base)
+    if r.returncode == 0:
+        print(f"merge-base: merged {base} into {branch} ({behind} commit(s)), no conflicts")
+        return 0
+    conflicted = [l for l in git(root, "diff", "--name-only", "--diff-filter=U").stdout.splitlines() if l]
+    queue = paths.get("queue", "docs/queue.md")
+    records = {paths.get("runlog", "docs/journal.md"), queue, os.path.join(os.path.dirname(queue), "queue-archive.md"), "HANDOFF.md"}
+    left = []
+    for rel in conflicted:
+        p = os.path.join(root, rel)
+        if rel in records:
+            with open(p, encoding="utf-8", errors="replace") as f:
+                text = f.read()
+            text = HUNK.sub(lambda m: m.group(1) + m.group(2), text)
+            if "<<<<<<<" in text or ">>>>>>>" in text:
+                left.append(rel)
+                continue
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(text)
+            git(root, "add", rel, check=True)
+        else:
+            left.append(rel)
+    if left:
+        git(root, "merge", "--abort")
+        print(f"merge-base: CONFLICT in {', '.join(left)} — not a record file, nothing resolved; merge aborted. "
+              f"USER ACTION REQUIRED: merge {base} into {branch} by hand (a code conflict is a decision), then re-run /reef-task")
+        return 2
+    r = git(root, "commit", "--no-edit")
+    if r.returncode != 0:
+        print(f"merge-base: the merge commit was refused by the gate:\n{(r.stdout + r.stderr).strip()[-800:]}", file=sys.stderr)
+        return 2
+    print(f"merge-base: merged {base} into {branch} ({behind} commit(s)); records kept both sides: {', '.join(c for c in conflicted)}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

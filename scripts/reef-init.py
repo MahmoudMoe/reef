@@ -50,7 +50,7 @@ SCRIPTS = ["reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.
            "reef-adversarial", "reef-claims.py", "reef-ci-local.sh", "reef-tier.py", "reef-queue.py",
            # 0.6
            "reef-converge", "reef-record", "reef-structure", "reef-recalibrate", "reef-c4.py", "reef-threat.py",
-           "reef-repo", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-migrate"]
+           "reef-repo", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-migrate", "reef-merge-base"]
 # 4.5 security gates per stack: the auditor is installed by the CI template's setup steps; locally a missing tool is
 # exit 77 (skipped — reef-ci-local reports a skip as exit 2, never success). They are RELEASE gates (decision 8):
 # a feature PR never pays for a history secret scan or an audit.

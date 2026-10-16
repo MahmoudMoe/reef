@@ -18,6 +18,9 @@ review; proceed. Non-zero = never reviewed, or edited since — invoke the `reef
 show the human its result, and only then continue. A plan the human edited after approval is an
 unreviewed plan; the stamp is what knows that, not you.
 
+## 0. The feature is current — `scripts/reef-merge-base` in the feature worktree before the wave's first dispatch
+Brings `branches.base` into the feature branch: a task worktree branches from the feature, so a stale `scripts/` there computes a different plan digest than the records carry (first contact: two digests for one plan, the owner merged by hand). Record files (journal, queue, archive, HANDOFF) keep both sides; a code conflict is exit 2 = USER ACTION REQUIRED, never resolved by you. Push the merge commit.
+
 ## 1. The ready set — computed, never remembered
 Run `python3 scripts/reef-loop.py tick` (its `dispatch now:` line is `scripts/reef-graph.py ready` minus what is in flight; `--json` for the ids). It lists every task whose `blocked-by` are done, whose declared `resources:` have a free slot, within `graph.parallel`. A broken graph (cycle, missing id) is exit 1 — STOP; it is a plan defect. **Dispatch every ready task now, in one message, not one at a time** — serial execution of a parallel-ready set is the waste this skill exists to remove. The guard enforces the same rule from the other side: it refuses a dispatch of a task outside the ready set, so a wrong dispatch cannot run; a missing one is on you. End each turn with one line: `in flight: … / waiting on: …`.
 

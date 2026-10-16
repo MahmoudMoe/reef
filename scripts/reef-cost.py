@@ -134,6 +134,7 @@ def feature_rows(path):
     after one of its dispatches' results (a task-notification for the id, else its tool_result)."""
     turn_pos, turn_ctx, turn_of = [], [], {}
     dispatches = []                     # (feature, tool_use id, dispatch turn)
+    task_dispatches = []                # (task id, role, tool_use id, dispatch turn) — 0.7, per task and role
     notified, returned = {}, {}         # tool_use id -> record position
     boundary_pos, summary_pos = [], []
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -178,6 +179,12 @@ def feature_rows(path):
                     feat = feature_slug(prompt) if isinstance(prompt, str) else None
                     if feat:
                         dispatches.append((feat, b.get("id"), turn_of.get(rid, max(len(turn_pos), 1))))
+                        tm = REEF_TASK.search(prompt)
+                        if tm:
+                            tid_m = re.match(r"^(R?\d+)", os.path.basename(tm.group(1)))
+                            role = str((b.get("input") or {}).get("subagent_type") or "?").split(":")[-1]
+                            if tid_m:
+                                task_dispatches.append((tid_m.group(1), role, b.get("id"), turn_of.get(rid, max(len(turn_pos), 1))))
             elif isinstance(content, str):
                 if content.startswith("<task-notification>"):
                     for tid in NOTIFIED_ID.findall(content):
@@ -209,6 +216,20 @@ def feature_rows(path):
         rows.append({"feature": feat, "first_turn": first, "last_turn": last,
                      "growth": sum(max(0, turn_ctx[i] - turn_ctx[i - 1]) for i in range(first, last)),
                      "compactions": b if b else s, "turns": last - first + 1, "dispatches": count})
+    # 0.7: per task, the roles dispatched for it and the main-session growth over its span — where execution is
+    # expensive (first real execution: one task, 43 orchestrator turns, 64k growth, and no way to say which role)
+    tspans = {}
+    for task, role, tid, turn in task_dispatches:
+        first, last, roles = tspans.get(task, (turn, turn, {}))
+        roles[role] = roles.get(role, 0) + 1
+        tspans[task] = (min(first, turn), max(last, turn, result_turn(tid)), roles)
+    tasks = []
+    for task, (first, last, roles) in tspans.items():
+        first, last = min(first, n), min(last, n)
+        tasks.append({"task": task, "first_turn": first, "last_turn": last,
+                      "growth": sum(max(0, turn_ctx[i] - turn_ctx[i - 1]) for i in range(first, last)),
+                      "turns": last - first + 1, "roles": dict(sorted(roles.items()))})
+    feature_rows.tasks = sorted(tasks, key=lambda r: (r["first_turn"], r["task"]))
     return sorted(rows, key=lambda r: (r["first_turn"], r["feature"]))
 
 
@@ -292,6 +313,11 @@ def render_md(rep, subs, rounds, rows=()):
                 "| feature | first turn | last turn | growth | compactions | turns | dispatches |", "|---|---|---|---|---|---|---|"]
         out += [f"| {r['feature']} | {r['first_turn']} | {r['last_turn']} | {r['growth']:,} | {r['compactions']} | "
                 f"{r['turns']} | {r['dispatches']} |" for r in rows]
+    tasks = getattr(feature_rows, "tasks", [])
+    if tasks:
+        out += ["", "## Tasks (main-session growth per task, dispatches per role)", "",
+                "| task | turns | growth | dispatches |", "|---|---|---|---|"]
+        out += [f"| {x['task']} | {x['turns']} | {x['growth']:,} | " + ", ".join(f"{k} ×{v}" for k, v in x["roles"].items()) + " |" for x in tasks]
     if rounds is not None:
         out += ["", "## Fix rounds per feature (done tasks' attempts:)", ""]
         out += [f"- {f or '(no feature)'}: {n}" for f, n in sorted(rounds["by_feature"].items())] or ["- none recorded"]
@@ -336,7 +362,8 @@ def main(argv):
     rounds = fix_rounds(repo) if repo else None
     rows = feature_rows(path)
     if fmt == "json":
-        print(json.dumps({"session": rep, "subagents": subs, "fix_rounds": rounds, "rows": rows}, indent=1))
+        print(json.dumps({"session": rep, "subagents": subs, "fix_rounds": rounds, "rows": rows,
+                          "tasks": getattr(feature_rows, "tasks", [])}, indent=1))
     elif fmt == "md":
         sys.stdout.write(render_md(rep, subs, rounds, rows))
     else:
