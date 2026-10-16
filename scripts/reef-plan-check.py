@@ -480,6 +480,14 @@ def main():
         sys.exit(0)
 
     if verify_stamp:
+        plugin = os.environ.get("CLAUDE_PLUGIN_ROOT") or ""
+        theirs = os.path.join(plugin, "scripts", "reef-plan-check.py")
+        try:
+            if plugin and os.path.isfile(theirs) and open(theirs, "rb").read() != open(os.path.abspath(__file__), "rb").read():
+                print("warning: this scripts/reef-plan-check.py differs from the plugin's — digests may differ between checkouts; "
+                      "run /reef-init and scripts/reef-merge-base in the feature worktree")
+        except OSError:
+            pass
         try:
             stamp = json.loads(read(stamp_path))
             stamped = stamp["features"]
@@ -880,6 +888,25 @@ def main():
     if tracked:
         fail(f"{os.path.relpath(stamp_path, root)} is tracked by git — it is per-worktree state: "
              "`git rm --cached` it and add it to .gitignore")
+
+    # the queue has ONE home: paths.queue on branches.base in the main checkout. The tick reads it there, so rows a
+    # feature branch adds are invisible to the loop (first contact, 2026-10-16: the roadmap, rows 2–15, lived only on
+    # feat/receipt-upload-skeleton because /reef-plan committed the grill's rows with the spec). Compared against the
+    # fork point, so a feature merely behind base is not blamed.
+    queue_rel = setting("paths", "queue", "docs/queue.md")
+    prefix = setting("branches", "feature_prefix", "feat/")
+    try:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], capture_output=True, text=True, timeout=10)
+        branch = g("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        fork = g("merge-base", base, "HEAD").stdout.strip() if branch.startswith(prefix) else ""
+    except Exception:
+        branch, fork = "", ""
+    if fork:
+        for rel in (queue_rel, os.path.join(os.path.dirname(queue_rel), "queue-archive.md")):
+            if g("diff", "--quiet", fork, "--", rel).returncode == 1:
+                fail(f"{rel}: changed on {branch} — the queue has one home, {base} in the main checkout (the tick never "
+                     f"sees rows added on a feature branch). Commit the rows on {base} and push, then here: "
+                     f"`git checkout {base} -- {rel}`")
 
     if not adr_files:
         # reef-plan makes the ADR optional ("at most ONE ... if it has non-obvious
