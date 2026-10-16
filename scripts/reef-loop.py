@@ -77,6 +77,41 @@ def markers(root, kind, stale_minutes=None):
     return out
 
 
+def task_feature(path):
+    try:
+        head = read(path)[:4000]
+    except OSError:
+        return ""
+    m = re.search(r"^feature:[ \t]*(\S+)", head, re.M)
+    return m.group(1) if m else ""
+
+
+def plan_gate(root, scripts, py, tasks):
+    """Split ready tasks into (dispatchable, awaiting): per feature, `reef-plan-check.py --verify-stamp --feature`
+    decides — approval MISSING/STALE or stamp MISSING/STALE keeps the feature out of `dispatch now` and names why.
+    Without the project's plan-check script (a layout older than reef-init) nothing is held back."""
+    pc = os.path.join(scripts, "reef-plan-check.py")
+    if not os.path.isfile(pc) or not tasks:
+        return tasks, []
+    verdict = {}
+    for t in tasks:
+        feat = task_feature(t.get("path", ""))
+        if feat in verdict:
+            continue
+        rc, out = run([py, pc, root, "--verify-stamp", "--feature", feat], root, timeout=60)
+        if rc == 0:
+            verdict[feat] = None
+        elif re.search(r"^approval: MISSING", out, re.M):
+            verdict[feat] = "approval"
+        elif re.search(r"^approval: STALE", out, re.M):
+            verdict[feat] = "re-approval (plan edited after approval)"
+        else:
+            verdict[feat] = "plan review"
+    go = [t for t in tasks if verdict.get(task_feature(t.get("path", ""))) is None]
+    held = sorted({f"{feat or '?'} ({why})" for feat, why in verdict.items() if why})
+    return go, held
+
+
 def tick(root):
     cfg = config(root)
     st = load_state(root)
@@ -95,6 +130,10 @@ def tick(root):
     inflight_ids = {str(m.get("id")) for m in inflight if not m["stale"]}
     returned = [m for m in inflight if m["stale"]]
     dispatch_now = [t for t in ready_tasks if str(t["id"]) not in inflight_ids and not t["id"].startswith("R")]
+    # a READY task is not a DISPATCHABLE task: its plan must carry the human's approval record at the current digest
+    # and a fresh review stamp (the same `--verify-stamp --feature` the guard runs at dispatch). First contact,
+    # 2026-10-16: the handoff said "dispatch now: 101" for a plan nobody had approved or reviewed yet.
+    dispatch_now, awaiting = plan_gate(root, scripts, py, dispatch_now)
     rows = [l.split("\t") for l in q_status.splitlines() if "\t" in l]
     to_plan = [l.split("\t") for l in q_ready.splitlines() if "\t" in l and l.split("\t")[1] == "queued"]
     to_close = [r for r in rows if len(r) > 1 and r[1] == "done"]
@@ -127,14 +166,14 @@ def tick(root):
                 stop = stop or f"budget: {n} tokens > caps ceiling {ceiling} — the feature/batch parks (5.3)"
                 budget_note = stop
     state = {
-        "rows_to_plan": [r[0] for r in to_plan], "dispatch_now": [t["id"] for t in dispatch_now],
+        "rows_to_plan": [r[0] for r in to_plan], "dispatch_now": [t["id"] for t in dispatch_now], "awaiting": awaiting,
         "prs_to_review": [f"#{p['number']} {p['headRefName']}" for p in prs], "rows_to_close": [r[0] for r in to_close],
         "in_flight": sorted(inflight_ids) + [f"verifying:{m['id']}" for m in verifying if not m["stale"]],
         "returned_unmerged": [m["id"] for m in returned], "parked": blocked, "building": [r[0] for r in building],
         "worktrees": len(worktrees), "wait": st.get("wait"), "active": bool(st.get("active")), "stop": stop,
         "broken": [] if rc_g == 0 else ["task graph broken or unreadable (reef-graph ready failed)"],
     }
-    h = hashlib.sha1(json.dumps({k: state[k] for k in ("rows_to_plan", "dispatch_now", "prs_to_review", "rows_to_close", "in_flight", "returned_unmerged", "parked", "building")}, sort_keys=True).encode()).hexdigest()[:12]
+    h = hashlib.sha1(json.dumps({k: state[k] for k in ("rows_to_plan", "dispatch_now", "awaiting", "prs_to_review", "rows_to_close", "in_flight", "returned_unmerged", "parked", "building")}, sort_keys=True).encode()).hexdigest()[:12]
     state["hash"] = h
     # no-progress parking (5.3): K identical ticks with nothing in flight
     k = int((cfg.get("loop") or {}).get("no_progress_ticks", 3) or 3)
@@ -153,10 +192,12 @@ def render(state):
     nxt = ("dispatch: " + ", ".join(state["dispatch_now"])) if state["dispatch_now"] else \
           ("review: " + state["prs_to_review"][0]) if state["prs_to_review"] else \
           ("close: " + ", ".join(state["rows_to_close"])) if state["rows_to_close"] else \
-          ("plan: " + ", ".join(state["rows_to_plan"])) if state["rows_to_plan"] else "nothing ready — stop or wait"
+          ("plan: " + ", ".join(state["rows_to_plan"])) if state["rows_to_plan"] else \
+          ("awaiting: " + "; ".join(state.get("awaiting") or [])) if state.get("awaiting") else "nothing ready — stop or wait"
     lines = [f"tick {state['hash']}  loop={'active' if state['active'] else 'inactive'}" + (f"  wait={state['wait']!r}" if state["wait"] else "") + (f"  STOP={state['stop']}" if state["stop"] else ""),
              f"rows to plan: {', '.join(state['rows_to_plan']) or '-'}",
              f"dispatch now: {', '.join(state['dispatch_now']) or '-'}",
+             f"awaiting: {'; '.join(state.get('awaiting') or []) or '-'}",
              f"PRs to review: {', '.join(state['prs_to_review']) or '-'}",
              f"rows to close: {', '.join(state['rows_to_close']) or '-'}",
              f"in flight: {', '.join(state['in_flight']) or '-'}",
@@ -221,6 +262,11 @@ def main(argv):
             return 0   # a directory without Reef gets nothing injected (no output at all)
         print("reef-loop: no .reef/config.json", file=sys.stderr)
         return 1
+    if "--session-start" in argv and str(st.get("stop") or "").startswith("context ceiling"):
+        # the ceiling stop belongs to the session that hit it; the session starting now is fresh (first contact,
+        # 2026-10-16: after /clear the tick still said STOP=context ceiling: 164970 tokens, from the dead session)
+        st.update(stop=None, transcript=None)
+        save_state(root, st)
     state, st = tick(root)
     if "--hash" in argv:
         print(state["hash"])

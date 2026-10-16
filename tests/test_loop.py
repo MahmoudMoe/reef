@@ -43,12 +43,25 @@ def project(cfg=None):
     write(d, "reef/queue.md", "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 1 | first | | planned | 1 | |\n| 2 | second | 1 | planned | 1 | |\n")
     write(d, "reef/journal.md", "# Journal\n| Task | Implementer | Verifier | Attempts | Result | ACs | Escaped defects |\n|---|---|---|---|---|---|---|\n| 101 | opus | - | 0 | PASS | AC-1 achieved | - |\n")
     write(d, "HANDOFF.md", "# Handoff\nline 1\n")
+    write(d, "CLAUDE.md", "# brief\n")
+    write(d, ".gitignore", "tasks/.plan-review.json\n.reef/approvals/\n.reef/loop.json\n")   # per-worktree state, as reef-init writes it
     os.makedirs(os.path.join(d, "tasks", "done"))
     write(d, "tasks/101-a.md", task(101, "1"))
     write(d, "tasks/102-b.md", task(102, "1", blocked="[101]"))
+    approve(d, "1")
     subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], check=True, capture_output=True)
     subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], check=True, capture_output=True)
     return d
+
+
+def approve(d, feature):
+    """The plan reviewed (stamp) and approved by the human at its digest (record) — what a dispatchable plan has."""
+    pc = os.path.join(d, "scripts", "reef-plan-check.py")
+    r = subprocess.run([sys.executable, pc, d], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout
+    r = subprocess.run([sys.executable, pc, d, "--digest", "--feature", feature], capture_output=True, text=True)
+    digest = r.stdout.split()[-1]
+    write(d, f".reef/approvals/{feature}.json", json.dumps({"digest16": digest[:16], "approved_at": "2026-10-16T00:00:00Z"}))
 
 
 def loop(d, *args, env=None):
@@ -106,6 +119,47 @@ class Tick(unittest.TestCase):
         self.assertIn("budget: 5000 tokens > caps ceiling 1000", st["stop"])
 
 
+    def test_a_ready_task_of_an_unapproved_or_unreviewed_plan_is_awaiting_not_dispatchable(self):
+        # first contact (2026-10-16): the ceiling handoff said "dispatch now: 101" for a plan with no approval and no
+        # review; the guard would have refused, but the next orchestrator read a lie. The tick runs the guard's own
+        # check per feature and names what is missing.
+        d = project()
+        os.unlink(os.path.join(d, ".reef", "approvals", "1.json"))
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["dispatch_now"], [])
+        self.assertEqual(st["awaiting"], ["1 (approval)"])
+        text = loop(d, "tick").stdout
+        self.assertIn("dispatch now: -", text)
+        self.assertIn("awaiting: 1 (approval)", text)
+        approve(d, "1")
+        write(d, "tasks/101-a.md", task(101, "1").replace("## Scope\nx", "## Scope\nedited after the review"))
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["dispatch_now"], [])
+        self.assertTrue(st["awaiting"] and "1 (" in st["awaiting"][0], st["awaiting"])
+        os.unlink(os.path.join(d, "tasks", ".plan-review.json"))
+        approve(d, "1")
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["dispatch_now"], ["101"], st)
+        self.assertEqual(st["awaiting"], [])
+
+
+    def test_a_fresh_session_clears_the_dead_sessions_ceiling_stop(self):
+        d = project()
+        st = json.loads(open(os.path.join(d, ".reef", "loop.json")).read()) if os.path.isfile(os.path.join(d, ".reef", "loop.json")) else {}
+        st["stop"] = "context ceiling: 164970 tokens > caps.context_tokens 150000 — checkpoint, then /clear"
+        st["transcript"] = "/nowhere.jsonl"
+        write(d, ".reef/loop.json", json.dumps(st))
+        self.assertIn("STOP=context ceiling", loop(d, "tick").stdout, "a plain tick keeps the stop: the same session")
+        out = loop(d, "tick", "--session-start").stdout
+        self.assertNotIn("STOP=", out, out)
+        st = json.loads(open(os.path.join(d, ".reef", "loop.json")).read())
+        self.assertIsNone(st.get("stop"))
+        self.assertIsNone(st.get("transcript"))
+        st["stop"] = "USER ACTION REQUIRED: a credential"
+        write(d, ".reef/loop.json", json.dumps(st))
+        self.assertIn("STOP=USER ACTION", loop(d, "tick", "--session-start").stdout, "only the ceiling stop is per session")
+
+
 class StopHook(unittest.TestCase):
     def test_ready_undispatched_refused_once_then_allowed(self):
         d = project()
@@ -116,8 +170,11 @@ class StopHook(unittest.TestCase):
         self.assertIn("101", r.stderr)
         r = stop_hook(d)
         self.assertEqual(r.returncode, 0, "the same state is never refused twice")
-        # the state changes (a new ready task) -> refused again, once
+        # the state changes (a new ready task) -> refused again, once. A new task is a plan edit: the tick holds the
+        # feature as awaiting until it is re-reviewed and re-approved, so the fixture does both first
         write(d, "tasks/103-c.md", task(103, "1"))
+        os.unlink(os.path.join(d, "tasks", ".plan-review.json"))
+        approve(d, "1")
         self.assertEqual(stop_hook(d).returncode, 2)
         self.assertEqual(stop_hook(d).returncode, 0)
 

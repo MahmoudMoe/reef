@@ -1,6 +1,21 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`reef-guard.py`, re-entry false positives**: `ls .reef/approvals 2>/dev/null` was denied as a hand-written approval
+  record and a judge's `tar -xzO 2>/dev/null` as a write — `2>/dev/null` is no write (`/dev/null`, `/dev/stdout`,
+  `/dev/stderr`, `/dev/tty` are never targets), and the record-dir and judge checks now look at the write TARGETS
+  (`write_targets`), like the guard-file check. A judge may write to its own scratch space (the session scratchpad,
+  the temp dir): it never mutates the project, and unpacking a tarball to read it is judging (`tests/test_guard.py::JudgeScratch`).
+- **`reef-loop.py tick --session-start` clears a dead session's context-ceiling stop.** The stop belongs to the
+  session that hit the ceiling; the one starting now is fresh. After `/clear` the tick still said
+  `STOP=context ceiling: 164970 tokens` from the previous session. Other stops (USER ACTION REQUIRED) stay.
+- **`reef-loop.py tick`: a ready task of an unapproved or unreviewed plan is `awaiting`, not `dispatch now`.** The tick
+  now runs the guard's own `reef-plan-check.py --verify-stamp --feature` per feature of the ready set and holds the
+  feature back with the reason (`approval`, `re-approval (plan edited after approval)`, `plan review`); the handoff and
+  the SessionStart injection inherit the line. First contact (2026-10-16): the ceiling handoff told the next
+  orchestrator "dispatch now: 101" for a plan nobody had approved or reviewed; the guard would have refused the
+  dispatch, but the one read of the world was a lie (`tests/test_loop.py`, the fixture now carries a stamp and an
+  approval record, as a dispatchable plan does).
 - **`reef-init.py`: its own untouched rendering is replaced without a question.** `.reef/init-manifest.json` records
   the sha256 of every file init placed (written or `--accept`ed). On a later run, a differing file whose current bytes
   still match the manifest is Reef's own draft that nobody touched: it is `updated` in place. One byte of anyone's

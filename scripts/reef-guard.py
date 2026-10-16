@@ -192,13 +192,16 @@ def is_write(seg):
     return False
 
 
+DEVNULL = ("/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty")
+
+
 def write_targets(seg):
     """The tokens a write segment can CHANGE: every redirect's target, and every non-flag argument after a write
     head (`cp`, `mv`, `tee`, `sed -i` …) anywhere in the segment. A guarded path that is merely RUN or READ
-    (`python3 scripts/reef-init.py … > init.log`) is not a target."""
+    (`python3 scripts/reef-init.py … > init.log`) is not a target; `2>/dev/null` is no write at all."""
     out = []
     for j, t in enumerate(seg):
-        if t in REDIRECTS and j + 1 < len(seg):
+        if t in REDIRECTS and j + 1 < len(seg) and seg[j + 1] not in DEVNULL:
             out.append(seg[j + 1])
     for j, t in enumerate(seg):
         head = os.path.basename(t)
@@ -208,10 +211,19 @@ def write_targets(seg):
     return out
 
 
+def is_scratch(path):
+    """Under the temp dir or a Claude scratchpad (/tmp/claude-…/…/scratchpad, /private/tmp/… on macOS)."""
+    p = os.path.abspath(os.path.expanduser(path)) if path.startswith(("/", "~")) else ""
+    if not p:
+        return False
+    tmp = os.path.realpath(tempfile.gettempdir())
+    return p.startswith((tmp + "/", "/tmp/", "/private/tmp/", "/var/folders/"))
+
+
 def check_record_dirs(seg):
     """.reef/approvals/ and .reef/review/ are written by scripts/reef-approval.py and scripts/reef-record
     only: a hand-written record would be an approval nobody gave (tripwire; the digest check is the code)."""
-    if any(RECORD_DIRS.search(t) for t in seg) and is_write(seg):
+    if any(RECORD_DIRS.search(t) for t in write_targets(seg)):
         deny("writing under .reef/approvals/ or .reef/review/ by hand — these records are written by the "
              "AskUserQuestion hook and scripts/reef-record, bound to a digest or a forge SHA")
 
@@ -259,7 +271,10 @@ def check_reviewer_lock(seg, ctx):
                or sub == "config" and not any(a in ("--get", "--get-all", "--list", "-l", "get", "list") for a in args):
                 deny(f"{who} is read-only: `git {sub} {' '.join(args[1:3])}` writes")
             break
-    if is_write(seg):
+    targets = write_targets(seg)
+    if targets and not all(is_scratch(x) for x in targets):
+        # a judge never mutates the PROJECT; its own scratch space (the session scratchpad, the temp dir) is not the
+        # project — first contact, 2026-10-16: the hunter was refused `mkdir -p …/scratchpad/pk` to inspect a tarball
         deny(f"{who} is read-only: {' '.join(seg[:4])!r} writes a file — judge, don't fix")
 
 
