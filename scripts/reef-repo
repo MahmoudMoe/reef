@@ -97,8 +97,14 @@ def main(argv):
             os.makedirs(os.path.dirname(tmp), exist_ok=True)
             with open(tmp, "w", encoding="utf-8") as f:
                 f.write(body)
-            act(f"protect branch {release}", ["api", "-X", "PUT", f"repos/{nwo}/branches/{release}/protection",
-                                              "-H", "Accept: application/vnd.github+json", "--input", tmp])
+            try:
+                act(f"protect branch {release}", ["api", "-X", "PUT", f"repos/{nwo}/branches/{release}/protection",
+                                                  "-H", "Accept: application/vnd.github+json", "--input", tmp])
+            finally:
+                try:
+                    os.unlink(tmp)   # the payload is the call's, not the repository's (first contact: left behind on a 403)
+                except OSError:
+                    pass
         # 3. secret scanning push protection
         rc, out, _ = gh(["api", f"repos/{nwo}", "--jq", ".security_and_analysis.secret_scanning_push_protection.status"], repo)
         if rc == 0 and out == "enabled":

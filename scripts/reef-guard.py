@@ -1041,7 +1041,7 @@ def check_context_ceiling(payload):
         try:
             st_p = os.path.join(root, ".reef", "loop.json")
             st = json.load(open(st_p)) if os.path.isfile(st_p) else {}
-            st["stop"] = f"context ceiling: {n} tokens > caps.context_tokens {ceiling} — checkpoint, then /clear"
+            st["stop"] = f"context ceiling: {n} tokens > caps.context_tokens {ceiling} — /clear now (HANDOFF.md is written)"
             st["transcript"] = tp
             os.makedirs(os.path.dirname(st_p), exist_ok=True)
             with open(st_p, "w", encoding="utf-8") as f:
@@ -1058,10 +1058,14 @@ def check_context_ceiling(payload):
                 except Exception:
                     pass
                 break
-        deny(f"context ceiling: this session is at {n} tokens > caps.context_tokens {ceiling} — checkpoint done: HANDOFF.md written from measured state (scripts/reef-handoff --write); /clear now, a fresh orchestrator dispatches")
+        deny(f"/clear NOW. context ceiling: this session is at {n} tokens > caps.context_tokens {ceiling}. "
+             f"checkpoint done: HANDOFF.md written from measured state (scripts/reef-handoff --write), nothing is lost. "
+             f"Do nothing else in this session — no more Bash, no edits, no summary (the real session kept going 80k past "
+             f"the ceiling): tell the human to run /clear and paste `<the command you were running> — re-entry: see HANDOFF.md`; "
+             f"the fresh orchestrator resumes there")
     if warn and n > warn:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
-                                                 "additionalContext": f"reef: context at {n} tokens (> caps.context_warn {warn}, ceiling {ceiling or 'unset'}) — finish this wave, write the handoff, /clear soon."}}))
+                                                 "additionalContext": f"reef: context at {n} tokens (> caps.context_warn {warn}, ceiling {ceiling or 'unset'}): {max(0, (ceiling or 0) - n)} tokens of room. Finish the step in hand, then stop and /clear BEFORE the ceiling; sub-agent dispatches are refused at it, Bash is not — do not spend the room on reading."}}))
 
 
 def arm_deadline():
