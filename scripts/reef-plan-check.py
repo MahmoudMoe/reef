@@ -267,6 +267,32 @@ def approval_state(root, feat, digest):
     return True, f"approval: OK for {feat!r} ({digest[:16]}, {rec.get('approved_at', '?')})"
 
 
+def review_state(root, feat, digest, task_paths):
+    """(ok, line, required): the plan reviewer's verdict, a record `scripts/reef-record plan-review` writes, must be
+    PASS at this digest for a feature with any task above `light` (the deterministic stamp alone never meant the
+    semantic review passed — first contact, 2026-10-16)."""
+    tiers = set()
+    for p in task_paths:
+        try:
+            txt = read(p)
+        except (OSError, UnicodeDecodeError):
+            continue
+        tiers.add(fm_value(txt, "tier") or ("light" if fm_value(txt, "complexity") == "mech" else "full"))
+    if not tiers - {"light"}:
+        return True, f"review: not required for {feat!r} (every task light)", False
+    p = os.path.join(main_checkout(root), ".reef", "review", f"plan-{feat}.json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            rec = json.load(f)
+    except Exception:
+        return False, f"review: MISSING for {feat!r} ({os.path.relpath(p, root)}) — run /reef-plan-review; it records the verdict with scripts/reef-record plan-review", True
+    if str(rec.get("digest16", "")) != digest[:16]:
+        return False, f"review: STALE for {feat!r} (reviewed {rec.get('digest16')}, plan is {digest[:16]}) — re-run /reef-plan-review", True
+    if str(rec.get("verdict", "")).upper() != "PASS":
+        return False, f"review: FAILED for {feat!r} ({rec.get('verdict')}, {rec.get('recorded_at', '?')}) — fix the findings and re-run /reef-plan-review", True
+    return True, f"review: OK for {feat!r} ({digest[:16]}, {rec.get('recorded_at', '?')})", True
+
+
 def fm_value(text, key):
     """One frontmatter value, read the way reef-attempt reads it (column 0, first wins)."""
     m = FM_RE.match(text)
@@ -478,14 +504,23 @@ def main():
         # 0.6: the human's approval is a RECORD bound to the digest, not a sentence in the chat
         rc = 0
         for feat in feats:
+            enforced = planned_under_06(stamp, feat) or feat in folders
             okd, line = approval_state(root, feat, digest_for(feat))
             if okd:
                 print(line)
-            elif planned_under_06(stamp, feat) or feat in folders:
+            elif enforced:
                 print(line)
                 rc = 1
             else:
                 print(f"warning: {line} (feature planned before 0.6 — not enforced)")
+            okr, rline, _required = review_state(root, feat, digest_for(feat), by_feature.get(feat, []))
+            if okr:
+                print(rline)
+            elif enforced:
+                print(rline)
+                rc = 1
+            else:
+                print(f"warning: {rline} (feature planned before 0.6 — not enforced)")
         sys.exit(rc)
 
     try:

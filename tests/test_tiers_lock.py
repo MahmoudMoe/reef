@@ -16,6 +16,7 @@ GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
 ATTEMPT = os.path.join(ROOT, "scripts", "reef-attempt")
 CHECK = os.path.join(ROOT, "scripts", "reef-plan-check.py")
 APPROVAL = os.path.join(ROOT, "scripts", "reef-approval.py")
+RECORD = os.path.join(ROOT, "scripts", "reef-record")
 
 TIERS = {"critical": {"roles": {"author": "opus", "verifier": "fable", "adversary": "fable", "plan_reviewer": "fable"}, "effort": "high"},
          "design": {"roles": {"author": "opus", "verifier": "opus", "adversary": "opus", "plan_reviewer": "fable"}, "effort": "high"},
@@ -78,6 +79,9 @@ def approve(d, feature):
     os.makedirs(os.path.join(d, ".reef", "approvals"), exist_ok=True)
     with open(os.path.join(d, ".reef", "approvals", f"{feature}.json"), "w") as f:
         json.dump({"digest16": digest[:16], "approved_at": "2026-10-16T00:00:00Z"}, f)
+    # and reviewed: the plan reviewer's PASS, recorded the way the skill records it (0.7)
+    r = subprocess.run([sys.executable, RECORD, "plan-review", feature, "PASS", "--root", d], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
     return digest
 
 
@@ -271,6 +275,9 @@ class ApprovalInAWorktree(unittest.TestCase):
         with open(rec) as f:
             self.assertEqual(json.load(f)["digest16"], wt_digest[:16])
         self.assertFalse(os.path.exists(os.path.join(wt, ".reef", "approvals", "demo.json")), "the record lives in the main checkout only")
+        rr = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", wt], capture_output=True, text=True)
+        self.assertEqual(rr.returncode, 0, rr.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(d, ".reef", "review", "plan-demo.json")), "the review record lives in the main checkout too")
         self.assertEqual(plan_check(wt, "--verify-stamp", "--feature", "demo").returncode, 0, "the guard's check in the worktree passes")
         # a digest nobody's checkout holds still writes nothing
         q2 = f"Approve plan demo at {'f' * 16}?"
@@ -279,6 +286,58 @@ class ApprovalInAWorktree(unittest.TestCase):
         r = subprocess.run([sys.executable, APPROVAL], input=json.dumps(payload), capture_output=True, text=True)
         self.assertFalse(os.path.exists(rec))
         self.assertIn("matches no checkout", r.stdout)
+
+
+class PlanReviewVerdictIsARecord(unittest.TestCase):
+    """0.7: the deterministic stamp never meant the semantic review passed. For a feature with a task above light the
+    guard's check needs `scripts/reef-record plan-review <slug> PASS` at the current digest."""
+
+    def test_missing_stale_failed_and_light_only(self):
+        d = project({"gates": {"test": "true"}}, {"007-demo.md": task_text(7, "demo", "design", "design")})
+        self.assertEqual(plan_check(d).returncode, 0)
+        digest = plan_check(d, "--digest", "--feature", "demo").stdout.split()[-1]
+        os.makedirs(os.path.join(d, ".reef", "approvals"), exist_ok=True)
+        with open(os.path.join(d, ".reef", "approvals", "demo.json"), "w") as f:
+            json.dump({"digest16": digest[:16], "approved_at": "2026-10-16T00:00:00Z"}, f)
+        r = plan_check(d, "--verify-stamp", "--feature", "demo")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("review: MISSING for 'demo'", r.stdout)
+        self.assertIn("approval: OK", r.stdout)
+        rec = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", d], capture_output=True, text=True)
+        self.assertEqual(rec.returncode, 0, rec.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(d, ".reef", "review", "plan-demo.json")))
+        r = plan_check(d, "--verify-stamp", "--feature", "demo")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("review: OK for 'demo'", r.stdout)
+        # a FAIL verdict blocks
+        subprocess.run([sys.executable, RECORD, "plan-review", "demo", "FAIL", "--root", d], capture_output=True, text=True)
+        r = plan_check(d, "--verify-stamp", "--feature", "demo")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("review: FAILED", r.stdout)
+        # the plan changes after a PASS: stale
+        subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", d], capture_output=True, text=True)
+        tp = os.path.join(d, "tasks", "007-demo.md")
+        with open(tp) as f:
+            t = f.read()
+        with open(tp, "w") as f:
+            f.write(t.replace("## Scope\nx", "## Scope\nx and a new line"))
+        plan_check(d)
+        approve_digest = plan_check(d, "--digest", "--feature", "demo").stdout.split()[-1]
+        with open(os.path.join(d, ".reef", "approvals", "demo.json"), "w") as f:
+            json.dump({"digest16": approve_digest[:16], "approved_at": "2026-10-16T00:00:00Z"}, f)
+        r = plan_check(d, "--verify-stamp", "--feature", "demo")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("review: STALE", r.stdout)
+        # all-light: not required
+        d2 = project({"gates": {"test": "true"}}, {"008-mech.md": task_text(8, "lite", "light", "mech")})
+        plan_check(d2)
+        dg = plan_check(d2, "--digest", "--feature", "lite").stdout.split()[-1]
+        os.makedirs(os.path.join(d2, ".reef", "approvals"), exist_ok=True)
+        with open(os.path.join(d2, ".reef", "approvals", "lite.json"), "w") as f:
+            json.dump({"digest16": dg[:16], "approved_at": "2026-10-16T00:00:00Z"}, f)
+        r = plan_check(d2, "--verify-stamp", "--feature", "lite")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("review: not required", r.stdout)
 
 
 class GuardPassRecordDoesNotStaleTheStamp(unittest.TestCase):
