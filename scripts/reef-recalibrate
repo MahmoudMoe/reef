@@ -56,7 +56,10 @@ def served_dirs(root):
 
 
 def referenced_by(root, rel):
-    r = subprocess.run(["git", "-C", root, "grep", "-l", "-F", "--", rel, "--", ":!*.md"], capture_output=True, text=True)
+    # "referenced from code, CI or the docs build": never from Reef's own plan (.reef/recalibration.json lists every
+    # document, which made every document "kept" on a second run — 0.7 dogfood) nor from logs and evidence dumps
+    r = subprocess.run(["git", "-C", root, "grep", "-l", "-F", "--", rel, "--", ":!*.md", ":!.reef/**", ":!*.log", ":!*.txt"],
+                       capture_output=True, text=True)
     return [l for l in r.stdout.splitlines() if l]
 
 
@@ -93,8 +96,9 @@ def slugify(name, title=""):
     """2-5 descriptive kebab words: the file or directory name first, the document's title when that is too short."""
     for cand in (name, title, f"{name} {title}"):
         s = re.sub(r"[^a-z0-9]+", "-", cand.lower()).strip("-")
-        s = re.sub(r"^\d+-", "", s)
         words = [w for w in s.split("-") if w and w not in GENERIC and not w.isdigit()]
+        while words and re.match(r"^\d", words[0]):       # a leading id token (`014a`, `572a`) is not a word (ai-coach: 96 of them)
+            words.pop(0)
         if len(words) >= 2:
             return "-".join(words[:5])
     words = [w for w in re.sub(r"[^a-z0-9]+", "-", name.lower()).split("-") if w] or ["recalibrated"]
@@ -136,7 +140,7 @@ def build_plan(root):
     served = served_dirs(root)
     date = datetime.date.today().isoformat()
     files = [l for l in git(root, "ls-files", "--", "*.md", "**/*.md", check=False).splitlines() if l.endswith(".md")]
-    plan, n = [], 0
+    plan, n, taken = [], 0, set()
     for rel in sorted(files):
         text = read(os.path.join(root, rel))
         action, reason = classify(root, rel, text, served)
@@ -146,7 +150,13 @@ def build_plan(root):
             entry["adr_slug"] = slugify(os.path.splitext(os.path.basename(rel))[0], title)
         if action == "convert-feature":
             stem = os.path.splitext(os.path.basename(rel))[0] if os.path.basename(rel).lower() != "spec.md" else os.path.basename(os.path.dirname(rel))
-            entry["feature"] = slugify(stem, title)
+            feat = base = slugify(stem, title)
+            k = 2
+            while feat in taken:                           # two specs, one slug: the second must not overwrite the first's SPEC.md
+                feat = f"{base}-{k}"
+                k += 1
+            taken.add(feat)
+            entry["feature"] = feat
         if action != "keep":
             entry["archive"] = f"reef/archive/{date}/{rel}"
         plan.append(entry)
@@ -189,18 +199,41 @@ def cmd_plan(root):
     return 0
 
 
-def rewrite_links(root, moved, touched_files):
+def dead_links(root):
+    """(file, target) of every relative Markdown link that does not resolve in the tree as it stands."""
+    out = set()
+    files = [l for l in git(root, "ls-files", "--", "*.md", "**/*.md", check=False).splitlines() if l.endswith(".md")]
+    for rel in files:
+        p = os.path.join(root, rel)
+        if not os.path.isfile(p):
+            continue
+        here = os.path.dirname(rel)
+        for m in LINK.finditer(read(p)):
+            target = m.group(2)
+            if re.match(r"^[a-z]+:", target) or target.startswith("/") or target.startswith("<"):
+                continue
+            if not os.path.exists(os.path.join(root, os.path.normpath(os.path.join(here, target)))):
+                out.add((rel, target))
+    return out
+
+
+def rewrite_links(root, moved, touched_files, dead_before=frozenset()):
     """Relative links in every Markdown file: a link to a moved file points at its new home; then every relative
-    link must resolve. Returns the broken ones."""
-    broken = []
+    link must resolve. Returns (broken, already_dead): links the apply broke, and links dead before it (keyed by the
+    file's ORIGINAL path, so a dead link that travelled with its document is recognised and never blocks the apply)."""
+    broken, already_dead = [], []
     files = [l for l in git(root, "ls-files", "--", "*.md", "**/*.md", check=False).splitlines() if l.endswith(".md")]
     files = sorted(set(files) | set(touched_files))
+    came_from = {new: old for old, new in moved.items()}   # a moved file's links were written from its OLD directory
     for rel in files:
         p = os.path.join(root, rel)
         if not os.path.isfile(p):
             continue
         text = read(p)
         here = os.path.dirname(rel)
+        m_arch = re.match(r"^reef/archive/[^/]+/(.+)$", rel)      # an archived original keeps its old path under the date
+        src = came_from.get(rel) or (m_arch.group(1) if m_arch else rel)
+        origin = os.path.dirname(src)
 
         def fix(m):
             target = m.group(2)
@@ -210,6 +243,14 @@ def rewrite_links(root, moved, touched_files):
             if abs_target in moved:
                 new = os.path.relpath(moved[abs_target], here or ".")
                 return f"{m.group(1)}{new}{m.group(3) or ''}{m.group(4)}"
+            if src != rel and not os.path.exists(os.path.join(root, abs_target)):
+                # this file moved; the link was relative to where it came from — a sibling that STAYS (kept:
+                # referenced by code) or moved elsewhere. Seen live (0.7 dogfood, ai-coach): the apply refused
+                # on `design-decisions.md` beside a converted spec, a file the plan itself kept.
+                from_origin = os.path.normpath(os.path.join(origin, target))
+                dest = moved.get(from_origin, from_origin)
+                if os.path.exists(os.path.join(root, dest)):
+                    return f"{m.group(1)}{os.path.relpath(dest, here or '.')}{m.group(3) or ''}{m.group(4)}"
             return m.group(0)
         new_text = LINK.sub(fix, text)
         if new_text != text:
@@ -220,8 +261,8 @@ def rewrite_links(root, moved, touched_files):
             if re.match(r"^[a-z]+:", target) or target.startswith("/") or target.startswith("<"):
                 continue
             if not os.path.exists(os.path.join(root, os.path.normpath(os.path.join(here, target)))):
-                broken.append(f"{rel}: {target}")
-    return broken
+                (already_dead if (src, target) in dead_before else broken).append(f"{rel}: {target}")
+    return broken, already_dead
 
 
 def relink(text, old_rel, new_rel):
@@ -270,6 +311,7 @@ def cmd_apply(root, list_path, commit):
         return 1
     if git(root, "status", "--porcelain", check=False).strip():
         die("the working tree is not clean — the apply is one commit, undone by one revert", 1)
+    dead_before = dead_links(root)   # the apply answers for the links IT breaks, not for ones dead already (ai-coach had 7)
     cfg_path = os.path.join(root, ".reef", "config.json")
     cfg = json.loads(read(cfg_path)) if os.path.isfile(cfg_path) else {}
     paths = cfg.get("paths", {})
@@ -335,7 +377,7 @@ def cmd_apply(root, list_path, commit):
     with open(os.path.join(root, "reef", "archive", "README.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(index) + "\n")
     created.append("reef/archive/README.md")
-    broken = rewrite_links(root, moved, touched + created)
+    broken, already_dead = rewrite_links(root, moved, touched + created, dead_before)
     if broken:
         git(root, "reset", "-q", "--hard", "HEAD", check=False)
         git(root, "clean", "-fdq", "--", "reef", check=False)
@@ -343,6 +385,10 @@ def cmd_apply(root, list_path, commit):
         for b in broken[:20]:
             print(f"  - {b}")
         return 1
+    if already_dead:
+        print(f"note: {len(already_dead)} relative link(s) were already broken before the apply and travelled as they were (not this apply's to fix):")
+        for b in already_dead[:10]:
+            print(f"  - {b}")
     if commit:
         git(root, "add", "-A")   # the tree was clean before: everything staged is this apply (the moves are already staged)
         git(root, "-c", "user.email=reef@local", "-c", "user.name=reef", "commit", "-q", "-m",

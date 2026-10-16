@@ -34,7 +34,10 @@ def served_dirs(root):
 
 
 def referenced(root, rel):
-    r = subprocess.run(["git", "-C", root, "grep", "-l", "-F", "--", rel, "--", ":!*.md"], capture_output=True, text=True)
+    # a reference from code, CI or the docs build exempts a document; Reef's own plan (.reef/recalibration.json names
+    # every document), logs and evidence dumps do not — on a real project they made the check pass over 800 stray files
+    r = subprocess.run(["git", "-C", root, "grep", "-l", "-F", "--", rel, "--", ":!*.md", ":!.reef/**", ":!*.log", ":!*.txt"],
+                       capture_output=True, text=True)
     return bool(r.stdout.strip())
 
 

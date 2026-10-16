@@ -61,6 +61,24 @@ The honest reading: the 60k target was written for the task graph; a whole row a
 and will stay far above 60k. The owner decides whether the target names the graph (achievable now), the planning
 session (achievable with cuts 1–3), or the row (a different design: fewer sessions, or a target per stage).
 
+## Measured after cuts 1–3 (same project, same prompt, same model, 2026-10-16)
+
+| | before | after | change |
+|---|---|---|---|
+| growth (sum of positive deltas) | 65,748 | **38,441** | **−42%** |
+| max context | 113,880 | 86,856 | −24% |
+| Bash results | 24,685 | 10,451 | −58% |
+| tool-call inputs (the files written) | 8,269 | 6,455 | −22% |
+| turns | 17 | 11 | |
+| wall | 368 s | 300 s | |
+| cost (list price) | $3.35 | $2.49 | −26% |
+| plan quality | 19 checks, 0 failed; 2 tasks, ADR | 19 checks, 0 failed; 2 tasks, ADR, glossary | same |
+
+The planner ran `--rules` once. Cut 1 (`reef-plan-check.py --rules`) is a mechanism with a red test
+(`tests/test_plan_check.py::test_rules_prints_the_projects_numbers_in_under_40_lines`); cuts 2 and 3 are the lean-read
+paragraph at the top of `skills/reef-plan/SKILL.md`. One run each side is a direction, not a distribution: repeat at
+k=3 before quoting the percentage as a property.
+
 ## How to measure the cut
 
 Same recipe as the dogfood: a fresh sample project, `reef-init` with the grill answers in the prompt, `/reef-plan 1`

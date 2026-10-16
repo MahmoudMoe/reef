@@ -46,6 +46,26 @@
   template's cap is now `900` (30% above the largest) and `reef-claims.py report` rejects over it instead of warning
   (`tests/test_feature_spec.py::test_report_words_cap_is_set_and_enforced`, red before: the template said 0). A
   migrated project gains the key with the other `writing.*` caps.
+- **The 5.7 breaker, cut.** `reef-plan-check.py --rules` prints every rule the checker enforces with the project's
+  numbers in under 40 lines (`tests/test_plan_check.py::test_rules_prints_the_projects_numbers_in_under_40_lines`);
+  `skills/reef-plan` reads lean (the tick, `ready`, the head of `AGENTS.md`, the templates, `--rules` once; never the
+  checker's source, never a home-made lint, never the whole queue or constitution). Measured on the same project and
+  prompt: planning growth 65,748 → 38,441 tokens (−42%), Bash results −58%, cost −26%, the plan still 19 checks /
+  0 failed (`docs/design/plan-cost.md`).
+- **`reef-recalibrate` on a real project (ai-coach, 839 Markdown files)** found two defects: (a) a moved document's
+  link to a sibling the plan KEPT (referenced from code) was left dead and the whole apply refused — links of a moved
+  file are now resolved from where it came from (`tests/test_dayzero.py::test_moved_spec_keeps_its_link_to_a_kept_sibling`);
+  (b) the "referenced from code" exemption counted `.reef/recalibration.json` (which names every document) and CI logs,
+  so `reef-structure --check` printed ok over 800+ stray documents and a second `plan` would have kept everything —
+  Reef's own plan, `*.log` and `*.txt` no longer count as references
+  (`tests/test_dayzero.py::test_structure_check_is_not_fooled_by_the_plan_file_or_logs`). Run record in the dogfood report.
+- `reef-cost.py` rows: a background agent's notification also arrives as an `attachment` of type `queued_command`;
+  found by the acceptance review of the feature itself on the Reef row session (growth read 34,098 for a true 40,840)
+  (`tests/test_cost.py::test_rows_span_ends_at_an_attachment_notification`, red before).
+- `reef-recalibrate`, two more from the real project: a feature slug never starts with an id token (`014a-…`), and two
+  specs with one title get distinct feature slugs instead of the second overwriting the first's SPEC.md
+  (`tests/test_dayzero.py::test_slugs_drop_id_tokens_and_never_collide`); a link dead before the apply is listed, not
+  a refusal (`test_a_link_broken_before_the_apply_does_not_block_it`; the old refusal test now asserts the new rule).
 - **Row 2, the hunter's scope discipline.** Corpus entry `scope-names-later-rows` (truth PASS: a sound path guard whose
   Scope names its three known holes as later rows). `agents/loophole-hunter.md`: the Scope draws the BLOCKER/NEW-ROW
   line, an out-of-scope hole is a NEW-ROW even when it will happen or is a regression (marked `regression`). Measured,

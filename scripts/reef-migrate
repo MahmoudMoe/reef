@@ -140,7 +140,9 @@ def cmd_layout(root, commit):
         t = open(gi).read().replace("tasks/.plan-review.json", "tasks/.plan-review.json\nreef/features/.plan-review.json")
         open(gi, "w").write(t)
     mover = load_mover()
-    broken = mover.rewrite_links(root, moved, list(moved.values()) + [".reef/config.json"])
+    dead_before = mover.dead_links(root) if hasattr(mover, "dead_links") else frozenset()
+    result = mover.rewrite_links(root, moved, list(moved.values()) + [".reef/config.json"], dead_before)
+    broken = result[0] if isinstance(result, tuple) else result   # (broken, already_dead) since 0.7
     if broken:
         git(root, "reset", "-q", "--hard", "HEAD")
         subprocess.run(["git", "-C", root, "clean", "-fdq", "--", "reef"], capture_output=True)
