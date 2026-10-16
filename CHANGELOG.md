@@ -35,6 +35,12 @@
   opus one round, verifier fable PASS, hunter guard pass PASS), then carried onto this branch. Six tests in
   `tests/test_cost.py` (`test_rows_*`). Live: the ledger task-graph session reads one row, growth 39,665 over 4
   dispatches; the Reef row session 34,098 over 3; a session that launched roles through `claude -p` reads `rows: []`.
+- **Row 1, second half: the context caps are set from the measurement.** `templates/config.json`
+  `caps.context_warn: 100000`, `caps.context_tokens: 150000` for a NEW project (session maxima measured 58k–159k,
+  p90 148k: the warning fires late in a planning or critical-row session, the ceiling only on a runaway); a migrated
+  0.5 project keeps `0` / `0` (off), decision 11 (`tests/test_layout.py::Migrations` pins it;
+  `tests/test_init.py::test_fresh_init_sets_the_measured_context_caps` pins the new default). The README settings
+  row says why the default is wider than the 40/60 rule of thumb.
 - **Row 2, the hunter's scope discipline.** Corpus entry `scope-names-later-rows` (truth PASS: a sound path guard whose
   Scope names its three known holes as later rows). `agents/loophole-hunter.md`: the Scope draws the BLOCKER/NEW-ROW
   line, an out-of-scope hole is a NEW-ROW even when it will happen or is a regression (marked `regression`). Measured,

@@ -42,8 +42,8 @@ Totals: ≈ 3,850 net new script lines (ceiling 3,200 — see "Deviations"); +96
 | Eval cost | — | baseline $18.2 + corrections $8.0; after-runs $11.4 |
 
 ## Open rows for 0.7
-1. Measure 5.7 on a real row and set `caps.context_warn` / `caps.context_tokens` from it; then decide `tiers.light.roles.author: sonnet` from an author eval (none exists yet — the corpus judges judges).
-2. The hunter's scope discipline (out-of-scope holes raised as BLOCKERs): an eval entry whose Scope names NEW-ROWs explicitly, and a prompt line if the number holds.
+1. ~~Measure 5.7 on a real row and set the caps~~ — measured 2026-10-16 on two real rows (`docs/perf/dogfood-2026-10-16.md`): inside the dispatch span 34–40k, whole `/reef-task` sessions 63–111k, a whole row across five sessions 246k; `caps.context_warn: 100000` / `caps.context_tokens: 150000` set from it. Still open: `tiers.light.roles.author: sonnet` needs an author eval.
+2. ~~The hunter's scope discipline~~ — done: entry `scope-names-later-rows` + the Scope line; false-FAIL 0.33 → 0.17 at k=3 over the whole corpus, nothing dropped (`docs/perf/eval-baseline-2026-10-16.md` §0.7).
 3. ~~The size ceiling~~ — closed at merge: the owner reset the budgets to what 0.6 measured (3,850; per phase in the CHANGELOG). No cuts.
 4. A live capture of the AskUserQuestion result once headless sessions expose the tool (or via the Agent SDK's `canUseTool`), replacing the schema-derived fixture.
 5. `reef-recalibrate --apply` on a real existing project (the fixture is synthetic); `reef-c4.py` detection for more stacks and route styles.
