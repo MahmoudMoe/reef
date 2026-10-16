@@ -83,7 +83,7 @@ PR_MERGE_API = re.compile(r"repos/([^/]+)/([^/]+)/pulls/(\d+)/merge")
 GOOD_VERDICTS = ("PASS", "GREEN", "APPROVED")
 
 DEFAULT_CAP = 3
-OPS = {";", "&", "|", "&&", "||", ";;", ";&", "|&", "(", ")"}
+OPS = {";", "&", "|", "&&", "||", ";;", ";&", "|&", "(", ")", "\n"}
 MAX_DEPTH = 25   # bound sh -c / eval recursion so a nested payload cannot hang the hook
 # git global options that consume a separate value before the subcommand
 GIT_GLOBAL_VALUE_OPTS = {"-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--config-env"}
@@ -103,17 +103,42 @@ def deny(reason):
 
 def tokenize(cmd):
     """Tokenize a whole command in ONE pass; shell operators (incl. subshell parens) become
-    their own tokens; None if unparseable. Newlines are whitespace here (shlex default), so a
-    newline INSIDE a quote stays a literal message character while a newline BETWEEN commands
-    just separates tokens — and default commenters='#' ends a comment exactly at its own
-    line's newline. Command boundaries do not matter because check_segment scans every token
-    position for git/rm/chmod, so two newline-separated commands are still both inspected."""
-    lex = shlex.shlex(cmd, posix=True, punctuation_chars="();|&<>")
+    their own tokens; None if unparseable. A bare newline is an operator token (a command
+    separator, like `;`) while a newline INSIDE a quote stays a literal message character;
+    default commenters='#' ends a comment at its own line's newline. Heredoc bodies are
+    stripped (data, not commands). check_segment still scans every token position for
+    git/rm/chmod, so a prefix word never hides the real command."""
+    lex = shlex.shlex(cmd, posix=True, punctuation_chars="();|&<>\n")
+    lex.whitespace = " \t\r"       # a bare newline is a command separator (an operator token), not whitespace
     lex.whitespace_split = True
     try:
-        return list(lex)
+        return strip_heredocs(list(lex))
     except ValueError:
         return None
+
+
+def strip_heredocs(toks):
+    """`<< WORD` / `<<- WORD`: the body (from the next newline to the line holding WORD alone) is DATA for the
+    command's stdin, not commands — drop it, so a JSON payload or a script fed by heredoc is never read as the
+    shell. Measured false positive (first contact, 2026-10-16): `cat > .reef/grill.json <<'EOF' … EOF` followed by
+    `python3 …/scripts/reef-init.py` on the next line was denied as a write to reef-init.py."""
+    out, pending, i = [], [], 0
+    while i < len(toks):
+        t = toks[i]
+        if t == "<<" and i + 1 < len(toks):
+            word = toks[i + 1]
+            pending.append(word[1:] if word.startswith("-") and len(word) > 1 else word)
+            i += 2
+            continue
+        out.append(t)
+        if t == "\n" and pending:
+            word = pending.pop(0)
+            while i + 1 < len(toks):
+                i += 1
+                if toks[i] == word and (i + 1 >= len(toks) or toks[i + 1] == "\n"):
+                    break
+        i += 1
+    return out
 
 
 def check_bash(cmd, depth=0):
@@ -167,6 +192,22 @@ def is_write(seg):
     return False
 
 
+def write_targets(seg):
+    """The tokens a write segment can CHANGE: every redirect's target, and every non-flag argument after a write
+    head (`cp`, `mv`, `tee`, `sed -i` …) anywhere in the segment. A guarded path that is merely RUN or READ
+    (`python3 scripts/reef-init.py … > init.log`) is not a target."""
+    out = []
+    for j, t in enumerate(seg):
+        if t in REDIRECTS and j + 1 < len(seg):
+            out.append(seg[j + 1])
+    for j, t in enumerate(seg):
+        head = os.path.basename(t)
+        if head in WRITE_HEADS or (head in ("sed", "perl") and any(re.match(r"^-[a-zA-Z]*i", a) for a in seg[j + 1:])):
+            out += [a for a in seg[j + 1:] if not a.startswith("-") and a not in REDIRECTS]
+            break
+    return out
+
+
 def check_record_dirs(seg):
     """.reef/approvals/ and .reef/review/ are written by scripts/reef-approval.py and scripts/reef-record
     only: a hand-written record would be an approval nobody gave (tripwire; the digest check is the code)."""
@@ -181,7 +222,7 @@ def check_guard_files(seg, ctx):
     hook files keep their 0.5 denial regardless."""
     if not is_write(seg) or any(os.path.basename(t) == "chmod" for t in seg):
         return   # chmod on the hook files is check_chmod's business (pure +x is reef-init's install)
-    hits = [t for t in seg if GUARD_FILES.search(t)]
+    hits = [t for t in write_targets(seg) if GUARD_FILES.search(t)]
     if hits and not ctx.get("plugin_root") and not ctx.get("critical_inflight"):
         deny(f"Bash write to {hits[0]!r}: the guard's own files and the roles/caps/gates/tiers keys change only under "
              "a tier: critical task (none is in flight) or inside Reef's own repository — plan it as a critical task "
