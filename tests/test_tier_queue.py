@@ -203,6 +203,23 @@ class Queue(unittest.TestCase):
             self.assertIn("see ADR 0004", f.read())
         self.assertEqual(queue(d, "adr-number").returncode, 1, "nothing left to number")
 
+    def test_adr_number_title_and_path_citations(self):
+        # 0.7 dogfood: reef-init's draft title reads `# ADR draft-1-x — …`, and a SPEC cites the file by path;
+        # numbering produced `# ADR ADR 0001 — …` and a dead `adr/ADR 0001.md` — the close had to fix four spots by hand
+        d = qrepo()
+        write(d, "docs/adr/draft-1-hosting.md", "# ADR draft-1-hosting — Hosting: one VPS\n\nStatus: Accepted (number at merge)\n")
+        write(d, "docs/spec.md", "# spec\nDesign: [hosting](adr/draft-1-hosting.md); see also draft-1-hosting.\n")
+        r = queue(d, "adr-number")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(d, "docs", "adr", "0001-hosting.md")) as f:
+            title = f.readline()
+        self.assertEqual(title, "# ADR 0001 — Hosting: one VPS\n")
+        with open(os.path.join(d, "docs", "spec.md")) as f:
+            spec = f.read()
+        self.assertIn("(adr/0001-hosting.md)", spec, "a path citation still points at a file")
+        self.assertIn("see also ADR 0001.", spec)
+        self.assertNotIn("ADR ADR", spec)
+
 
 if __name__ == "__main__":
     unittest.main()

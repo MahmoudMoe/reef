@@ -311,7 +311,11 @@ def cmd_adr_number(root):
                 p = os.path.join(dirpath, n)
                 t = read(p)
                 t2 = t
-                for cite, (_, _, num) in renames.items():
+                for cite, (_, new, num) in renames.items():
+                    # the ADR's own title says `ADR draft-x` already: never "ADR ADR 0001" (0.7 dogfood)
+                    t2 = re.sub(r"\bADR[ \t]+" + re.escape(cite) + r"\b", f"ADR {num}", t2)
+                    # a path citation (`adr/draft-x.md`) must keep pointing at a file that exists
+                    t2 = re.sub(re.escape(cite) + r"\.md\b", os.path.basename(new), t2)
                     t2 = re.sub(r"\b" + re.escape(cite) + r"\b", f"ADR {num}", t2)
                 if t2 != t:
                     with open(p, "w", encoding="utf-8") as fh:

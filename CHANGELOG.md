@@ -14,6 +14,10 @@
   markdown bold (`**BLOCKER:** …`, also seen live) was NOT read as a blocker. Both fixed: the bold is stripped and the
   words are read (`tests/test_adversarial.py::test_blocker_none_is_no_blocker`, red before; the bold case joins the
   refusal cases). Found recording the hunter's round-7 PASS on the measurement row.
+- `reef-queue.py adr-number`: the draft title `reef-init` writes (`# ADR draft-1-x — …`) became `# ADR ADR 0001 — …`,
+  and a path citation (`adr/draft-1-x.md`) became the dead `adr/ADR 0001.md`; the ledger dogfood's close fixed four
+  spots by hand. The title keeps one `ADR`, a path citation becomes the new filename
+  (`tests/test_tier_queue.py::test_adr_number_title_and_path_citations`, red before the fix).
 - **Row 2, the hunter's scope discipline.** Corpus entry `scope-names-later-rows` (truth PASS: a sound path guard whose
   Scope names its three known holes as later rows). `agents/loophole-hunter.md`: the Scope draws the BLOCKER/NEW-ROW
   line, an out-of-scope hole is a NEW-ROW even when it will happen or is a regression (marked `regression`). Measured,
