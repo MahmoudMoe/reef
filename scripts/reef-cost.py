@@ -147,6 +147,16 @@ def feature_rows(path):
             if t == "user" and d.get("isCompactSummary"):
                 summary_pos.append(pos)
                 continue
+            if t == "attachment":
+                # a background agent's notification also arrives as an `attachment` of type `queued_command` whose
+                # `prompt` is the <task-notification> text — the only form the hunter's dispatch had in the Reef row
+                # session (found by the acceptance review of this very feature; growth read 34,098 for a true 40,840)
+                a = d.get("attachment") or {}
+                pr = a.get("prompt") if isinstance(a, dict) else None
+                if a.get("type") == "queued_command" and isinstance(pr, str) and pr.lstrip().startswith("<task-notification>"):
+                    for tid in NOTIFIED_ID.findall(pr):
+                        notified.setdefault(tid, pos)
+                continue
             if d.get("isSidechain") or t not in ("assistant", "user"):
                 continue
             msg = d.get("message") or {}

@@ -152,6 +152,13 @@ def notification(tid):
     return rec
 
 
+def attachment_notification(tid):
+    """The OTHER shape a background agent's notification takes: an `attachment` record of type `queued_command`
+    whose `prompt` is the <task-notification> text (the only form the hunter's dispatch had in the Reef row session)."""
+    return {"type": "attachment", "attachment": {"type": "queued_command", "prompt":
+            f"<task-notification>\n<task-id>a1</task-id>\n<tool-use-id>{tid}</tool-use-id>\n<status>completed</status>\n</task-notification>"}}
+
+
 def list_result(tid, text):
     """An Agent result as real transcripts carry it: content is a list of text blocks."""
     return {"type": "user", "message": {"role": "user", "content": [
@@ -265,6 +272,21 @@ class Rows(unittest.TestCase):
         rows = rows_of(write_transcript(self.d, "bg.jsonl", recs))
         self.assertEqual((rows["ya"]["first_turn"], rows["ya"]["last_turn"], rows["ya"]["growth"]), (2, 4, 600))
         self.assertEqual((rows["xa"]["first_turn"], rows["xa"]["last_turn"], rows["xa"]["growth"]), (2, 6, 1000))
+
+    def test_rows_span_ends_at_an_attachment_notification(self):
+        # found by the acceptance review of this feature on the Reef row session: with the user-record shape only,
+        # the hunter's span ended at the launch stub and growth read 34,098 for a true 40,840
+        recs = [
+            assistant("c1", 1000, 0, 0, 1),
+            assistant("c2", 0, 0, 2000, 1, [dispatch("tu_h", "Agent", "REEF-TASK: reef/features/za/tasks/101-z.md")]),
+            list_result("tu_h", "Async agent launched"),
+            assistant("c3", 0, 0, 2500, 1),
+            attachment_notification("tu_h"),
+            assistant("c4", 0, 0, 3200, 1),
+            assistant("c5", 0, 0, 3300, 1),
+        ]
+        rows = rows_of(write_transcript(self.d, "att.jsonl", recs))
+        self.assertEqual((rows["za"]["first_turn"], rows["za"]["last_turn"], rows["za"]["growth"]), (2, 4, 1200))
 
     def test_rows_flat_layout_slug_is_the_stem(self):
         recs = [

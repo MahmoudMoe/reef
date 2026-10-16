@@ -356,6 +356,23 @@ class HandbackAndReport(unittest.TestCase):
         rp = write(self.d, "r4.md", good.replace("RULE AC1: PASS iff test_csv_header_and_rows is green", "RULE AC1: PASS iff it works"))
         self.assertIn("RULE AC1 does not cite its Proof row", self.claims("report", rp, "--task", self.task).stdout)
 
+    def test_report_words_cap_is_set_and_enforced(self):
+        # 0.7: four real reports measured 538-706 words for 6-7 criteria (docs/perf/dogfood-2026-10-16.md §E);
+        # the template's cap is 900 (30% above the largest) and a report over it is rejected, not warned about
+        with open(os.path.join(ROOT, "templates", "config.json")) as f:
+            self.assertEqual(json.load(f)["writing"]["report_words"], 900)
+        write(self.d, ".reef/config.json", json.dumps({"gates": {"full": "true"}, "paths": {"features": "reef/features"},
+                                                        "writing": {"report_words": 900}}))
+        head = ("RUN: agent=verifier task=1201\nRULE AC1: PASS iff test_csv_header_and_rows is green; FAIL otherwise\n"
+                "RULE AC2: PASS iff test_csv_two_decimals asserts 2 decimals; FAIL otherwise\n"
+                "AC1 PASS — tests/test_export.py:12 asserts the header\nAC2 PASS — test_csv_two_decimals, 2 tests OK\n")
+        long = write(self.d, "long.md", head + " ".join(["evidence"] * 1000) + "\nVERDICT: PASS\n")
+        r = self.claims("report", long, "--task", self.task)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("words > writing.report_words 900", r.stdout)
+        fine = write(self.d, "fine.md", head + " ".join(["evidence"] * 600) + "\nVERDICT: PASS\n")
+        self.assertEqual(self.claims("report", fine, "--task", self.task).returncode, 0)
+
     def test_hunter_report_has_its_own_shape(self):
         # 0.7 dogfood: reef-task sends the hunter's report through `report`, which demanded RULE AC lines the hunter
         # never writes (its shape is DEFECT / BLOCKER / NEW-ROW / NONE / VERDICT) — every live hunter report was rejected

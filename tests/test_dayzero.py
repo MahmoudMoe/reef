@@ -107,7 +107,9 @@ def fixture_repo():
     write(d, "LICENSE", "MIT\n")
     write(d, "decisions/0001-use-postgres.md", "# 1. Use Postgres\n\nDate: 2025-01-01\n\n## Status\nAccepted\n\n## Context\nWe need a store.\n\n## Decision\nPostgres.\n\n## Consequences\nOperate a database.\n")
     write(d, "rfcs/0002-event-bus.md", "# RFC 2: event bus\n\n## Context\nServices need to talk.\n\n## Decision\nNATS.\n\n## Consequences\n+ decoupled\n- one more process\n")
-    write(d, "specs/export/spec.md", "# CSV export\n\n- the operator exports a month\n- amounts keep two decimals\n\nSee [the ADR](../../decisions/0001-use-postgres.md).\n")
+    write(d, "specs/export/spec.md", "# CSV export\n\n- the operator exports a month\n- amounts keep two decimals\n\nSee [the ADR](../../decisions/0001-use-postgres.md) and the [design tokens](design-tokens.md).\n")
+    write(d, "specs/export/design-tokens.md", "# Tokens\n--ink: #000;\n")          # a sibling the code reads: KEPT in place
+    write(d, "src/theme.css", "/* generated from specs/export/design-tokens.md */\n")
     write(d, "specs/old-import/spec.md", "# Importer\nStatus: done\n\n- imports CSV\n")
     write(d, "ops/runbook.md", "# Runbook\nHow to restart the service.\n")
     write(d, "docs/glossary.md", "# Glossary\n| Term | Definition |\n|---|---|\n| Order | one sale |\n")
@@ -144,6 +146,73 @@ def tree_hash(d):
 class Recalibrate(unittest.TestCase):
     def run_(self, d, *args):
         return subprocess.run([sys.executable, RECAL, *args, "--repo", d], capture_output=True, text=True)
+
+    def test_moved_spec_keeps_its_link_to_a_kept_sibling(self):
+        # 0.7 dogfood (ai-coach, 839 Markdown files): a spec linked to `design-decisions.md` beside it, a file the plan
+        # itself KEPT (referenced from code); the converted spec and its archive copy then carried a dead link and the
+        # whole apply was refused. A moved document's links are relative to where it came from.
+        d = fixture_repo()
+        self.assertEqual(self.run_(d, "plan").returncode, 0)
+        plan = json.loads(open(os.path.join(d, ".reef", "recalibration.json")).read())
+        by = {e["path"]: e for e in plan["entries"]}
+        self.assertEqual(by["specs/export/design-tokens.md"]["action"], "keep", "referenced from code")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "chore: plan")
+        r = self.run_(d, "--apply")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        date = plan["date"]
+        archived = open(os.path.join(d, "reef", "archive", date, "specs", "export", "spec.md")).read()
+        self.assertIn("(../../../../../specs/export/design-tokens.md)", archived)
+        self.assertTrue(os.path.isfile(os.path.join(d, "specs", "export", "design-tokens.md")), "the kept sibling never moved")
+
+    def test_slugs_drop_id_tokens_and_never_collide(self):
+        # 0.7 dogfood (ai-coach): 96 feature slugs began with an id token (`014a-tenant-schema`), which the slug rule
+        # refuses, and 13 specs shared a title with another, so the later SPEC.md overwrote the earlier one
+        d = fixture_repo()
+        write(d, "specs/014a-tenant-schema/spec.md", "# Tenant schema\n\n- one schema per tenant\n")
+        write(d, "specs/311-review-round/spec.md", "# Review round\n\n- a round\n")
+        write(d, "specs/412-review-round/spec.md", "# Review round\n\n- another round\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "chore: more specs")
+        self.assertEqual(self.run_(d, "plan").returncode, 0)
+        plan = json.loads(open(os.path.join(d, ".reef", "recalibration.json")).read())
+        by = {e["path"]: e for e in plan["entries"]}
+        self.assertEqual(by["specs/014a-tenant-schema/spec.md"]["feature"], "tenant-schema")
+        feats = {by["specs/311-review-round/spec.md"]["feature"], by["specs/412-review-round/spec.md"]["feature"]}
+        self.assertEqual(len(feats), 2, feats)
+        self.assertIn("review-round", feats)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "chore: plan")
+        r = self.run_(d, "--apply")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(subprocess.run([sys.executable, STRUCT, "--check", "--repo", d], capture_output=True, text=True).returncode, 0)
+        for f in feats:
+            self.assertTrue(os.path.isfile(os.path.join(d, "reef", "features", f, "SPEC.md")))
+
+    def test_a_link_broken_before_the_apply_does_not_block_it(self):
+        # 0.7 dogfood (ai-coach): seven links were already dead before any move (screenshots never committed, source
+        # files renamed); the apply must only refuse on links IT breaks, and say which were dead already
+        d = fixture_repo()
+        write(d, "ops/runbook.md", "# Runbook\nHow to restart the service. See [the old diagram](diagram.png).\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "chore: a dead link")
+        self.assertEqual(self.run_(d, "plan").returncode, 0)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "chore: plan")
+        r = self.run_(d, "--apply")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("already broken before the apply", r.stdout)
+        self.assertIn("diagram.png", r.stdout)
+
+    def test_structure_check_is_not_fooled_by_the_plan_file_or_logs(self):
+        # 0.7 dogfood: `.reef/recalibration.json` names every document and CI logs quote spec paths, so the
+        # "referenced from code" exemption excused 800+ stray documents and the structure check printed ok
+        d = fixture_repo()
+        self.assertEqual(self.run_(d, "plan").returncode, 0)
+        write(d, "evidence/run-1.log", "checking rfcs/0002-event-bus.md ... ok\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "chore: plan + a log")
+        r = subprocess.run([sys.executable, STRUCT, "--check", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("rfcs/0002-event-bus.md", r.stdout)
+        # and a second `plan` still classifies the RFC as a conversion, not as kept
+        self.assertEqual(self.run_(d, "plan").returncode, 0)
+        plan = json.loads(open(os.path.join(d, ".reef", "recalibration.json")).read())
+        self.assertEqual({e["path"]: e for e in plan["entries"]}["rfcs/0002-event-bus.md"]["action"], "convert-adr")
 
     def test_plan_apply_revert(self):
         d = fixture_repo()
@@ -239,11 +308,16 @@ class Recalibrate(unittest.TestCase):
         git(d, "commit", "-qm", "chore: plan")
         head = git(d, "rev-parse", "HEAD").strip()
         r = self.run_(d, "--apply")
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("broken relative links", r.stdout)
-        self.assertEqual(git(d, "rev-parse", "HEAD").strip(), head, "no commit")
-        self.assertEqual(git(d, "status", "--porcelain").strip(), "", "tree restored")
-        self.assertTrue(os.path.isfile(os.path.join(d, "decisions", "0001-use-postgres.md")))
+        # 0.7: a link that was dead BEFORE the apply is not the apply's to fix — it travels as it was, the apply says
+        # so, and still commits; the refusal is reserved for links the apply itself breaks (ai-coach had 7 dead links
+        # and could never have been recalibrated under the old rule)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("already broken before the apply", r.stdout)
+        self.assertIn("nowhere.md", r.stdout)
+        self.assertNotEqual(git(d, "rev-parse", "HEAD").strip(), head, "the apply committed")
+        self.assertEqual(git(d, "status", "--porcelain").strip(), "", "one commit, clean tree")
+        date = json.loads(open(os.path.join(d, ".reef", "recalibration.json")).read())["date"]
+        self.assertIn("(nowhere.md)", open(os.path.join(d, "reef", "archive", date, "notes", "ideas.md")).read(), "the dead link travelled unchanged")
 
 
 if __name__ == "__main__":
