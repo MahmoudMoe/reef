@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`reef-plan-check.py`: the hunter's guard-pass record is execution state.** `scripts/reef-adversarial … guard` writes
+  `adversarial-guard:` into the task's frontmatter after the code exists; the stamp hashed it as plan content, so the
+  first design-tier task to merge (101, first contact 2026-10-16) staled the stamp and the guard refused the next
+  task. The key is stripped like `status`/`attempts`/`worktree`; `adversarial-plan` stays in the digest (the approved
+  plan is the hunted plan). `tests/test_tiers_lock.py::GuardPassRecordDoesNotStaleTheStamp`.
 - **`reef-approval.py`: the digest is computed where the plan lives.** The hook computed it in the main checkout;
   with the plan moved to a feature worktree and `develop` holding no feature files, an `Approve` matched nothing and
   wrote nothing (first contact, 2026-10-16). Now every checkout of the repository that holds the feature is a

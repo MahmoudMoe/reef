@@ -281,6 +281,27 @@ class ApprovalInAWorktree(unittest.TestCase):
         self.assertIn("matches no checkout", r.stdout)
 
 
+class GuardPassRecordDoesNotStaleTheStamp(unittest.TestCase):
+    def test_adversarial_guard_key_is_execution_state(self):
+        # first contact (2026-10-16): the hunter's guard pass wrote `adversarial-guard:` into 101's frontmatter after the
+        # merge; the stamp read it as a plan edit and the guard refused to dispatch 102
+        d = project({"gates": {"test": "true"}}, {"007-demo.md": task_text(7, "demo", "design", "design")})
+        self.assertEqual(plan_check(d).returncode, 0)
+        approve(d, "demo")
+        self.assertEqual(plan_check(d, "--verify-stamp", "--feature", "demo").returncode, 0)
+        tp = os.path.join(d, "tasks", "007-demo.md")
+        with open(tp) as f:
+            t = f.read()
+        with open(tp, "w") as f:
+            f.write(t.replace("dispatches: 0\n", "dispatches: 1\nadversarial-guard: 1c81d2f05bb2@462e73ac\nworktree: .reef/worktrees/007\n", 1))
+        r = plan_check(d, "--verify-stamp", "--feature", "demo")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        # the plan pass record, written BEFORE approval, is plan content: changing it is a plan change
+        with open(tp, "w") as f:
+            f.write(t.replace("dispatches: 0\n", "dispatches: 0\nadversarial-plan: 000000000000\n", 1))
+        self.assertEqual(plan_check(d, "--verify-stamp", "--feature", "demo").returncode, 1)
+
+
 class ReviewerLock(unittest.TestCase):
     """1.3: agent_type from the payload decides; a judge never mutates."""
 

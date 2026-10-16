@@ -415,7 +415,10 @@ def main():
         text = LOG_HEADING.split(text, maxsplit=1)[0]
         m = FM_RE.match(text)
         if m:
-            fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches|worktree):.*(?:\r?\n|\Z)", "",
+            # what EXECUTION writes: the status keys, the worktree, and the hunter's guard-pass record (written after
+            # the code exists — first contact, 2026-10-16: it staled the stamp the moment 101 merged, and the guard
+            # refused 102). `adversarial-plan` stays: the approved plan is the hunted plan.
+            fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-guard):.*(?:\r?\n|\Z)", "",
                         m.group(1), flags=re.M)
             text = fm + text[m.end():]
         return text.encode()
