@@ -143,6 +143,23 @@ class Tick(unittest.TestCase):
         self.assertEqual(st["awaiting"], [])
 
 
+    def test_a_fresh_session_clears_the_dead_sessions_ceiling_stop(self):
+        d = project()
+        st = json.loads(open(os.path.join(d, ".reef", "loop.json")).read()) if os.path.isfile(os.path.join(d, ".reef", "loop.json")) else {}
+        st["stop"] = "context ceiling: 164970 tokens > caps.context_tokens 150000 — checkpoint, then /clear"
+        st["transcript"] = "/nowhere.jsonl"
+        write(d, ".reef/loop.json", json.dumps(st))
+        self.assertIn("STOP=context ceiling", loop(d, "tick").stdout, "a plain tick keeps the stop: the same session")
+        out = loop(d, "tick", "--session-start").stdout
+        self.assertNotIn("STOP=", out, out)
+        st = json.loads(open(os.path.join(d, ".reef", "loop.json")).read())
+        self.assertIsNone(st.get("stop"))
+        self.assertIsNone(st.get("transcript"))
+        st["stop"] = "USER ACTION REQUIRED: a credential"
+        write(d, ".reef/loop.json", json.dumps(st))
+        self.assertIn("STOP=USER ACTION", loop(d, "tick", "--session-start").stdout, "only the ceiling stop is per session")
+
+
 class StopHook(unittest.TestCase):
     def test_ready_undispatched_refused_once_then_allowed(self):
         d = project()

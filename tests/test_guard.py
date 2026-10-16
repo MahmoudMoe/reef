@@ -136,6 +136,7 @@ ALLOW_BASH = [
     # on the next line as a write to reef-init.py — a heredoc body is data and a guarded path that is RUN is no target
     "mkdir -p .reef && cat > .reef/grill.json <<'EOF'\n{\"host\": \"Vercel\"}\nEOF\npython3 /x/reef/scripts/reef-init.py --root . --base develop",
     'python3 scripts/reef-init.py --root . > init.log',       # the redirect's target is the log, the script is run
+    'python3 scripts/reef-loop.py tick; ls .reef/approvals 2>/dev/null; ls scripts',   # 2>/dev/null is no write (re-entry, 2026-10-16)
     "cat > notes.md <<'EOF'\nnever run git commit --no-verify\nEOF",   # a bypass mentioned INSIDE a heredoc body
     "cat <<-END\n\tgit commit -n -m x\n\tEND",                     # <<- form
     'echo npm test | cat',
@@ -452,6 +453,29 @@ def plan_check(d):
     r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-plan-check.py"), d],
                        capture_output=True, text=True)
     assert r.returncode == 0, f"fixture plan must pass plan-check:\n{r.stdout}"
+
+
+class JudgeScratch(unittest.TestCase):
+    """Re-entry (2026-10-16): the loophole-hunter was refused `mkdir -p …/scratchpad/pk` to unpack a tarball it wanted
+    to read, and `tar -xzO 2>/dev/null` as "writes a file". A judge never mutates the PROJECT; its scratch space and
+    /dev/null are not the project."""
+
+    def judge(self, cmd, who="reef:loophole-hunter"):
+        return run_guard({"tool_name": "Bash", "agent_type": who, "cwd": tempfile.gettempdir(), "tool_input": {"command": cmd}})
+
+    def test_scratch_and_devnull_allowed_project_writes_denied(self):
+        for cmd in ("mkdir -p /private/tmp/claude-501/x/scratchpad/pk && cd /private/tmp/claude-501/x/scratchpad/pk && curl -sL u | tar -xz",
+                    "curl -sL u | tar -xzO 2>/dev/null | grep -o x",
+                    "npm test > /tmp/out.txt; tail /tmp/out.txt",
+                    "ls .reef/approvals 2>/dev/null"):
+            with self.subTest(cmd=cmd):
+                r = self.judge(cmd)
+                self.assertEqual(r.returncode, 0, f"FALSE POSITIVE: {cmd!r}\n{r.stderr}")
+        for cmd in ("echo x | tee src/x.ts", "npm test > out.txt", "cp /tmp/x src/y.ts", "mkdir -p src/new", "sed -i s/a/b/ README.md"):
+            with self.subTest(cmd=cmd):
+                r = self.judge(cmd, who="reef:verifier")
+                self.assertEqual(r.returncode, 2, f"NOT DENIED: {cmd!r}")
+                self.assertIn("read-only", r.stderr)
 
 
 class WorktreeStamp(unittest.TestCase):

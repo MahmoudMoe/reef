@@ -262,6 +262,11 @@ def main(argv):
             return 0   # a directory without Reef gets nothing injected (no output at all)
         print("reef-loop: no .reef/config.json", file=sys.stderr)
         return 1
+    if "--session-start" in argv and str(st.get("stop") or "").startswith("context ceiling"):
+        # the ceiling stop belongs to the session that hit it; the session starting now is fresh (first contact,
+        # 2026-10-16: after /clear the tick still said STOP=context ceiling: 164970 tokens, from the dead session)
+        st.update(stop=None, transcript=None)
+        save_state(root, st)
     state, st = tick(root)
     if "--hash" in argv:
         print(state["hash"])
