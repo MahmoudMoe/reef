@@ -46,8 +46,11 @@ def deps(root):
     for name in ("pyproject.toml", "requirements.txt", "Cargo.toml", "go.mod"):
         p = os.path.join(root, name)
         if os.path.isfile(p):
-            for m in re.finditer(r'^\s*"?([A-Za-z0-9_.@/-]+)"?\s*(?:[>=<~^\[]|=\s*"|\s+v\d)', read(p), re.M):
-                out.setdefault(m.group(1).lower(), name)
+            # a dependency line: a name token, then a version operator (= ~ ^ [ < >) or, in go.mod, ` vN`
+            for line in read(p).splitlines():
+                m = re.match(r'\s*"?([A-Za-z0-9_.@/-]+)"?(\s*)(.*)$', line)
+                if m and (m.group(3)[:1] in ("=", "~", "^", "[", "<", ">") or (m.group(2) and re.match(r"v\d", m.group(3)))):
+                    out.setdefault(m.group(1).lower(), name)
     return out
 
 

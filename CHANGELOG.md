@@ -26,6 +26,11 @@
   (c) *5.7* — no project row ran in this session, so per-row growth is documented as a target and a command, not a number.
 - Cuts taken: **5.6 Read tripwire** (first in the cut order; `context.read_lines_max` stays reserved). Not built by
   design: 2.4 `unrequested` as a script (it is the acceptance review's finding).
+- **At merge (PR #9 CI):** `test_absolute_path_accepted` dispatched from a hardcoded `/somewhere/else`, which only a
+  root sandbox could create — now a fresh temp dir (`tests/test_guard.py`). CodeQL: `ci.yml` gets `permissions:
+  contents: read`; the `SECRET_SCAN` constant is renamed `GITLEAKS_GATE` (its value is a command, not a secret —
+  the alert was its name); the manifest dependency regex in `reef-c4.py` is rewritten as line matching with
+  identical results (`tests/test_c4_threat.py`) so it no longer reads as an HTML filter.
 
 ### Phase 0 — verify first, then measure
 - **0.0 Verified hook payloads** from a live Claude Code 2.1.301 session: `tests/fixtures/payloads/` (PreToolUse

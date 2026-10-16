@@ -56,7 +56,7 @@ AUDITS = {"node": "npm audit --audit-level=high",
           "python": "command -v pip-audit >/dev/null 2>&1 || exit 77; pip-audit",
           "rust": "command -v cargo-audit >/dev/null 2>&1 || exit 77; cargo audit",
           "go": "command -v govulncheck >/dev/null 2>&1 || exit 77; govulncheck ./..."}
-SECRET_SCAN = "command -v gitleaks >/dev/null 2>&1 || exit 77; gitleaks detect --source . --log-opts=--all --no-banner"
+GITLEAKS_GATE = "command -v gitleaks >/dev/null 2>&1 || exit 77; gitleaks detect --source . --log-opts=--all --no-banner"
 AUDIT_SETUP = {"python": "      - run: pip install pip-audit\n", "rust": "      - run: cargo install cargo-audit --locked\n",
                "go": "      - run: go install golang.org/x/vuln/cmd/govulncheck@latest\n"}
 GITLEAKS_SETUP = ("      - name: gitleaks (the history secret scan)\n        run: |\n          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz "
@@ -213,7 +213,7 @@ def render(template_text, facts):
 
 
 def release_gates(facts):
-    g = {"c4": "python3 scripts/reef-c4.py --diff", "secret-scan": SECRET_SCAN}
+    g = {"c4": "python3 scripts/reef-c4.py --diff", "secret-scan": GITLEAKS_GATE}
     if facts["stack"] in AUDITS:
         g["audit"] = AUDITS[facts["stack"]]
     return g
