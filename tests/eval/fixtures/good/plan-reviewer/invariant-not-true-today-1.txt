@@ -1,0 +1,4 @@
+RUN: agent=plan-reviewer feature=orders-export
+BLOCKING — Q1: invariant 'every HTTP endpoint requires a bearer token' is FALSE today: app.py:1 export() checks no token; task 004 would make it true — an acceptance criterion in the wrong place.
+ADVISORY: none
+VERDICT: FAIL

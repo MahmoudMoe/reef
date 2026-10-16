@@ -22,7 +22,7 @@ class Version(unittest.TestCase):
         badge = re.search(r"badge/version-([0-9.]+)-", read("README.md")).group(1)
         versions = {plugin, market["metadata"]["version"], market["plugins"][0]["version"], badge}
         # pinned on purpose: a version bump edits this line too, in the same commit
-        self.assertEqual(versions, {"0.5.0"})
+        self.assertEqual(versions, {"0.6.0"})
 
 
 class ConfigTemplate(unittest.TestCase):
@@ -116,6 +116,108 @@ class InitSkill(unittest.TestCase):
         src = read("scripts", "reef-init.py")
         for name in os.listdir(os.path.join(ROOT, "templates", "project")):
             self.assertIn(f"project/{name}", src, f"templates/project/{name} is not wired into reef-init.py")
+
+
+class LedgerClasses(unittest.TestCase):
+    """0.6 item 1.6: every script carries `# CLASS: code|tripwire`; each README ledger row classed code or
+    tripwire names a script whose header carries that class; the hook timeouts match the measured profile."""
+
+    def headers(self):
+        out = {}
+        for d, pat in (("scripts", "reef-"), ("templates", "pre-commit")):
+            for n in os.listdir(os.path.join(ROOT, d)):
+                if n.startswith(pat):
+                    with open(os.path.join(ROOT, d, n), encoding="utf-8") as f:
+                        head = "".join(f.readline() for _ in range(3))
+                    m = re.search(r"^# CLASS: ([a-z, ]+)$", head, re.M)
+                    out[n] = {c.strip() for c in m.group(1).split(",")} if m else None
+        return out
+
+    def test_every_script_has_a_class_header(self):
+        for name, classes in self.headers().items():
+            self.assertIsNotNone(classes, f"{name}: no `# CLASS: code|tripwire` header in its first 3 lines")
+            self.assertTrue(classes <= {"code", "tripwire"}, f"{name}: {classes}")
+
+    def test_ledger_rows_name_a_script_of_their_class(self):
+        headers = self.headers()
+        rows = [l for l in read("README.md").splitlines() if l.startswith("|") and "|---" not in l]
+        checked = 0
+        for row in rows:
+            cells = [c.strip() for c in row.strip("|").split("|")]
+            if len(cells) < 3 or cells[0] == "Rule":
+                continue
+            layer = cells[-1].lower()
+            cls = "code" if "code" in layer else ("tripwire" if "tripwire" in layer else None)
+            if cls is None or "prose" in layer and cls == "code" and "mechanism" not in layer and "hash" not in layer:
+                continue
+            names = set(re.findall(r"(reef-[a-z-]+(?:\.py|\.sh)?|pre-commit)", row))
+            named = {n for n in names if n in headers}
+            if not named:
+                continue
+            self.assertTrue(any(cls in (headers[n] or set()) for n in named),
+                            f"ledger row classed {cls!r} names {sorted(named)} but none carries that class: {row[:90]}")
+            checked += 1
+        self.assertGreaterEqual(checked, 8, "the ledger lost its script-naming rows")
+
+    def test_hook_timeouts_match_the_profile(self):
+        import glob
+        profiles = sorted(glob.glob(os.path.join(ROOT, "docs", "perf", "guard-profile-*.md")))
+        self.assertTrue(profiles, "docs/perf/guard-profile-<date>.md is missing — run scripts/reef-guard-profile.py")
+        table = {}
+        for l in read("docs", "perf", os.path.basename(profiles[-1])).splitlines():
+            m = re.match(r"\| `([^`]+)` \| \d+ \| \d+ \| \d+ \| (\d+) \|", l)
+            if m:
+                table[m.group(1)] = int(m.group(2))
+        self.assertTrue(table)
+        hooks = json.loads(read("hooks", "hooks.json"))["hooks"]
+        for ev, entries in hooks.items():
+            for e in entries:
+                key = e.get("matcher", ev)
+                for h in e["hooks"]:
+                    if key in table:
+                        self.assertGreaterEqual(h["timeout"], table[key], f"{key}: hooks.json timeout below the profile")
+                    # a GUARD matcher (PreToolUse) fails closed; Stop/SessionStart/PostToolUse must never wedge the
+                    # session on a hook failure, so they continue
+                    self.assertEqual(h.get("onFailure"), "block" if ev == "PreToolUse" else "continue", f"{ev}/{key}")
+                    self.assertIn("timeout", h, f"{ev}/{key}: every hook carries a timeout")
+
+
+class LeanStart(unittest.TestCase):
+    """0.6 item 6.2: a session starts under writing.session_start_tokens and reads nothing else — the generated
+    AGENTS.md stays <= 80 lines and every skill's re-entry section names only the handoff head and the tick."""
+
+    def test_rendered_agents_md_under_80_lines(self):
+        import subprocess, sys, tempfile
+        d = tempfile.mkdtemp(prefix="reef-agents-lines.")
+        with open(os.path.join(d, "package.json"), "w") as f:
+            json.dump({"name": "x", "scripts": {"test": "t"}}, f)
+        subprocess.run(["git", "init", "-q", d], check=True)
+        subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-init.py"), "--root", d], capture_output=True, text=True)
+        with open(os.path.join(d, "AGENTS.md")) as f:
+            n = len(f.read().splitlines())
+        self.assertLessEqual(n, 80, f"AGENTS.md renders to {n} lines")
+
+    def test_reentry_sections_name_only_the_handoff_head_and_the_tick(self):
+        forbidden = ("reef-queue.py status", "reef-graph.py status", "gh pr list", "git worktree list", "journal", "constitution", "read the queue")
+        for name in os.listdir(os.path.join(ROOT, "skills")):
+            text = read("skills", name, "SKILL.md")
+            m = re.search(r"^## Re-entry.*?$(.*?)(?=^## |\Z)", text, re.M | re.S)
+            if not m:
+                continue
+            body = m.group(1).lower()
+            self.assertTrue("tick" in body or "handoff" in body, f"{name}: re-entry names neither the tick nor the handoff")
+            for f_ in forbidden:
+                self.assertNotIn(f_, body.replace("never read", "").replace("nothing else is read", ""), f"{name}: re-entry reads {f_!r} at start")
+
+    def test_no_hook_files_were_added_and_no_skill_or_agent_over_60_lines(self):
+        self.assertEqual(sorted(os.listdir(os.path.join(ROOT, "hooks"))), ["hooks.json"], "decision 10: no new hook files")
+        for d in ("skills", "agents"):
+            for dp, dn, fn in os.walk(os.path.join(ROOT, d)):
+                for f in fn:
+                    if f.endswith(".md"):
+                        with open(os.path.join(dp, f)) as fh:
+                            n = len(fh.read().splitlines())
+                        self.assertLessEqual(n, 60, f"{os.path.relpath(os.path.join(dp, f), ROOT)}: {n} lines > 60")
 
 
 class Templates(unittest.TestCase):

@@ -1,0 +1,5 @@
+RUN: agent=loophole-hunter task=12 pass=guard
+DEFECT: a git commit that skips the pre-commit hook passes the guard
+BLOCKER: the short -n and the bundled -anm are never checked — guard.py:14 compares only '--no-verify'; `git commit -n -m x` -> None (I ran it). Scope names both. fix: match ^-[a-zA-Z]*n[a-zA-Z]*$ on commit args; add the two tests
+NONE: a message mentioning --no-verify is skipped via the -m value skip (guard.py:11)
+VERDICT: FAIL

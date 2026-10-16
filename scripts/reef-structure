@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+# CLASS: code
+"""Reef structure — the one tree, checked. Usage: reef-structure --check [--repo DIR]
+Exit 1 when a process document (decision, spec, runbook, plan) lives outside the layout — reef/ for 0.6, the
+docs/adr, docs/queue.md, docs/journal.md, tasks/ places for a project without .reef/version. Kept: README, LICENSE*,
+CONTRIBUTING, SECURITY, CHANGELOG, CODEOWNERS, docs a docs build serves, reef/archive/, anything referenced from
+code/CI. Feature-folder rules come from reef-queue.py. Joins gates.extra.
+"""
+import os
+import re
+import subprocess
+import sys
+
+KEEP = {"README.md", "LICENSE", "LICENSE.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md", "CODEOWNERS", "CODE_OF_CONDUCT.md", "AGENTS.md", "CLAUDE.md", "HANDOFF.md"}
+PROCESS = re.compile(r"(^|/)(adr|adrs|decisions?|rfcs?|specs?|plans?|runbooks?|design|proposals?)(/|$)|(adr|rfc|spec|plan|runbook|decision|proposal|design)[-_.]", re.I)
+HEADINGS = re.compile(r"^#+\s*(Status|Context|Decision|Consequences|Acceptance Criteria|Requirements|Runbook|Proposal)\b", re.M | re.I)
+
+
+def served_dirs(root):
+    """Directories a docs build serves — the docs are the product's, not Reef's."""
+    out = set()
+    if os.path.isfile(os.path.join(root, "mkdocs.yml")):
+        with open(os.path.join(root, "mkdocs.yml"), encoding="utf-8", errors="replace") as f:
+            m = re.search(r"^docs_dir:\s*(\S+)", f.read(), re.M)
+        out.add((m.group(1) if m else "docs").strip("/"))
+    for cand in ("docusaurus.config.js", "docusaurus.config.ts", "docusaurus.config.mjs", "docs/package.json"):
+        if os.path.isfile(os.path.join(root, cand)):
+            out.add("docs")
+    for dp, dn, fn in os.walk(root):
+        dn[:] = [d for d in dn if d not in (".git", "node_modules", ".reef", ".venv")]
+        if "conf.py" in fn and any(x.endswith((".rst", ".md")) for x in fn):
+            out.add(os.path.relpath(dp, root).strip("./"))
+    return out
+
+
+def referenced(root, rel):
+    r = subprocess.run(["git", "-C", root, "grep", "-l", "-F", "--", rel, "--", ":!*.md"], capture_output=True, text=True)
+    return bool(r.stdout.strip())
+
+
+def is_process_doc(root, rel):
+    if PROCESS.search(rel):
+        return True
+    try:
+        with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as f:
+            head = f.read(6000)
+    except OSError:
+        return False
+    return bool(HEADINGS.search(head))
+
+
+def violations(root):
+    is06 = os.path.isfile(os.path.join(root, ".reef", "version"))
+    legacy_ok = ("docs/adr/", "docs/queue", "docs/journal", "docs/day-zero", "docs/glossary", "docs/runlog", "tasks/", ".specify/")
+    served = served_dirs(root)
+    bad = []
+    r = subprocess.run(["git", "-C", root, "ls-files", "--", "*.md", "**/*.md"], capture_output=True, text=True)
+    files = [l for l in r.stdout.splitlines() if l.endswith(".md")]
+    if not files:
+        files = [os.path.relpath(os.path.join(dp, f), root) for dp, dn, fn in os.walk(root) if ".git" not in dp and ".reef" not in dp for f in fn if f.endswith(".md")]
+    for rel in sorted(files):
+        if os.path.basename(rel) in KEEP or rel.startswith(("reef/", ".reef/", ".github/", ".claude/")):
+            continue
+        if any(rel == d or rel.startswith(d + "/") for d in served if d):
+            continue
+        if not is06 and rel.startswith(legacy_ok):
+            continue
+        if not is_process_doc(root, rel):
+            continue
+        if referenced(root, rel):
+            continue
+        bad.append(f"{rel}: a process document outside the layout — a decision goes under reef/architecture/adr/ or its feature's adr/, a spec in its feature folder, anything else to reef/archive/ (scripts/reef-recalibrate)")
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import importlib.machinery, importlib.util
+        loader = importlib.machinery.SourceFileLoader("reef_queue", os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-queue.py"))
+        spec = importlib.util.spec_from_loader("reef_queue", loader)
+        q = importlib.util.module_from_spec(spec)
+        loader.exec_module(q)
+        bad += q.structure_errors(root, q.config(root))
+    except Exception as e:
+        bad.append(f"feature-folder rules unavailable (reef-queue.py): {e}")
+    return bad
+
+
+def main(argv):
+    repo = "."
+    if "--repo" in argv:
+        repo = argv[argv.index("--repo") + 1]
+    if "--check" not in argv:
+        print("usage: reef-structure --check [--repo DIR]", file=sys.stderr)
+        return 2
+    root = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=repo, capture_output=True, text=True).stdout.strip() or os.path.abspath(repo)
+    bad = violations(root)
+    if bad:
+        print("FAIL: structure")
+        for b in bad:
+            print(f"  - {b}")
+        return 1
+    print("ok: every process document lives in the layout")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

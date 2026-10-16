@@ -1,0 +1,4 @@
+RUN: agent=loophole-hunter task=12 pass=guard
+DEFECT: a bypass hidden behind a prefix word or a second command
+BLOCKER: guard.py:11 inspects only toks[0] against DANGEROUS_HEADS — `nohup git commit -n -m x` and `cd a && git commit -n -m x` both return None (ran both). This is 'pass unless listed'; Scope names prefix words and cd &&. fix: scan every token position of every segment
+VERDICT: FAIL

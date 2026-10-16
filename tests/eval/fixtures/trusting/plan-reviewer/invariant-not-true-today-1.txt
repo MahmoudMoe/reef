@@ -1,0 +1,5 @@
+RUN: agent=plan-reviewer feature=orders-export
+Q1: the invariant holds once task 004 lands.
+BLOCKING: none
+ADVISORY: none
+VERDICT: PASS

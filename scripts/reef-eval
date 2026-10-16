@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+# CLASS: code
+"""Reef eval — a frozen corpus for every judging agent (decision 4: no agent prompt change without it).
+
+  reef-eval run <agent> [--k N] [--entry ID] [--model M] [--budget USD] [--out DIR] [--plugin DIR]   live, never in CI
+  reef-eval score <agent> <dir> [--json]        VERDICT / BLOCKER / AC<n> FAIL lines vs tests/eval/corpus/<agent>.json
+  reef-eval compare <baseline.json> <cand.json>  exit 0 iff catch-rate and approve-precision did not drop
+"""
+import glob
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+AGENTS = {"verifier": "verifier", "hunter": "loophole-hunter", "plan-reviewer": "plan-reviewer"}
+VERDICT = re.compile(r"^[\s`*#_>-]*VERDICT[`*_]*:[\s`*_]*(PASS|FAIL)\b", re.M | re.I)
+SECTION = re.compile(r"^[\s`*#_]*(BLOCKING|ADVISORY|NEW-ROW|NONE|VERDICT)\b", re.I)
+# a finding line; a "RULE AC<n>: PASS iff …; FAIL if …" line names FAIL but is a rule, never a finding
+BLOCKING_LINE = re.compile(r"^\s*(?:[-*|]\s*)?\**(?!RULE\b)(BLOCKER:|BLOCKING\b|HALT\b|AC-?\s*\d+\b.*\bFAIL\b|FAIL\b.*\bAC-?\s*\d+\b)", re.I)
+
+
+def die(msg, code=2):
+    print(f"reef-eval: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def corpus(agent):
+    p = os.path.join(PLUGIN, "tests", "eval", "corpus", f"{agent}.json")
+    if not os.path.isfile(p):
+        die(f"no corpus for {agent!r} ({p})")
+    with open(p, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def agent_prompt(agent):
+    """The agent file's body (frontmatter stripped) — exactly what the dispatched agent would carry."""
+    with open(os.path.join(PLUGIN, "agents", f"{AGENTS[agent]}.md"), encoding="utf-8") as f:
+        text = f.read()
+    m = re.match(r"\A---\r?\n(.*?\r?\n)---\r?\n", text, re.S)
+    model = re.search(r"^model:\s*(\S+)", m.group(1), re.M).group(1) if m else "opus"
+    return (text[m.end():] if m else text), model
+
+
+def parse(report):
+    """(verdict or None, [blocking lines]). The LAST verdict line decides. A finding is a BLOCKER:/HALT/`AC<n> FAIL`
+    line anywhere, or any non-empty line inside a BLOCKING section (a `**BLOCKING**` / `## BLOCKING` heading up to
+    the next ADVISORY/NEW-ROW/NONE/VERDICT heading) — the plan-reviewer's shape."""
+    vs = VERDICT.findall(report)
+    blocking, in_section = [], False
+    for l in report.splitlines():
+        m = SECTION.match(l)
+        if m:
+            in_section = m.group(1).upper() == "BLOCKING"
+            if in_section and ":" in l or "—" in l:
+                blocking.append(l.strip())    # `BLOCKING — HALT. …` on one line
+            continue
+        if BLOCKING_LINE.match(l):
+            blocking.append(l.strip())
+        elif in_section and l.strip() and l.strip().lower() not in ("none", "none.", "- none", "- none."):
+            blocking.append(l.strip())
+    return (vs[-1].upper() if vs else None), blocking
+
+
+def judge(entry, report):
+    verdict, blocking = parse(report)
+    truth = entry["truth"]
+    want = truth["verdict"].upper()
+    hay = "\n".join(blocking)
+    caught = want == "FAIL" and verdict == "FAIL" and all(re.search(rx, hay, re.I | re.S) for rx in truth.get("blockers", []))
+    return {"entry": entry["id"], "truth": want, "verdict": verdict, "caught": caught,
+            "false_fail": want == "PASS" and verdict == "FAIL", "approved": verdict == "PASS"}
+
+
+def metrics(rows):
+    fails = [r for r in rows if r["truth"] == "FAIL"]
+    approved = [r for r in rows if r["approved"]]
+    return {"runs": len(rows),
+            "catch_rate": (sum(r["caught"] for r in fails) / len(fails)) if fails else None,
+            "approve_precision": (sum(r["truth"] == "PASS" for r in approved) / len(approved)) if approved else None,
+            "false_fail_rate": (sum(r["false_fail"] for r in rows if r["truth"] == "PASS")
+                                / max(1, sum(r["truth"] == "PASS" for r in rows))),
+            "unparsed": sum(r["verdict"] is None for r in rows)}
+
+
+def cmd_score(agent, directory, as_json):
+    entries = {e["id"]: e for e in corpus(agent)["entries"]}
+    rows = []
+    for p in sorted(glob.glob(os.path.join(directory, "*.txt"))):
+        name = os.path.basename(p)[:-4]
+        eid = name.rsplit("-", 1)[0] if re.search(r"-\d+$", name) else name
+        if eid not in entries:
+            continue
+        with open(p, encoding="utf-8", errors="replace") as f:
+            rows.append(judge(entries[eid], f.read()))
+    if not rows:
+        die(f"no reports for {agent} under {directory}", 1)
+    m = metrics(rows)
+    m.update({"agent": agent, "rows": rows})
+    if as_json:
+        print(json.dumps(m, indent=1))
+    else:
+        fmt = lambda v: "n/a" if v is None else f"{v:.2f}"
+        print(f"{agent}: runs={m['runs']} catch_rate={fmt(m['catch_rate'])} approve_precision={fmt(m['approve_precision'])} "
+              f"false_fail_rate={fmt(m['false_fail_rate'])} unparsed={m['unparsed']}")
+        for r in rows:
+            print(f"  {r['entry']}: truth={r['truth']} verdict={r['verdict']} {'caught' if r['caught'] else ''}{'FALSE-FAIL' if r['false_fail'] else ''}")
+    return 0
+
+
+def cmd_compare(base_path, cand_path):
+    with open(base_path) as f:
+        base = json.load(f)
+    with open(cand_path) as f:
+        cand = json.load(f)
+    bad = []
+    for key in ("catch_rate", "approve_precision"):
+        b, c = base.get(key), cand.get(key)
+        if b is not None and c is not None and c < b - 1e-9:
+            bad.append(f"{key} dropped {b:.2f} -> {c:.2f}")
+    if bad:
+        print("REFUSED (decision 4: catch-rate and precision must not drop): " + "; ".join(bad))
+        return 1
+    print("ok: catch-rate and approve-precision did not drop")
+    return 0
+
+
+def build_worktree(entry, agent):
+    d = tempfile.mkdtemp(prefix=f"reef-eval-{agent}-")
+    for rel, content in entry.get("files", {}).items():
+        p = os.path.join(d, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(content)
+    for name in ("reef-gate.sh", "reef-ci-local.sh"):
+        os.makedirs(os.path.join(d, "scripts"), exist_ok=True)
+        shutil.copy(os.path.join(PLUGIN, "scripts", name), os.path.join(d, "scripts", name))
+    g = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=e@e", "-c", "user.name=eval", *a], check=True, capture_output=True)
+    g("init", "-q", "-b", "main")
+    g("add", "-A")
+    g("commit", "-qm", "base")
+    for rel, content in (entry.get("after") or {}).items():
+        p = os.path.join(d, rel)
+        if content is None:
+            os.unlink(p)
+            continue
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(content)
+    return d
+
+
+def cmd_run(agent, k, only, model, budget, out, plugin):
+    body, default_model = agent_prompt(agent)
+    model = model or default_model
+    os.makedirs(os.path.join(out, agent), exist_ok=True)
+    env = dict(os.environ)
+    for key in ("CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_REMOTE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION"):
+        env.pop(key, None)
+    total = 0.0
+    for entry in corpus(agent)["entries"]:
+        if only and entry["id"] != only:
+            continue
+        for i in range(1, k + 1):
+            target = os.path.join(out, agent, f"{entry['id']}-{i}.txt")
+            if os.path.exists(target):
+                continue
+            wt = build_worktree(entry, agent)
+            cmd = ["claude", "-p", "--model", model, "--permission-mode", "bypassPermissions", "--output-format", "json",
+                   "--no-session-persistence", "--max-budget-usd", str(budget), "--plugin-dir", plugin,
+                   "--append-system-prompt", body, entry["prompt"]]
+            r = subprocess.run(cmd, cwd=wt, capture_output=True, text=True, env=env, timeout=1800)
+            try:
+                res = json.loads(r.stdout)
+                text, cost = res.get("result", ""), float(res.get("total_cost_usd", 0) or 0)
+            except ValueError:
+                text, cost = r.stdout + "\n" + r.stderr, 0.0
+            total += cost
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(text if text.strip() else f"(empty result; exit {r.returncode})\n{r.stderr}")
+            print(f"{agent}/{entry['id']} run {i}: verdict={parse(text)[0]} cost=${cost:.2f} ({target})")
+            shutil.rmtree(wt, ignore_errors=True)
+    print(f"total cost: ${total:.2f}")
+    return 0
+
+
+def main(argv):
+    if len(argv) < 2:
+        die(__doc__.strip().split("\n\n")[1])
+    cmd, rest = argv[0], argv[1:]
+    opts = {"--k": "1", "--entry": None, "--model": None, "--budget": "1.5", "--out": os.path.join(PLUGIN, ".reef", "eval"),
+            "--plugin": PLUGIN}
+    pos, flags = [], set()
+    i = 0
+    while i < len(rest):
+        if rest[i] in opts:
+            opts[rest[i]] = rest[i + 1]; i += 2
+        elif rest[i] == "--json":
+            flags.add("json"); i += 1
+        elif rest[i].startswith("-"):
+            die(f"unknown option {rest[i]!r}")
+        else:
+            pos.append(rest[i]); i += 1
+    if cmd == "score" and len(pos) == 2 and pos[0] in AGENTS:
+        return cmd_score(pos[0], pos[1], "json" in flags)
+    if cmd == "compare" and len(pos) == 2:
+        return cmd_compare(pos[0], pos[1])
+    if cmd == "run" and len(pos) == 1 and pos[0] in AGENTS:
+        return cmd_run(pos[0], int(opts["--k"]), opts["--entry"], opts["--model"], float(opts["--budget"]), opts["--out"], opts["--plugin"])
+    die(f"usage: reef-eval run|score|compare … (agents: {', '.join(AGENTS)})")
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

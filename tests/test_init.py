@@ -42,7 +42,7 @@ class Idempotent(unittest.TestCase):
         r = init(self.d)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("0 proposed", r.stdout)
-        snapshot = {rel: read(self.d, rel) for rel in ("AGENTS.md", ".reef/config.json", "docs/queue.md", ".gitignore")}
+        snapshot = {rel: read(self.d, rel) for rel in ("AGENTS.md", ".reef/config.json", "reef/queue.md", ".gitignore")}
         r2 = init(self.d)
         self.assertEqual(r2.returncode, 0, r2.stderr)
         self.assertRegex(r2.stdout, r"\n  0 written, \d+ skipped, 0 proposed")
@@ -110,7 +110,7 @@ class OneHomePerFact(unittest.TestCase):
         self.cfg = json.loads(read(self.d, ".reef/config.json"))
 
     def test_generated_prose_points_at_config_instead_of_restating(self):
-        prose = "".join(read(self.d, rel) for rel in ("AGENTS.md", ".specify/constitution.md", "docs/queue.md", "docs/day-zero.md"))
+        prose = "".join(read(self.d, rel) for rel in ("AGENTS.md", "reef/constitution.md", "reef/queue.md", "reef/day-zero.md"))
         cap = self.cfg["caps"]["attempts"]
         self.assertNotRegex(prose, rf"\b{cap} (fix )?rounds?\b", "the round cap is restated instead of pointed at")
         self.assertNotRegex(prose, rf"\b{self.cfg['graph']['parallel']} agents\b")
@@ -128,7 +128,12 @@ class OneHomePerFact(unittest.TestCase):
         self.assertEqual(self.cfg["gates"]["full"], "npm test")
         self.assertEqual(self.cfg["gates"]["extra"], {"build": "npm run build"})
         self.assertEqual(self.cfg["worktree"]["setup"], "npm ci")
-        self.assertEqual(self.cfg["paths"]["runlog"], "docs/journal.md")
+        self.assertEqual(self.cfg["paths"]["runlog"], "reef/journal.md")
+        self.assertEqual(self.cfg["paths"]["features"], "reef/features")
+        self.assertTrue(os.path.isdir(os.path.join(self.d, "reef", "features")))
+        self.assertIn("## Conventions", agents)
+        self.assertIn("Vitest or Jest", agents, "the Node opinions were distilled in")
+        self.assertNotIn("pytest", agents, "and none of the Python ones")
 
     def test_no_placeholder_survives(self):
         checked = []
@@ -183,3 +188,64 @@ class ReleaseOnlyCi(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DayZero(unittest.TestCase):
+    """0.6 Phase 3: the layout switch, the architecture grill (3.1), stack opinions (3.1b), an existing
+    constitution read and never duplicated (3.5)."""
+
+    def test_legacy_layout_is_kept_for_an_existing_project(self):
+        d = node_project(tempfile.mkdtemp(prefix="reef-init-legacy."))
+        write(d, "docs/queue.md", "# my queue\n")
+        r = init(d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("layout: 0.5", r.stdout)
+        cfg = json.loads(read(d, ".reef/config.json"))
+        self.assertEqual(cfg["paths"]["runlog"], "docs/journal.md")
+        self.assertNotIn("features", cfg["paths"])
+        self.assertTrue(os.path.isfile(os.path.join(d, ".specify", "constitution.md")))
+        self.assertFalse(os.path.exists(os.path.join(d, "reef")))
+        self.assertEqual(read(d, "docs/queue.md"), "# my queue\n", "never overwritten")
+
+    def test_grill_renders_architecture_adrs_and_the_skeleton_row_once(self):
+        d = node_project(tempfile.mkdtemp(prefix="reef-init-grill."))
+        write(d, "answers.json", json.dumps({"host": "fly.io", "shape": "web-app", "scale": "100 users", "store": "postgres",
+                                             "auth": "magic link", "non_goals": ["multi-tenant", "mobile app"], "intent": "Operators export orders."}))
+        r = init(d, "--grill", os.path.join(d, "answers.json"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        arch = read(d, "reef/architecture/architecture.md")
+        self.assertIn("C4Context", arch)
+        self.assertIn("ContainerDb(store, \"store\", \"postgres\")", arch)
+        self.assertIn("| Host | fly.io |", arch)
+        self.assertIn("multi-tenant, mobile app", arch)
+        queue = read(d, "reef/queue.md")
+        self.assertIn("| 1 | Walking skeleton: one page end to end through browser, api, store", queue)
+        self.assertIn("¹ host: fly.io", queue)
+        self.assertIn("⁵ auth boundary: magic link", queue)
+        for adr in ("draft-1-hosting.md", "draft-1-data-store.md", "draft-1-auth-boundary.md"):
+            self.assertTrue(os.path.isfile(os.path.join(d, "reef", "architecture", "adr", adr)), adr)
+        self.assertIn("## Diagram", read(d, "reef/architecture/adr/draft-1-hosting.md"))
+        r2 = init(d, "--grill", os.path.join(d, "answers.json"))
+        self.assertRegex(r2.stdout, r"\n  0 written, \d+ skipped, 0 proposed", "a second grill run writes nothing")
+
+    def test_python_project_gets_python_conventions_only(self):
+        d = tempfile.mkdtemp(prefix="reef-init-pyconv.")
+        write(d, "pyproject.toml", "[project]\nname='x'\n")
+        subprocess.run(["git", "init", "-q", d], check=True)
+        init(d)
+        agents = read(d, "AGENTS.md")
+        self.assertIn("ruff", agents)
+        self.assertNotIn("Vitest", agents)
+
+    def test_existing_constitution_is_pointed_at_never_duplicated(self):
+        d = node_project(tempfile.mkdtemp(prefix="reef-init-const."))
+        write(d, ".specify/memory/constitution.md", "# theirs\nArticle 1.\n")
+        r = init(d)
+        self.assertIn("existing constitution: .specify/memory/constitution.md", r.stdout)
+        self.assertEqual(read(d, ".specify/memory/constitution.md"), "# theirs\nArticle 1.\n")
+        self.assertFalse(os.path.exists(os.path.join(d, ".specify", "constitution.md")), "no second constitution")
+        self.assertFalse(os.path.exists(os.path.join(d, "reef", "constitution.md")))
+        self.assertIn("`.specify/memory/constitution.md`", read(d, "AGENTS.md"))
+        write(d, "specs/001-export/spec.md", "# spec\n")
+        r = init(d)
+        self.assertIn("existing specs: specs/001-export/spec.md", r.stdout)

@@ -1,0 +1,4 @@
+RUN: agent=loophole-hunter task=12 pass=guard
+DEFECT: hook-file sabotage passes the guard
+BLOCKER: the docstring (guard.py:2) and the Decision claim ANY rm/mv/chmod on the hooks is denied; the code (guard.py:31) matches the exact string 'rm -rf .githooks' — `rm .githooks/pre-commit`, `mv .githooks /tmp`, `chmod -x .githooks/pre-commit` all return None (ran them). AC3 names them. fix: tokenise and check every rm/mv/chmod argument for a .githooks path component
+VERDICT: FAIL

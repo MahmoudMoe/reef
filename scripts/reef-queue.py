@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# CLASS: code
 """Reef queue — the outer graph: one row per unit of work, status DERIVED from the task files.
 
 Usage:
@@ -7,8 +8,14 @@ Usage:
   reef-queue.py check   [--repo DIR]            consistency: every task's feature: has a row (or is
                                                 archived); no row id repeats; depends resolve; the
                                                 queue and journal stay under their word ceilings
-  reef-queue.py adr-number [--repo DIR]         number every docs/adr/draft-*.md (on the integration
-                                                branch, at merge) and rewrite `draft-<x>` citations
+  reef-queue.py adr-number [--repo DIR]         number every draft-*.md ADR (on the integration branch, at
+                                                merge) in ONE global sequence across reef/architecture/adr/,
+                                                every feature folder's adr/ and the legacy paths.adr, and
+                                                rewrite `draft-<x>` citations
+  reef-queue.py index [--repo DIR]              (0.6) regenerate <paths.features>/README.md: feature, row, batch,
+                                                status, task counts, ADRs — never hand-edited
+  `check` also validates (0.6) every feature folder's slug (2-5 kebab-case words, no bare number, no
+  generic word) and the structure: a process document outside the layout fails.
 
 The queue (paths.queue, default docs/queue.md) holds NO status column: a row is `queued` (no task
 file names it as `feature:`), `building` (some task not done), `done` (every task done), or
@@ -24,6 +31,50 @@ import sys
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 TASK_NAME_RE = re.compile(r"R?\d+-.*\.md$")
+SLUG_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+){1,4}$")
+GENERIC_SLUGS = {"misc", "fixes", "feature", "update", "stuff", "changes", "work", "tasks", "new", "todo", "wip"}
+FOLDER_FILE = re.compile(r"^(SPEC\.md|specs/[^/]+\.md|adr/[^/]+\.md|tasks/[^/]+\.md|tasks/done/[^/]+\.md)$")
+
+
+def slug_error(slug):
+    if not SLUG_RE.match(slug):
+        return f"feature slug {slug!r} is not 2-5 kebab-case words"
+    if all(w.isdigit() for w in slug.split("-")) or any(w in GENERIC_SLUGS for w in slug.split("-")):
+        return f"feature slug {slug!r} is a number or a generic word"
+    return None
+
+
+def features_dir(root, cfg):
+    return os.path.join(root, cfg.get("paths", {}).get("features", "reef/features"))
+
+
+def feature_folders(root, cfg):
+    fd = features_dir(root, cfg)
+    return {s: os.path.join(fd, s) for s in sorted(os.listdir(fd)) if os.path.isdir(os.path.join(fd, s))} if os.path.isdir(fd) else {}
+
+
+def structure_errors(root, cfg):
+    """0.6 layout rules: a feature folder holds SPEC.md, specs/, adr/, tasks/ and nothing else; nothing but
+    README.md sits directly under the features dir; a slug is descriptive."""
+    bad = []
+    fd = features_dir(root, cfg)
+    for slug, fdir in feature_folders(root, cfg).items():
+        e = slug_error(slug)
+        if e:
+            bad.append(e)
+        if not os.path.isfile(os.path.join(fdir, "SPEC.md")):
+            bad.append(f"{os.path.relpath(fdir, root)}: no SPEC.md")
+        for dp, dn, fn in os.walk(fdir):
+            dn[:] = [x for x in dn if not x.startswith(".")]
+            for f in fn:
+                rel = os.path.relpath(os.path.join(dp, f), fdir).replace(os.sep, "/")
+                if not f.startswith(".") and not FOLDER_FILE.match(rel):
+                    bad.append(f"{os.path.relpath(fdir, root)}/{rel} does not belong in a feature folder")
+    if os.path.isdir(fd):
+        for f in os.listdir(fd):
+            if os.path.isfile(os.path.join(fd, f)) and f != "README.md":
+                bad.append(f"{os.path.relpath(fd, root)}/{f}: a file outside any feature folder")
+    return bad
 
 
 def die(msg, code=2):
@@ -80,7 +131,10 @@ def task_states(root, cfg):
     """feature -> list of status values, from tasks/ and tasks/done/."""
     tdir = os.path.join(root, cfg.get("paths", {}).get("tasks", "tasks"))
     states = {}
-    for d in (tdir, os.path.join(tdir, "done")):
+    dirs = [tdir, os.path.join(tdir, "done")]
+    for fdir in feature_folders(root, cfg).values():
+        dirs += [os.path.join(fdir, "tasks"), os.path.join(fdir, "tasks", "done")]
+    for d in dirs:
         if not os.path.isdir(d):
             continue
         for f in sorted(os.listdir(d)):
@@ -96,6 +150,16 @@ def task_states(root, cfg):
                 k, _, v = line.partition(":")
                 fm.setdefault(k.strip(), v.strip().strip('"'))
             states.setdefault(fm.get("feature", ""), []).append(fm.get("status", "pending"))
+    # 0.6: a feature folder's SPEC.md `Row: <id>` links the slug to its queue row — the row's status is derived
+    # from the folder's tasks; the slug itself then needs no row of its own
+    for slug, fdir in feature_folders(root, cfg).items():
+        spec = os.path.join(fdir, "SPEC.md")
+        if os.path.isfile(spec):
+            m = re.search(r"^Row:\s*(\S+)", read(spec), re.M)
+            if m and slug in states:
+                states.setdefault(m.group(1), []).extend(states.pop(slug))
+            elif m:
+                states.setdefault(m.group(1), [])
     return states
 
 
@@ -162,6 +226,27 @@ def cmd_check(root):
     for feat in states:
         if feat and feat not in known:
             bad.append(f"task file(s) with feature: {feat} have no queue row (and none in the archive)")
+    bad += structure_errors(root, cfg)
+    # 0.6 feature folders: Row: in SPEC.md must be a known row; the slug must be the row's feature name
+    for slug, fdir in feature_folders(root, cfg).items():
+        spec = os.path.join(fdir, "SPEC.md")
+        if os.path.isfile(spec):
+            m = re.search(r"^Row:\s*(\S+)", read(spec), re.M)
+            if m and m.group(1) not in known:
+                bad.append(f"{os.path.relpath(spec, root)}: Row: {m.group(1)} is not a queue row (nor archived)")
+    # 0.6: a journal row's per-AC statuses come from a closed set; a non-achieved one says what is missing
+    jpath = os.path.join(root, cfg.get("paths", {}).get("runlog", "docs/journal.md"))
+    is06 = os.path.isfile(os.path.join(root, ".reef", "version"))
+    if os.path.isfile(jpath):
+        for line in read(jpath).splitlines():
+            for m in re.finditer(r"\bAC-?\d+\s+([a-z-]+)", line):
+                st = m.group(1)
+                if st not in ("not-verified", "partially-verified", "achieved", "contradicted"):
+                    msg = f"journal: AC status {st!r} is not one of not-verified | partially-verified | achieved | contradicted"
+                    (bad.append if is06 else lambda x: print(f"warning: {x}"))(msg)
+                elif st != "achieved" and not ("Missing:" in line and "Next:" in line):
+                    msg = f"journal: a {st} criterion needs `Missing: … Next: …` on its row: {line[:60]!r}"
+                    (bad.append if is06 else lambda x: print(f"warning: {x}"))(msg)
     w = cfg.get("writing", {})
     for name, path, key in (("queue", cfg.get("paths", {}).get("queue", "docs/queue.md"), "queue_words"),
                             ("journal", cfg.get("paths", {}).get("runlog", "docs/journal.md"), "journal_words")):
@@ -178,35 +263,46 @@ def cmd_check(root):
     return 0
 
 
+def adr_dirs(root, cfg):
+    """Every ADR location: the legacy paths.adr, reef/architecture/adr (project-wide) and each feature's adr/."""
+    out = [os.path.join(root, cfg.get("paths", {}).get("adr", "docs/adr")), os.path.join(root, "reef", "architecture", "adr")]
+    out += [os.path.join(f, "adr") for f in feature_folders(root, cfg).values()]
+    seen, uniq = set(), []
+    for d in out:
+        if os.path.isdir(d) and os.path.abspath(d) not in seen:
+            seen.add(os.path.abspath(d))
+            uniq.append(d)
+    return uniq
+
+
 def cmd_adr_number(root):
     cfg = config(root)
-    adr = os.path.join(root, cfg.get("paths", {}).get("adr", "docs/adr"))
-    if not os.path.isdir(adr):
+    dirs = adr_dirs(root, cfg)
+    if not dirs:
         die("no ADR directory", 1)
-    files = sorted(os.listdir(adr))
-    numbered = [int(m.group(1)) for f in files for m in [re.match(r"^(\d{4})-", f)] if m]
-    nxt = (max(numbered) + 1) if numbered else 1
-    drafts = [f for f in files if f.startswith("draft-") and f.endswith(".md")]
+    numbered = [int(m.group(1)) for d in dirs for f in os.listdir(d) for m in [re.match(r"^(\d{4})-", f)] if m]
+    nxt = (max(numbered) + 1) if numbered else 1      # ONE global sequence across every location
+    drafts = sorted((d, f) for d in dirs for f in os.listdir(d) if f.startswith("draft-") and f.endswith(".md"))
     if not drafts:
         print("nothing to number")
         return 1
     renames = {}
-    for f in drafts:
+    for d, f in drafts:
         m = re.match(r"^draft-([^-]+)-(.*)\.md$", f) or re.match(r"^draft-(.*)\.md$", f)
         slug = m.group(2) if m and m.lastindex == 2 else m.group(1)
         cite = f[:-3]
         new = f"{nxt:04d}-{slug}.md"
-        renames[cite] = (f, new, f"{nxt:04d}")
+        renames[cite] = (os.path.join(d, f), os.path.join(d, new), f"{nxt:04d}")
         nxt += 1
     for cite, (old, new, num) in renames.items():
-        text = read(os.path.join(adr, old))
+        text = read(old)
         text = re.sub(r"Status:[ \t]*Accepted[ \t]*\(number at merge\)", "Status: Accepted", text)
-        with open(os.path.join(adr, new), "w", encoding="utf-8") as fh:
+        with open(new, "w", encoding="utf-8") as fh:
             fh.write(text)
-        os.unlink(os.path.join(adr, old))
-        print(f"{old} -> {new}")
+        os.unlink(old)
+        print(f"{os.path.relpath(old, root)} -> {os.path.relpath(new, root)}")
     # rewrite citations everywhere under docs/ and tasks/ and the brief
-    for d in (os.path.join(root, "docs"), os.path.join(root, cfg.get("paths", {}).get("tasks", "tasks")), root):
+    for d in (os.path.join(root, "docs"), os.path.join(root, "reef"), os.path.join(root, cfg.get("paths", {}).get("tasks", "tasks")), root):
         for dirpath, dirs, names in os.walk(d):
             dirs[:] = [x for x in dirs if x not in (".git", ".reef", "node_modules")]
             for n in names:
@@ -225,6 +321,45 @@ def cmd_adr_number(root):
     return 0
 
 
+def cmd_index(root):
+    """<paths.features>/README.md: one page over every feature folder — generated, never hand-edited."""
+    cfg = config(root)
+    folders = feature_folders(root, cfg)
+    fd = features_dir(root, cfg)
+    if not os.path.isdir(fd):
+        die(f"no features directory at {os.path.relpath(fd, root)}", 1)
+    rows_by_id = {}
+    try:
+        _, _, rows, archived, states = load(root)
+        rows_by_id = {r["Id"]: r for r in rows}
+    except SystemExit:
+        archived, states = set(), task_states(root, cfg)
+    lines = ["# Features", "", "Generated by `python3 scripts/reef-queue.py index` — never hand-edited. One folder per queue row: "
+             "`SPEC.md` (intent, FR/SC keys), `specs/` (big features), `adr/` (the feature's decisions), `tasks/` (the plan).", "",
+             "| Feature | Row | Batch | Status | Tasks (done/total) | ADRs |", "|---|---|---|---|---|---|"]
+    for slug, fdir in folders.items():
+        spec = os.path.join(fdir, "SPEC.md")
+        row = ""
+        if os.path.isfile(spec):
+            m = re.search(r"^Row:\s*(\S+)", read(spec), re.M)
+            row = m.group(1) if m else ""
+        st = states.get(row, []) or states.get(slug, [])
+        status = "archived" if row in archived else ("queued" if not st else ("done" if all(x == "done" for x in st) else "building"))
+        batch = rows_by_id.get(row, {}).get("Batch", "")
+        adrs = sorted(f[:-3] for f in os.listdir(os.path.join(fdir, "adr"))) if os.path.isdir(os.path.join(fdir, "adr")) else []
+        lines.append(f"| [{slug}]({slug}/SPEC.md) | {row} | {batch} | {status} | {sum(x == 'done' for x in st)}/{len(st)} | {', '.join(adrs) or '—'} |")
+    text = "\n".join(lines) + "\n"
+    out = os.path.join(fd, "README.md")
+    old = read(out) if os.path.isfile(out) else None
+    if old == text:
+        print("index unchanged")
+        return 0
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"index written: {os.path.relpath(out, root)} ({len(folders)} feature(s))")
+    return 0
+
+
 def main(argv):
     repo = "."
     if "--repo" in argv:
@@ -233,7 +368,7 @@ def main(argv):
         argv = argv[:i] + argv[i + 2:]
     root = repo_root(repo)
     if not argv:
-        die("usage: reef-queue.py status|ready [--all]|check|adr-number [--repo DIR]")
+        die("usage: reef-queue.py status|ready [--all]|check|adr-number|index [--repo DIR]")
     cmd = argv[0]
     if cmd == "status":
         return cmd_status(root)
@@ -243,6 +378,8 @@ def main(argv):
         return cmd_check(root)
     if cmd == "adr-number":
         return cmd_adr_number(root)
+    if cmd == "index":
+        return cmd_index(root)
     die(f"unknown command {cmd!r}")
 
 

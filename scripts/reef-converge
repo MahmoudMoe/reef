@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+# CLASS: code
+"""Reef converge — the feature's Proof table executed against the branch: `missing` (test or command absent),
+`contradicts` (present but red), appended to the ONE rollup under a dated ## Converge; `Converged` writes nothing.
+Usage: reef-converge <feature> [--repo DIR] [--base BRANCH] [--dry-run]     Exit 0 converged · 1 findings · 2 usage
+A bare test name runs through converge.test_cmd ({name}) when set, else the full gate once.
+"""
+import datetime
+import json
+import os
+import re
+import subprocess
+import sys
+
+TEST_RE = re.compile(r"(?<![A-Za-z0-9_])test_[a-z0-9_]+|(?<![A-Za-z0-9_])Test[A-Z][A-Za-z0-9_]*|(?:\bit|\btest|\bdescribe)\((['\"])(.+?)\1\)")
+
+
+def die(msg, code=2):
+    print(f"reef-converge: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def read(p):
+    with open(p, encoding="utf-8") as f:
+        return f.read()
+
+
+def section(text, heading):
+    m = re.search(rf"^##\s+{re.escape(heading)}\s*$(.*?)(?=^##\s|\Z)", text, re.M | re.S)
+    return m.group(1) if m else None
+
+
+def proofs(text):
+    """[(ac id, proof string, kind)] — kind is 'cmd' (backticked command) or 'test' (a name)."""
+    out = []
+    acs = [l for l in (section(text, "Acceptance Criteria") or "").splitlines() if re.match(r"^\s*[-*+]\s+|^\s*\d+[.)]\s+", l)]
+    table = section(text, "Proof")
+    rows = {}
+    if table is not None:
+        for l in table.splitlines():
+            cells = [c.strip() for c in l.strip().strip("|").split("|")]
+            m = re.match(r"^\**(AC-?\d+)\**$", cells[0]) if len(cells) >= 2 else None
+            if m and not re.match(r"^-+$", cells[1]):
+                rows[re.sub(r"^AC-?", "AC-", m.group(1))] = cells[1]
+    for i, ac in enumerate(acs, 1):
+        if "HUMAN AC" in ac:
+            continue
+        m = re.search(r"\bAC-?(\d+)\b", ac)
+        ac_id = f"AC-{m.group(1) if m else i}"
+        if rows:
+            p = rows.get(ac_id)
+            if p is None:
+                continue
+            if p.startswith("`") and p.endswith("`") and not TEST_RE.fullmatch(p.strip("`")):
+                out.append((ac_id, p.strip("`"), "cmd"))
+            else:
+                out.append((ac_id, p.strip("`"), "test"))
+        else:
+            for t in TEST_RE.finditer(ac):
+                out.append((ac_id, t.group(2) or t.group(0), "test"))
+    return out
+
+
+def test_exists(repo, name):
+    r = subprocess.run(["git", "grep", "-l", "-F", "--", name, "--", ":!*.md"], cwd=repo, capture_output=True, text=True)
+    hits = [h for h in r.stdout.splitlines() if not h.startswith((".reef/", "reef/", "docs/", "tasks/"))]
+    if hits:
+        return True
+    r = subprocess.run(["grep", "-rlF", "--exclude-dir=.git", "--exclude-dir=.reef", "--exclude-dir=node_modules", "--exclude=*.md", name, "."],
+                       cwd=repo, capture_output=True, text=True)
+    return bool(r.stdout.strip())
+
+
+def main(argv):
+    repo, base, dry, pos = ".", None, False, []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--repo":
+            repo = argv[i + 1]; i += 2
+        elif argv[i] == "--base":
+            base = argv[i + 1]; i += 2
+        elif argv[i] == "--dry-run":
+            dry = True; i += 1
+        else:
+            pos.append(argv[i]); i += 1
+    if len(pos) != 1:
+        die("usage: reef-converge <feature> [--repo DIR] [--base BRANCH] [--dry-run]")
+    feature = pos[0]
+    root = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=repo, capture_output=True, text=True).stdout.strip() or os.path.abspath(repo)
+    try:
+        cfg = json.loads(read(os.path.join(root, ".reef", "config.json")))
+    except Exception:
+        cfg = {}
+    paths = cfg.get("paths", {})
+    fdir = os.path.join(root, paths.get("features", "reef/features"), feature, "tasks")
+    tdir = fdir if os.path.isdir(fdir) else os.path.join(root, paths.get("tasks", "tasks"))
+    tasks = []
+    for d in (tdir, os.path.join(tdir, "done")):
+        for f in (sorted(os.listdir(d)) if os.path.isdir(d) else []):
+            if re.match(r"^\d+-.*\.md$", f):
+                t = read(os.path.join(d, f))
+                m = re.search(r"^feature:\s*(.*)$", t, re.M)
+                if tdir == fdir or (m and m.group(1).strip().strip('"') == feature):
+                    tasks.append((os.path.join(d, f), t))
+    if not tasks:
+        die(f"no task files for feature {feature!r}", 2)
+    test_cmd = str((cfg.get("converge") or {}).get("test_cmd", "") or "")
+    gate = None
+    findings = []
+    for path, text in tasks:
+        for ac_id, proof, kind in proofs(text):
+            label = f"{os.path.basename(path)} {ac_id}"
+            if kind == "cmd":
+                r = subprocess.run(["sh", "-c", proof], cwd=root, capture_output=True, text=True)
+                if r.returncode == 127 or "not found" in (r.stderr or "").lower() and r.returncode != 0:
+                    findings.append(f"{label}: missing — `{proof}` ({r.stderr.strip()[:80] or 'exit 127'})")
+                elif r.returncode != 0:
+                    findings.append(f"{label}: contradicts — `{proof}` exit {r.returncode}")
+                continue
+            if not test_exists(root, proof):
+                findings.append(f"{label}: missing — test {proof} does not exist in the tree")
+                continue
+            if test_cmd:
+                r = subprocess.run(["sh", "-c", test_cmd.replace("{name}", proof)], cwd=root, capture_output=True, text=True)
+                if r.returncode != 0:
+                    findings.append(f"{label}: contradicts — {proof} fails (exit {r.returncode})")
+            else:
+                if gate is None:
+                    gate = subprocess.run(["sh", os.path.join("scripts", "reef-gate.sh"), "full"], cwd=root, capture_output=True, text=True).returncode
+                if gate != 0:
+                    findings.append(f"{label}: contradicts — {proof} exists but the full gate is red (exit {gate})")
+    if not findings:
+        print("Converged")
+        return 0
+    print(f"{len(findings)} finding(s):")
+    for f in findings:
+        print(f"  - {f}")
+    if dry:
+        return 1
+    rollup = next((os.path.join(d, f) for d in (tdir, os.path.join(tdir, "done")) for f in (sorted(os.listdir(d)) if os.path.isdir(d) else [])
+                   if re.match(r"^R\d+-.*\.md$", f) and re.search(rf"^feature:\s*{re.escape(feature)}\s*$", read(os.path.join(d, f)), re.M)), None)
+    if rollup is None:
+        plugin = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        tpl = read(os.path.join(plugin, "templates", "task.md"))
+        n = 1 + len([f for d in (tdir, os.path.join(tdir, "done")) for f in (os.listdir(d) if os.path.isdir(d) else []) if f.startswith("R")])
+        rollup = os.path.join(tdir, f"R{n:02d}-{feature}.md")
+        text = tpl.replace("id: NNNnn", f"id: R{n}").replace("feature: <feature-slug>", f"feature: {feature}").replace("# NNNnn — <title>", f"# R{n} — {feature} rollup")
+        text = text.replace("complexity: mech|design", "complexity: design").replace("effort: low|medium|high", "effort: medium").replace("tier: light|full|design|critical", "tier: full").replace("verify: judge|gate-only", "verify: judge")
+        with open(rollup, "w", encoding="utf-8") as f:
+            f.write(text)
+        print(f"rollup created: {os.path.relpath(rollup, root)}")
+    with open(rollup, "a", encoding="utf-8") as f:
+        f.write(f"\n## Converge {datetime.date.today().isoformat()}\n" + "".join(f"- {x}\n" for x in findings))
+    print(f"appended to {os.path.relpath(rollup, root)}")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

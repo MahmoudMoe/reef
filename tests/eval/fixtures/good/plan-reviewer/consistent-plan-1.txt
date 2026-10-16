@@ -1,0 +1,6 @@
+RUN: agent=plan-reviewer feature=orders-export
+PROJECT STATES NO INVARIANTS — question 1 not assessable.
+Q2 no contradiction (brief SQLite = ADR 0001). Q3 ADR 0001 -> task 001, ADR 0002 -> task 002. Q4 no gap. Q5 seams store/export/cli = tasks 001/002/003.
+BLOCKING: none
+ADVISORY: none
+VERDICT: PASS

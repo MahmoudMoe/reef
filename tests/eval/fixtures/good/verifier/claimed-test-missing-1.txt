@@ -1,0 +1,6 @@
+RUN: agent=verifier task=4
+RULE AC1/2/3 as above.
+AC1 PASS — tests/test_core.py:12
+AC2 FAIL — no warning is printed (summarize/core.py:9 continues silently); test_bad_row_warns is claimed in the hand-off but absent (grep -n bad_row_warns tests/ -> nothing)
+AC3 PASS
+VERDICT: FAIL

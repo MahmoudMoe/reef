@@ -1,4 +1,5 @@
 #!/bin/sh
+# CLASS: code
 # Reef tree snapshot: one CONTENT hash over HEAD + index + worktree (untracked included).
 # `git status --porcelain` cannot see an edit that keeps a file's status letter the same;
 # tree objects hash content, so ANY byte changed by a "read-only" agent changes this value.

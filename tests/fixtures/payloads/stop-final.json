@@ -1,0 +1,16 @@
+{
+ "session_id": "3e114f08-f984-5a4b-a660-d1588cdcc4ef",
+ "transcript_path": "/home/user/.claude/projects/-home-user-project/3e114f08-f984-5a4b-a660-d1588cdcc4ef.jsonl",
+ "cwd": "/home/user/project",
+ "scratchpad_dir": "/tmp/claude-0/-home-user-project/3e114f08-f984-5a4b-a660-d1588cdcc4ef/scratchpad",
+ "prompt_id": "b2891395-e597-4eeb-8f52-f32a316d1f8a",
+ "permission_mode": "bypassPermissions",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "Stop",
+ "stop_hook_active": false,
+ "last_assistant_message": "The background subagent finished and reported \"done.\" Both writes were issued: `main.txt` from the Bash step and `sub.txt` from the subagent.",
+ "background_tasks": [],
+ "session_crons": []
+}

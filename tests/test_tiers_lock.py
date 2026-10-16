@@ -1,0 +1,375 @@
+"""Sabotage suite for 0.6 Phase 1: the four tiers resolved at dispatch (1.0), the human-only plan
+approval bound to the digest (1.2), the reviewer lock (1.3), the guard's deadline (1.4) and the guard
+guarding itself (1.5). Every DENY here is a defect shown red; every allow is a legitimate action that must
+keep working, including the whole 0.5 behaviour when no tier table is set."""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
+ATTEMPT = os.path.join(ROOT, "scripts", "reef-attempt")
+CHECK = os.path.join(ROOT, "scripts", "reef-plan-check.py")
+APPROVAL = os.path.join(ROOT, "scripts", "reef-approval.py")
+
+TIERS = {"critical": {"roles": {"author": "opus", "verifier": "fable", "adversary": "fable", "plan_reviewer": "fable"}, "effort": "high"},
+         "design": {"roles": {"author": "opus", "verifier": "opus", "adversary": "opus", "plan_reviewer": "fable"}, "effort": "high"},
+         "full": {"roles": {"author": "opus", "verifier": "opus", "plan_reviewer": "fable"}, "effort": "medium"},
+         "light": {"roles": {"author": "sonnet", "plan_reviewer": "none"}, "effort": "low"}}
+ROLES = {"author": "opus", "verifier": "opus", "plan_reviewer": "fable", "adversary": "opus", "mechanic": "sonnet"}
+
+
+def guard(payload, env=None):
+    e = dict(os.environ)
+    e.pop("CLAUDE_PLUGIN_ROOT", None)
+    e.update(env or {})
+    return subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True, env=e)
+
+
+def task_text(tid, feature, tier, complexity, extra=""):
+    return (f"---\nid: {tid}\nfeature: {feature}\nstatus: pending\ncomplexity: {complexity}\neffort: medium\n"
+            f"blocked-by: []\nresources: []\ntier: {tier}\nverify: {'judge' if complexity == 'design' else 'gate-only'}\n"
+            f"attempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n{extra}---\n# {tid}\n\n## Scope\nx\n\n"
+            f"## Decision\nhuman words\n\n## Acceptance Criteria\n- test_{feature}_{tid}_works goes red first\n\n## Log\n")
+
+
+def git(d, *a):
+    return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True, text=True)
+
+
+def project(cfg, tasks, version="0.6.0"):
+    """A committed project with the plan-check script, a fresh stamp and the gitignored machine state."""
+    d = tempfile.mkdtemp(prefix="reef-p1.")
+    os.makedirs(os.path.join(d, "tasks", "done"))
+    os.makedirs(os.path.join(d, "scripts"))
+    os.makedirs(os.path.join(d, ".reef"))
+    subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+    with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+        json.dump(cfg, f)
+    if version:
+        with open(os.path.join(d, ".reef", "version"), "w") as f:
+            f.write(version + "\n")
+    with open(os.path.join(d, "CLAUDE.md"), "w") as f:
+        f.write("# brief\n")
+    with open(os.path.join(d, ".gitignore"), "w") as f:
+        f.write("tasks/.plan-review.json\n.reef/approvals/\n.reef/inflight/\n.reef/verifying/\n")
+    for name, text in tasks.items():
+        with open(os.path.join(d, "tasks", name), "w") as f:
+            f.write(text)
+    shutil.copy(CHECK, os.path.join(d, "scripts", "reef-plan-check.py"))
+    git(d, "add", "-A")
+    git(d, "commit", "-qm", "plan")
+    return d
+
+
+def plan_check(d, *args):
+    return subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-plan-check.py"), d, *args], capture_output=True, text=True)
+
+
+def approve(d, feature):
+    """The human's approval, written the way the hook writes it (digest-bound)."""
+    r = plan_check(d, "--digest", "--feature", feature)
+    digest = r.stdout.split()[-1]
+    os.makedirs(os.path.join(d, ".reef", "approvals"), exist_ok=True)
+    with open(os.path.join(d, ".reef", "approvals", f"{feature}.json"), "w") as f:
+        json.dump({"digest16": digest[:16], "approved_at": "2026-10-16T00:00:00Z"}, f)
+    return digest
+
+
+def dispatch(d, sub, prompt, model=None, extra=None):
+    ti = {"subagent_type": sub, "prompt": prompt}
+    if model:
+        ti["model"] = model
+    payload = {"tool_name": "Task", "cwd": d, "tool_input": ti}
+    payload.update(extra or {})
+    return guard(payload)
+
+
+def bash(d, cmd, **payload):
+    p = {"tool_name": "Bash", "cwd": d, "tool_input": {"command": cmd}}
+    p.update(payload)
+    return guard(p)
+
+
+class FourTiers(unittest.TestCase):
+    """1.0: the model per role comes from the task's tier table; the guard refuses a mismatch."""
+
+    def setUp(self):
+        self.d = project({"gates": {"test": "true"}, "roles": ROLES, "tiers": TIERS},
+                         {"001-light.md": task_text(1, "demo", "light", "mech"),
+                          "002-crit.md": task_text(2, "demo", "critical", "design"),
+                          "003-full.md": task_text(3, "other", "full", "design")})
+        self.assertEqual(plan_check(self.d).returncode, 0, plan_check(self.d).stdout)
+        approve(self.d, "demo")
+        approve(self.d, "other")
+
+    def test_light_task_dispatched_with_opus_denied_when_tier_says_sonnet(self):
+        r = dispatch(self.d, "reef:implementer", "REEF-TASK: tasks/001-light.md\nimplement", model="opus")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("tiers.light.roles.author = 'sonnet'", r.stderr)
+        self.assertEqual(dispatch(self.d, "reef:implementer", "REEF-TASK: tasks/001-light.md\nimplement", model="sonnet").returncode, 0)
+
+    def test_critical_task_with_sonnet_denied_and_without_adversarial_plan_denied(self):
+        r = dispatch(self.d, "reef:verifier", "REEF-TASK: tasks/002-crit.md\nverify", model="opus")
+        self.assertEqual(r.returncode, 2, "critical verification runs on the critical table (fable)")
+        self.assertIn("tiers.critical.roles.verifier = 'fable'", r.stderr)
+        r = dispatch(self.d, "reef:implementer", "REEF-TASK: tasks/002-crit.md\nimplement", model="opus")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("adversarial-plan", r.stderr, "critical needs the hunter's plan pass like design")
+
+    def test_role_dispatch_without_task_line_keeps_05_behaviour(self):
+        # no REEF-TASK/REEF-FEATURE: roles.* decides, exactly as in 0.5
+        self.assertEqual(dispatch(self.d, "reef:verifier", "verify something", model="opus").returncode, 0)
+        self.assertEqual(dispatch(self.d, "reef:verifier", "verify something", model="fable").returncode, 2)
+
+    def test_feature_line_resolves_the_heaviest_tier(self):
+        r = dispatch(self.d, "reef:plan-reviewer", "REEF-FEATURE: demo\nreview", model="fable")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = dispatch(self.d, "reef:plan-reviewer", "REEF-FEATURE: nope-only-light\nreview", model="fable")
+        self.assertEqual(r.returncode, 0, "an unknown feature falls back to roles.* (fable)")
+        with open(os.path.join(self.d, "tasks", "004-l2.md"), "w") as f:
+            f.write(task_text(4, "lightonly", "light", "mech"))
+        r = dispatch(self.d, "reef:plan-reviewer", "REEF-FEATURE: lightonly\nreview", model="fable")
+        self.assertEqual(r.returncode, 2, "an all-light feature needs no plan-reviewer agent")
+        self.assertIn("none", r.stderr)
+
+    def test_explore_is_a_mechanic(self):
+        self.assertEqual(dispatch(self.d, "Explore", "look around", model="opus").returncode, 2)
+        self.assertEqual(dispatch(self.d, "Explore", "look around", model="sonnet").returncode, 0)
+
+    def test_needs_agent_with_one_full_task_and_none_when_all_light(self):
+        r = plan_check(self.d, "--needs-agent", "--feature", "other")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("plan-reviewer: model=fable", r.stdout)
+        with open(os.path.join(self.d, "tasks", "004-l2.md"), "w") as f:
+            f.write(task_text(4, "lightonly", "light", "mech"))
+        r = plan_check(self.d, "--needs-agent", "--feature", "lightonly")
+        self.assertEqual(r.returncode, 3, r.stdout)
+        self.assertIn("plan-reviewer: none", r.stdout)
+        r = plan_check(self.d, "--needs-agent", "--feature", "demo")
+        self.assertEqual(r.returncode, 0, "demo holds a critical task: the agent is needed")
+
+    def test_attempt_prints_tier_resolved_roles_and_effort(self):
+        r = subprocess.run([sys.executable, ATTEMPT, os.path.join(self.d, "tasks", "002-crit.md")], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("dispatch: model=opus effort=high", r.stdout, "critical raises medium to high")
+        self.assertIn("author: model=opus tier=critical", r.stdout)
+        self.assertIn("verifier: model=fable", r.stdout)
+        self.assertIn("adversary: model=fable", r.stdout)
+        r = subprocess.run([sys.executable, ATTEMPT, os.path.join(self.d, "tasks", "001-light.md")], capture_output=True, text=True)
+        self.assertIn("dispatch: model=sonnet effort=medium", r.stdout, "the task's own medium is never lowered to the tier's low")
+        self.assertNotIn("adversary:", r.stdout)
+
+    def test_unset_tier_table_is_exactly_05(self):
+        d = project({"gates": {"test": "true"}, "roles": ROLES}, {"002-crit.md": task_text(2, "demo", "critical", "design")}, version=None)
+        r = subprocess.run([sys.executable, ATTEMPT, os.path.join(d, "tasks", "002-crit.md")], capture_output=True, text=True)
+        self.assertIn("dispatch: model=opus effort=medium", r.stdout)
+        self.assertIn("verifier: model=opus", r.stdout)
+        self.assertEqual(dispatch(d, "reef:verifier", "REEF-TASK: tasks/002-crit.md\nverify", model="opus").returncode, 0)
+        self.assertEqual(dispatch(d, "reef:verifier", "REEF-TASK: tasks/002-crit.md\nverify", model="fable").returncode, 2)
+
+
+class HumanOnlyApproval(unittest.TestCase):
+    """1.2: the approval is a record bound to the digest; only the hook writes it."""
+
+    def setUp(self):
+        self.d = project({"gates": {"test": "true"}}, {"007-demo.md": task_text(7, "demo", "light", "mech")})
+        self.assertEqual(plan_check(self.d).returncode, 0)
+
+    def test_stamped_but_unapproved_06_feature_is_denied(self):
+        r = dispatch(self.d, "reef:implementer", "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("approval: MISSING", r.stderr)
+        approve(self.d, "demo")
+        self.assertEqual(dispatch(self.d, "reef:implementer", "REEF-TASK: tasks/007-demo.md\nimplement").returncode, 0)
+
+    def test_pre_06_feature_warns_only(self):
+        d = project({"gates": {"test": "true"}}, {"007-demo.md": task_text(7, "demo", "light", "mech")}, version=None)
+        self.assertEqual(plan_check(d).returncode, 0)
+        r = plan_check(d, "--verify-stamp", "--feature", "demo")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("warning: approval: MISSING", r.stdout)
+        self.assertEqual(dispatch(d, "reef:implementer", "REEF-TASK: tasks/007-demo.md\nimplement").returncode, 0)
+
+    def test_hand_written_approval_denied_by_bash_and_edit(self):
+        for cmd in ("echo '{}' > .reef/approvals/demo.json", "tee .reef/approvals/demo.json", "cp x .reef/review/demo.json",
+                    "printf '{}' >> .reef/approvals/demo.json"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(bash(self.d, cmd).returncode, 2, cmd)
+        self.assertEqual(bash(self.d, "cat .reef/approvals/demo.json").returncode, 0, "reading a record is fine")
+        r = guard({"tool_name": "Write", "cwd": self.d, "tool_input": {"file_path": os.path.join(self.d, ".reef/approvals/demo.json"), "content": "{}"}})
+        self.assertEqual(r.returncode, 2)
+        r = guard({"tool_name": "Edit", "cwd": self.d, "tool_input": {"file_path": ".reef/review/demo.json", "old_string": "a", "new_string": "b"}})
+        self.assertEqual(r.returncode, 2)
+
+    def _hook(self, question, label, extra_resp=None):
+        resp = {"questions": [{"question": question, "options": [{"label": "Approve"}, {"label": "Edit"}, {"label": "Cancel"}]}],
+                "answers": {question: label}, "annotations": {}}
+        resp.update(extra_resp or {})
+        payload = {"tool_name": "AskUserQuestion", "hook_event_name": "PostToolUse", "cwd": self.d,
+                   "tool_input": {"questions": resp["questions"]}, "tool_response": resp}
+        return subprocess.run([sys.executable, APPROVAL], input=json.dumps(payload), capture_output=True, text=True)
+
+    def test_hook_writes_only_on_approve_with_the_current_digest(self):
+        digest = plan_check(self.d, "--digest", "--feature", "demo").stdout.split()[-1]
+        rec = os.path.join(self.d, ".reef", "approvals", "demo.json")
+        q = f"Approve plan demo at {digest[:16]}?"
+        self._hook(q, "Edit")
+        self.assertFalse(os.path.exists(rec), "wrong label writes nothing")
+        self._hook(f"Approve plan demo at {'0' * 16}?", "Approve")
+        self.assertFalse(os.path.exists(rec), "a stale digest writes nothing")
+        self._hook(q, "Approve", {"afkTimeoutMs": 300000})
+        self.assertFalse(os.path.exists(rec), "a timeout answer writes nothing")
+        r = self._hook(q, "Approve")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.exists(rec), r.stdout)
+        with open(rec) as f:
+            self.assertEqual(json.load(f)["digest16"], digest[:16])
+        self.assertEqual(plan_check(self.d, "--verify-stamp", "--feature", "demo").returncode, 0)
+        # editing the plan (a Scope line, not the Log — the stamp ignores the Log) makes the approval stale again
+        tp = os.path.join(self.d, "tasks", "007-demo.md")
+        with open(tp) as f:
+            t = f.read()
+        with open(tp, "w") as f:
+            f.write(t.replace("## Scope\nx", "## Scope\nx and more"))
+        plan_check(self.d)
+        r = plan_check(self.d, "--verify-stamp", "--feature", "demo")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("approval: STALE", r.stdout)
+
+
+class ReviewerLock(unittest.TestCase):
+    """1.3: agent_type from the payload decides; a judge never mutates."""
+
+    def setUp(self):
+        self.d = project({"gates": {"test": "true"}}, {"007-demo.md": task_text(7, "demo", "full", "design")})
+
+    def test_verifier_denied_implementer_allowed(self):
+        for cmd in ("git commit -m x", "git add -A", "git checkout -- .", "cat > x", "echo y >> notes.md", "tee out.txt",
+                    "sed -i s/a/b/ f.py", "rm -f f.py", "git stash list && git reset --hard"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(bash(self.d, cmd, agent_type="verifier", agent_id="a1").returncode, 2, cmd)
+        for cmd in ("git diff", "git log --oneline -3", "git status", "cat f.py", "python3 -m unittest -q", "grep -rn x src", "git branch", "git config --get core.hooksPath"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(bash(self.d, cmd, agent_type="verifier", agent_id="a1").returncode, 0, cmd)
+        for cmd in ("git commit -m x", "cat > x", "sed -i s/a/b/ f.py"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(bash(self.d, cmd, agent_type="implementer", agent_id="a2").returncode, 0, cmd)
+                self.assertEqual(bash(self.d, cmd).returncode, 0, "the main session is not locked")
+        for t in ("loophole-hunter", "plan-reviewer", "Explore"):
+            self.assertEqual(bash(self.d, "git commit -m x", agent_type=t, agent_id="a3").returncode, 2, t)
+
+    def test_ci_wait_denied_for_every_subagent(self):
+        for t in ("implementer", "mechanic", "verifier"):
+            self.assertEqual(bash(self.d, "gh pr checks 12 --watch", agent_type=t, agent_id="a").returncode, 2, t)
+            self.assertEqual(bash(self.d, "gh run watch 99", agent_type=t, agent_id="a").returncode, 2, t)
+            self.assertEqual(bash(self.d, "sleep 60", agent_type=t, agent_id="a").returncode, 2, t)
+            self.assertEqual(bash(self.d, "sleep 5", agent_type=t, agent_id="a").returncode, 0, t)
+        self.assertEqual(bash(self.d, "gh pr checks 12 --watch").returncode, 0, "the main session: prose, not the guard")
+
+    def test_typeless_subagent_locked_while_verifying_marker_exists(self):
+        self.assertEqual(bash(self.d, "git commit -m x", agent_id="zz").returncode, 0, "no marker: a typeless call is not a judge")
+        os.makedirs(os.path.join(self.d, ".reef", "verifying"))
+        with open(os.path.join(self.d, ".reef", "verifying", "7"), "w") as f:
+            f.write("{}")
+        self.assertEqual(bash(self.d, "git commit -m x", agent_id="zz").returncode, 2)
+        self.assertEqual(bash(self.d, "git diff", agent_id="zz").returncode, 0)
+        self.assertEqual(bash(self.d, "git commit -m x").returncode, 0, "the main session is never locked by the marker")
+
+    def test_allowed_verifier_dispatch_writes_the_marker(self):
+        plan_check(self.d)
+        approve(self.d, "demo")
+        r = dispatch(self.d, "reef:verifier", "REEF-TASK: tasks/007-demo.md\nverify")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(self.d, ".reef", "verifying", "7")))
+        r = dispatch(self.d, "reef:implementer", "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(self.d, ".reef", "inflight", "7")) as f:
+            self.assertEqual(json.load(f)["tier"], "full")
+
+
+class Deadline(unittest.TestCase):
+    """1.4: a hung guard denies before the host's timeout."""
+
+    def test_hang_exits_2_within_the_deadline(self):
+        t0 = time.monotonic()
+        r = guard({"tool_name": "Bash", "tool_input": {"command": "ls"}}, env={"REEF_GUARD_TEST_HANG": "1", "REEF_GUARD_DEADLINE": "1"})
+        dt = time.monotonic() - t0
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("deadline", r.stderr)
+        self.assertLess(dt, 5)
+
+    def test_hooks_json_carries_timeout_and_block_on_every_guard_matcher(self):
+        with open(os.path.join(ROOT, "hooks", "hooks.json")) as f:
+            hooks = json.load(f)["hooks"]["PreToolUse"]
+        matchers = {h["matcher"] for h in hooks}
+        self.assertTrue({"Bash", "Task|Agent", "Edit|Write|MultiEdit"} <= matchers, matchers)
+        for h in hooks:
+            for c in h["hooks"]:
+                self.assertEqual(c.get("onFailure"), "block", h["matcher"])
+                self.assertGreaterEqual(c.get("timeout", 0), 10, h["matcher"])
+        task = next(h for h in hooks if h["matcher"] == "Task|Agent")["hooks"][0]["command"]
+        self.assertIn("exit 2", task, "no python3 => a dispatch is denied, never allowed")
+
+
+class GuardGuardsItself(unittest.TestCase):
+    """1.5: the guard's own files and the protected config keys change only under a critical task or in the plugin repo."""
+
+    def setUp(self):
+        self.d = project({"gates": {"test": "true"}, "roles": ROLES, "caps": {"attempts": 3}}, {"007-demo.md": task_text(7, "demo", "full", "design")})
+        os.makedirs(os.path.join(self.d, ".githooks"))
+        with open(os.path.join(self.d, ".githooks", "pre-commit"), "w") as f:
+            f.write("#!/bin/sh\n")
+
+    def edit(self, path, **ti):
+        ti.setdefault("file_path", os.path.join(self.d, path))
+        return guard({"tool_name": "Edit" if "old_string" in ti else "Write", "cwd": self.d, "tool_input": ti})
+
+    def inflight(self, tier):
+        os.makedirs(os.path.join(self.d, ".reef", "inflight"), exist_ok=True)
+        with open(os.path.join(self.d, ".reef", "inflight", "7"), "w") as f:
+            json.dump({"id": 7, "tier": tier}, f)
+
+    def test_full_task_editing_the_guard_denied_critical_allowed_plugin_root_allowed(self):
+        self.inflight("full")
+        for p in ("scripts/reef-guard.py", "scripts/reef-plan-check.py", ".githooks/pre-commit", "hooks/hooks.json"):
+            with self.subTest(path=p):
+                self.assertEqual(self.edit(p, content="x").returncode, 2)
+                self.assertEqual(self.edit(p, old_string="a", new_string="b").returncode, 2)
+                self.assertEqual(bash(self.d, f"echo x > {p}").returncode, 2)
+                self.assertEqual(bash(self.d, f"sed -i s/a/b/ {p}").returncode, 2)
+        self.assertEqual(bash(self.d, "python3 scripts/reef-init.py --accept scripts/reef-gate.sh").returncode, 0, "the allowed way to take a proposed script")
+        self.assertEqual(bash(self.d, "cat scripts/reef-guard.py").returncode, 0)
+        self.inflight("critical")
+        self.assertEqual(self.edit("scripts/reef-guard.py", content="x").returncode, 0)
+        self.assertEqual(bash(self.d, "echo x > scripts/reef-guard.py").returncode, 0)
+        self.inflight("full")
+        r = guard({"tool_name": "Write", "cwd": self.d, "tool_input": {"file_path": os.path.join(self.d, "scripts/reef-guard.py"), "content": "x"}},
+                  env={"CLAUDE_PLUGIN_ROOT": self.d})
+        self.assertEqual(r.returncode, 0, "Reef's own repository edits its own guard")
+
+    def test_protected_config_keys_denied_other_keys_allowed(self):
+        self.inflight("full")
+        cfg_path = os.path.join(self.d, ".reef", "config.json")
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+        bad = dict(cfg, roles=dict(cfg["roles"], author="haiku"))
+        self.assertEqual(self.edit(".reef/config.json", content=json.dumps(bad)).returncode, 2)
+        bad = dict(cfg, caps={"attempts": 99})
+        self.assertEqual(self.edit(".reef/config.json", content=json.dumps(bad)).returncode, 2)
+        self.assertEqual(self.edit(".reef/config.json", old_string='"attempts": 3', new_string='"attempts": 30').returncode, 2)
+        good = dict(cfg, graph={"parallel": 4}, paths={"tasks": "tasks"})
+        self.assertEqual(self.edit(".reef/config.json", content=json.dumps(good)).returncode, 0, "other keys are the owner's")
+        self.assertEqual(self.edit(".reef/config.json", old_string='"attempts": 3', new_string='"attempts": 3 ').returncode, 0, "a no-op edit")
+        self.assertEqual(self.edit(".reef/config.json", content="{not json").returncode, 2)
+        self.inflight("critical")
+        self.assertEqual(self.edit(".reef/config.json", content=json.dumps(bad)).returncode, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

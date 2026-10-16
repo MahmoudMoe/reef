@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# CLASS: code
 """Reef tier — effort matched to risk, recomputed from the DIFF; it can only make it heavier.
 
 Usage:
@@ -10,7 +11,10 @@ Computes the tier the diff <base>...HEAD deserves and compares it with the task'
          none matches tiers.light.migrations, no docs/adr/draft-* is touched, and the added
          product lines (files not matching tiers.tests) are <= tiers.light.max_lines (default 80)
   full   otherwise (the default — an undeclared tier is full)
-  design is never computed: it is declared (a mechanism that failed twice, privacy, money, a guard)
+  design (0.6) when a changed path matches tiers.design.paths (auth, crypto, secrets, migrations) or the
+         task's touches: names migration; critical when a path matches tiers.critical.paths (the guard's
+         own files) or touches: names pii, money or auth. The rails apply to features planned under 0.6;
+         an older task is listed, not refused (--rails-warn).
 Declared lighter than computed -> exit 1 ("declared light, computed full"). An EMPTY diff is refused
 (exit 1): there is nothing to tier. --write raises `tier:` in the task file to the computed one.
 Exit 0 ok · 1 refused · 2 usage/git error.
@@ -23,7 +27,7 @@ import sys
 import json
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
-ORDER = {"light": 0, "full": 1, "design": 2}
+ORDER = {"light": 0, "full": 1, "design": 2, "critical": 3}
 DEFAULT_TESTS = ["tests/**", "test/**", "**/*.test.*", "**/*_test.*", "**/test_*.py", "**/*.spec.*"]
 
 
@@ -57,11 +61,27 @@ def numstat(repo, base):
     return rows
 
 
-def compute(rows, tiers, tasks_dir="tasks"):
-    rows = [(p, a) for p, a in rows if not (p == tasks_dir or p.startswith(tasks_dir.rstrip("/") + "/"))]
+TOUCHES = {"pii": "critical", "money": "critical", "auth": "critical", "migration": "design"}
+
+
+def compute(rows, tiers, tasks_dir="tasks", touches=()):
+    rows = [(p, a) for p, a in rows if not (p == tasks_dir or p.startswith(tasks_dir.rstrip("/") + "/"))
+            and not re.search(r"(^|/)reef/features/[^/]+/tasks/", p)]
     if not rows:
         return (None, [])
     light = tiers.get("light", {}) if isinstance(tiers, dict) else {}
+    # 0.6 path-class rails: the heaviest class any changed path (or declared touch) falls in wins
+    forced, why = None, []
+    for cls, key in (("critical", "critical"), ("design", "design")):
+        globs = (tiers.get(key, {}) or {}).get("paths", []) if isinstance(tiers, dict) and isinstance(tiers.get(key, {}), dict) else []
+        hit = [p for p, _ in rows if matches(p, globs)]
+        if hit and (forced is None or ORDER[cls] > ORDER[forced]):
+            forced, why = cls, [f"{p}: matches tiers.{key}.paths" for p in hit[:5]]
+    for t in touches:
+        if t in TOUCHES and (forced is None or ORDER[TOUCHES[t]] > ORDER[forced]):
+            forced, why = TOUCHES[t], [f"touches: {t} -> {TOUCHES[t]}"]
+    if forced:
+        return (forced, why)
     allow = light.get("allow", [])
     migrations = light.get("migrations", [])
     tests = tiers.get("tests", DEFAULT_TESTS) if isinstance(tiers, dict) else DEFAULT_TESTS
@@ -107,8 +127,10 @@ def main(argv):
         die(f"{task}: no frontmatter fence", 1)
     dm = re.search(r"^tier:[ \t]*(\S+)", m.group(1), re.M)
     declared = dm.group(1).strip('"') if dm else "full"
+    tm = re.search(r"^touches:[ \t]*\[(.*)\]", m.group(1), re.M)
+    touches = [t.strip().strip("\"'") for t in tm.group(1).split(",") if t.strip()] if tm else []
     if declared not in ORDER:
-        die(f"{task}: tier={declared!r} not in light/full/design", 1)
+        die(f"{task}: tier={declared!r} not in light/full/design/critical", 1)
     cfg = {}
     try:
         with open(os.path.join(subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=repo, capture_output=True,
@@ -118,7 +140,7 @@ def main(argv):
         pass
     tiers = cfg.get("tiers", {})
     rows = numstat(repo, base)
-    computed, reasons = compute(rows, tiers, cfg.get("paths", {}).get("tasks", "tasks"))
+    computed, reasons = compute(rows, tiers, cfg.get("paths", {}).get("tasks", "tasks"), touches)
     if computed is None:
         die(f"empty diff against {base} (task files aside) — nothing to tier (push the work first)", 1)
     if ORDER[declared] >= ORDER[computed]:

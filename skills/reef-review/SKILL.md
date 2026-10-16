@@ -29,25 +29,28 @@ After a GREEN verdict from any step below, the only commit allowed before the ne
 ## 1. Push + PR
 `git push -u origin <branch>`. If `gh` is available and a remote exists: `gh pr create --fill --base <branches.base>` (or `gh pr view` if it exists — update, don't duplicate). No remote → skip PR steps, say so, and continue with local review.
 
+**Records (0.6).** A verdict is a RECORD bound to the forge's commit, not a sentence in the chat: after the acceptance review and after the diff review run `scripts/reef-record <feature> GREEN` (or `FAIL`), which reads the PR head from `gh` and writes `.reef/review/<feature>.json`. Under `merge.by: loop` the guard refuses `gh pr merge` unless a GREEN record names the PR's current head (a clean base merge or a claims-only commit on top is the one carry-over); under `merge.by: human` the record is the journal's evidence and gates nothing. Never write that file by hand (the guard denies it).
+
 ## 2. Acceptance review (whole feature, user's perspective)
-Fresh-context review of the feature against the ORIGINAL grilled spec (not the task files — tasks can drift from intent):
+First the mechanical half: `scripts/reef-converge <feature>` executes every Proof row against the branch — `missing` and `contradicts` land on the rollup under the cap; `Converged` means every proof holds. Then the fresh-context review of the feature against its `SPEC.md` (the intent, FR/SC keys — not the task files, which can drift, and not the conversation); `unrequested` work is this review's finding against the spec:
 - Walk the user-visible behavior end to end; run the actual entry point.
 - Question: "would the human who wrote the spec accept this?" List gaps as concrete product issues.
-- Issues found → the feature's rollup (above) → `/reef-task` → re-run this step.
+- Issues found → the feature's rollup (above) → `/reef-task` → re-run this step. Passed → `scripts/reef-record <feature> GREEN`.
+- **What blocks (0.6):** a BLOCKER is only one of four kinds — a regression, an outside-actor code-execution or approval bypass, a correctness bug, or a failed acceptance criterion. Everything else (style, naming, a missing comment, an out-of-scope touch, a weak-but-passing test) is a NIT and never starts a round.
 
 ## 3. Diff review
 Fresh-context, diff-only against the PR's base (`git diff <branches.base>...HEAD`): dead code, duplication, missing coverage, doc gaps, glossary nouns not in the glossary, perf on hot paths only (never micro-optimize one-off code). Tag each item BLOCKER or NIT.
-- BLOCKERs → the feature's rollup → `/reef-task` → re-review. NITs → list them for the human, don't loop on them.
+- BLOCKERs (the four kinds above, nothing else) → the feature's rollup → `/reef-task` → re-review. NITs → list them for the human, don't loop on them. Passed → `scripts/reef-record <feature> GREEN`.
 
 ## 4. CI or local gate (skip CI if no CI/remote)
-- PR into `branches.release`, or `ci.feature_gate` = `ci`: `gh pr checks --watch` (or `gh run watch`). Red CI → read the actual failing log (never guess from the test name).
+- PR into `branches.release`, or `ci.feature_gate` = `ci`: never park on `gh pr checks --watch` / `gh run watch` (the guard denies them for every sub-agent): poll `gh pr checks` from a Monitor or a scheduled wake-up and keep dispatching other ready work meanwhile. Red CI → read the actual failing log through `scripts/reef-gate.sh --failures` / the CI log's failing block (never guess from the test name, never paste the whole log).
 - `ci.feature_gate` = `local` and the PR targets `branches.base` (≠ `branches.release`): run `scripts/reef-gate.sh full` in the feature's worktree as this step; do not wait on CI.
 Red → record it on the feature's rollup with `scripts/reef-attempt <rollup> "<failing output>"`, `/reef-task` it, push, re-check. Same rollup, same cap as steps 2–3.
 
 ## 5. Hand off — or merge
 Report: PR URL (or local branch), acceptance verdict, blockers fixed, NITs left, CI/gate state. Append the runlog row.
 - `merge.by` = `human` (default): the HUMAN merges — never merge yourself.
-- `merge.by` = `loop`: only when the PR's base is `branches.base` AND acceptance passed, no BLOCKER is open, and step 4 is green — merge it (`gh pr merge --squash --delete-branch`, or the repository's configured method). A PR whose base is `branches.release` is never merged by the loop: the release merge stays the human's.
+- `merge.by` = `loop`: only when the PR's base is `branches.base` AND acceptance passed, no BLOCKER is open, and step 4 is green — merge it **through `gh pr merge`** (`--squash --delete-branch`, or the repository's configured method), never through a local `git merge`+push: the guard checks the GREEN record against the forge head only on that path. A PR whose base is `branches.release` is never merged by the loop: the release merge stays the human's.
 
 ## Re-entry
-Invoked again after an interruption: read `git status`, `gh pr view`, the feature's rollup (`tasks/R*.md`, or in `done/`), and CONTINUE from the furthest completed step — never restart from 0 and never create a second rollup.
+Invoked again after an interruption: the tick (`python3 scripts/reef-loop.py tick`) lists the PR to review and the returned-but-unmerged work; the feature's rollup (`R*.md` in its `tasks/`, or in `done/`) holds the rounds so far. CONTINUE from the furthest completed step — never restart from 0 and never create a second rollup.

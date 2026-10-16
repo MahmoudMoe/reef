@@ -1,0 +1,6 @@
+RUN: agent=verifier task=4
+RULE AC2: PASS iff the stderr line names the row's 0-BASED index (row 0 for the first row); FAIL otherwise
+AC1 PASS
+AC2 FAIL — summarize/core.py:10 prints index + 1; the test (tests/test_core.py:17) asserts 'row 1' for the row at index 0 — the test mirrors the bug
+AC3 PASS
+VERDICT: FAIL

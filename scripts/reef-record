@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+# CLASS: code
+"""Reef record — a review verdict bound to the FORGE-reported commit.
+Usage: reef-record <feature> <verdict> [--pr <number|url|branch>] [--root DIR]
+Writes .reef/review/<feature>.json = {sha, tree, verdict, base, pr, recorded_at} from `gh pr view` and
+`gh api …/git/commits/<sha>`; under merge.by: loop the guard refuses `gh pr merge` without a PASS/GREEN record on
+the forge head. Exit 0 recorded · 2 gh failed / no PR / bad usage (nothing written).
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "20"))
+
+
+def die(msg):
+    print(f"reef-record: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
+def gh(*args, cwd=None):
+    try:
+        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=GH_TIMEOUT, cwd=cwd)
+    except FileNotFoundError:
+        die("gh is not installed — the record needs the forge's view of the PR")
+    except subprocess.TimeoutExpired:
+        die(f"gh {' '.join(args[:2])} exceeded {GH_TIMEOUT:g}s")
+    if r.returncode != 0:
+        die(f"gh {' '.join(args[:2])} failed ({r.returncode}): {r.stderr.strip()[:300]}")
+    return r.stdout.strip()
+
+
+def main_checkout(cwd):
+    try:
+        r = subprocess.run(["git", "-C", cwd, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=10)
+        for line in r.stdout.splitlines():
+            if line.startswith("worktree "):
+                return line[len("worktree "):].strip()
+    except Exception:
+        pass
+    return cwd
+
+
+def main(argv):
+    pr, root, pos = None, None, []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--pr":
+            pr = argv[i + 1]; i += 2
+        elif argv[i] == "--root":
+            root = argv[i + 1]; i += 2
+        else:
+            pos.append(argv[i]); i += 1
+    if len(pos) != 2 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", pos[0]):
+        die("usage: reef-record <feature> <verdict> [--pr N] [--root DIR]")
+    feature, verdict = pos
+    cwd = root or os.getcwd()
+    view = json.loads(gh("pr", "view", *([pr] if pr else []), "--json", "headRefOid,baseRefName,url,number", cwd=cwd))
+    sha, base, url = view.get("headRefOid", ""), view.get("baseRefName", ""), view.get("url", "")
+    m = re.search(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)", url)
+    if not re.fullmatch(r"[0-9a-f]{40}", sha) or not m:
+        die(f"gh pr view returned no usable head/url: {view}")
+    tree = gh("api", f"repos/{m.group(1)}/{m.group(2)}/git/commits/{sha}", "--jq", ".tree.sha", cwd=cwd)
+    if not re.fullmatch(r"[0-9a-f]{40}", tree):
+        die(f"gh api returned no tree sha for {sha}: {tree!r}")
+    d = os.path.join(main_checkout(cwd), ".reef", "review")
+    os.makedirs(d, exist_ok=True)
+    rec = {"sha": sha, "tree": tree, "verdict": verdict.upper(), "base": base, "pr": int(m.group(3)),
+           "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    with open(os.path.join(d, f"{feature}.json"), "w", encoding="utf-8") as f:
+        json.dump(rec, f, indent=1)
+        f.write("\n")
+    print(f"recorded {feature}: {verdict.upper()} at {sha[:12]} (tree {tree[:12]}, PR #{rec['pr']} -> {base})")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except SystemExit:
+        raise
+    except Exception as e:
+        die(f"internal error: {e}")

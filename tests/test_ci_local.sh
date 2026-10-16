@@ -63,6 +63,19 @@ t "gate ran via sh -c in the repo root, log written" 0
 cd "$TMP"; ( cd / && sh "$TMP/c1/scripts/reef-ci-local.sh" ) >/dev/null 2>&1
 t "outside a git repo FAILS LOUDLY" 1
 
+
+# ---------- 0.6 (4.2): gates.release run only with --release ----------
+mkrepo "$TMP/c9" '{"gates": {"full": "true", "extra": {"build": "true"}, "release": {"c4": "touch ran-c4", "audit": "exit 77"}}}'
+sh scripts/reef-ci-local.sh >/dev/null 2>&1
+t "without --release: the release gates do not run (exit 0, no skip counted)" 0
+[ ! -f ran-c4 ]
+t "  c4 release gate did NOT run" 0
+sh scripts/reef-ci-local.sh --release >/dev/null 2>&1
+t "with --release: the release gates run; the skipped audit (77) makes it exit 2" 2
+[ -f ran-c4 ]
+t "  c4 release gate ran" 0
+sh scripts/reef-ci-local.sh --ci --release >/dev/null 2>&1
+t "  --ci --release: a skipped release gate is a failure (exit 1)" 1
 echo
 echo "ci-local suite: $PASS passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

@@ -1,8 +1,11 @@
 #!/bin/sh
+# CLASS: code
 # Reef local CI: every gate CI runs, run here, every exit code read.
-#   sh scripts/reef-ci-local.sh [--ci] [--require name,name]
+#   sh scripts/reef-ci-local.sh [--ci] [--release] [--require name,name]
 # Gates come from .reef/config.json: gates.full first (as `full`), then every gates.extra.<name>
-# in order. Each runs under `sh -c` with its output in .reef/ci-local/<name>.log and its exit code
+# in order; with --release (0.6) every gates.release.<name> after them (C4 drift, migrations replay,
+# history secret scan, dependency audit) — the generated workflow passes --ci --release and triggers only
+# on PRs into the release branch; without the flag the release gates do not run. Each runs under `sh -c` with its output in .reef/ci-local/<name>.log and its exit code
 # read DIRECTLY — never through a pipe (the pipe reports the last command's status; a red gate
 # went unnoticed until CI once). A gate exits 77 to say "skipped" (no database here, no key).
 # Exit 0 every gate passed · 1 something failed or a --require'd gate was skipped · 2 nothing failed
@@ -15,19 +18,21 @@ command -v python3 >/dev/null 2>&1 || { echo "reef-ci-local: python3 is required
 [ -f .reef/config.json ] || { echo "reef-ci-local: no .reef/config.json — run /reef-init" >&2; exit 1; }
 REQUIRE=""
 CI=0
+RELEASE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --require) REQUIRE=$2; shift 2 ;;
     --require=*) REQUIRE=${1#--require=}; shift ;;
     --ci) CI=1; shift ;;
+    --release) RELEASE=1; shift ;;
     *) echo "reef-ci-local: unknown argument $1" >&2; exit 1 ;;
   esac
 done
 LOGDIR=.reef/ci-local
 mkdir -p "$LOGDIR"
 # one line per gate: name<TAB>command — order is the config's order; a name must not repeat
-GATES=$(python3 - <<'PY'
-import json, sys
+GATES=$(REEF_RELEASE=$RELEASE python3 - <<'PY'
+import json, os, sys
 cfg = json.load(open(".reef/config.json"))
 g = cfg.get("gates", {})
 full = g.get("full") or g.get("test") or ""
@@ -35,6 +40,9 @@ rows = [("full", full)]
 extra = g.get("extra", {})
 if isinstance(extra, dict):
     rows += [(str(k), str(v)) for k, v in extra.items()]
+release = g.get("release", {})
+if os.environ.get("REEF_RELEASE") == "1" and isinstance(release, dict):
+    rows += [(str(k), str(v)) for k, v in release.items()]
 names = [r[0] for r in rows]
 if len(names) != len(set(names)):
     print("reef-ci-local: a gate name repeats in gates.extra", file=sys.stderr); sys.exit(1)
@@ -66,7 +74,14 @@ for row in $GATES; do
     case ",$REQUIRE," in *",$name,"*) REQUIRED_SKIP=$((REQUIRED_SKIP+1)); echo "           required by --require: counts as a failure" ;; esac
   else
     FAILED=$((FAILED+1)); echo "  FAIL     $name (exit $rc) — $LOGDIR/$name.log"
-    tail -n 5 "$LOGDIR/$name.log" | sed 's/^/           | /'
+    # the failing block, never the whole log (5.6): from the first failure marker, capped by context.failure_lines
+    MAXL=$(python3 -c "import json;print(int(json.load(open('.reef/config.json')).get('context',{}).get('failure_lines',60) or 60))" 2>/dev/null || echo 60)
+    TOTAL_LINES=$(wc -l <"$LOGDIR/$name.log" | tr -d ' ')
+    START=$(grep -n -m1 -E 'FAIL|Error|error\[|FAILED|panicked|not ok|AssertionError|Traceback' "$LOGDIR/$name.log" | cut -d: -f1)
+    [ -n "$START" ] || START=$(( TOTAL_LINES - MAXL + 1 ))
+    [ "$START" -lt 1 ] && START=1
+    tail -n +"$START" "$LOGDIR/$name.log" | head -n "$MAXL" | sed 's/^/           | /'
+    [ $(( TOTAL_LINES - START + 1 )) -gt "$MAXL" ] && echo "           | [... more in $LOGDIR/$name.log]"
   fi
 done
 IFS=$OLDIFS

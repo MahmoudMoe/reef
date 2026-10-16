@@ -311,8 +311,12 @@ class DispatchGuard(unittest.TestCase):
         self.assertEqual(r.returncode, 2, "an indented 'status: pending' must not override column-0 'blocked'")
 
     def test_absolute_path_accepted(self):
+        # the dispatch runs from a different checkout than the task's; the cwd must be a real, writable
+        # directory because 0.6 records the dispatch under <cwd>/.reef/inflight (a hardcoded /somewhere/else
+        # passed only where the test ran as root and could create it)
         p = make_task(self.dir)
-        r = dispatch("/somewhere/else", f"REEF-TASK: {p}\nimplement")
+        elsewhere = tempfile.mkdtemp(prefix="reef-guard-elsewhere.")
+        r = dispatch(elsewhere, f"REEF-TASK: {p}\nimplement")
         self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_non_utf8_task_fails_closed(self):

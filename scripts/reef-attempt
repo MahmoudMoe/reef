@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# CLASS: code
 """Reef attempt counter — the retry cap as DATA, not model memory.
 
 Usage:
@@ -11,8 +12,10 @@ dispatch prompt must start with), 2 = BLOCKED or unusable input -> USER ACTION R
 Anything this script cannot parse is a 2, never a silent 0 and never a traceback: fail closed.
 
 Cap resolution: --cap flag > .reef/config.json caps.attempts > 3.
-Model: .reef/config.json roles.author > "opus".  Effort ladder: the task's own
-`effort:` field is the base; any recorded FAIL escalates to high.
+Model: .reef/config.json tiers.<tier>.roles.author > roles.author > "opus" (0.6: the task's tier picks
+the role table; an unset table is the 0.5 behaviour). Effort ladder: the heavier of the task's own
+`effort:` and tiers.<tier>.effort is the base; any recorded FAIL escalates to high. Prints `author:`,
+`verifier:` (judge tasks) and `adversary:` (design/critical) lines so the orchestrator passes exactly these.
 A `verify: judge` task also gets a `verifier: model=` line (roles.verifier > "opus"),
 so the judge's model is read at dispatch exactly like the author's.
 
@@ -42,6 +45,7 @@ import tempfile
 DEFAULT_CAP = 3
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 EFFORTS = ("low", "medium", "high")
+TIERS = ("light", "full", "design", "critical")
 
 
 def die(msg):
@@ -213,8 +217,6 @@ def run(cap_flag, path, failure):
     cfg = read_config(root)
     cap = cap_flag or int(cfg.get("caps", {}).get("attempts", DEFAULT_CAP) or DEFAULT_CAP)
     roles = cfg.get("roles", {}) if isinstance(cfg.get("roles", {}), dict) else {}
-    model = str(roles.get("author", "opus") or "opus")
-    verifier = str(roles.get("verifier", "opus") or "opus")
 
     with open(lock_path_for(path), "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -222,6 +224,17 @@ def run(cap_flag, path, failure):
         attempts = task.get_int("attempts")
         prev_sig = task.get("last_failure_sig")
         check_single_rollup(path, task)
+        # 0.6: the model per role and the effort come from the task's TIER table
+        # (tiers.<tier>.roles.<role>, tiers.<tier>.effort) and fall back to roles.* — an
+        # unset table is exactly the 0.5 behaviour
+        tier = task.get("tier") or ("light" if task.get("complexity") == "mech" else "full")
+        if tier not in TIERS:
+            die(f"{path}: tier {tier!r} not in {'/'.join(TIERS)}")
+        tcfg = cfg.get("tiers", {}).get(tier, {}) if isinstance(cfg.get("tiers", {}), dict) else {}
+        troles = tcfg.get("roles", {}) if isinstance(tcfg, dict) and isinstance(tcfg.get("roles", {}), dict) else {}
+        pick = lambda role, default: str(troles.get(role) or roles.get(role) or default)
+        model, verifier, adversary = pick("author", "opus"), pick("verifier", "opus"), pick("adversary", "opus")
+        tier_effort = str(tcfg.get("effort", "") or "") if isinstance(tcfg, dict) else ""
 
         # an already-blocked task is immutable until a human unblocks it — recording
         # more failures onto it would burn the counter past the cap and overwrite the
@@ -250,10 +263,15 @@ def run(cap_flag, path, failure):
         base = task.get("effort", "medium")
         if base not in EFFORTS:
             base = "medium"
+        if tier_effort in EFFORTS and EFFORTS.index(tier_effort) > EFFORTS.index(base):
+            base = tier_effort          # the tier's effort raises the task's; it never lowers it
         effort = "high" if attempts > 0 else base
         print(f"dispatch: model={model} effort={effort} attempt={attempts + 1}/{cap}")
+        print(f"author: model={model} tier={tier}")
         if task.get("verify") == "judge":
             print(f"verifier: model={verifier}")
+        if tier in ("design", "critical"):
+            print(f"adversary: model={adversary}")
         # absolute: the guard resolves this against the SESSION cwd, which need not
         # be the cwd this script happened to run from
         print(f"REEF-TASK: {os.path.abspath(path)}")

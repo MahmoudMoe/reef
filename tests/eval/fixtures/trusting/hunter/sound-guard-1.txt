@@ -1,0 +1,6 @@
+RUN: agent=loophole-hunter task=12 pass=guard
+DEFECT: a git commit that skips the hook passes the guard
+NEW-ROW: `sh -c "git commit -n"` passes — declared out of scope by the task; queue it
+NEW-ROW: `git -c core.hooksPath=/dev/null commit` — hooksPath is out of scope
+NONE: every Scope spelling denied (ran the 10 DENY cases); mutation 'drop the -n regex' turns test_denies_bypass_spellings red
+VERDICT: PASS

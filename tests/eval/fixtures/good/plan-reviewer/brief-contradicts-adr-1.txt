@@ -1,0 +1,5 @@
+RUN: agent=plan-reviewer feature=orders-export
+PROJECT STATES NO INVARIANTS — question 1 not assessable.
+BLOCKING — Q2: CLAUDE.md:3 'Storage: Postgres (the shared cluster)' vs docs/adr/0001-sqlite.md Decision 'Orders live in one SQLite file; no database server is introduced.' The brief is DERIVED: correct the brief.
+ADVISORY: none
+VERDICT: FAIL

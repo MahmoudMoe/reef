@@ -1,9 +1,21 @@
 #!/usr/bin/env python3
+# CLASS: code
 """Reef init — the full project setup, generated from templates, idempotent.
 
 Usage:
   reef-init.py [--root DIR] [--plugin DIR] [--name NAME] [--base BRANCH] [--release BRANCH] [--dry-run]
+               [--grill answers.json]
   reef-init.py [--root DIR] --accept <path> [<path> ...]     apply a proposed rendering (after the human said so)
+
+0.6 layout: a FRESH project (no docs/queue.md, no .specify/, no docs/adr, no tasks/) gets the one tree —
+reef/{constitution,queue,journal,glossary,day-zero}.md, reef/architecture/, reef/features/ — and paths.* pointing
+at it; a project that already has the 0.5 layout keeps it (`reef-migrate --layout` moves it later).
+--grill answers.json (3.1): the architecture grill's answers {host, shape, scale, store, auth, non_goals[], intent}
+render reef/architecture/architecture.md (intent, C4 L1/L2 in Mermaid), draft ADRs for host/store/auth, the
+queue's footnotes in the owner's words and batch 1 row 1 = the walking skeleton. Stack opinions (3.1b) from
+templates/stacks/<stack>.md are distilled into AGENTS.md's ## Conventions — read at init, never copied. An
+existing constitution (.specify/constitution.md, .specify/memory/constitution.md) or spec-kit specs/*/spec.md is
+pointed at from AGENTS.md and never duplicated (3.5).
 
 What it writes (from <plugin>/templates/project and <plugin>/scripts), adapted to the detected stack:
   .reef/config.json (merged: missing keys added, nothing existing changed), AGENTS.md, CLAUDE.md
@@ -28,26 +40,51 @@ import json
 import os
 import shutil
 import stat
+import subprocess
 import sys
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = ["reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.py", "reef-graph.py",
-           "reef-adversarial", "reef-claims.py", "reef-ci-local.sh", "reef-tier.py", "reef-queue.py"]
-TEMPLATES = {          # published path -> template under templates/project (or templates/)
+           "reef-adversarial", "reef-claims.py", "reef-ci-local.sh", "reef-tier.py", "reef-queue.py",
+           # 0.6
+           "reef-converge", "reef-record", "reef-structure", "reef-recalibrate", "reef-c4.py", "reef-threat.py",
+           "reef-repo", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-migrate"]
+# 4.5 security gates per stack: the auditor is installed by the CI template's setup steps; locally a missing tool is
+# exit 77 (skipped — reef-ci-local reports a skip as exit 2, never success). They are RELEASE gates (decision 8):
+# a feature PR never pays for a history secret scan or an audit.
+AUDITS = {"node": "npm audit --audit-level=high",
+          "python": "command -v pip-audit >/dev/null 2>&1 || exit 77; pip-audit",
+          "rust": "command -v cargo-audit >/dev/null 2>&1 || exit 77; cargo audit",
+          "go": "command -v govulncheck >/dev/null 2>&1 || exit 77; govulncheck ./..."}
+GITLEAKS_GATE = "command -v gitleaks >/dev/null 2>&1 || exit 77; gitleaks detect --source . --log-opts=--all --no-banner"
+AUDIT_SETUP = {"python": "      - run: pip install pip-audit\n", "rust": "      - run: cargo install cargo-audit --locked\n",
+               "go": "      - run: go install golang.org/x/vuln/cmd/govulncheck@latest\n"}
+GITLEAKS_SETUP = ("      - name: gitleaks (the history secret scan)\n        run: |\n          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz "
+                  "| tar -xz gitleaks && sudo mv gitleaks /usr/local/bin/\n")
+TEMPLATES_COMMON = {   # published path -> template under templates/project (or templates/)
     "AGENTS.md": "project/AGENTS.md",
-    ".specify/constitution.md": "project/constitution.md",
-    "docs/queue.md": "project/queue.md",
-    "docs/adr/README.md": "project/adr-README.md",
-    "docs/journal.md": "project/journal.md",
     "HANDOFF.md": "project/HANDOFF.md",
-    "docs/day-zero.md": "project/day-zero.md",
     ".github/workflows/ci.yml": "project/ci.yml",
     ".github/dependabot.yml": "project/dependabot.yml",
-    "docs/glossary.md": "glossary.md",
     ".githooks/pre-commit": "pre-commit",
     ".githooks/pre-merge-commit": "pre-commit",
 }
-GITIGNORE_LINES = [".reef/worktrees/", ".reef/proposed/", ".reef/ci-local/", "tasks/.plan-review.json", ".env"]
+LAYOUTS = {   # the files whose place depends on the layout (0.5 flat vs 0.6 one tree); paths.* follow them
+    "0.5": {"constitution": ".specify/constitution.md", "queue": "docs/queue.md", "adr_readme": "docs/adr/README.md",
+            "journal": "docs/journal.md", "day_zero": "docs/day-zero.md", "glossary": "docs/glossary.md",
+            "adr": "docs/adr", "tasks": "tasks", "features": None, "architecture": None},
+    "0.6": {"constitution": "reef/constitution.md", "queue": "reef/queue.md", "adr_readme": "reef/architecture/adr/README.md",
+            "journal": "reef/journal.md", "day_zero": "reef/day-zero.md", "glossary": "reef/glossary.md",
+            "adr": "reef/architecture/adr", "tasks": "tasks", "features": "reef/features", "architecture": "reef/architecture/architecture.md"},
+}
+TEMPLATE_OF = {"constitution": "project/constitution.md", "queue": "project/queue.md", "adr_readme": "project/adr-README.md",
+               "journal": "project/journal.md", "day_zero": "project/day-zero.md", "glossary": "glossary.md",
+               "architecture": "project/architecture.md"}
+EXISTING_CONSTITUTIONS = (".specify/constitution.md", ".specify/memory/constitution.md")
+STACK_OPINIONS = {"node": "node.md", "python": "python.md", "rust": "rust.md", "go": "go.md"}
+GITIGNORE_LINES = [".reef/worktrees/", ".reef/proposed/", ".reef/ci-local/", ".reef/approvals/", ".reef/review/",
+                   ".reef/verifying/", ".reef/inflight/", ".reef/loop.json", "tasks/.plan-review.json", ".env"]
+VERSION = "0.6.0"   # written to .reef/version; absent = a 0.5 project (every 0.6 check warns instead of failing)
 MAKEFILE_TARGET = "\nsetup: ## git hooks (once per clone) — reef\n\tgit config core.hooksPath .githooks\n\tchmod +x .githooks/*\n"
 
 
@@ -86,7 +123,85 @@ def detect(root):
     elif has("go.mod"):
         facts.update(stack="go", ecosystem="gomod", install="go mod download", test="go test ./...", build="go build ./...",
                      setup_steps="      - uses: actions/setup-go@v5\n        with:\n          go-version: stable\n")
+    facts["setup_steps"] = facts["setup_steps"] + AUDIT_SETUP.get(facts["stack"], "") + GITLEAKS_SETUP
     facts["date"] = datetime.date.today().isoformat()
+    # 0.6: the layout — a fresh project gets the one tree; an existing 0.5 layout is kept. Once chosen it is
+    # recorded in .reef/config.json paths.* and read back from there, so a second run never flips it.
+    facts["layout"] = None
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            q = (json.load(f).get("paths") or {}).get("queue")
+        if isinstance(q, str) and q:
+            facts["layout"] = "0.6" if q.startswith("reef/") else "0.5"
+    except Exception:
+        pass
+    if facts["layout"] is None:
+        legacy = any(os.path.exists(os.path.join(root, p)) for p in ("docs/queue.md", ".specify", "docs/adr"))
+        facts["layout"] = "0.5" if legacy else "0.6"
+    # 3.5: an existing constitution or spec tooling is read, never duplicated
+    facts["constitution"] = next((p for p in EXISTING_CONSTITUTIONS if has(*p.split("/"))), None)
+    import glob as _glob
+    facts["speckit"] = sorted(os.path.relpath(p, root) for p in _glob.glob(os.path.join(root, "specs", "*", "spec.md")))
+    # 3.1b: stack opinions distilled into AGENTS.md's ## Conventions (read from the plugin, never copied)
+    facts["conventions"] = ""
+    opinion = STACK_OPINIONS.get(facts["stack"])
+    if opinion:
+        try:
+            with open(os.path.join(PLUGIN, "templates", "stacks", opinion), encoding="utf-8") as f:
+                body = [l for l in f.read().splitlines() if l.startswith("- ")]
+            facts["conventions"] = "\n".join(body)
+        except OSError:
+            pass
+    return facts
+
+
+# ---------------------------------------------------------------- 3.1 the architecture grill
+
+SHAPES = {"web-app": ["browser", "api", "store"], "api": ["api", "store"], "cli": ["cli", "store"],
+          "worker": ["worker", "queue", "store"], "static-site": ["browser", "cdn"]}
+
+
+def grill_facts(answers, facts):
+    """The grill's answers -> the architecture document's facts, the draft ADRs and the queue's first row."""
+    a = {k: str(answers.get(k, "") or "").strip() for k in ("host", "shape", "scale", "store", "auth", "intent")}
+    non_goals = answers.get("non_goals") or []
+    name = facts["name"]
+    sid = name.replace("-", "_")
+    containers = SHAPES.get(a["shape"], ["app", "store"])
+    if a["store"] in ("", "none"):
+        containers = [c for c in containers if c != "store"]
+    l1 = ["C4Context", f"  title System context — {name}", '  Person(owner, "Operator", "uses the product")',
+          f'  System({sid}, "{name}", "{a["shape"] or "the system"} on {a["host"] or "the chosen host"}")',
+          f'  Rel(owner, {sid}, "uses")']
+    if a["auth"] and a["auth"] not in ("none", "no"):
+        l1 += [f'  System_Ext(idp, "Identity", "{a["auth"]}")', f'  Rel({sid}, idp, "authenticates against")']
+    l2 = ["C4Container", f"  title Containers — {name}", f'  System_Boundary(b, "{name}") {{']
+    for c in containers:
+        kind = "ContainerDb" if c == "store" else "Container"
+        l2.append(f'    {kind}({c}, "{c}", "{a["store"] if c == "store" else c}")')
+    l2.append("  }")
+    for x, y in zip(containers, containers[1:]):
+        l2.append(f'  Rel({x}, {y}, "calls")')
+    facts.update(arch_intent=a["intent"] or f"{name}: a {a['shape'] or 'system'} for its operator, hosted on {a['host'] or 'the chosen host'}.",
+                 arch_host=a["host"] or "undecided", arch_shape=a["shape"] or "undecided", arch_scale=a["scale"] or "undecided",
+                 arch_store=a["store"] or "none", arch_auth=a["auth"] or "none", arch_non_goals=", ".join(non_goals) or "none stated",
+                 arch_c4_l1="\n".join(l1), arch_c4_l2="\n".join(l2))
+    facts["first_row"] = f"Walking skeleton: one page end to end through {', '.join(containers)}, built by the stack's generator, deployed to {a['host'] or 'the host'}"
+    foot = []
+    marks = "¹²³⁴⁵⁶"
+    for i, (q, v) in enumerate((("host", a["host"]), ("shape", a["shape"]), ("scale", a["scale"]), ("data store", a["store"]),
+                                ("auth boundary", a["auth"]), ("one-year non-goals", ", ".join(non_goals)))):
+        if v:
+            foot.append(f"{marks[i]} {q}: {v} ({facts['date']})")
+    facts["footnotes"] = "\n".join(foot) if foot else "¹ <the owner's decision, in his words, with the date>"
+    adrs = {}
+    for topic, value, title in (("hosting", a["host"], "Hosting"), ("data-store", a["store"], "Data store"), ("auth-boundary", a["auth"], "Auth boundary")):
+        if value and value not in ("none", "no"):
+            adrs[f"draft-1-{topic}.md"] = (f"# ADR draft-1-{topic} — {title}: {value}\n\nStatus: Accepted (number at merge)\n\n## Context\n"
+                                           f"Day zero of {name}; the owner answered the architecture grill on {facts['date']}.\n\n## Decision\n{title} is {value}.\n\n"
+                                           f"## Consequences\n+ one {topic.replace('-', ' ')} to operate\n- changing it later is a queue row with its own ADR\n\n"
+                                           f"## Diagram\n```mermaid\nflowchart LR\n  owner --> {sid} --> {topic.replace('-', '_')}[{value}]\n```\n")
+    facts["draft_adrs"] = adrs
     return facts
 
 
@@ -97,6 +212,13 @@ def render(template_text, facts):
     return out
 
 
+def release_gates(facts):
+    g = {"c4": "python3 scripts/reef-c4.py --diff", "secret-scan": GITLEAKS_GATE}
+    if facts["stack"] in AUDITS:
+        g["audit"] = AUDITS[facts["stack"]]
+    return g
+
+
 def project_config(existing, facts):
     """The plugin's config template + the generated project's keys, MERGED under the existing
     config: a key the project already has is never changed (the human may have tuned it)."""
@@ -104,16 +226,21 @@ def project_config(existing, facts):
         cfg = json.load(f)
     cfg["gates"]["full"] = facts["test"]
     cfg["gates"]["extra"] = {"build": facts["build"]} if facts["build"] else {}
+    cfg["gates"]["release"] = release_gates(facts)
     cfg["branches"] = {"base": facts["base"], "release": facts["release"]}
     cfg["merge"] = {"by": "loop" if facts["base"] != facts["release"] else "human"}
     cfg["ci"] = {"feature_gate": "local" if facts["base"] != facts["release"] else "ci"}
-    cfg["paths"]["runlog"] = "docs/journal.md"
-    cfg["paths"]["queue"] = "docs/queue.md"
+    lay = LAYOUTS[facts["layout"]]
+    cfg["paths"]["runlog"] = lay["journal"]
+    cfg["paths"]["queue"] = lay["queue"]
+    cfg["paths"]["adr"] = lay["adr"]
+    cfg["paths"]["glossary"] = lay["glossary"]
+    cfg["paths"]["tasks"] = lay["tasks"]
+    if lay["features"]:
+        cfg["paths"]["features"] = lay["features"]
     cfg["worktree"]["setup"] = facts["install"]
-    cfg["tiers"] = {"light": {"allow": ["docs/**", "README.md"], "max_lines": 80,
-                              "migrations": ["migrations/**", "prisma/migrations/**", "alembic/**"]}}
-    cfg["writing"] = {"task_words": {"light": 600, "full": 2500, "design": 2500}, "handback_words": 150,
-                      "prompt_words": 120, "journal_words": 40000, "queue_words": 35000}
+    # the tier table (models per role, effort, light allowlist) and the writing caps come from the
+    # plugin's templates/config.json — one home; nothing is restated here
 
     def merge(base, over):
         for k, v in over.items():
@@ -188,6 +315,17 @@ def run(root, facts, dry):
         except Exception as e:
             die(f".reef/config.json is unparseable ({e}) — fix it before init can merge into it")
     merged = project_config(json.loads(json.dumps(existing)) if existing is not None else None, facts)
+    if existing is not None and "release" not in (existing.get("gates") or {}):
+        # 4.5: for an existing project the security gates arrive as a PROPOSAL under .reef/proposed/, never as a
+        # red CI on upgrade — the owner adds them to gates.release when the tools are installed
+        merged["gates"].pop("release", None)
+        prop = os.path.join(root, ".reef", "proposed", "gates.release.json")
+        if not dry:
+            os.makedirs(os.path.dirname(prop), exist_ok=True)
+            with open(prop, "w", encoding="utf-8") as f:
+                json.dump({"gates": {"release": release_gates(facts)}}, f, indent=2)
+                f.write("\n")
+        w.proposed.append((".reef/config.json gates.release", "+ " + json.dumps(release_gates(facts)) + "\n  (release gates: C4 drift, history secret scan, dependency audit — add to gates.release when the tools are installed; a missing tool is exit 77 = skipped, and reef-ci-local reports a skip as exit 2, not success)\n"))
     if existing is not None and merged == existing:
         w.skipped.append(".reef/config.json")
     else:
@@ -198,16 +336,49 @@ def run(root, facts, dry):
                 f.write("\n")
         w.written.append(".reef/config.json" + (" (keys added)" if existing is not None else ""))
     # templates
-    for rel, tpl in TEMPLATES.items():
+    # the version marker: every 0.6 check reads it (absent = 0.5: warn, never fail)
+    vpath = os.path.join(root, ".reef", "version")
+    if not os.path.isfile(vpath):
+        if not dry:
+            os.makedirs(os.path.dirname(vpath), exist_ok=True)
+            with open(vpath, "w", encoding="utf-8") as f:
+                f.write(VERSION + "\n")
+        w.written.append(".reef/version")
+    else:
+        w.skipped.append(".reef/version")
+    # templates: the common ones, then the layout's
+    lay = LAYOUTS[facts["layout"]]
+    facts.setdefault("first_row", "<the first planned row, one line>")
+    facts.setdefault("footnotes", "¹ <the owner's decision, in his words, with the date>")
+    facts["constitution_path"] = facts.get("constitution") or lay["constitution"]
+    facts["queue_path"], facts["journal_path"], facts["adr_path"] = lay["queue"], lay["journal"], lay["adr"]
+    facts["day_zero_path"], facts["glossary_path"] = lay["day_zero"], lay["glossary"]
+    facts["features_path"] = lay["features"] or "tasks"
+    targets = dict(TEMPLATES_COMMON)
+    for key, tpl in TEMPLATE_OF.items():
+        rel = lay.get(key)
+        if rel is None:
+            continue
+        if key == "constitution" and facts.get("constitution"):
+            w.skipped.append(f"{facts['constitution']} (existing constitution — pointed at, never duplicated)")
+            continue
+        if key == "architecture" and "arch_c4_l1" not in facts:
+            continue   # only the grill renders the architecture document
+        targets[rel] = tpl
+    for rel, tpl in targets.items():
         with open(os.path.join(PLUGIN, "templates", tpl), encoding="utf-8") as f:
             w.place(rel, render(f.read(), facts), executable=rel.startswith(".githooks/"))
+    for name_, text in (facts.get("draft_adrs") or {}).items():
+        w.place(f"{lay['adr']}/{name_}", text)
+    if lay["features"] and not dry:
+        os.makedirs(os.path.join(root, lay["features"]), exist_ok=True)
     if not os.path.exists(os.path.join(root, "CLAUDE.md")):
         with open(os.path.join(PLUGIN, "templates", "project/CLAUDE.md"), encoding="utf-8") as f:
             w.place("CLAUDE.md", f.read())
     for name in SCRIPTS:
         with open(os.path.join(PLUGIN, "scripts", name), encoding="utf-8") as f:
             w.place(f"scripts/{name}", f.read(), executable=True)
-    for d in ("tasks", "tasks/done", "docs/adr"):
+    for d in ((["tasks", "tasks/done"] if lay["features"] is None else []) + [lay["adr"]]):
         if not dry:
             os.makedirs(os.path.join(root, d), exist_ok=True)
     w.append_lines(".gitignore", GITIGNORE_LINES)
@@ -243,7 +414,7 @@ def accept(root, paths):
 
 
 def main(argv):
-    root, name, base, release, dry, to_accept = ".", None, "develop", "main", False, []
+    root, name, base, release, dry, to_accept, grill = ".", None, "develop", "main", False, [], None
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -260,6 +431,8 @@ def main(argv):
             release = argv[i + 1]; i += 2
         elif a == "--dry-run":
             dry = True; i += 1
+        elif a == "--grill":
+            grill = argv[i + 1]; i += 2
         elif a == "--accept":
             to_accept = argv[i + 1:]; break
         else:
@@ -274,8 +447,27 @@ def main(argv):
     if name:
         facts["name"] = name
     facts["base"], facts["release"] = base, release
+    if os.path.isfile(os.path.join(root, ".reef", "config.json")) and not dry:
+        # 6.3: versioned, idempotent migrations run before rendering (0.5 -> 0.6 adds keys only, writes .reef/version)
+        r = subprocess.run([sys.executable, os.path.join(PLUGIN, "scripts", "reef-migrate"), "--repo", root, "--plugin", PLUGIN],
+                           capture_output=True, text=True)
+        for line in r.stdout.strip().splitlines():
+            print("  " + line)
+        if r.returncode != 0:
+            die(f"migration refused: {r.stderr.strip()[:300]}")
+    if grill:
+        try:
+            with open(grill, encoding="utf-8") as f:
+                answers = json.load(f)
+        except Exception as e:
+            die(f"cannot read grill answers {grill}: {e}")
+        grill_facts(answers, facts)
     w = run(root, facts, dry)
-    print(f"reef-init ({'dry run, ' if dry else ''}stack: {facts['stack']}, base: {base}, release: {release})")
+    print(f"reef-init ({'dry run, ' if dry else ''}stack: {facts['stack']}, layout: {facts['layout']}, base: {base}, release: {release})")
+    if facts.get("constitution"):
+        print(f"  existing constitution: {facts['constitution']} — pointed at from AGENTS.md, not duplicated")
+    if facts.get("speckit"):
+        print(f"  existing specs: {', '.join(facts['speckit'][:5])} — /reef-plan reads them as input")
     for r in w.written:
         print(f"  written  {r}")
     for r in w.skipped:
@@ -288,7 +480,38 @@ def main(argv):
     if not facts["test"]:
         print("  NOTE: no test command detected — gates.full is empty and the gate FAILS LOUDLY until you set it")
     print(f"  {len(w.written)} written, {len(w.skipped)} skipped, {len(w.proposed)} proposed")
+    for line in rails_report(root):
+        print("  " + line)
     return 0
+
+
+RAILS = {"pii": "critical", "money": "critical", "auth": "critical", "migration": "design"}
+RANK = {"light": 0, "full": 1, "design": 2, "critical": 3}
+
+
+def rails_report(root):
+    """0.6 path-class rails apply to features planned under 0.6; an older in-flight task whose `touches:`
+    (or a path under tiers.design/critical.paths it names in its Scope) would raise its tier is LISTED here
+    so the owner can re-plan it — never refused."""
+    import re
+    out = []
+    tdir = os.path.join(root, "tasks")
+    for d in (tdir,):
+        for f in (sorted(os.listdir(d)) if os.path.isdir(d) else []):
+            if not re.match(r"^\d+-.*\.md$", f):
+                continue
+            with open(os.path.join(d, f), encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            m = re.match(r"\A---\r?\n(.*?\r?\n)---", text, re.S)
+            if not m:
+                continue
+            fm = dict(l.partition(":")[::2] for l in m.group(1).splitlines() if ":" in l)
+            tier = fm.get("tier", "").strip() or "full"
+            touches = [t.strip().strip("\"'") for t in fm.get("touches", "").strip().strip("[]").split(",") if t.strip()]
+            forced = max((RAILS[t] for t in touches if t in RAILS), key=lambda t: RANK[t], default=None)
+            if forced and RANK.get(tier, 1) < RANK[forced]:
+                out.append(f"RAILS: tasks/{f} is tier {tier} but touches {touches} would make it {forced} under 0.6 — re-plan it (not refused: planned before 0.6)")
+    return out
 
 
 if __name__ == "__main__":
