@@ -9,6 +9,11 @@
   `<paths.tasks>/.plan-review.json`; the check now creates that directory instead of dying with ENOENT after
   reporting zero failures (`tests/test_feature_spec.py::test_fresh_06_project_without_tasks_dir_gets_its_stamp`,
   red before the fix). Same measurement row.
+- `reef-adversarial`: a live PASS report that says `BLOCKER: none.` was refused as "a BLOCKER line with VERDICT: PASS",
+  so a design-tier row could not be dispatched without re-running the hunter for wording; and a hole written in
+  markdown bold (`**BLOCKER:** …`, also seen live) was NOT read as a blocker. Both fixed: the bold is stripped and the
+  words are read (`tests/test_adversarial.py::test_blocker_none_is_no_blocker`, red before; the bold case joins the
+  refusal cases). Found recording the hunter's round-7 PASS on the measurement row.
 - **Row 2, the hunter's scope discipline.** Corpus entry `scope-names-later-rows` (truth PASS: a sound path guard whose
   Scope names its three known holes as later rows). `agents/loophole-hunter.md`: the Scope draws the BLOCKER/NEW-ROW
   line, an out-of-scope hole is a NEW-ROW even when it will happen or is a regression (marked `regression`). Measured,

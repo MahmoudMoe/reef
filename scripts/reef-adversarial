@@ -103,8 +103,15 @@ def check_report(report, want_pass):
         die("the report has no VERDICT: PASS|FAIL line")
     if verdict.group(1) != "PASS":
         die("VERDICT: FAIL is not recorded — fix the plan or the guard, then run the hunter again")
-    if re.search(r"^BLOCKER:", report, re.M):
-        die("a BLOCKER line with VERDICT: PASS is a contradiction — not recorded")
+    # a BLOCKER line is a hole; "BLOCKER: none" is the hunter saying there is none (seen live, 0.7 dogfood) and
+    # `**BLOCKER:** hole` is a hole in markdown bold (also seen live) — strip the bold, read the words
+    for line in report.splitlines():
+        bare = line.replace("*", "").strip()
+        if not bare.upper().startswith("BLOCKER"):
+            continue
+        rest = re.sub(r"^BLOCKER\s*:?\s*", "", bare, flags=re.I).strip().rstrip(".").lower()
+        if rest and rest not in ("none", "no blocker", "no blockers", "nothing"):
+            die("a BLOCKER line with VERDICT: PASS is a contradiction — not recorded")
 
 
 def head_of(path):
