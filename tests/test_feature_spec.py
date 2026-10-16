@@ -119,6 +119,21 @@ def feature(d, slug="csv-export-for-orders", spec=SPEC, tasks=None):
     return os.path.join(d, base)
 
 
+class ProofWritersWarn(unittest.TestCase):
+    def test_a_proof_that_writes_files_names_the_mechanic(self):
+        # first contact (2026-10-16): the read-only verifier could not run AC-4/AC-10 (they write .env files and delete
+        # the generated client); the orchestrator ran them itself. The plan should say who runs such a row.
+        d = project()
+        feature(d, tasks={"1201-write-csv.md": TASK_NEW.replace("| AC-2 | `test_csv_two_decimals` |", "| AC-2 | `rm -f .env .env.local && npm test` |")})
+        r = check(d)
+        self.assertIn("WARN", r.stdout)
+        self.assertIn("Proof for AC-2 writes files", r.stdout)
+        self.assertIn("[mechanic]", r.stdout)
+        d = project()
+        feature(d, tasks={"1201-write-csv.md": TASK_NEW.replace("| AC-2 | `test_csv_two_decimals` |", "| AC-2 | [mechanic] `rm -f .env .env.local && npm test` |")})
+        self.assertNotIn("WARN", check(d).stdout)
+
+
 def check(d, *args):
     return subprocess.run([sys.executable, CHECK, d, *args], capture_output=True, text=True)
 

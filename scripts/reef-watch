@@ -141,21 +141,24 @@ def section_sessions(root, cfg, since, tdir):
     if not files:
         return [f"sessions: none in {tdir or 'n/a'}" + (f" since {since}" if since else "")]
     warn = int((cfg.get("caps") or {}).get("context_warn", 0) or 0)
-    out = [f"sessions: {len(files)} transcript(s)" + (f" since {since}" if since else "")]
-    for f in files[-6:]:
+    lines, counted = [], 0
+    for f in files[-8:]:
         raw = run([sys.executable, cost, f, "--repo", root, "--format", "json"], root) if cost else ""
         try:
             d = json.loads(raw)
         except ValueError:
-            out.append(f"  {os.path.basename(f)[:8]}: unreadable")
+            lines.append(f"  {os.path.basename(f)[:8]}: unreadable")
             continue
         s = d.get("session") or {}
+        if not int(s.get("turns", 0) or 0):
+            continue   # an aborted or empty transcript (first contact: three of them) is noise, not a session
+        counted += 1
         ctx = s.get("context") or {}
         rows = d.get("rows") or []
         rtxt = "; ".join(f"{r['feature']} growth {r['growth']:,} over {r['dispatches']} dispatch(es)" for r in rows[:3]) or "no rows"
         flag = " OVER WARN" if warn and int(ctx.get("max", 0) or 0) > warn else ""
-        out.append(f"  {os.path.basename(f)[:8]}: {s.get('turns', 0)} turns, first {int(s.get('first_turn_context', 0) or 0):,}, max {int(ctx.get('max', 0) or 0):,}{flag} · {rtxt}")
-    return out
+        lines.append(f"  {os.path.basename(f)[:8]}: {s.get('turns', 0)} turns, first {int(s.get('first_turn_context', 0) or 0):,}, max {int(ctx.get('max', 0) or 0):,}{flag} · {rtxt}")
+    return [f"sessions: {counted} transcript(s)" + (f" since {since}" if since else "")] + lines[-6:]
 
 
 def section_reports(root, cfg):

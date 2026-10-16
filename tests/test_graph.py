@@ -276,6 +276,21 @@ class Worktree(unittest.TestCase):
         r2 = graph("worktree", self.p)
         self.assertEqual(r2.returncode, 0, f"second call must reuse, not fail: {r2.stderr}")
 
+    def test_task_in_a_feature_worktree_gets_its_worktree_under_the_main_checkout(self):
+        # first contact (2026-10-16): the task file lived in the feature worktree, so the task worktree was created
+        # NESTED inside it (.reef/worktrees/<feature>/.reef/worktrees/101) and the feature's lint walked its .next/
+        feat = os.path.join(self.d, ".reef", "worktrees", "demo-feature")
+        subprocess.run(["git", "-C", self.d, "worktree", "add", "-q", "-b", "feat/demo-feature", feat], check=True)
+        p_in_feat = os.path.join(feat, os.path.relpath(self.p, self.d))
+        r = graph("worktree", p_in_feat)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.path.isdir(os.path.join(self.d, ".reef", "worktrees", "1")), "under the main checkout")
+        self.assertFalse(os.path.exists(os.path.join(feat, ".reef", "worktrees", "1")), "never nested in the feature worktree")
+        self.assertIn("worktree: .reef/worktrees/1", frontmatter(p_in_feat))
+        branch = subprocess.run(["git", "-C", os.path.join(self.d, ".reef", "worktrees", "1"), "rev-parse", "--abbrev-ref", "HEAD"],
+                                capture_output=True, text=True).stdout.strip()
+        self.assertEqual(branch, "task/1-demo")
+
     def test_failed_setup_is_loud(self):
         config(self.d, gates={"test": "true"}, worktree={"setup": "exit 3"})
         r = graph("worktree", self.p)

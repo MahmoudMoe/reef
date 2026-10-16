@@ -8,6 +8,7 @@ Each line is a command or a gate. Tick it when the gate is green, not when it fe
 - [ ] `{{constitution_path}}` read and cut to this project (8–15 articles, each with what it prevents)
 - [ ] `AGENTS.md`: commands and layout true; "Owner decision points" filled
 - [ ] `{{queue_path}}`: the first batch's planned rows written before any code; row 1 is the walking skeleton
+- [ ] Lint, format and test discovery ignore `.reef/**` (worktrees and machine state live there)
 - [ ] Every port, host and database parameterised; tests have a local database; `.env.example` holds the shape, `.env` is ignored
 - [ ] CI: `.github/workflows/ci.yml` on PRs into `{{release}}` only; `sh scripts/reef-ci-local.sh` green locally; Dependabot targets `{{base}}`
 - [ ] `tiers.light.allow` in `.reef/config.json` names the safe paths (nothing touching privacy, money, auth, tenancy, data)

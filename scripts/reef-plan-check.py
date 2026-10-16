@@ -731,6 +731,11 @@ def main():
                 m = re.match(r"^\**(AC-?\d+)\**$", cells[0]) if len(cells) >= 2 else None
                 if m and not re.match(r"^-+$", cells[1]):
                     proof_rows[re.sub(r"^AC-?", "AC-", m.group(1))] = cells[1]
+                    # a Proof that WRITES (a redirect, rm/mv/cp/touch, .env files, a forced git) cannot be run by the
+                    # read-only verifier; the mechanic runs it verbatim. Name that in the row (first contact: the verifier
+                    # proved AC-4 and AC-10 "another way", the orchestrator ran them itself)
+                    if re.search(r"(^|[\s;&|(])(rm|mv|cp|touch|tee|truncate|mkdir)\s|(^|[^<>])>\s*\S|\.env\b|--force", cells[1]) and "[mechanic]" not in cells[1]:
+                        print(f"WARN {rel}: Proof for {re.sub(r'^AC-?', 'AC-', m.group(1))} writes files — the read-only verifier cannot run it; tag it `[mechanic]` so the mechanic runs it verbatim")
         # 0.6 dual shape: with a ## Proof table the criterion is ONE declarative sentence and the proof
         # lives in its row; without it, the 0.5 shape (the criterion names its test inline) stays valid
         untested, automated, shape_errs, key_errs = [], 0, [], []

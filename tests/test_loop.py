@@ -160,6 +160,39 @@ class Tick(unittest.TestCase):
         self.assertIn("STOP=USER ACTION", loop(d, "tick", "--session-start").stdout, "only the ceiling stop is per session")
 
 
+    def test_only_feature_prs_are_the_loops_and_a_feature_worktrees_tasks_reach_the_tick(self):
+        d = project()
+        # a fake gh: three PRs into the base, one of them the loop's
+        fake = tempfile.mkdtemp(prefix="reef-fakegh.")
+        with open(os.path.join(fake, "gh"), "w") as f:
+            f.write("#!/bin/sh\nif [ \"$1\" = pr ] && [ \"$2\" = list ]; then\n"
+                    "printf '%s' '[{\"number\":3,\"headRefName\":\"dependabot/npm_and_yarn/develop/x\",\"title\":\"bump\",\"reviewDecision\":\"\"},"
+                    "{\"number\":4,\"headRefName\":\"feat/demo\",\"title\":\"demo\",\"reviewDecision\":\"\"},"
+                    "{\"number\":5,\"headRefName\":\"dependabot/github_actions/develop/y\",\"title\":\"bump\",\"reviewDecision\":\"\"}]'\nexit 0\nfi\nexit 1\n")
+        os.chmod(os.path.join(fake, "gh"), 0o755)
+        env = {"PATH": fake + ":" + os.environ["PATH"]}
+        st = json.loads(subprocess.run([sys.executable, LOOP, "tick", "--json", "--repo", d], capture_output=True, text=True, env=dict(os.environ, **env)).stdout)
+        self.assertEqual(st["prs_to_review"], ["#4 feat/demo"])
+        self.assertEqual(st["other_prs"], 2)
+        text = subprocess.run([sys.executable, LOOP, "tick", "--repo", d], capture_output=True, text=True, env=dict(os.environ, **env)).stdout
+        self.assertIn("PRs to review: #4 feat/demo  (2 other PR(s) into the base, not the loop's)", text)
+        # a feature worktree on feat/<slug> holds a plan the main checkout has never seen (first contact: the tick in
+        # the main checkout said "rows to plan: 1 · tasks: none" while 101 was being built there)
+        wt = os.path.join(d, ".reef", "worktrees", "demo")
+        subprocess.run(["git", "-C", d, "worktree", "add", "-q", "-b", "feat/demo", wt], check=True)
+        write(wt, "tasks/201-c.md", task(201, "2"))
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertIn("2 (plan review)", st["awaiting"], st)          # the worktree's plan is seen, and held correctly
+        self.assertNotIn("201", st["dispatch_now"])
+        pc = os.path.join(d, "scripts", "reef-plan-check.py")
+        subprocess.run([sys.executable, pc, wt], capture_output=True, text=True)   # stamp in the worktree
+        digest = subprocess.run([sys.executable, pc, wt, "--digest", "--feature", "2"], capture_output=True, text=True).stdout.split()[-1]
+        write(d, ".reef/approvals/2.json", json.dumps({"digest16": digest[:16], "approved_at": "2026-10-16T00:00:00Z"}))
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertIn("201", st["dispatch_now"], st)
+        self.assertIn("101", st["dispatch_now"])
+
+
 class StopHook(unittest.TestCase):
     def test_ready_undispatched_refused_once_then_allowed(self):
         d = project()
