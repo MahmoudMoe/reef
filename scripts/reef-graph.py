@@ -133,6 +133,25 @@ def tasks_dir_for(root, cfg, task_path=None):
     return os.path.join(root, cfg.get("paths", {}).get("tasks", "tasks"))
 
 
+def task_dirs(root, cfg):
+    """0.6: every tasks directory of the project — the flat paths.tasks and each feature folder's tasks/ under
+    paths.features — so the ready set, the resources and graph.parallel stay GLOBAL across features."""
+    dirs = [os.path.join(root, cfg.get("paths", {}).get("tasks", "tasks"))]
+    fdir = os.path.join(root, cfg.get("paths", {}).get("features", "reef/features"))
+    if os.path.isdir(fdir):
+        for slug in sorted(os.listdir(fdir)):
+            t = os.path.join(fdir, slug, "tasks")
+            if os.path.isdir(t):
+                dirs.append(t)
+    return dirs
+
+
+def lock_key(root, cfg):
+    """The graph lock is keyed on paths.features when it exists (one graph across features), else on paths.tasks."""
+    fdir = os.path.join(root, cfg.get("paths", {}).get("features", "reef/features"))
+    return fdir if os.path.isdir(fdir) else os.path.join(root, cfg.get("paths", {}).get("tasks", "tasks"))
+
+
 def graph_lock_path(tasks_dir):
     """ONE lock for the whole task set (not the per-file lock reef-attempt takes):
     the ready decision reads every file. Lives in tmp, never unlinked."""
@@ -189,15 +208,18 @@ class Task:
             raise GraphError(f"{path}: attempts is negative")
 
 
-def load_graph(tasks_dir):
-    """Every task under tasks/ and tasks/done/, validated as a DAG. Raises GraphError
-    on anything that makes a ready set meaningless."""
+def load_graph(tasks_dirs):
+    """Every task under each tasks dir and its done/ (a str or a list of dirs — 0.6 passes every feature's),
+    validated as ONE DAG. Raises GraphError on anything that makes a ready set meaningless."""
+    if isinstance(tasks_dirs, str):
+        tasks_dirs = [tasks_dirs]
     files = []
-    for d in (tasks_dir, os.path.join(tasks_dir, "done")):
-        if os.path.isdir(d):
-            for f in sorted(os.listdir(d)):
-                if TASK_NAME_RE.match(f):
-                    files.append(os.path.join(d, f))
+    for base in tasks_dirs:
+        for d in (base, os.path.join(base, "done")):
+            if os.path.isdir(d):
+                for f in sorted(os.listdir(d)):
+                    if TASK_NAME_RE.match(f):
+                        files.append(os.path.join(d, f))
     tasks = {}
     for p in files:
         t = Task(p)
@@ -268,11 +290,21 @@ def find_task(tasks, task_path):
     raise GraphError(f"{task_path} is not among the task files of its tasks directory")
 
 
+def project_dirs(root, cfg, task_path):
+    """The dirs that form this task's graph: every project tasks dir, plus the task's own dir when it sits
+    elsewhere (a task worktree's copy of the flat layout)."""
+    dirs = task_dirs(root, cfg)
+    own = tasks_dir_for(root, cfg, task_path)
+    if os.path.abspath(own) not in {os.path.abspath(d) for d in dirs}:
+        dirs = [own] + [d for d in dirs if os.path.abspath(d) != os.path.abspath(os.path.join(root, cfg.get("paths", {}).get("tasks", "tasks")))]
+    return dirs
+
+
 def check_task(task_path, cfg=None):
     """(ready: bool, reason: str|None, tasks). Raises GraphError on a broken graph."""
     root = repo_root(task_path)
     cfg = read_config(root) if cfg is None else cfg
-    tasks = load_graph(tasks_dir_for(root, cfg, task_path))
+    tasks = load_graph(project_dirs(root, cfg, task_path))
     t = find_task(tasks, task_path)
     return not_ready_reason(tasks, t, cfg), tasks, t
 
@@ -281,7 +313,7 @@ def check_task(task_path, cfg=None):
 
 def cmd_ready(root, as_json):
     cfg = read_config(root)
-    tasks = load_graph(tasks_dir_for(root, cfg))
+    tasks = load_graph(task_dirs(root, cfg))
     ready = ready_set(tasks, cfg)
     if as_json:
         print(json.dumps([{"id": t.canon, "path": t.path, "status": t.status,
@@ -294,7 +326,7 @@ def cmd_ready(root, as_json):
 
 def cmd_status(root):
     cfg = read_config(root)
-    tasks = load_graph(tasks_dir_for(root, cfg))
+    tasks = load_graph(task_dirs(root, cfg))
     for canon, t in sorted(tasks.items(), key=lambda kv: (kv[0].startswith("R"), int(kv[0].lstrip("R")))):
         reason = not_ready_reason(tasks, t, cfg)
         state = "READY" if reason is None else ("done" if t.status == "done" else f"waiting: {reason}")
@@ -314,7 +346,7 @@ def cmd_check(task_path):
 def cmd_worktree(task_path, base):
     root = repo_root(task_path)
     cfg = read_config(root)
-    tasks = load_graph(tasks_dir_for(root, cfg, task_path))
+    tasks = load_graph(project_dirs(root, cfg, task_path))
     t = find_task(tasks, task_path)
     wt_root = os.path.join(root, cfg.get("worktree", {}).get("dir", ".reef/worktrees"))
     wt = os.path.join(wt_root, t.canon)
@@ -337,7 +369,7 @@ def cmd_worktree(task_path, base):
             r = subprocess.run(["sh", "-c", setup], cwd=wt)
             if r.returncode != 0:
                 raise GraphError(f"worktree.setup {setup!r} exited {r.returncode}")
-    with open(graph_lock_path(tasks_dir_for(root, cfg, task_path)), "a") as lock:
+    with open(graph_lock_path(lock_key(root, cfg)), "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         fm, text = read_frontmatter(t.path)
         set_keys(t.path, text, {"worktree": os.path.relpath(wt, root)})

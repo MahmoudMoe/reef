@@ -53,4 +53,4 @@ Report: PR URL (or local branch), acceptance verdict, blockers fixed, NITs left,
 - `merge.by` = `loop`: only when the PR's base is `branches.base` AND acceptance passed, no BLOCKER is open, and step 4 is green — merge it **through `gh pr merge`** (`--squash --delete-branch`, or the repository's configured method), never through a local `git merge`+push: the guard checks the GREEN record against the forge head only on that path. A PR whose base is `branches.release` is never merged by the loop: the release merge stays the human's.
 
 ## Re-entry
-Invoked again after an interruption: read `git status`, `gh pr view`, the feature's rollup (`tasks/R*.md`, or in `done/`), and CONTINUE from the furthest completed step — never restart from 0 and never create a second rollup.
+Invoked again after an interruption: the tick (`python3 scripts/reef-loop.py tick`) lists the PR to review and the returned-but-unmerged work; the feature's rollup (`R*.md` in its `tasks/`, or in `done/`) holds the rounds so far. CONTINUE from the furthest completed step — never restart from 0 and never create a second rollup.

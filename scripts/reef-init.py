@@ -40,6 +40,7 @@ import json
 import os
 import shutil
 import stat
+import subprocess
 import sys
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -47,7 +48,7 @@ SCRIPTS = ["reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.
            "reef-adversarial", "reef-claims.py", "reef-ci-local.sh", "reef-tier.py", "reef-queue.py",
            # 0.6
            "reef-converge", "reef-record", "reef-structure", "reef-recalibrate", "reef-c4.py", "reef-threat.py",
-           "reef-repo", "reef-cost.py", "reef-loop.py", "reef-handoff"]
+           "reef-repo", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-migrate"]
 # 4.5 security gates per stack: the auditor is installed by the CI template's setup steps; locally a missing tool is
 # exit 77 (skipped — reef-ci-local reports a skip as exit 2, never success). They are RELEASE gates (decision 8):
 # a feature PR never pays for a history secret scan or an audit.
@@ -446,6 +447,14 @@ def main(argv):
     if name:
         facts["name"] = name
     facts["base"], facts["release"] = base, release
+    if os.path.isfile(os.path.join(root, ".reef", "config.json")) and not dry:
+        # 6.3: versioned, idempotent migrations run before rendering (0.5 -> 0.6 adds keys only, writes .reef/version)
+        r = subprocess.run([sys.executable, os.path.join(PLUGIN, "scripts", "reef-migrate"), "--repo", root, "--plugin", PLUGIN],
+                           capture_output=True, text=True)
+        for line in r.stdout.strip().splitlines():
+            print("  " + line)
+        if r.returncode != 0:
+            die(f"migration refused: {r.stderr.strip()[:300]}")
     if grill:
         try:
             with open(grill, encoding="utf-8") as f:

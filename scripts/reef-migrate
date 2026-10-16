@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+# CLASS: code
+"""Reef migrate — versioned, idempotent migrations and the layout move (0.6, items 6.1 and 6.3).
+
+Usage:
+  reef-migrate [--repo DIR] [--plugin DIR]            walk <plugin>/migrations/<from>-to-<to>.py from the
+                                                      project's .reef/version (absent = 0.5.0) up to the plugin's
+                                                      version; each script is idempotent and exits 0/1/2; the chain
+                                                      never gaps (one script per release, a placeholder when a
+                                                      release adds nothing). /reef-init runs this before rendering.
+  reef-migrate --layout [--repo DIR] [--no-commit]    move a 0.5 flat project to the one tree in ONE reviewed commit:
+                                                      docs/queue.md -> reef/queue.md, docs/journal.md -> reef/journal.md,
+                                                      docs/glossary.md, docs/day-zero.md, .specify/constitution.md ->
+                                                      reef/constitution.md, docs/adr/ -> reef/architecture/adr/, tasks/
+                                                      (by feature:) -> reef/features/<feature>/tasks/ with a SPEC.md
+                                                      stub per feature; paths.* updated; relative links rewritten (the
+                                                      mover shared with reef-recalibrate); a broken link refuses and
+                                                      restores. A second run moves nothing. Undo: git revert.
+Exit 0 · 1 refused / broken link · 2 usage.
+"""
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import subprocess
+import sys
+
+PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MOVES = {"docs/queue.md": "reef/queue.md", "docs/queue-archive.md": "reef/queue-archive.md", "docs/journal.md": "reef/journal.md",
+         "docs/journal-archive.md": "reef/journal-archive.md", "docs/runlog.md": "reef/journal.md", "docs/glossary.md": "reef/glossary.md",
+         "docs/day-zero.md": "reef/day-zero.md", ".specify/constitution.md": "reef/constitution.md"}
+PATHS_06 = {"queue": "reef/queue.md", "runlog": "reef/journal.md", "glossary": "reef/glossary.md", "adr": "reef/architecture/adr",
+            "tasks": "tasks", "features": "reef/features"}
+
+
+def vt(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v)[:3])
+
+
+def git(root, *a):
+    r = subprocess.run(["git", "-C", root, *a], capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"reef-migrate: git {' '.join(a[:2])} failed: {r.stderr.strip()[:200]}", file=sys.stderr)
+        sys.exit(1)
+    return r.stdout
+
+
+def plugin_version(plugin):
+    with open(os.path.join(plugin, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
+        return json.load(f)["version"]
+
+
+def cmd_walk(root, plugin):
+    vpath = os.path.join(root, ".reef", "version")
+    have = open(vpath).read().strip() if os.path.isfile(vpath) else "0.5.0"
+    target = plugin_version(plugin)
+    mdir = os.path.join(plugin, "migrations")
+    steps = []
+    for f in sorted(os.listdir(mdir)) if os.path.isdir(mdir) else []:
+        m = re.match(r"^(\d+\.\d+\.\d+)-to-(\d+\.\d+\.\d+)\.py$", f)
+        if m and vt(m.group(1)) >= vt(have) and vt(m.group(2)) <= vt(target):
+            steps.append((m.group(1), m.group(2), os.path.join(mdir, f)))
+    if not steps:
+        print(f"reef-migrate: at {have}, plugin {target}: nothing to run")
+        return 0
+    cur = have
+    for a, b, path in steps:
+        if vt(a) != vt(cur):
+            print(f"reef-migrate: the migration chain gaps between {cur} and {a} — refusing", file=sys.stderr)
+            return 1
+        r = subprocess.run([sys.executable, path, root, plugin], capture_output=True, text=True)
+        sys.stdout.write(r.stdout)
+        if r.returncode != 0:
+            print(f"reef-migrate: {os.path.basename(path)} exited {r.returncode}: {r.stderr.strip()[:200]}", file=sys.stderr)
+            return 1
+        with open(vpath, "w", encoding="utf-8") as f:
+            f.write(b + "\n")
+        cur = b
+    print(f"reef-migrate: .reef/version = {cur}")
+    return 0
+
+
+def load_mover():
+    loader = importlib.machinery.SourceFileLoader("reef_recalibrate", os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-recalibrate"))
+    spec = importlib.util.spec_from_loader("reef_recalibrate", loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def cmd_layout(root, commit):
+    if git(root, "status", "--porcelain").strip():
+        print("reef-migrate: the working tree is not clean — the layout move is one commit, undone by one revert", file=sys.stderr)
+        return 1
+    cfg_path = os.path.join(root, ".reef", "config.json")
+    cfg = json.loads(open(cfg_path).read()) if os.path.isfile(cfg_path) else {}
+    paths = cfg.get("paths", {})
+    moved = {}
+    pairs = dict(MOVES)
+    pairs[paths.get("queue", "docs/queue.md")] = "reef/queue.md"
+    pairs[paths.get("runlog", "docs/journal.md")] = "reef/journal.md"
+    pairs[paths.get("glossary", "docs/glossary.md")] = "reef/glossary.md"
+    for src, dst in pairs.items():
+        if os.path.isfile(os.path.join(root, src)) and not os.path.exists(os.path.join(root, dst)):
+            os.makedirs(os.path.dirname(os.path.join(root, dst)), exist_ok=True)
+            git(root, "mv", src, dst)
+            moved[src] = dst
+    adr = paths.get("adr", "docs/adr")
+    if os.path.isdir(os.path.join(root, adr)) and adr != "reef/architecture/adr":
+        os.makedirs(os.path.join(root, "reef", "architecture", "adr"), exist_ok=True)
+        for f in sorted(os.listdir(os.path.join(root, adr))):
+            if f.endswith(".md"):
+                git(root, "mv", f"{adr}/{f}", f"reef/architecture/adr/{f}")
+                moved[f"{adr}/{f}"] = f"reef/architecture/adr/{f}"
+    tdir = paths.get("tasks", "tasks")
+    feats = {}
+    for d in (tdir, f"{tdir}/done"):
+        for f in sorted(os.listdir(os.path.join(root, d))) if os.path.isdir(os.path.join(root, d)) else []:
+            if re.match(r"^R?\d+-.*\.md$", f):
+                text = open(os.path.join(root, d, f), encoding="utf-8").read()
+                m = re.search(r"^feature:\s*(.*)$", text, re.M)
+                feat = (m.group(1).strip().strip('"') if m else "") or "unsorted-tasks"
+                feat = re.sub(r"[^a-z0-9-]+", "-", feat.lower()).strip("-") or "unsorted-tasks"
+                if "-" not in feat:
+                    feat = f"{feat}-feature-folder"
+                dst = f"reef/features/{feat}/tasks/{'done/' if d.endswith('/done') else ''}{f}"
+                os.makedirs(os.path.dirname(os.path.join(root, dst)), exist_ok=True)
+                git(root, "mv", f"{d}/{f}", dst)
+                moved[f"{d}/{f}"] = dst
+                feats.setdefault(feat, []).append(dst)
+    for feat in feats:
+        spec = os.path.join(root, "reef", "features", feat, "SPEC.md")
+        if not os.path.isfile(spec):
+            row = re.match(r"^(\d+)", feat.split("-")[0])
+            with open(spec, "w", encoding="utf-8") as f:
+                f.write(f"# {feat} — SPEC\n\nRow: {row.group(1) if row else 0}\nSlug: {feat}\n\n## Intent\nMoved by reef-migrate --layout; the intent lives in the task files until this spec is written.\n\n"
+                        "## Grill\n- Q: (none) — A: (none)\n\n## Scope\n(see tasks/)\n\n## Non-goals\n(none stated)\n\n## Already shipped\nnone\n\n## Requirements\n- FR-1 [backend]: the task files' acceptance criteria hold.\n\n"
+                        "## Success criteria\n- SC-1: every task under tasks/ is done.\n\n## Owner decisions\n- (none)\n\n## Architecture impact\n(to be stated)\n")
+        os.makedirs(os.path.join(root, "reef", "features", feat, "tasks", "done"), exist_ok=True)
+    if not moved:
+        print("reef-migrate --layout: nothing to move (already the one tree)")
+        return 1
+    cfg.setdefault("paths", {}).update(PATHS_06)
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+        f.write("\n")
+    gi = os.path.join(root, ".gitignore")
+    if os.path.isfile(gi):
+        t = open(gi).read().replace("tasks/.plan-review.json", "tasks/.plan-review.json\nreef/features/.plan-review.json")
+        open(gi, "w").write(t)
+    mover = load_mover()
+    broken = mover.rewrite_links(root, moved, list(moved.values()) + [".reef/config.json"])
+    if broken:
+        git(root, "reset", "-q", "--hard", "HEAD")
+        subprocess.run(["git", "-C", root, "clean", "-fdq", "--", "reef"], capture_output=True)
+        print("REFUSED: the move would leave broken relative links — tree restored:")
+        for b in broken[:20]:
+            print(f"  - {b}")
+        return 1
+    if commit:
+        git(root, "add", "-A")
+        git(root, "-c", "user.email=reef@local", "-c", "user.name=reef", "commit", "-q", "-m", f"chore: reef layout — {len(moved)} file(s) moved to the one tree (undo: git revert)")
+    print(f"moved {len(moved)} file(s); paths.* updated; {len(feats)} feature folder(s)" + (" (committed)" if commit else ""))
+    return 0
+
+
+def main(argv):
+    repo, plugin, commit = ".", PLUGIN, True
+    layout = False
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--repo":
+            repo = argv[i + 1]; i += 2
+        elif argv[i] == "--plugin":
+            plugin = argv[i + 1]; i += 2
+        elif argv[i] == "--layout":
+            layout = True; i += 1
+        elif argv[i] == "--no-commit":
+            commit = False; i += 1
+        else:
+            print(f"reef-migrate: unknown option {argv[i]}", file=sys.stderr)
+            return 2
+    root = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=repo, capture_output=True, text=True).stdout.strip() or os.path.abspath(repo)
+    return cmd_layout(root, commit) if layout else cmd_walk(root, plugin)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

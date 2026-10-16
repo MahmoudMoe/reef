@@ -43,7 +43,7 @@ When a sub-agent reports success, verify before advancing: the named tests exist
 
 ## Re-entry (session died / compaction / interruption)
 State lives on disk — recover it, don't guess:
-1. `python3 scripts/reef-loop.py tick` — in flight (the guard's `.reef/inflight/` markers; stale ones listed as returned), ready, parked; then `scripts/reef-graph.py status` for the reasons.
+1. `python3 scripts/reef-loop.py tick` — in flight (the guard's `.reef/inflight/` markers; stale ones listed as returned), ready, parked, returned-but-unmerged; the tick is the only read at start.
 2. For each `in-progress` task: `git -C .reef/worktrees/<id> status` — uncommitted implementer work present → do NOT re-implement; go to step 3 for it.
 3. `status: blocked` → USER ACTION REQUIRED. Never reset attempts yourself — the human unblock is THREE fields: `attempts: 0`, `status: pending`, `last_failure_sig: ""`.
 

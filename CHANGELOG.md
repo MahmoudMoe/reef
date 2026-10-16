@@ -21,6 +21,24 @@
   catch-rate and is refused; every corpus entry builds green and passes plan-check where the reviewer needs it).
 - **0.4 Baseline evals** k=3: `docs/perf/eval-baseline-2026-10-16.md`.
 
+### Phase 6 — lean start and one tree
+- **6.1 One tree, feature-based.** `reef-graph.py` loads every `<paths.features>/*/tasks/{,done}` and the flat
+  `paths.tasks` into ONE graph (ready set, resources and `graph.parallel` global) and keys the lock on
+  `paths.features`; plan-check, reef-queue (status, index, global ADR numbering), the guard and reef-attempt are
+  folder-aware; `reef-migrate --layout` moves a 0.5 project to the tree in one reviewed commit with link rewriting
+  (the mover shared with reef-recalibrate); `reef-structure --check` knows both layouts. Tests:
+  `tests/test_layout.py` (two features form one ready set with shared `resources:` slots; a 0.5 flat project untouched
+  passes every check; `--layout` moves everything, rewrites links, a second run moves nothing).
+- **6.2 Lean session start.** `SessionStart` entry runs `reef-loop.py tick --session-start --hook`: the handoff head
+  (≤ 40 lines), the tick (≤ 30) and the next command as `additionalContext`, capped by
+  `writing.session_start_tokens` (8,000; truncated with a note); nothing for a directory without `.reef/config.json`;
+  the generated AGENTS.md stays ≤ 80 lines; every skill's re-entry section names only the handoff head and the
+  tick. Tests: `tests/test_loop.py::HandoffAndSessionStart`, `tests/test_contracts.py::LeanStart`.
+- **6.3 Versioned migrations.** `scripts/reef-migrate` walks `migrations/<from>-to-<to>.py` (idempotent, exit 0/1/2,
+  refuses a gap); `/reef-init` runs it before rendering; `0.5.0-to-0.6.0.py` adds only additive keys (the tier
+  table, `paths.*` at their 0.5 locations, `writing.*`, `caps.*`, `loop.*`, `context.*`), keeps `gates.test`, writes
+  `.reef/version`, offers `--layout`. Tests: `tests/test_layout.py::Migrations`.
+
 ### Phase 5 — loop engine and context budget
 - **5.1 `scripts/reef-loop.py tick`** — one read of the queue, the task files, the worktrees, `.reef/inflight/`,
   `.reef/verifying/` and the open PRs; the next-action set as data under 30 lines; in flight is the guard's marker

@@ -4,7 +4,7 @@
 </picture>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.5.0-D94F35?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-0.6.0-D94F35?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-0E7C7B?style=flat-square">
   <img alt="claude code" src="https://img.shields.io/badge/claude_code-plugin-182B33?style=flat-square">
   <img alt="status" src="https://img.shields.io/badge/status-pilot_(n%3D1)-B07C1F?style=flat-square">

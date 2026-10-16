@@ -150,6 +150,16 @@ def task_states(root, cfg):
                 k, _, v = line.partition(":")
                 fm.setdefault(k.strip(), v.strip().strip('"'))
             states.setdefault(fm.get("feature", ""), []).append(fm.get("status", "pending"))
+    # 0.6: a feature folder's SPEC.md `Row: <id>` links the slug to its queue row — the row's status is derived
+    # from the folder's tasks; the slug itself then needs no row of its own
+    for slug, fdir in feature_folders(root, cfg).items():
+        spec = os.path.join(fdir, "SPEC.md")
+        if os.path.isfile(spec):
+            m = re.search(r"^Row:\s*(\S+)", read(spec), re.M)
+            if m and slug in states:
+                states.setdefault(m.group(1), []).extend(states.pop(slug))
+            elif m:
+                states.setdefault(m.group(1), [])
     return states
 
 
@@ -333,7 +343,7 @@ def cmd_index(root):
         if os.path.isfile(spec):
             m = re.search(r"^Row:\s*(\S+)", read(spec), re.M)
             row = m.group(1) if m else ""
-        st = states.get(slug, []) or states.get(row, [])
+        st = states.get(row, []) or states.get(slug, [])
         status = "archived" if row in archived else ("queued" if not st else ("done" if all(x == "done" for x in st) else "building"))
         batch = rows_by_id.get(row, {}).get("Batch", "")
         adrs = sorted(f[:-3] for f in os.listdir(os.path.join(fdir, "adr"))) if os.path.isdir(os.path.join(fdir, "adr")) else []

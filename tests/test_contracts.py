@@ -22,7 +22,7 @@ class Version(unittest.TestCase):
         badge = re.search(r"badge/version-([0-9.]+)-", read("README.md")).group(1)
         versions = {plugin, market["metadata"]["version"], market["plugins"][0]["version"], badge}
         # pinned on purpose: a version bump edits this line too, in the same commit
-        self.assertEqual(versions, {"0.5.0"})
+        self.assertEqual(versions, {"0.6.0"})
 
 
 class ConfigTemplate(unittest.TestCase):
@@ -180,6 +180,44 @@ class LedgerClasses(unittest.TestCase):
                     # session on a hook failure, so they continue
                     self.assertEqual(h.get("onFailure"), "block" if ev == "PreToolUse" else "continue", f"{ev}/{key}")
                     self.assertIn("timeout", h, f"{ev}/{key}: every hook carries a timeout")
+
+
+class LeanStart(unittest.TestCase):
+    """0.6 item 6.2: a session starts under writing.session_start_tokens and reads nothing else — the generated
+    AGENTS.md stays <= 80 lines and every skill's re-entry section names only the handoff head and the tick."""
+
+    def test_rendered_agents_md_under_80_lines(self):
+        import subprocess, sys, tempfile
+        d = tempfile.mkdtemp(prefix="reef-agents-lines.")
+        with open(os.path.join(d, "package.json"), "w") as f:
+            json.dump({"name": "x", "scripts": {"test": "t"}}, f)
+        subprocess.run(["git", "init", "-q", d], check=True)
+        subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-init.py"), "--root", d], capture_output=True, text=True)
+        with open(os.path.join(d, "AGENTS.md")) as f:
+            n = len(f.read().splitlines())
+        self.assertLessEqual(n, 80, f"AGENTS.md renders to {n} lines")
+
+    def test_reentry_sections_name_only_the_handoff_head_and_the_tick(self):
+        forbidden = ("reef-queue.py status", "reef-graph.py status", "gh pr list", "git worktree list", "journal", "constitution", "read the queue")
+        for name in os.listdir(os.path.join(ROOT, "skills")):
+            text = read("skills", name, "SKILL.md")
+            m = re.search(r"^## Re-entry.*?$(.*?)(?=^## |\Z)", text, re.M | re.S)
+            if not m:
+                continue
+            body = m.group(1).lower()
+            self.assertTrue("tick" in body or "handoff" in body, f"{name}: re-entry names neither the tick nor the handoff")
+            for f_ in forbidden:
+                self.assertNotIn(f_, body.replace("never read", "").replace("nothing else is read", ""), f"{name}: re-entry reads {f_!r} at start")
+
+    def test_no_hook_files_were_added_and_no_skill_or_agent_over_60_lines(self):
+        self.assertEqual(sorted(os.listdir(os.path.join(ROOT, "hooks"))), ["hooks.json"], "decision 10: no new hook files")
+        for d in ("skills", "agents"):
+            for dp, dn, fn in os.walk(os.path.join(ROOT, d)):
+                for f in fn:
+                    if f.endswith(".md"):
+                        with open(os.path.join(dp, f)) as fh:
+                            n = len(fh.read().splitlines())
+                        self.assertLessEqual(n, 60, f"{os.path.relpath(os.path.join(dp, f), ROOT)}: {n} lines > 60")
 
 
 class Templates(unittest.TestCase):

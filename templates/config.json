@@ -38,7 +38,8 @@
     "tasks": "tasks",
     "adr": "docs/adr",
     "glossary": "docs/glossary.md",
-    "runlog": "docs/runlog.md"
+    "runlog": "docs/runlog.md",
+    "queue": "docs/queue.md"
   },
   "invariants": [],
   "graph": {

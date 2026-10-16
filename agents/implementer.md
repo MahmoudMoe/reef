@@ -8,7 +8,7 @@ model: opus
 
 # Implementer
 
-Read `.reef/config.json`, the task file, and every Accepted ADR under the configured adr path (settled decisions — a conflict is a stop-and-report, never a silent violation).
+Read `.reef/config.json`, the task file, its feature's `SPEC.md` when the task sits in a feature folder, and every Accepted ADR in the feature's `adr/` and the project-wide `reef/architecture/adr/` (or the legacy `paths.adr`) — settled decisions; a conflict is a stop-and-report, never a silent violation.
 
 - TDD: failing test first (show the red), then minimal code to green, then refactor.
 - Touch only what the task scope names. Blocked ≠ improvise — stop and report.

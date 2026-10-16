@@ -808,11 +808,11 @@ def _check_dispatch(tool_input, payload):
         pre_fm = None   # re-read under the lock below, which fails closed
     check_stamp(root, (pre_fm or {}).get("feature", ""))
     graph = load_graph_module()
-    tasks_dir = graph.tasks_dir_for(root, graph.read_config(root), path)
+    lock_dir = graph.lock_key(root, graph.read_config(root))   # 0.6: one graph across every feature folder
     # ONE lock over the whole task set: the ready decision reads every task file, so
     # two dispatches racing for the last parallel slot or the last resource slot must
     # serialise here — the per-file lock below protects only this file's counters.
-    with open(graph.graph_lock_path(tasks_dir), "a") as glock, open(lock_path_for(path), "a") as lock:
+    with open(graph.graph_lock_path(lock_dir), "a") as glock, open(lock_path_for(path), "a") as lock:
         fcntl.flock(glock, fcntl.LOCK_EX)
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
