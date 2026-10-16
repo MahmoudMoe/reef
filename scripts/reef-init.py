@@ -44,7 +44,22 @@ import sys
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = ["reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.py", "reef-graph.py",
-           "reef-adversarial", "reef-claims.py", "reef-ci-local.sh", "reef-tier.py", "reef-queue.py"]
+           "reef-adversarial", "reef-claims.py", "reef-ci-local.sh", "reef-tier.py", "reef-queue.py",
+           # 0.6
+           "reef-converge", "reef-record", "reef-structure", "reef-recalibrate", "reef-c4.py", "reef-threat.py",
+           "reef-repo", "reef-cost.py"]
+# 4.5 security gates per stack: the auditor is installed by the CI template's setup steps; locally a missing tool is
+# exit 77 (skipped — reef-ci-local reports a skip as exit 2, never success). They are RELEASE gates (decision 8):
+# a feature PR never pays for a history secret scan or an audit.
+AUDITS = {"node": "npm audit --audit-level=high",
+          "python": "command -v pip-audit >/dev/null 2>&1 || exit 77; pip-audit",
+          "rust": "command -v cargo-audit >/dev/null 2>&1 || exit 77; cargo audit",
+          "go": "command -v govulncheck >/dev/null 2>&1 || exit 77; govulncheck ./..."}
+SECRET_SCAN = "command -v gitleaks >/dev/null 2>&1 || exit 77; gitleaks detect --source . --log-opts=--all --no-banner"
+AUDIT_SETUP = {"python": "      - run: pip install pip-audit\n", "rust": "      - run: cargo install cargo-audit --locked\n",
+               "go": "      - run: go install golang.org/x/vuln/cmd/govulncheck@latest\n"}
+GITLEAKS_SETUP = ("      - name: gitleaks (the history secret scan)\n        run: |\n          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz "
+                  "| tar -xz gitleaks && sudo mv gitleaks /usr/local/bin/\n")
 TEMPLATES_COMMON = {   # published path -> template under templates/project (or templates/)
     "AGENTS.md": "project/AGENTS.md",
     "HANDOFF.md": "project/HANDOFF.md",
@@ -107,6 +122,7 @@ def detect(root):
     elif has("go.mod"):
         facts.update(stack="go", ecosystem="gomod", install="go mod download", test="go test ./...", build="go build ./...",
                      setup_steps="      - uses: actions/setup-go@v5\n        with:\n          go-version: stable\n")
+    facts["setup_steps"] = facts["setup_steps"] + AUDIT_SETUP.get(facts["stack"], "") + GITLEAKS_SETUP
     facts["date"] = datetime.date.today().isoformat()
     # 0.6: the layout — a fresh project gets the one tree; an existing 0.5 layout is kept. Once chosen it is
     # recorded in .reef/config.json paths.* and read back from there, so a second run never flips it.
@@ -195,6 +211,13 @@ def render(template_text, facts):
     return out
 
 
+def release_gates(facts):
+    g = {"c4": "python3 scripts/reef-c4.py --diff", "secret-scan": SECRET_SCAN}
+    if facts["stack"] in AUDITS:
+        g["audit"] = AUDITS[facts["stack"]]
+    return g
+
+
 def project_config(existing, facts):
     """The plugin's config template + the generated project's keys, MERGED under the existing
     config: a key the project already has is never changed (the human may have tuned it)."""
@@ -202,6 +225,7 @@ def project_config(existing, facts):
         cfg = json.load(f)
     cfg["gates"]["full"] = facts["test"]
     cfg["gates"]["extra"] = {"build": facts["build"]} if facts["build"] else {}
+    cfg["gates"]["release"] = release_gates(facts)
     cfg["branches"] = {"base": facts["base"], "release": facts["release"]}
     cfg["merge"] = {"by": "loop" if facts["base"] != facts["release"] else "human"}
     cfg["ci"] = {"feature_gate": "local" if facts["base"] != facts["release"] else "ci"}
@@ -290,6 +314,17 @@ def run(root, facts, dry):
         except Exception as e:
             die(f".reef/config.json is unparseable ({e}) — fix it before init can merge into it")
     merged = project_config(json.loads(json.dumps(existing)) if existing is not None else None, facts)
+    if existing is not None and "release" not in (existing.get("gates") or {}):
+        # 4.5: for an existing project the security gates arrive as a PROPOSAL under .reef/proposed/, never as a
+        # red CI on upgrade — the owner adds them to gates.release when the tools are installed
+        merged["gates"].pop("release", None)
+        prop = os.path.join(root, ".reef", "proposed", "gates.release.json")
+        if not dry:
+            os.makedirs(os.path.dirname(prop), exist_ok=True)
+            with open(prop, "w", encoding="utf-8") as f:
+                json.dump({"gates": {"release": release_gates(facts)}}, f, indent=2)
+                f.write("\n")
+        w.proposed.append((".reef/config.json gates.release", "+ " + json.dumps(release_gates(facts)) + "\n  (release gates: C4 drift, history secret scan, dependency audit — add to gates.release when the tools are installed; a missing tool is exit 77 = skipped, and reef-ci-local reports a skip as exit 2, not success)\n"))
     if existing is not None and merged == existing:
         w.skipped.append(".reef/config.json")
     else:

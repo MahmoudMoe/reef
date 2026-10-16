@@ -30,4 +30,4 @@ jobs:
       # The ONE list of gates lives in .reef/config.json (gates.full + gates.extra); CI runs the same
       # script the pre-push gate runs, so a check that only exists on {{release}} cannot exist.
       - name: Gates (the same script as locally)
-        run: sh scripts/reef-ci-local.sh --ci
+        run: sh scripts/reef-ci-local.sh --ci --release   # --release: gates.release (C4 drift, migrations replay, secret scan, audit) run here only

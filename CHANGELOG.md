@@ -21,6 +21,26 @@
   catch-rate and is refused; every corpus entry builds green and passes plan-check where the reviewer needs it).
 - **0.4 Baseline evals** k=3: `docs/perf/eval-baseline-2026-10-16.md`.
 
+### Phase 4 — architecture and security
+- **4.1 `scripts/reef-c4.py`.** Detection (manifests, infrastructure files, dependencies, routes) → persons,
+  containers, stores, external systems (cap 9, the most similar pair collapsed and reported) → `reef/architecture/
+  workspace.dsl` (Structurizr: one model, L1/L2 views, `# proof:` per element, `Inferred` tags) and the generated
+  Mermaid `context.md` / `container.md`; a dependency-free lint; `--diff` is element-level (`missing`, `contradicts`,
+  `inferred`; a hand-edited export is drift). Tests: `tests/test_c4_threat.py::C4Model`.
+- **4.2 `/reef-c4`** (`skills/reef-c4/SKILL.md`, 16 lines) and `gates.release`: `reef-ci-local.sh --release` runs them
+  after the other gates; the generated workflow passes `--ci --release` (release-branch PRs only). Tests:
+  `tests/test_ci_local.sh` (`--release` runs them; without it, not).
+- **4.3 `/reef-threat`** + `scripts/reef-threat.py`: trust-boundary crossings from the DSL must each have a STRIDE row
+  naming mitigation and proof or `accepted: <reason>`; `rows` prints unmitigated ones as found queue rows with
+  `touches:`; `fresh`; plan-check demands a fresh threat model for a critical `touches: auth|pii|money` task. Tests:
+  `tests/test_c4_threat.py::ThreatLint`.
+- **4.4 Adversary system pass** `pass=system` in `agents/loophole-hunter.md` (threat model + a running worktree,
+  rows mapped to threat IDs). Eval before/after: `docs/perf/eval-baseline-2026-10-16.md`.
+- **4.5 Security gates as proposals.** A new project gets `gates.release` (C4 drift, history secret scan, the stack's
+  dependency audit — a missing tool is exit 77, reported as a skip = exit 2); an existing project gets them under
+  `.reef/proposed/gates.release.json`, never as a red CI; the CI template installs the auditor and gitleaks.
+  Tests: `tests/test_c4_threat.py::SecurityGatesAsProposals`.
+
 ### Phase 3 — day zero
 - **3.1 Architecture grill in `/reef-init`.** One batched question set (host, shape, scale, store, auth boundary,
   one-year non-goals); `reef-init.py --grill answers.json` renders `reef/architecture/architecture.md` (intent, C4

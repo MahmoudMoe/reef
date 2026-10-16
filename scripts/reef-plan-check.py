@@ -564,6 +564,15 @@ def main():
         fdir = folder_of.get(path)
         if fdir and fm.get("feature") != os.path.basename(fdir):
             errs.append(f"feature: {fm.get('feature')!r} inside the folder of {os.path.basename(fdir)!r}")
+        # 4.3: a critical task on auth/pii/money needs a threat model at least as new as the architecture
+        if declared == "critical" and {"auth", "pii", "money"} & set(tl):
+            tm, arch = os.path.join(root, "reef", "architecture", "threat-model.md"), os.path.join(root, "reef", "architecture", "architecture.md")
+            if os.path.isfile(arch):
+                def _stamp(p_):
+                    r_ = subprocess.run(["git", "-C", root, "log", "-1", "--format=%ct", "--", os.path.relpath(p_, root)], capture_output=True, text=True)
+                    return int(r_.stdout.strip() or 0) or int(os.path.getmtime(p_))
+                if not os.path.isfile(tm) or _stamp(tm) < _stamp(arch):
+                    errs.append(f"touches {sorted({'auth', 'pii', 'money'} & set(tl))} on a critical task but reef/architecture/threat-model.md is {'missing' if not os.path.isfile(tm) else 'older than architecture.md'} — run /reef-threat first")
         if errs:
             fail(f"{rel}: schema — " + "; ".join(errs))
         else:
