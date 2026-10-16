@@ -247,6 +247,89 @@ def cmd_report(repo, path, task_path):
     return 0
 
 
+DIMENSIONS = ("type safety", "module boundaries", "framework opinionation", "test signal", "lint baseline")
+PROOF = re.compile(r"`[^`]+`|[\w./-]+\.[A-Za-z]+:\d+|\b[\w./-]+/[\w./-]+\b")
+
+
+def cmd_assess(repo, root):
+    """`/reef-assess`'s output as DATA: architecture.md and conventions.md carry the four observed sections and every
+    top-level claim is `Observed — <proof>` (a path:line, a path or a command in backticks) or `Inferred — …`;
+    day-zero.md carries the harnessability table: the five dimensions, 0/1 each, the sum and the level consistent.
+    The fixture replay (tests/test_assess.py) is the judge-eval analogue for the Explore agents."""
+    root = os.path.abspath(root)
+    arch_p = os.path.join(root, "reef", "architecture", "architecture.md")
+    conv_p = os.path.join(root, "reef", "architecture", "conventions.md")
+    dz_p = os.path.join(root, "reef", "day-zero.md")
+    bad = []
+    texts = {}
+    for p in (arch_p, conv_p, dz_p):
+        try:
+            with open(p, encoding="utf-8") as f:
+                texts[p] = f.read()
+        except OSError:
+            bad.append(f"missing {os.path.relpath(p, root)}")
+    if bad:
+        print("REJECTED assess:\n  - " + "\n  - ".join(bad))
+        return 1
+    arch, conv, dz = texts[arch_p], texts[conv_p], texts[dz_p]
+    for name, text, heads in (("architecture.md", arch, [r"how it works"]),
+                              ("conventions.md", conv, [r"lint", r"type", r"test", r"error", r"logging", r"naming", r"module layout", r"how it was pushed"])):
+        for h in heads:
+            if not re.search(r"^#{1,3}\s+.*" + h, text, re.M | re.I):
+                bad.append(f"{name}: no section for '{h}'")
+        fenced, advice = False, False
+        for i, l in enumerate(text.splitlines(), 1):
+            if l.startswith("```"):
+                fenced = not fenced
+                continue
+            if l.startswith("#"):
+                # the recommendation sections (Open, Gap to target, what the constitution should take) hold
+                # proposals, not observations — only the observed sections must label every claim
+                advice = bool(re.search(r"(?i)\b(open|gap to target|should take|next steps?)\b", l))
+                continue
+            if fenced or advice or not re.match(r"^- ", l):
+                continue
+            body = re.sub(r"^- \**", "", l)
+            if re.match(r"(?i)inferred\b", body):
+                continue
+            if not re.match(r"(?i)observed\b", body):
+                bad.append(f"{name}:{i}: a claim without Observed/Inferred: {l[:70]!r}")
+            elif not PROOF.search(body):
+                bad.append(f"{name}:{i}: Observed without a proving path or command: {l[:70]!r}")
+    m = re.search(r"^##\s+Harnessability\s*[—-]\s*(high|moderate|low)\s*\((\d)/5\)", dz, re.M | re.I)
+    if not m:
+        bad.append("day-zero.md: no `## Harnessability — high|moderate|low (N/5)` heading")
+    else:
+        level, n = m.group(1).lower(), int(m.group(2))
+        rows = {}
+        for l in dz.splitlines():
+            cells = [c.strip() for c in l.strip().strip("|").split("|")]
+            if len(cells) >= 3 and cells[0].lower() in DIMENSIONS:
+                rows[cells[0].lower()] = cells
+        for d in DIMENSIONS:
+            if d not in rows:
+                bad.append(f"day-zero.md: harnessability table lacks '{d}'")
+            else:
+                if rows[d][1] not in ("0", "1"):
+                    bad.append(f"day-zero.md: '{d}' scores {rows[d][1]!r}, not 0 or 1")
+                if not rows[d][2]:
+                    bad.append(f"day-zero.md: '{d}' has no Observed cell")
+        total = sum(int(r[1]) for r in rows.values() if r[1] in ("0", "1"))
+        if len(rows) == 5 and total != n:
+            bad.append(f"day-zero.md: the heading says {n}/5 but the dimensions sum to {total}")
+        want = "high" if total == 5 else ("moderate" if total >= 3 else "low")
+        if len(rows) == 5 and level != want:
+            bad.append(f"day-zero.md: {total}/5 is '{want}', the heading says '{level}'")
+    if bad:
+        print("REJECTED assess:")
+        for b in bad[:20]:
+            print(f"  - {b}")
+        return 1
+    claims = sum(1 for t in (arch, conv) for l in t.splitlines() if re.match(r"^- \**(Observed|Inferred)", l, re.I))
+    print(f"ok: assess — four observed sections, {claims} labelled claims, harnessability {m.group(1).lower()} ({m.group(2)}/5) consistent")
+    return 0
+
+
 def main(argv):
     repo = "."
     if "--repo" in argv:
@@ -265,7 +348,9 @@ def main(argv):
         return cmd_check(repo, argv[1], argv[2])
     if argv[0] == "claims-only" and len(argv) == 2:
         return cmd_claims_only(repo, argv[1])
-    die("usage: reef-claims.py check <base>..<head> <claims-file> | check --handback <file> | report <file> --task <task> | claims-only <base>..<head>")
+    if argv[0] == "assess" and len(argv) in (1, 2):
+        return cmd_assess(repo, argv[1] if len(argv) == 2 else repo)
+    die("usage: reef-claims.py check <base>..<head> <claims-file> | check --handback <file> | report <file> --task <task> | claims-only <base>..<head> | assess [<project-root>]")
 
 
 if __name__ == "__main__":

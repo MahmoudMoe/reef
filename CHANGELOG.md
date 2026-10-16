@@ -75,6 +75,13 @@
   sessions since a date with per-feature growth from `reef-cost rows` (flagged over `caps.context_warn`), judge
   reports `reef-claims.py report` rejects. Deterministic, under 60 lines, `--json`. For the human who was not in the
   room and for a scheduled observer session (`docs/testplans/split-the-bill.md` §6). `tests/test_watch.py`.
+- **`reef-claims.py assess [<root>]`** — `/reef-assess`'s output as data: `architecture.md` has its "How it works today"
+  section and `conventions.md` its eight (lint, type strictness, tests, errors, logging, naming, module layout, how it was
+  pushed); every top-level bullet in an observed section is `Observed — <path:line | path | command>` or `Inferred — …`
+  (proposals under Open / Gap to target / "should take" are exempt); `day-zero.md` carries `## Harnessability — level (N/5)`
+  with the five dimensions scored 0/1, an Observed cell each, the sum equal to N and the level consistent (5 high, 3–4
+  moderate, else low). The fixture under `tests/fixtures/assess/ledger/` is the real report from the ledger dogfood
+  (19 turns, growth 78,090, 4 Explore sub-agents, moderate 3/5); `tests/test_assess.py` replays it and each lie.
 - `docs/testplans/split-the-bill.md` — the plan for testing Reef on a real product (Split the Bill), then on Sophia,
   and the three options for watching Reef between sessions.
 - **Row 2, the hunter's scope discipline.** Corpus entry `scope-names-later-rows` (truth PASS: a sound path guard whose

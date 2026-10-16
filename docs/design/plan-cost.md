@@ -70,6 +70,18 @@ session (achievable with cuts 1–3), or the row (a different design: fewer sess
 | Bash results | 24,685 | 10,451 | −58% |
 | tool-call inputs (the files written) | 8,269 | 6,455 | −22% |
 | turns | 17 | 11 | |
+
+Repeated on fresh clones of the same project (k=3 after the first lean run; same prompt, same model, same day):
+
+| run | turns | first context | max context | growth |
+|---|---|---|---|---|
+| lean 1 | 11 | 48,416 | 86,856 | 38,441 |
+| lean 2 | 12 | 48,416 | 88,375 | 39,959 |
+| lean 3 | 10 | 48,417 | 87,037 | 38,620 |
+| lean 4 | 10 | 48,415 | 78,098 | 29,683 |
+
+Mean growth 36,676, every run under 40k against 65,748 before (−39% to −55%): the cut is the skill, not the run. First context is identical to the token across runs — the
+plugin's own injection (hooks, skills index, AGENTS.md head) is the floor the planner starts from, ~48k.
 | wall | 368 s | 300 s | |
 | cost (list price) | $3.35 | $2.49 | −26% |
 | plan quality | 19 checks, 0 failed; 2 tasks, ADR | 19 checks, 0 failed; 2 tasks, ADR, glossary | same |
