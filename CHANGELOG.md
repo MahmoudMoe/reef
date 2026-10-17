@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Opus everywhere by default**: `planner`, `plan_reviewer` and the `critical` tier's judges were `fable`; the owner set it
+  aside (2026-10-17: a plan review ran 4–5 minutes on a context the project could not afford). Set a heavier model per
+  project in `.reef/config.json` if wanted.
+- `reef-claims.py blocking-fixed <review-report> <since-rev>`: every `path:line` the BLOCKING section cites must have
+  changed since the fixes began; the plan-review skill runs it before any re-dispatch (the re-review itself stays a
+  fresh-context agent). First contact: one ADR line missed cost a full review round and the round-rule stop.
+- Guard: a read-only judge may run `git worktree list`, `git stash list` and `git submodule status` (reads); the other
+  verbs of those commands stay denied. First contact (2026-10-17): the plan-reviewer was refused `git worktree list`.
 - Tick: a ready task whose implementer handed back (`handback-<id>.md` newer than any `report-<id>.md`, in any
   checkout) is listed under **`verify now:`**, not `dispatch now:` — first contact (2026-10-17) the fresh session's tick
   said "dispatch now: 103" over a handed-back, uncommitted worktree. The task skill starts such a task at the gate.

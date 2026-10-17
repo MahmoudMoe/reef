@@ -14,8 +14,8 @@
   "roles": {
     "author": "opus",
     "verifier": "opus",
-    "plan_reviewer": "fable",
-    "planner": "fable",
+    "plan_reviewer": "opus",
+    "planner": "opus",
     "adversary": "opus",
     "reviewer": "opus",
     "security": "opus",
@@ -58,12 +58,12 @@
   "tiers": {
     "critical": {
       "roles": {
-        "planner": "fable",
-        "plan_reviewer": "fable",
-        "adversary": "fable",
-        "verifier": "fable",
-        "reviewer": "fable",
-        "security": "fable",
+        "planner": "opus",
+        "plan_reviewer": "opus",
+        "adversary": "opus",
+        "verifier": "opus",
+        "reviewer": "opus",
+        "security": "opus",
         "author": "opus"
       },
       "effort": "high",
@@ -76,8 +76,8 @@
     },
     "design": {
       "roles": {
-        "planner": "fable",
-        "plan_reviewer": "fable",
+        "planner": "opus",
+        "plan_reviewer": "opus",
         "adversary": "opus",
         "verifier": "opus",
         "reviewer": "opus",
@@ -96,8 +96,8 @@
     },
     "full": {
       "roles": {
-        "planner": "fable",
-        "plan_reviewer": "fable",
+        "planner": "opus",
+        "plan_reviewer": "opus",
         "adversary": "opus",
         "verifier": "opus",
         "reviewer": "opus",

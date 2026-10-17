@@ -265,7 +265,10 @@ def check_reviewer_lock(seg, ctx):
         if os.path.basename(t) == "git":
             args = seg[j + 1:]
             sub = next((a for a in args if not a.startswith("-")), None)
-            if sub in MUTATING_GIT:
+            # `git worktree list` and `git stash list` read; the other verbs of those commands write (first contact,
+            # 2026-10-17: the plan-reviewer was refused `git worktree list` and re-ran its whole command without it)
+            verb = next((a for a in args[args.index(sub) + 1:] if not a.startswith("-")), None) if sub in ("worktree", "stash", "submodule") else None
+            if sub in MUTATING_GIT and not (sub in ("worktree", "stash", "submodule") and verb in ("list", "show", "status")):
                 deny(f"{who} is read-only: `git {sub}` mutates the tree or the refs the orchestrator hash-checks")
             if sub in ("branch", "tag") and any(a in ("-d", "-D", "-m", "-M", "-c", "-C", "-f") for a in args) \
                or sub == "config" and not any(a in ("--get", "--get-all", "--list", "-l", "get", "list") for a in args):
@@ -719,7 +722,7 @@ def check_single_rollup(path, fm):
 
 
 # subagent name -> the .reef/config.json roles.* key whose model it must run on. The owner's
-# routing (2026-10-04): fable plans, opus writes/attacks/verifies/reviews, sonnet does light
+# routing (2026-10-04, opus everywhere since 2026-10-17): opus plans, writes, attacks, verifies and reviews; sonnet does light
 # mechanical work. Each project overrides per role; an unset role is not checked.
 ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "plan_reviewer",
            "loophole-hunter": "adversary", "mechanic": "mechanic", "Explore": "mechanic"}
