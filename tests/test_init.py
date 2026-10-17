@@ -472,3 +472,26 @@ class DayZero(unittest.TestCase):
         write(d, "specs/001-export/spec.md", "# spec\n")
         r = init(d)
         self.assertIn("existing specs: specs/001-export/spec.md", r.stdout)
+
+
+class MapOnDisk(unittest.TestCase):
+    """0.7 (usability plan A4): "why two AGENTS.md", "where is the plan on develop" — nothing on disk said."""
+
+    def test_the_map_is_rendered_with_the_projects_real_paths_and_refreshed(self):
+        d = node_project(tempfile.mkdtemp(prefix="reef-init-map."))
+        r = init(d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        m = read(d, "reef/README.md")
+        self.assertIn("where Reef keeps things", m)
+        self.assertIn("`reef/queue.md`", m)
+        self.assertIn("`.reef/worktrees/<slug>`", m)
+        self.assertIn("`feat/<slug>`", m)
+        self.assertNotIn("{{", m, "every placeholder rendered")
+        # rendered, not a record: a refresh with a better template replaces it; an owner edit is proposed, not overwritten
+        write(d, "reef/README.md", m + "\nmy note\n")
+        r = init(d)
+        self.assertIn("my note", read(d, "reef/README.md"))
+        self.assertTrue(os.path.exists(os.path.join(d, ".reef", "proposed", "reef", "README.md")) or "proposed" in r.stdout.lower() or "skipped" in r.stdout)
+        gi = read(d, ".gitignore")
+        self.assertIn(".reef/status.html", gi)
+        self.assertIn(".reef/cost/", gi)

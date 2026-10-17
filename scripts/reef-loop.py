@@ -308,6 +308,40 @@ def render(state):
     return "\n".join(lines[:MAX_LINES]) + "\n"
 
 
+def write_status_page(root, state, text):
+    """`.reef/status.html` (usability plan A2): the tick, the loop's wait or stop, the handoff's head, refreshed on
+    every tick (the Stop hook ticks every turn) — what a person opens instead of asking "where are we" in chat."""
+    import html
+    import time as _t
+    rdir = os.path.join(root, ".reef")
+    if not os.path.isdir(rdir):
+        return
+    hand = ""
+    hp = os.path.join(root, "HANDOFF.md")
+    if os.path.isfile(hp):
+        hand = "\n".join(read(hp).splitlines()[:60])
+    badge = "STOP" if state.get("stop") else ("waiting" if state.get("wait") else ("active" if state.get("active") else "inactive"))
+    page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="60">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Reef — {html.escape(os.path.basename(root))}</title>
+<style>:root{{--bg:#fff;--fg:#182B33;--mute:#5b6b73;--line:#e3e8ea;--ok:#0E7C7B;--warn:#b5651d;--bad:#D94F35}}
+@media (prefers-color-scheme:dark){{:root{{--bg:#111a1f;--fg:#e6edf0;--mute:#9fb0b8;--line:#2a373e}}}}
+body{{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:15px/1.45 -apple-system,Segoe UI,sans-serif;max-width:960px}}
+h1{{font-size:20px;margin:0 0 4px}} .mute{{color:var(--mute)}} pre{{background:transparent;border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto;white-space:pre-wrap}}
+.badge{{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid var(--line)}}
+.active{{color:var(--ok)}} .waiting{{color:var(--warn)}} .STOP{{color:var(--bad)}} h2{{font-size:15px;margin:18px 0 6px}}</style></head><body>
+<h1>Reef — {html.escape(os.path.basename(root))} <span class="badge {badge}">{badge}</span></h1>
+<div class="mute">tick {html.escape(str(state.get('hash', '')))} · written {_t.strftime('%Y-%m-%d %H:%M:%S')} · refreshes every 60 s · <code>python3 scripts/reef-loop.py tick</code> is the source</div>
+<h2>The tick</h2><pre>{html.escape(text)}</pre>
+""" + (f"<h2>Waiting on</h2><pre>{html.escape(str(state.get('wait')))}</pre>" if state.get("wait") else "") \
+        + (f"<h2>Stopped</h2><pre>{html.escape(str(state.get('stop')))}</pre>" if state.get("stop") else "") \
+        + (f"<h2>HANDOFF.md (head)</h2><pre>{html.escape(hand)}</pre>" if hand else "") + "</body></html>\n"
+    try:
+        with open(os.path.join(rdir, "status.html"), "w", encoding="utf-8") as f:
+            f.write(page)
+    except OSError:
+        pass
+
+
 def scripts_behind_plugin(root):
     """Project copies of scripts/reef-* that differ from the plugin's (CLAUDE_PLUGIN_ROOT, set by Claude Code for a
     hook). First contact (2026-10-16): the project's reef-loop.py was a day behind the plugin's and nobody could tell."""
@@ -400,6 +434,10 @@ def main(argv):
     if "--hash" in argv:
         print(state["hash"])
         return 0
+    try:
+        write_status_page(root, state, render(state))
+    except Exception:
+        pass   # the page is a convenience; the tick never fails for it
     if "--json" in argv:
         print(json.dumps(state, indent=1))
         return 0
