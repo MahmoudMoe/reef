@@ -122,7 +122,10 @@ def plan_gate(root, scripts, py, tasks):
         # v2 order (2026-10-17): the machines review first, the owner approves LAST — so a missing review is named
         # before a missing approval, and nothing after the gate but a HALT voids it
         hm = re.search(r"^hunter: (STALE|LEGACY|MISSING) (\S+)", out, re.M)
-        if re.search(r"^review: FAILED", out, re.M):
+        if re.search(r"^(stamp|approval|review): LEGACY", out, re.M):
+            # 2026-10-18: the digest stopped carrying the hunter's stamp; records written before carry the 0.6 form of an unchanged plan
+            verdict[feat] = f"records in the 0.6 digest form: `reef-plan-check.py . --migrate-records --feature {feat}` (the plugin's copy, in the plan's checkout)"
+        elif re.search(r"^review: FAILED", out, re.M):
             verdict[feat] = "plan review FAILED (fix the findings)"
         elif re.search(r"^review: (MISSING|STALE)", out, re.M):
             verdict[feat] = "machine review (hunter ‖ plan reviewer) before the gate"

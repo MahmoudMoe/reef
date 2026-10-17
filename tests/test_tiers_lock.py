@@ -199,6 +199,47 @@ class ApprovalSurvivesTheHunterStamp(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class MigrateRecordsFromAWorktree(unittest.TestCase):
+    """2026-10-18 (qassimha): the plan lives in .reef/worktrees/<slug>, the approval and review records in the main
+    checkout; `--migrate-records` run where the plan is must rewrite them there, and the guard then dispatches."""
+
+    def test_migrate_in_the_feature_worktree_rewrites_the_records_in_main(self):
+        d = project({"gates": {"test": "true"}}, {"007-demo.md": task_text(7, "demo", "design", "design")})
+        wt = os.path.join(tempfile.mkdtemp(prefix="reef-wt."), "feat")
+        git(d, "worktree", "add", "-q", "-b", "feat/demo", wt)
+        tp = os.path.join(wt, "tasks", "007-demo.md")
+        with open(os.path.join(wt, "hunt.md"), "w") as f:
+            f.write("RUN: agent=loophole-hunter task=7 pass=plan round=2\nBLOCKER: none\nVERDICT: PASS\n")
+        adv = os.path.join(ROOT, "scripts", "reef-adversarial")
+        self.assertEqual(subprocess.run([sys.executable, adv, tp, "plan", os.path.join(wt, "hunt.md")], capture_output=True, text=True).returncode, 0)
+        self.assertEqual(plan_check(wt).returncode, 0, plan_check(wt).stdout)
+        old = plan_check(wt, "--legacy-digest", "--feature", "demo").stdout.split()[-1]
+        new = plan_check(wt, "--digest", "--feature", "demo").stdout.split()[-1]
+        self.assertNotEqual(old[:16], new[:16])
+        os.makedirs(os.path.join(d, ".reef", "approvals"), exist_ok=True)
+        os.makedirs(os.path.join(d, ".reef", "review"), exist_ok=True)
+        with open(os.path.join(d, ".reef", "approvals", "demo.json"), "w") as f:
+            json.dump({"digest16": old[:16], "approved_at": "2026-10-17T21:14:28Z"}, f)
+        with open(os.path.join(d, ".reef", "review", "plan-demo.json"), "w") as f:
+            json.dump({"digest16": old[:16], "verdict": "PASS", "recorded_at": "2026-10-17T20:00:00Z"}, f)
+        r = plan_check(wt, "--verify-stamp", "--feature", "demo")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("approval: LEGACY for 'demo'", r.stdout)
+        self.assertIn("review: LEGACY for 'demo'", r.stdout)
+        g = guard({"tool_name": "Task", "cwd": wt, "tool_input": {"subagent_type": "reef:implementer", "prompt": f"REEF-TASK: {tp}\nimplement"}})
+        self.assertEqual(g.returncode, 2, "a 0.6-form record is named, never accepted")
+        self.assertIn("--migrate-records", g.stderr)
+        m = plan_check(wt, "--migrate-records", "--feature", "demo")
+        self.assertEqual(m.returncode, 0, m.stdout)
+        with open(os.path.join(d, ".reef", "approvals", "demo.json")) as f:
+            rec = json.load(f)
+        self.assertEqual((rec["digest16"], rec["approved_at"], rec["migrated_from_0_6"]), (new[:16], "2026-10-17T21:14:28Z", old[:16]))
+        self.assertFalse(os.path.exists(os.path.join(wt, ".reef", "approvals", "demo.json")), "the record lives in the main checkout only")
+        self.assertEqual(plan_check(wt, "--verify-stamp", "--feature", "demo").returncode, 0)
+        g = guard({"tool_name": "Task", "cwd": wt, "tool_input": {"subagent_type": "reef:implementer", "prompt": f"REEF-TASK: {tp}\nimplement"}})
+        self.assertEqual(g.returncode, 0, g.stderr)
+
+
 class HumanOnlyApproval(unittest.TestCase):
     """1.2: the approval is a record bound to the digest; only the hook writes it."""
 
