@@ -49,6 +49,40 @@ def node_project(root):
     return root
 
 
+class CopiedScripts(unittest.TestCase):
+    """2026-10-18: /reef-graph on the trial project found no scripts/reef-graph-run.py — the script shipped in the
+    plugin, the skill ran it as `python3 scripts/reef-graph-run.py`, and reef-init's SCRIPTS list never named it."""
+    # these run from the plugin (hooks and the plugin-side commands), never from a project copy
+    PLUGIN_RESIDENT = {"reef-guard.py", "reef-approval.py", "reef-init.py", "reef-update.py", "reef-doctor.py", "reef-guard-profile.py"}
+
+    def scripts_list(self):
+        src = read(ROOT, "scripts/reef-init.py")
+        return re.findall(r'"([^"]+)"', re.search(r"SCRIPTS = \[(.*?)\]", src, re.S).group(1))
+
+    def test_every_script_a_skill_runs_from_the_project_is_copied(self):
+        import glob
+        refs = {}
+        for f in glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md")) + glob.glob(os.path.join(ROOT, "agents", "*.md")):
+            with open(f, encoding="utf-8") as h:
+                t = h.read()
+            # `scripts/reef-x` with nothing before `scripts/`: a project path. `${CLAUDE_PLUGIN_ROOT}/scripts/…` is the plugin's.
+            for m in re.finditer(r"(?<![\w/${}~.-])scripts/(reef-[\w.-]+?)\.?(?=[\s`'\")<>|;,:]|$)", t, re.M):
+                refs.setdefault(m.group(1), os.path.relpath(f, ROOT))
+        copied = set(self.scripts_list())
+        missing = {n: f for n, f in refs.items() if n not in copied and n not in self.PLUGIN_RESIDENT}
+        self.assertEqual(missing, {}, f"skills run these from the project but reef-init never copies them: {missing}")
+        self.assertIn("reef-graph-run.py", copied)
+        for n in copied:
+            self.assertTrue(os.path.isfile(os.path.join(ROOT, "scripts", n)), f"SCRIPTS names {n}, which the plugin does not ship")
+
+    def test_init_copies_reef_graph_run(self):
+        d = node_project(tempfile.mkdtemp(prefix="reef-init-scripts."))
+        r = init(d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(d, "scripts", "reef-graph-run.py")))
+        self.assertEqual(read(d, "scripts/reef-graph-run.py"), read(ROOT, "scripts/reef-graph-run.py"))
+
+
 class Idempotent(unittest.TestCase):
     def setUp(self):
         self.d = node_project(tempfile.mkdtemp(prefix="reef-init."))

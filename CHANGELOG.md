@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **A stamp written before the cut moved is migrated, not re-hunted** (2026-10-18, qassimha task 204: after the pull the
+  guard read its `adversarial-plan` as "the plan changed" and asked for a round the cap forbids — the plan was unchanged;
+  the stamp was the 0.6 form that hashed the Reviewer notes). `reef-adversarial <task> plan --migrate` re-stamps only when
+  the 0.6-form hash of the file still equals the stamp (the proof nothing moved), consumes no round, records no decision,
+  and refuses an edited plan; the guard's denial names the command when the stamp is a 0.6 one; `reef-doctor` lists such
+  stamps in every checkout with the command, and a stale stamp with its two legitimate exits.
+- **Fix**: `reef-init` copies `scripts/reef-graph-run.py` (2026-10-18: `/reef-graph` on the trial found no such file —
+  the script shipped, the skill ran it from the project, the SCRIPTS list never named it); a contract test now holds
+  every script a skill runs from the project against that list.
 - `plan.max_acs` ships as `0` (warn above 8) instead of `8`: `reef-init` merges new template keys into an existing project's config, and
   the trial's running batch holds an approved 21-criterion task that `8` would have blocked mid-flight. Set `8` at a batch boundary.
 - **Fixes from the second day's live loop** (2026-10-18): `reef-adversarial`'s plan hash (the guard imports it) now cuts at

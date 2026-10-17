@@ -238,6 +238,93 @@ class NotesOutsideTheHash(unittest.TestCase):
         self.assertNotEqual(adv(p, "plan-hash").stdout.strip(), before, "plan text still counts")
 
 
+def legacy_hash(path):
+    """The 0.6 form of the stamp (cut at ## Log, so the Reviewer notes were inside it), computed here, not by the script."""
+    import hashlib
+    with open(path, encoding="utf-8", newline="") as f:
+        t = f.read()
+    t = re.split(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", t, maxsplit=1, flags=re.M)[0]
+    m = re.match(r"\A---\r?\n(.*?\r?\n)---\r?\n", t, re.S)
+    fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-plan|adversarial-guard|adversarial-decided):.*(?:\r?\n|\Z)", "", m.group(1), flags=re.M)
+    return hashlib.sha1((fm + t[m.end(1):]).encode("utf-8")).hexdigest()[:12]
+
+
+class MigrateTheStamp(unittest.TestCase):
+    """2026-10-18 (qassimha, task 204): the cut moved to ## Reviewer notes (fda6801) and the stamp written the day before,
+    with the notes inside it, read as "the plan changed" — a round the cap forbids, over a plan nobody touched."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-adv-migrate.")
+        os.makedirs(os.path.join(self.d, ".reef"))
+        write(self.d, ".reef/config.json", '{"gates": {"test": "true"}}')
+        self.t = task(self.d)
+        with open(self.t) as f:
+            t = f.read()
+        with open(self.t, "w") as f:   # a plan with notes, stamped in the 0.6 form by hand (what the old script wrote)
+            f.write(t.replace("## Log\n", "## Reviewer notes\n- (plan review A3) a cast is refused only by AC-5's grep\n\n## Log\n")
+                    .replace("dispatches: 0\n", "dispatches: 0\nadversarial-plan: LEGACY\n"))
+        self.legacy = legacy_hash(self.t)
+        self.restamp(self.legacy)
+        self.assertNotEqual(self.legacy, adv(self.t, "plan-hash").stdout.strip(), "the fixture must be a stamp the new cut rejects")
+
+    def restamp(self, value):
+        with open(self.t) as f:
+            t = f.read()
+        with open(self.t, "w") as f:
+            f.write(re.sub(r"^adversarial-plan: .*$", f"adversarial-plan: {value}", t, flags=re.M))
+
+    def test_guard_denial_names_migrate_and_migrate_unblocks_without_a_round(self):
+        r = dispatch(self.d, self.t)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("plan --migrate", r.stderr, "the denial must name the re-stamp, not a hunter round the cap forbids")
+        self.assertNotIn("run the hunter again", r.stderr)
+        r = adv(self.t, "plan", "--migrate")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"{self.legacy} → {adv(self.t, 'plan-hash').stdout.strip()}", r.stdout)
+        self.assertIn(f"adversarial-plan: {adv(self.t, 'plan-hash').stdout.strip()}", fm_of(self.t))
+        self.assertNotIn("adversarial-decided", fm_of(self.t), "a migration is not an owner ruling")
+        self.assertEqual(dispatch(self.d, self.t).returncode, 0)
+
+    def test_current_stamp_is_a_no_op_and_the_file_is_untouched(self):
+        self.restamp(adv(self.t, "plan-hash").stdout.strip())
+        with open(self.t, "rb") as f:
+            before = f.read()
+        r = adv(self.t, "plan", "--migrate")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("nothing to migrate", r.stdout)
+        with open(self.t, "rb") as f:
+            self.assertEqual(f.read(), before)
+
+    def test_a_changed_plan_is_refused_as_not_a_migration(self):
+        with open(self.t) as f:
+            t = f.read()
+        with open(self.t, "w") as f:
+            f.write(t.replace("## Scope\nthe defect", "## Scope\nthe defect, widened after the pass"))
+        with open(self.t, "rb") as f:
+            before = f.read()
+        r = adv(self.t, "plan", "--migrate")
+        self.assertEqual(r.returncode, 2, "an edited plan must not be re-stamped by a migration")
+        self.assertIn("not a migration", r.stderr)
+        self.assertIn("--decided", r.stderr)
+        with open(self.t, "rb") as f:
+            self.assertEqual(f.read(), before)
+        r = dispatch(self.d, self.t)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("run the hunter again", r.stderr)
+        self.assertNotIn("--migrate", r.stderr, "a stamp that matches neither form is a changed plan, not a 0.6 stamp")
+
+    def test_no_stamp_and_a_forged_stamp_are_refused(self):
+        with open(self.t) as f:
+            t = f.read()
+        with open(self.t, "w") as f:
+            f.write(re.sub(r"^adversarial-plan: .*\n", "", t, flags=re.M))
+        r = adv(self.t, "plan", "--migrate")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("run the hunter", r.stderr)
+        self.restamp("000000000000")
+        self.assertEqual(adv(self.t, "plan", "--migrate").returncode, 2)
+
+
 class PlanRoundCap(unittest.TestCase):
     """0.7 / v2: the plan pass is capped (hunter.plan_rounds, default 2). 2026-10-17: rows 2 and 13 reached round 6."""
 

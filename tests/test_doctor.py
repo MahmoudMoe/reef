@@ -41,6 +41,42 @@ def doctor(d, *a):
     return subprocess.run([sys.executable, DOCTOR, "--repo", d, "--plugin", ROOT, *a], capture_output=True, text=True, env=env)
 
 
+def legacy_stamped_task(d):
+    """A design task with Reviewer notes, stamped in the 0.6 form (the cut at ## Log) — what every stamp written before
+    2026-10-18 looks like after the plugin upgrade."""
+    import hashlib
+    import re
+    p = os.path.join(d, "reef", "features", "demo", "tasks", "001-t.md")
+    os.makedirs(os.path.dirname(p))
+    body = ("---\nid: 1\nfeature: demo\nstatus: pending\ncomplexity: design\neffort: medium\nblocked-by: []\nresources: []\n"
+            "tier: design\nverify: judge\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\nadversarial-plan: STAMP\n---\n# 1\n\n"
+            "## Scope\nthe defect\n\n## Acceptance Criteria\n- test_x goes red first\n\n## Reviewer notes\n- (A1) a note\n\n## Log\n")
+    cut = body.split("## Log\n")[0]
+    fm, rest = re.match(r"\A---\n(.*?\n)---\n(.*)", cut, re.S).groups()
+    fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches|adversarial-plan):.*\n", "", fm, flags=re.M)
+    stamp = hashlib.sha1((fm + "---\n" + rest).encode("utf-8")).hexdigest()[:12]
+    with open(p, "w") as f:
+        f.write(body.replace("adversarial-plan: STAMP", f"adversarial-plan: {stamp}"))
+    return p
+
+
+class StampCheck(unittest.TestCase):
+    def test_a_0_6_stamp_is_named_with_the_migrate_command_and_clears_after_it(self):
+        # 2026-10-18: task 204's stamp read as "the plan changed" after the pull; nothing on the screen said why
+        d = project()
+        p = legacy_stamped_task(d)
+        r = doctor(d)
+        line = [l for l in r.stdout.splitlines() if l.startswith("WARN") and "stamp:" in l]
+        self.assertEqual(len(line), 1, r.stdout)
+        self.assertIn("0.6 adversarial-plan", line[0])
+        self.assertIn("reef-adversarial reef/features/demo/tasks/001-t.md plan --migrate", line[0])
+        m = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-adversarial"), p, "plan", "--migrate"], capture_output=True, text=True)
+        self.assertEqual(m.returncode, 0, m.stderr)
+        r = doctor(d)
+        self.assertNotIn("stamp:", r.stdout)
+        self.assertIn("stamps: 1 design/critical task(s) current", r.stdout)
+
+
 class Doctor(unittest.TestCase):
     def test_names_scripts_behind_the_queue_home_and_the_fix(self):
         d = project()
