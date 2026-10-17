@@ -208,6 +208,45 @@ class Tick(unittest.TestCase):
         self.assertIn("101", st["dispatch_now"])
 
 
+class HunterStampBeforeTheGate(unittest.TestCase):
+    """2026-10-18 (qassimha): 202 and 203 were listed for dispatch with hunter stamps their review-round edits had
+    staled; only the guard's denial, days later and past the round cap, said so. The tick names it with the command."""
+
+    def design(self, d):
+        write(d, "tasks/101-a.md", task(101, "1").replace("complexity: mech", "complexity: design").replace("tier: light", "tier: design")
+              .replace("verify: gate-only", "verify: judge").replace("## Scope\nx", "## Scope\nx\n\n## Decision\nhuman wrote this"))
+        write(d, "tasks/.plan-review.json", "")
+        os.unlink(os.path.join(d, "tasks", ".plan-review.json"))
+        approve(d, "1")
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-record"), "plan-review", "1", "PASS", "--root", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_missing_stale_and_legacy_stamps_hold_the_task_with_the_command(self):
+        d = project()
+        self.design(d)
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["awaiting"], ["1 (hunter plan pass on 101 before the gate)"], st)
+        self.assertEqual(st["dispatch_now"], [])
+        write(d, "hunt.md", "RUN: agent=loophole-hunter task=101 pass=plan round=1\nBLOCKER: none\nVERDICT: PASS\n")
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-adversarial"), os.path.join(d, "tasks", "101-a.md"), "plan", os.path.join(d, "hunt.md")], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["dispatch_now"], ["101"], st)
+        # the review round edits the plan; the review and the approval are refreshed, the hunter's stamp is not
+        t = read_file(os.path.join(d, "tasks", "101-a.md"))
+        write(d, "tasks/101-a.md", t.replace("## Scope\nx", "## Scope\nx, an AC added in the review round"))
+        os.unlink(os.path.join(d, "tasks", ".plan-review.json"))
+        approve(d, "1")
+        subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-record"), "plan-review", "1", "PASS", "--root", d], capture_output=True, text=True)
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["dispatch_now"], [], "a stale hunter stamp is not dispatchable — the guard would deny it")
+        self.assertEqual(st["awaiting"], ["1 (hunter plan pass stale on 101: a re-check within hunter.plan_rounds, or `reef-adversarial <task> plan --decided <mark>`)"], st)
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-adversarial"), os.path.join(d, "tasks", "101-a.md"), "plan", "--decided", "⁴⁰"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["dispatch_now"], ["101"], "the owner's ruling re-stamps without a re-approval")
+
+
 class InFlightAcrossWorktrees(unittest.TestCase):
     def test_a_marker_in_a_feature_worktree_is_in_flight(self):
         # 2026-10-17: "in flight: -" while 1101 was building — reef-attempt ran in the feature worktree, its marker lived there

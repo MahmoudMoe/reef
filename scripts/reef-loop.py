@@ -121,12 +121,20 @@ def plan_gate(root, scripts, py, tasks):
         rc, out = run([py, pc, root, "--verify-stamp", "--feature", feat], root, timeout=60)
         # v2 order (2026-10-17): the machines review first, the owner approves LAST — so a missing review is named
         # before a missing approval, and nothing after the gate but a HALT voids it
-        if rc == 0:
-            verdict[feat] = None
-        elif re.search(r"^review: FAILED", out, re.M):
+        hm = re.search(r"^hunter: (STALE|LEGACY|MISSING) (\S+)", out, re.M)
+        if re.search(r"^review: FAILED", out, re.M):
             verdict[feat] = "plan review FAILED (fix the findings)"
         elif re.search(r"^review: (MISSING|STALE)", out, re.M):
             verdict[feat] = "machine review (hunter ‖ plan reviewer) before the gate"
+        elif hm and hm.group(1) == "MISSING":
+            verdict[feat] = f"hunter plan pass on {hm.group(2)} before the gate"
+        elif hm and hm.group(1) == "STALE":
+            # 2026-10-18: 202 and 203 were "dispatch now" with stamps their review-round edits had staled; the guard denied
+            verdict[feat] = f"hunter plan pass stale on {hm.group(2)}: a re-check within hunter.plan_rounds, or `reef-adversarial <task> plan --decided <mark>`"
+        elif hm:
+            verdict[feat] = f"hunter stamp 0.6 on {hm.group(2)}: `reef-adversarial <task> plan --migrate` (the plugin's copy)"
+        elif rc == 0:
+            verdict[feat] = None
         elif re.search(r"^approval: MISSING", out, re.M):
             verdict[feat] = "approval (the gate: the machines passed)"
         elif re.search(r"^approval: STALE", out, re.M):
