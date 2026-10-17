@@ -181,6 +181,72 @@ def read_file(d, rel):
         return f.read()
 
 
+BATCHED_MD = """# Queue — Demo
+Current batch: 2
+
+## Rules
+1. x
+
+## Batch 1
+
+| Id | Item | Depends | Source | Batch | Admitted |
+|---|---|---|---|---|---|
+
+## Batch 2
+
+| Id | Item | Depends | Source | Batch | Admitted |
+|---|---|---|---|---|---|
+| 11 | Auth.js owner sign-in⁵ | 1 | planned | 2 | |
+| 13 | Receipt photo deletion¹² | 1 | planned | 2 | |
+
+## Footnotes
+¹ host: Vercel (2026-10-16)
+¹² deletion closes before promotion (2026-10-16)
+"""
+
+
+class QueueEdits(unittest.TestCase):
+    """0.7: the orchestrator's queue edits (a footnote, a found row, a Depends change) were inline Python heredocs — the
+    largest Reef-attributable context share of the first full loop (assistant:tool_use 15%). One command each, shape kept."""
+
+    def setUp(self):
+        self.d = qrepo()
+        write(self.d, "docs/queue.md", BATCHED_MD)
+        write(self.d, "docs/queue-archive.md", "# Archive\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 1 | skeleton²² | | planned | 1 | |\n| 2 | LLM decode | 1 | planned | 1 | |\n\n## Footnotes\n²² no deployment (2026-10-17)\n")
+
+    def test_footnote_takes_the_next_number_across_queue_and_archive_and_marks_the_row(self):
+        r = queue(self.d, "footnote", "row 11 wins: owner scoping in the store", "--row", "13")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "²³", "the archive holds ²², so the next is ²³")
+        q = read_file(self.d, "docs/queue.md")
+        self.assertRegex(q, r"(?m)^²³ row 11 wins: owner scoping in the store \(\d{4}-\d{2}-\d{2}\)$")
+        self.assertIn("| 13 | Receipt photo deletion¹²²³ | 1 | planned | 2 | |", q)
+        self.assertTrue(q.rstrip().endswith(")"), "appended under ## Footnotes, nothing after")
+        self.assertEqual(queue(self.d, "check").returncode, 0, "the queue still parses")
+
+    def test_add_row_found_lands_in_the_next_batch_planned_in_the_current_and_set_depends_edits_one_cell(self):
+        r = queue(self.d, "add-row", "--item", "Magic-link rate limit (row 11 plan)", "--depends", "11", "--source", "found")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "14")
+        q = read_file(self.d, "docs/queue.md")
+        self.assertIn("## Batch 3\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 14 | Magic-link rate limit (row 11 plan) | 11 | found | 3 | |", q)
+        self.assertLess(q.index("## Batch 3"), q.index("## Footnotes"), "a new batch section sits before the footnotes")
+        r = queue(self.d, "add-row", "--item", "Share links", "--depends", "11", "--source", "planned")
+        self.assertEqual(r.stdout.strip(), "15")
+        q = read_file(self.d, "docs/queue.md")
+        self.assertIn("| 15 | Share links | 11 | planned | 2 | |", q, "a planned row joins the current batch's table")
+        self.assertLess(q.index("| 13 |"), q.index("| 15 |"))
+        r = queue(self.d, "add-row", "--item", "Owner account deletion", "--depends", "11", "--source", "found", "--admitted", "Article IX")
+        q = read_file(self.d, "docs/queue.md")
+        self.assertIn("| 16 | Owner account deletion | 11 | found | 2 | Article IX |", q, "an admitted found row enters the running batch")
+        r = queue(self.d, "set-depends", "13", "1, 2, 11")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        q = read_file(self.d, "docs/queue.md")
+        self.assertIn("| 13 | Receipt photo deletion¹² | 1, 2, 11 | planned | 2 | |", q)
+        self.assertEqual(queue(self.d, "check").returncode, 0, "the queue still parses")
+        self.assertIn("13\tqueued\tdepends=['1', '2', '11']", queue(self.d, "status").stdout)
+
+
 class Queue(unittest.TestCase):
     def test_status_derived_from_task_files(self):
         d = qrepo()

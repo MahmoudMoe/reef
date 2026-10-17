@@ -12,6 +12,11 @@ Usage:
                                                 merge) in ONE global sequence across reef/architecture/adr/,
                                                 every feature folder's adr/ and the legacy paths.adr, and
                                                 rewrite `draft-<x>` citations
+  reef-queue.py footnote "<text>" [--row ID] [--repo DIR]   (0.7) append the next footnote (one sequence across queue + archive), dated;
+                                                 --row puts its mark on that row's Item; prints the mark
+  reef-queue.py add-row --item "<text>" [--depends "1, 2"] [--source planned|found] [--batch N] [--admitted "<ground>"]
+                                                 (0.7) the next id, in its batch's table (found: next batch by default); prints the id
+  reef-queue.py set-depends ID "<ids>" [--repo DIR]        (0.7) replace a row's Depends cell
   reef-queue.py index [--repo DIR]              (0.6) regenerate <paths.features>/README.md: feature, row, batch,
                                                 status, task counts, ADRs — never hand-edited
   `check` also validates (0.6) every feature folder's slug (2-5 kebab-case words, no bare number, no
@@ -186,6 +191,101 @@ def is_done(dep, rows_by_id, archived):
         return True
     r = rows_by_id.get(dep)
     return r is not None and r["_status"] == "done"
+
+
+SUP = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
+UNSUP = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
+MARK = re.compile(r"^([⁰¹²³⁴⁵⁶⁷⁸⁹]+) ", re.M)
+
+
+def queue_paths(root):
+    cfg = config(root)
+    q = os.path.join(root, cfg.get("paths", {}).get("queue", "docs/queue.md"))
+    return cfg, q, os.path.join(os.path.dirname(q), "queue-archive.md")
+
+
+def write_text(path, text):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def cmd_footnote(root, text, row_id):
+    """The owner's decision as the next footnote, one sequence across the queue and its archive, dated today. These
+    were hand-written by the orchestrator as inline Python (first full loop, 2026-10-17: `assistant:tool_use` was the
+    largest Reef-attributable share of the session, 15%); one line in, the shape guaranteed."""
+    _, qpath, apath = queue_paths(root)
+    if not os.path.isfile(qpath):
+        die(f"no queue at {os.path.relpath(qpath, root)}", 1)
+    q = read(qpath)
+    marks = [int(m.translate(UNSUP)) for m in MARK.findall(q)]
+    if os.path.isfile(apath):
+        marks += [int(m.translate(UNSUP)) for m in MARK.findall(read(apath))]
+    n = max(marks, default=0) + 1
+    mark = str(n).translate(SUP)
+    import datetime
+    line = f"{mark} {text.strip()} ({datetime.date.today().isoformat()})"
+    if "## Footnotes" in q:
+        head, _, tail = q.partition("## Footnotes")
+        tail = tail.rstrip("\n") + "\n" + line + "\n"
+        q = head + "## Footnotes" + tail
+    else:
+        q = q.rstrip("\n") + "\n\n## Footnotes\n" + line + "\n"
+    if row_id:
+        pat = re.compile(rf"^(\|\s*{re.escape(row_id)}\s*\|\s*)(.*?)(\s*\|)", re.M)
+        m = pat.search(q)
+        if not m:
+            die(f"no row {row_id} in the queue", 1)
+        q = q[:m.start()] + m.group(1) + m.group(2).rstrip() + mark + m.group(3) + q[m.end():]
+    write_text(qpath, q)
+    print(mark)
+    return 0
+
+
+def cmd_add_row(root, item, depends, source, batch, admitted):
+    _, qpath, apath = queue_paths(root)
+    q = read(qpath)
+    ids = [int(r["Id"]) for r in parse_table(q) if r["Id"].isdigit()]
+    if os.path.isfile(apath):
+        ids += [int(r["Id"]) for r in parse_table(read(apath)) if r["Id"].isdigit()]
+    new_id = max(ids, default=0) + 1
+    cur = current_batch(q) or "1"
+    if batch is None:
+        batch = cur if source == "planned" or admitted else str(int(cur) + 1)   # rule 6: found work enters the next batch
+    adm = admitted.strip()
+    row = f"| {new_id} | {item.strip()} | {depends.strip()} | {source} | {batch} | {adm + ' ' if adm else ''}|"
+    sec = re.search(rf"^## Batch {re.escape(str(batch))}\s*$(.*?)(?=^## |\Z)", q, re.M | re.S)
+    if sec:
+        body = sec.group(1).rstrip("\n")
+        q = q[:sec.start(1)] + body + "\n" + row + "\n\n" + q[sec.end(1):]
+    elif re.search(r"^## Batch \d+", q, re.M):
+        block = f"## Batch {batch}\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n{row}\n\n"
+        if "## Footnotes" in q:
+            i = q.index("## Footnotes")
+            q = q[:i] + block + q[i:]
+        else:
+            q = q.rstrip("\n") + "\n\n" + block
+    else:
+        # a flat queue (one table, no batch sections): append to the table
+        lines = q.splitlines()
+        last = max(i for i, l in enumerate(lines) if l.strip().startswith("|"))
+        lines.insert(last + 1, row)
+        q = "\n".join(lines) + "\n"
+    write_text(qpath, q)
+    print(new_id)
+    return 0
+
+
+def cmd_set_depends(root, row_id, depends):
+    _, qpath, _ = queue_paths(root)
+    q = read(qpath)
+    pat = re.compile(rf"^(\|\s*{re.escape(row_id)}\s*\|[^|\n]*\|)([^|\n]*)(\|)", re.M)
+    m = pat.search(q)
+    if not m:
+        die(f"no row {row_id} in the queue", 1)
+    q = q[:m.start()] + m.group(1) + f" {depends.strip()} " + m.group(3) + q[m.end():]
+    write_text(qpath, q)
+    print(f"{row_id}\tdepends={depends.strip()}")
+    return 0
 
 
 def cmd_status(root):
@@ -385,7 +485,7 @@ def main(argv):
         argv = argv[:i] + argv[i + 2:]
     root = repo_root(repo)
     if not argv:
-        die("usage: reef-queue.py status|ready [--all]|check|adr-number|index [--repo DIR]")
+        die("usage: reef-queue.py status|ready [--all]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids> [--repo DIR]")
     cmd = argv[0]
     if cmd == "status":
         return cmd_status(root)
@@ -397,6 +497,17 @@ def main(argv):
         return cmd_adr_number(root)
     if cmd == "index":
         return cmd_index(root)
+    def opt(name, default=""):
+        return argv[argv.index(name) + 1] if name in argv else default
+    if cmd == "footnote" and len(argv) >= 2:
+        return cmd_footnote(root, argv[1], opt("--row", None))
+    if cmd == "add-row" and "--item" in argv:
+        src = opt("--source", "planned")
+        if src not in ("planned", "found"):
+            die("--source is planned or found")
+        return cmd_add_row(root, opt("--item"), opt("--depends"), src, opt("--batch", None), opt("--admitted"))
+    if cmd == "set-depends" and len(argv) >= 3:
+        return cmd_set_depends(root, argv[1], argv[2])
     die(f"unknown command {cmd!r}")
 
 
