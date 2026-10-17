@@ -178,6 +178,27 @@ class FourTiers(unittest.TestCase):
         self.assertEqual(dispatch(d, "reef:verifier", "REEF-TASK: tasks/002-crit.md\nverify", model="fable").returncode, 2)
 
 
+class ApprovalSurvivesTheHunterStamp(unittest.TestCase):
+    """2026-10-18: `adversarial-plan` sat inside the approval digest, so `plan --decided` after Approve (the designed
+    path for a hole open after round 2) and a stamp migration voided the approval of a plan nobody had edited."""
+
+    def test_stamp_decision_and_migration_keep_the_approval_and_the_dispatch(self):
+        d = project({"gates": {"test": "true"}, "roles": ROLES, "tiers": TIERS}, {"002-crit.md": task_text(2, "demo", "critical", "design")})
+        self.assertEqual(plan_check(d).returncode, 0, plan_check(d).stdout)
+        digest = approve(d, "demo")
+        p = os.path.join(d, "tasks", "002-crit.md")
+        with open(os.path.join(d, "hunt.md"), "w") as f:
+            f.write("RUN: agent=loophole-hunter task=2 pass=plan round=2\nBLOCKER: none\nVERDICT: PASS\n")
+        adv = os.path.join(ROOT, "scripts", "reef-adversarial")
+        self.assertEqual(subprocess.run([sys.executable, adv, p, "plan", os.path.join(d, "hunt.md")], capture_output=True, text=True).returncode, 0)
+        self.assertEqual(plan_check(d, "--digest", "--feature", "demo").stdout.split()[-1], digest, "the hunter's record is outside the digest")
+        self.assertEqual(subprocess.run([sys.executable, adv, p, "plan", "--decided", "⁴⁰"], capture_output=True, text=True).returncode, 0)
+        self.assertEqual(plan_check(d, "--digest", "--feature", "demo").stdout.split()[-1], digest, "the owner's ruling re-stamps without a re-approval")
+        self.assertEqual(plan_check(d, "--verify-stamp", "--feature", "demo").returncode, 0)
+        r = dispatch(d, "reef:implementer", "REEF-TASK: tasks/002-crit.md\nimplement", model="opus")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
 class HumanOnlyApproval(unittest.TestCase):
     """1.2: the approval is a record bound to the digest; only the hook writes it."""
 
@@ -381,10 +402,13 @@ class GuardPassRecordDoesNotStaleTheStamp(unittest.TestCase):
             f.write(t.replace("dispatches: 0\n", "dispatches: 1\nadversarial-guard: 1c81d2f05bb2@462e73ac\nworktree: .reef/worktrees/007\n", 1))
         r = plan_check(d, "--verify-stamp", "--feature", "demo")
         self.assertEqual(r.returncode, 0, r.stdout)
-        # the plan pass record, written BEFORE approval, is plan content: changing it is a plan change
+        # the plan pass record is BOUND to the digest, not inside it (2026-10-18: inside, `--decided` after Approve and a
+        # stamp migration voided the approval of an unchanged plan); a record that matches no form is named, not hidden
         with open(tp, "w") as f:
             f.write(t.replace("dispatches: 0\n", "dispatches: 0\nadversarial-plan: 000000000000\n", 1))
-        self.assertEqual(plan_check(d, "--verify-stamp", "--feature", "demo").returncode, 1)
+        r = plan_check(d, "--verify-stamp", "--feature", "demo")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("hunter: STALE 7", r.stdout)
 
 
 class ReviewerLock(unittest.TestCase):

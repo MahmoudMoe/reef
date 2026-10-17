@@ -510,6 +510,77 @@ def edit(path, old, new):
         f.write(t.replace(old, new))
 
 
+ADV = os.path.join(ROOT, "scripts", "reef-adversarial")
+DESIGN_TASK = TASK.replace("complexity: mech", "complexity: design\ntier: design").replace("verify: gate-only", "verify: judge") \
+    .replace("## Scope\nx", "## Scope\nx\n\n## Decision\nhuman wrote this")
+
+
+class HunterStampOutsideTheDigest(unittest.TestCase):
+    """2026-10-18 (qassimha): `plan --decided` after Approve and a stamp migration changed the approval digest of a plan
+    nobody had edited; and 202/203 reached the gate with stamps their review-round edits had staled, unnamed."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="reef-pc-hunter.")
+        repo(self.tmp)
+        self.p = os.path.join(self.tmp, "tasks", "001-demo.md")
+        with open(self.p, "w") as f:
+            f.write(DESIGN_TASK.format(id=1, acs="- test_demo_works goes red then green"))
+        self.assertEqual(run(self.tmp).returncode, 0, run(self.tmp).stdout)
+        self.report = os.path.join(self.tmp, "hunt.md")
+        with open(self.report, "w") as f:
+            f.write("RUN: agent=loophole-hunter task=1 pass=plan round=1\nDEFECT: x\nBLOCKER: none\nVERDICT: PASS\n")
+
+    def digest(self):
+        return run(self.tmp, "--digest", "--feature", "demo").stdout.split()[-1]
+
+    def hunter_line(self):
+        out = run(self.tmp, "--verify-stamp", "--feature", "demo").stdout
+        m = re.search(r"^hunter: .*$", out, re.M)
+        return m.group(0) if m else out
+
+    def test_the_stamp_and_a_decision_change_neither_the_digest_nor_the_review_stamp(self):
+        before = self.digest()
+        self.assertIn("hunter: MISSING 1", self.hunter_line())
+        r = subprocess.run([sys.executable, ADV, self.p, "plan", self.report], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.digest(), before, "the hunter's plan pass is bound to the digest, not inside it")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").stdout.count("stamp: MATCH"), 1)
+        self.assertIn("hunter: OK (1 design/critical task(s))", self.hunter_line())
+        r = subprocess.run([sys.executable, ADV, self.p, "plan", "--decided", "³⁰"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.digest(), before, "an owner ruling re-stamps without voiding the approval of the same text")
+
+    def test_a_plan_edit_after_the_pass_is_named_stale_and_a_0_6_stamp_legacy(self):
+        subprocess.run([sys.executable, ADV, self.p, "plan", self.report], capture_output=True, text=True)
+        edit(self.p, "## Scope\nx", "## Scope\nx, widened in the review round")
+        self.assertEqual(run(self.tmp).returncode, 0)   # the review round re-stamps the review; the hunter's record stays
+        self.assertRegex(self.hunter_line(), r"^hunter: STALE 1 — .*--decided")
+        with open(self.p) as f:
+            t = f.read()
+        # the 0.6 form: notes inside the hash — compute it the old way, independent of the script
+        import hashlib
+        with_notes = t.replace("## Log\n", "## Reviewer notes\n- (A1) a note\n\n## Log\n")
+        cut = re.split(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", with_notes, maxsplit=1, flags=re.M)[0]
+        m = re.match(r"\A---\r?\n(.*?\r?\n)---\r?\n", cut, re.S)
+        fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-plan|adversarial-guard|adversarial-decided):.*(?:\r?\n|\Z)", "", m.group(1), flags=re.M)
+        legacy = hashlib.sha1((fm + cut[m.end(1):]).encode()).hexdigest()[:12]
+        with open(self.p, "w") as f:
+            f.write(re.sub(r"^adversarial-plan: .*$", f"adversarial-plan: {legacy}", with_notes, flags=re.M))
+        self.assertEqual(run(self.tmp).returncode, 0)
+        line = self.hunter_line()
+        self.assertRegex(line, r"^hunter: LEGACY 1 — ")
+        self.assertIn(f"python3 {ADV} <task> plan --migrate", line)
+        r = subprocess.run([sys.executable, ADV, self.p, "plan", "--migrate"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("hunter: OK", self.hunter_line(), "plan-check and reef-adversarial compute the same hash")
+
+    def test_a_mech_task_and_a_done_task_need_no_hunter(self):
+        with open(self.p, "w") as f:
+            f.write(TASK.format(id=1, acs="- test_demo_works goes red then green"))
+        self.assertEqual(run(self.tmp).returncode, 0)
+        self.assertIn("hunter: n/a", self.hunter_line())
+
+
 class FeatureStamp(unittest.TestCase):
     """0.4.0: the stamp hashes only the tasks of ONE feature plus the ADRs, so merging the
     integration branch (other features' tasks, the brief, the glossary) stales nothing."""

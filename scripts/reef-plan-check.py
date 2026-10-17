@@ -301,6 +301,55 @@ def review_state(root, feat, digest, task_paths):
     return True, f"review: OK for {feat!r} ({digest[:16]}, {rec.get('recorded_at', '?')})", True
 
 
+HUNTER_FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)   # reef-adversarial's fence: the inner text is group 1
+HUNTER_EXEC = r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-plan|adversarial-guard|adversarial-decided):.*(?:\r?\n|\Z)"
+
+
+def hunter_hash(text, legacy=False):
+    """scripts/reef-adversarial's plan hash (the same cut and key strip; tests/test_plan_check.py holds them equal):
+    sha1[:12] of the frontmatter minus execution keys and the body up to ## Reviewer notes / ## Log. legacy=True is
+    the 0.6 form (cut at ## Log only), read to name a stamp that `plan --migrate` re-stamps."""
+    text = (LOG_HEADING if legacy else CUT_HEADING).split(text, maxsplit=1)[0]
+    m = HUNTER_FENCE.match(text)
+    if m:
+        text = re.sub(HUNTER_EXEC, "", m.group(1), flags=re.M) + text[m.end(1):]
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
+
+def hunter_state(task_paths):
+    """One `hunter:` line for --verify-stamp: the loophole-hunter's plan pass on every design/critical task not yet
+    done — OK, or MISSING / STALE / LEGACY with the ids and the one command (2026-10-18, qassimha: 202 and 203 reached
+    the gate with stamps their review-round edits had staled; nothing named it until the guard denied the dispatch)."""
+    missing, stale, legacy, ok = [], [], [], 0
+    for p in sorted(task_paths):
+        try:
+            text = read(p)
+        except (OSError, UnicodeDecodeError):
+            continue
+        if fm_value(text, "tier") not in ("design", "critical") or fm_value(text, "status") == "done":
+            continue
+        tid = fm_value(text, "id") or os.path.basename(p)
+        got = fm_value(text, "adversarial-plan")
+        if not got:
+            missing.append(tid)
+        elif got == hunter_hash(text):
+            ok += 1
+        elif got == hunter_hash(text, legacy=True):
+            legacy.append(tid)
+        else:
+            stale.append(tid)
+    if missing:
+        return f"hunter: MISSING {','.join(missing)} — the loophole-hunter's plan pass (scripts/reef-adversarial <task> plan <report>) before the gate"
+    if stale:
+        return (f"hunter: STALE {','.join(stale)} — the plan changed since the hunter's pass: a re-check within hunter.plan_rounds, "
+                "or `reef-adversarial <task> plan --decided <mark>` once the owner ruled")
+    if legacy:
+        plugin = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return (f"hunter: LEGACY {','.join(legacy)} — a 0.6 stamp, the plan unchanged: python3 {os.path.join(plugin, 'scripts', 'reef-adversarial')} "
+                "<task> plan --migrate")
+    return f"hunter: OK ({ok} design/critical task(s))" if ok else "hunter: n/a (no design/critical task)"
+
+
 def fm_value(text, key):
     """One frontmatter value, read the way reef-attempt reads it (column 0, first wins)."""
     m = FM_RE.match(text)
@@ -453,10 +502,13 @@ def main():
         text = CUT_HEADING.split(text, maxsplit=1)[0]
         m = FM_RE.match(text)
         if m:
-            # what EXECUTION writes: the status keys, the worktree, and the hunter's guard-pass record (written after
-            # the code exists — first contact, 2026-10-16: it staled the stamp the moment 101 merged, and the guard
-            # refused 102). `adversarial-plan` stays: the approved plan is the hunted plan.
-            fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-guard|adversarial-decided):.*(?:\r?\n|\Z)", "",
+            # what EXECUTION writes: the status keys, the worktree, and the hunter's records — the guard pass (written
+            # after the code exists — first contact, 2026-10-16: it staled the stamp the moment 101 merged, and the
+            # guard refused 102) and, since 2026-10-18, the plan pass too: like the plan review's verdict it is a
+            # record BOUND to the digest (`--verify-stamp` prints `hunter:`; the guard denies a stale one at dispatch),
+            # not inside it — inside, `plan --decided` after Approve and a stamp migration voided the approval of a
+            # plan nobody had changed.
+            fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-plan|adversarial-guard|adversarial-decided):.*(?:\r?\n|\Z)", "",
                         m.group(1), flags=re.M)
             text = fm + text[m.end():]
         return text.encode()
@@ -541,6 +593,7 @@ def main():
                 rc = 1
             else:
                 print(f"warning: {rline} (feature planned before 0.6 — not enforced)")
+            print(hunter_state(by_feature.get(feat, [])))
         sys.exit(rc)
 
     try:

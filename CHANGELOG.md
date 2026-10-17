@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The hunter's plan pass is bound to the approval digest, not inside it** (2026-10-18, qassimha): `adversarial-plan`
+  sat inside `reef-plan-check`'s digest, so `plan --decided` after Approve (the designed path for a hole open after
+  round 2) and a stamp migration voided the approval of a plan nobody had edited. It is now stripped like the guard pass
+  and the plan-review record; `--verify-stamp` prints a `hunter:` line per feature (OK / MISSING / STALE / LEGACY with
+  the ids and the one command), the tick holds such a task under `awaiting:` with that command instead of listing it
+  for a dispatch the guard then denies (202 and 203 reached the gate with stamps their review-round edits had staled;
+  nothing named it until the implementer dispatch, past the round cap), and the guard's own check is unchanged.
 - **A stamp written before the cut moved is migrated, not re-hunted** (2026-10-18, qassimha task 204: after the pull the
   guard read its `adversarial-plan` as "the plan changed" and asked for a round the cap forbids — the plan was unchanged;
   the stamp was the 0.6 form that hashed the Reviewer notes). `reef-adversarial <task> plan --migrate` re-stamps only when
