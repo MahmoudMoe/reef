@@ -6,6 +6,7 @@ Usage:
   reef-init.py [--root DIR] [--plugin DIR] [--name NAME] [--base BRANCH] [--release BRANCH] [--dry-run]
                [--grill answers.json]
   reef-init.py [--root DIR] --accept <path> [<path> ...]     apply a proposed rendering (after the human said so)
+  reef-init.py [--root DIR] --keep <path> [<path> ...]       mark a rendered file as the project's own: never proposed again
 
 0.6 layout: a FRESH project (no docs/queue.md, no .specify/, no docs/adr, no tasks/) gets the one tree —
 reef/{constitution,queue,journal,glossary,day-zero}.md, reef/architecture/, reef/features/ — and paths.* pointing
@@ -296,8 +297,45 @@ def split_foreign(text):
     return core, blocks
 
 
+BLOCK = re.compile(r"<!-- BEGIN:([\w.-]+) -->(.*?)<!-- END:\1 -->", re.S)
+
+
+def adopt_sections(content, current):
+    """A kept block the TEMPLATE carries but the CURRENT file does not yet mark: the current text of that section
+    (under the same heading, up to the next heading) becomes the block's body, so the first render after the block
+    arrived carries the owner's words into it instead of the template's (first contact, 2026-10-17: the proposal put
+    the placeholder back over the owner's decision points and reverted the Boundaries line a feature had written)."""
+    for m in list(BLOCK.finditer(content)):
+        name = m.group(1)
+        if f"<!-- BEGIN:{name} -->" in current:
+            continue
+        head = content[:m.start()].rstrip("\n").splitlines()
+        heading = next((l for l in reversed(head) if l.startswith("#")), None)
+        if not heading or heading not in current.splitlines():
+            continue
+        after = current.split(heading + "\n", 1)[1]
+        body = re.split(r"\n#{1,6} |\n<!-- BEGIN:", after, 1)[0].strip("\n")
+        if body:
+            content = content.replace(m.group(0), f"<!-- BEGIN:{name} -->{body}<!-- END:{name} -->", 1)
+    return content
+
+
 def with_foreign(content, blocks):
-    return content if not blocks else content.rstrip("\n") + "\n\n" + "\n\n".join(blocks) + "\n"
+    """The current file's blocks ride into the new rendering. A block the TEMPLATE also carries (the owner's decision
+    points in AGENTS.md, `reef-owner-decisions`) is replaced IN PLACE by the current one, so the owner's text survives
+    a re-render (first contact, 2026-10-17: a refresh put the template's "(fill in — examples: …)" back over the
+    owner's list). Any other block is appended, as before."""
+    if not blocks:
+        return content
+    rest = []
+    for b in blocks:
+        name = re.match(r"<!-- BEGIN:([\w.-]+) -->", b.strip()).group(1)
+        pat = re.compile(r"<!-- BEGIN:" + re.escape(name) + r" -->.*?<!-- END:" + re.escape(name) + r" -->", re.S)
+        if pat.search(content):
+            content = pat.sub(lambda _m: b.strip("\n"), content, count=1)
+        else:
+            rest.append(b)
+    return content if not rest else content.rstrip("\n") + "\n\n" + "\n\n".join(rest) + "\n"
 
 
 def sha(data):
@@ -340,10 +378,16 @@ class Writer:
             # owner's gate decision)
             self.skipped.append(rel + " (record, never re-rendered)")
             return
+        if os.path.exists(target) and self.manifest.get(rel) == "owner":
+            self.skipped.append(rel + " (the project's own since `reef-init --keep`; never proposed)")
+            return
         if os.path.exists(target):
             with open(target, "rb") as f:
                 current = f.read()
+            content = adopt_sections(content, current.decode("utf-8", "replace"))
             core, blocks = split_foreign(current.decode("utf-8", "replace"))
+            own = {m.group(1) for m in re.finditer(r"<!-- BEGIN:([\w.-]+) -->", content)}   # the template's own blocks
+            foreign_n = len([b for b in blocks if re.match(r"<!-- BEGIN:([\w.-]+) -->", b.strip()).group(1) not in own])
             content = with_foreign(content, blocks)   # whatever happens, another tool's blocks ride along
             if current == content.encode("utf-8"):
                 self.skipped.append(rel)
@@ -357,7 +401,7 @@ class Writer:
                     with open(target, "w", encoding="utf-8", newline="") as f:
                         f.write(content)
                     self.manifest[rel] = sha(split_foreign(content)[0])
-                self.updated.append(rel + (f" (+{len(blocks)} foreign block(s) kept)" if blocks else ""))
+                self.updated.append(rel + (f" (+{foreign_n} foreign block(s) kept)" if foreign_n else ""))
                 return
             prop = os.path.join(self.root, ".reef", "proposed", rel)
             if not self.dry:
@@ -374,7 +418,7 @@ class Writer:
                 f.write(content)
             if executable:
                 os.chmod(target, os.stat(target).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-            self.manifest[rel] = sha(content)
+            self.manifest[rel] = sha(split_foreign(content)[0])   # the core, as the other paths record it (the owner block is not Reef's)
         self.written.append(rel)
 
     def append_lines(self, rel, lines):
@@ -398,7 +442,7 @@ class Writer:
 
 def run(root, facts, dry):
     lay0 = LAYOUTS[facts["layout"]]
-    w = Writer(root, dry, write_once={"HANDOFF.md", lay0["journal"], lay0["queue"],
+    w = Writer(root, dry, write_once={"HANDOFF.md", lay0["journal"], lay0["queue"], lay0["glossary"],
                                        os.path.join(os.path.dirname(lay0["queue"]), "queue-archive.md")})
     # config: merged, never a value changed
     cfg_path = os.path.join(root, ".reef", "config.json")
@@ -497,6 +541,18 @@ def run(root, facts, dry):
     return w
 
 
+def keep(root, paths):
+    """The owner's word that a rendered file is now the project's: ci.yml after a feature added a service, a README
+    rewritten by hand. Recorded in the manifest as "owner"; a refresh skips it and never proposes it again."""
+    manifest = load_manifest(root)
+    for rel in paths:
+        if not os.path.isfile(os.path.join(root, rel)):
+            die(f"no such file to keep: {rel}")
+        manifest[rel] = "owner"
+        print(f"kept as the project's own: {rel}")
+    save_manifest(root, manifest)
+
+
 def accept(root, paths):
     manifest = load_manifest(root)
     for rel in paths:
@@ -517,7 +573,7 @@ def accept(root, paths):
 
 
 def main(argv):
-    root, name, base, release, dry, to_accept, grill = ".", None, "develop", "main", False, [], None
+    root, name, base, release, dry, to_accept, to_keep, grill = ".", None, "develop", "main", False, [], [], None
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -538,6 +594,8 @@ def main(argv):
             grill = argv[i + 1]; i += 2
         elif a == "--accept":
             to_accept = argv[i + 1:]; break
+        elif a == "--keep":
+            to_keep = argv[i + 1:]; break
         else:
             die(f"unknown argument {a!r}")
     root = os.path.abspath(root)
@@ -545,6 +603,9 @@ def main(argv):
         die(f"not a directory: {root}")
     if to_accept:
         accept(root, to_accept)
+        return 0
+    if to_keep:
+        keep(root, to_keep)
         return 0
     facts = detect(root)
     if name:

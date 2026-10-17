@@ -165,6 +165,22 @@ class JournalStatuses(unittest.TestCase):
         self.assertIn("AC status 'maybe'", r.stdout)
 
 
+class BatchLineWithFootnote(unittest.TestCase):
+    def test_a_footnote_marker_on_the_batch_line_is_not_part_of_the_number(self):
+        # first contact (2026-10-17): the owner's decision to skip the release was footnoted on the line — "Current batch: 2²⁶" read as batch "2²⁶"
+        d = qrepo()
+        write(d, "docs/queue.md", read_file(d, "docs/queue.md").replace("Current batch: 1", "Current batch: 2²⁶"))
+        r = queue(d, "ready")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("4\tqueued\tplanned\tlater", r.stdout, "row 4 (batch 2) is ready once batch 2 is current")
+        self.assertNotIn("1\t", r.stdout.splitlines()[0][:2], "batch 1 rows are not current")
+
+
+def read_file(d, rel):
+    with open(os.path.join(d, rel), encoding="utf-8") as f:
+        return f.read()
+
+
 class Queue(unittest.TestCase):
     def test_status_derived_from_task_files(self):
         d = qrepo()

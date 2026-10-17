@@ -39,7 +39,7 @@ First the mechanical half: `scripts/reef-converge <feature>` executes every Proo
 - **What blocks (0.6):** a BLOCKER is only one of four kinds — a regression, an outside-actor code-execution or approval bypass, a correctness bug, or a failed acceptance criterion. Everything else (style, naming, a missing comment, an out-of-scope touch, a weak-but-passing test) is a NIT and never starts a round.
 
 ## 3. Diff review
-Fresh-context, diff-only against the PR's base (`git diff <branches.base>...HEAD`): dead code, duplication, missing coverage, doc gaps, glossary nouns not in the glossary, perf on hot paths only (never micro-optimize one-off code). Tag each item BLOCKER or NIT.
+Fresh-context, diff-only against the PR's base (`git diff <branches.base>...HEAD`): dead code, duplication, missing coverage, doc gaps, glossary nouns not in the glossary, perf on hot paths only (never micro-optimize one-off code). Tag each item BLOCKER or NIT. ONE reviewer over the whole diff by default; when it is over `review.split_lines` (default 1500 changed lines) or the reviewer refuses it as too large, split it by TASK (each `Closes-task:` commit range, plus one part for the merge commits from the base) and run the parts in parallel — never by file, and never a part without the task file it implements (first contact: a 2300-line diff was refused whole and split ad hoc).
 - BLOCKERs (the four kinds above, nothing else) → the feature's rollup → `/reef-task` → re-review. NITs → list them for the human, don't loop on them. Passed → `scripts/reef-record <feature> GREEN`.
 
 ## 4. CI or local gate (skip CI if no CI/remote)
@@ -48,7 +48,7 @@ Fresh-context, diff-only against the PR's base (`git diff <branches.base>...HEAD
 Red → record it on the feature's rollup with `scripts/reef-attempt <rollup> "<failing output>"`, `/reef-task` it, push, re-check. Same rollup, same cap as steps 2–3.
 
 ## 5. Hand off — or merge
-Report: PR URL (or local branch), acceptance verdict, blockers fixed, NITs left, CI/gate state. Append the runlog row.
+Report: PR URL (or local branch), acceptance verdict, blockers fixed, NITs left, CI/gate state. Append the runlog row. When the feature added dependencies, run `worktree.setup` in the MAIN checkout right after the merge, before the close-out commit — its pre-commit gate runs there (first contact: `pg` missing on develop, the close commit failed until `npm ci`).
 - `merge.by` = `human` (default): the HUMAN merges — never merge yourself.
 - `merge.by` = `loop`: only when the PR's base is `branches.base` AND acceptance passed, no BLOCKER is open, and step 4 is green — merge it **through `gh pr merge`** (`--squash --delete-branch`, or the repository's configured method), never through a local `git merge`+push: the guard checks the GREEN record against the forge head only on that path. A PR whose base is `branches.release` is never merged by the loop: the release merge stays the human's.
 
