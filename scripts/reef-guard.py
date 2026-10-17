@@ -75,6 +75,7 @@ MUTATING_GIT = {"commit", "add", "rm", "mv", "checkout", "switch", "restore", "r
                 "stash", "apply", "am", "cherry-pick", "revert", "clean", "worktree", "submodule", "init", "clone"}
 WRITE_HEADS = {"tee", "cp", "mv", "rm", "touch", "mkdir", "rmdir", "truncate", "dd", "install", "ln", "chmod", "chown", "shred", "unlink"}
 REDIRECTS = {">", ">>", ">|"}
+STATUS_LINE = re.compile(r"in flight:.*?/\s*waiting on:.*?/\s*next:\s*\S", re.S)
 RECORD_DIRS = re.compile(r"(^|/)\.reef/(approvals|review)(/|$)")
 GUARD_FILES = re.compile(r"(^|/)(scripts/reef-[^/]+|\.githooks/[^/]+|hooks/hooks\.json|\.reef/config\.json)$")
 PROTECTED_KEYS = ("roles", "caps", "gates", "tiers")
@@ -1002,13 +1003,33 @@ def check_stop(payload):
     (reef-loop.py tick --assert-no-idle keeps the refused hash). stop_hook_active is honoured."""
     if payload.get("stop_hook_active"):
         return
-    if payload.get("background_tasks"):
-        return   # sub-agents still running: the world is in flight
     cwd = payload.get("cwd") or os.getcwd()
     root = main_checkout(cwd)
     loop = os.path.join(root, "scripts", "reef-loop.py")
-    if not os.path.isfile(loop) or not os.path.isfile(os.path.join(root, ".reef", "loop.json")):
+    st_path = os.path.join(root, ".reef", "loop.json")
+    if not os.path.isfile(loop) or not os.path.isfile(st_path):
         return
+    # the status line is the owner's one-line answer to "what now?": while the loop is active every reply ends with
+    # `in flight: … / waiting on: … / next: <command>` (first full loop, 2026-10-17: the owner asked "what do I run
+    # now?" after every stop). Refused once per message, so a reply that cannot comply is not trapped.
+    msg = str(payload.get("last_assistant_message") or "")
+    try:
+        st = json.load(open(st_path))
+    except Exception:
+        st = {}
+    if st.get("active") and msg.strip() and not STATUS_LINE.search(msg):
+        key = hashlib.sha1(msg.encode("utf-8", "replace")).hexdigest()[:12]
+        if st.get("status_refused") != key:
+            st["status_refused"] = key
+            try:
+                with open(st_path, "w", encoding="utf-8") as f:
+                    json.dump(st, f, indent=1)
+            except Exception:
+                pass
+            deny("end the reply with the status line, on its own last line: `in flight: <ids or ->` / `waiting on: <what or ->` / "
+                 "`next: <the one command the owner runs, from the tick's next command:>`")
+    if payload.get("background_tasks"):
+        return   # sub-agents still running: the world is in flight
     try:
         r = subprocess.run([sys.executable, loop, "tick", "--assert-no-idle", "--repo", root], capture_output=True, text=True, timeout=DEADLINE - 1)
     except subprocess.TimeoutExpired:

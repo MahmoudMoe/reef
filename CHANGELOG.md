@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- The status line ends with the next command: `in flight: … / waiting on: … / next: <command>`, and the Stop hook
+  refuses (once per reply) a reply without it while the loop is active. First full loop: the owner asked "what do I
+  run now?" after every stop while the tick already knew.
 - Quiet by default: `reef-init` prints one `skipped N (…)` line (`--verbose` lists them); `reef-plan-check --quiet`
   prints FAIL/WARN and the summary only, and the plan and plan-review skills run it so. First full loop: 38 skipped
   lines per refresh, 24 OK lines per check, all read by the owner or the orchestrator.
