@@ -14,6 +14,8 @@ Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
   NOT hashed: merging the integration branch changes them without changing this feature's plan.
   Never written on failure.
 - --verify-stamp: recompute, print one line, exit 0 = unchanged since last review, 1 = changed
+- --migrate-records --feature SLUG: re-digest the stamp, the approval and the plan-review record from the 0.6 digest
+  form (the hunter's stamp inside) to the current one, each only when it carries the 0.6 digest of the current plan
   or no stamp. With --feature SLUG only that feature is compared (the guard passes the
   dispatched task's feature); without it every feature present must match. 0.6: a feature planned
   under 0.6 (the stamp records planned_under >= 0.6.0 — `.reef/version` existed when it was first
@@ -170,7 +172,7 @@ FEATURE_GATE = ("ci", "local")
 
 def parse_args(argv):
     verify, feature, args = False, None, []
-    flags = {"digest": False, "needs_agent": False, "rules": False, "quiet": False}
+    flags = {"digest": False, "needs_agent": False, "rules": False, "quiet": False, "legacy_digest": False, "migrate_records": False}
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -178,6 +180,10 @@ def parse_args(argv):
             verify = True
         elif a == "--digest":
             flags["digest"] = True
+        elif a == "--legacy-digest":
+            flags["legacy_digest"] = True   # the 0.6 form (the hunter's stamp inside): what a record written before 2026-10-18 carries
+        elif a == "--migrate-records":
+            flags["migrate_records"] = True
         elif a == "--needs-agent":
             flags["needs_agent"] = True
         elif a == "--rules":
@@ -262,8 +268,13 @@ def planned_under_06(stamp, feat):
     return bool(v) and tuple(int(x) for x in re.findall(r"\d+", v)[:3]) >= (0, 6, 0)
 
 
-def approval_state(root, feat, digest):
-    """(ok, line): the human's approval record must carry this digest's first 16 hex."""
+# the command that re-digests records written in the 0.6 form; the plugin's copy, because a worktree's scripts/ lags
+MIGRATE_CMD = f"python3 {os.path.join(os.environ.get('CLAUDE_PLUGIN_ROOT') or '<plugin>', 'scripts', 'reef-plan-check.py')} . --migrate-records"
+
+
+def approval_state(root, feat, digest, legacy_digest=""):
+    """(ok, line): the human's approval record must carry this digest's first 16 hex. A record carrying the 0.6 form
+    (the hunter's stamp was inside the digest until 2026-10-18) is LEGACY, named with the migration, never accepted."""
     p = os.path.join(main_checkout(root), ".reef", "approvals", f"{feat}.json")
     try:
         with open(p, encoding="utf-8") as f:
@@ -271,11 +282,66 @@ def approval_state(root, feat, digest):
     except Exception:
         return False, f"approval: MISSING for {feat!r} ({os.path.relpath(p, root)}) — the human approves the plan in /reef-plan's gate; the hook writes the record"
     if str(rec.get("digest16", "")) != digest[:16]:
+        if legacy_digest and str(rec.get("digest16", "")) == legacy_digest[:16]:
+            return False, f"approval: LEGACY for {feat!r} (approved {rec.get('digest16')} in the 0.6 digest form; the plan is unchanged) — {MIGRATE_CMD} --feature {feat}"
         return False, f"approval: STALE for {feat!r} (approved {rec.get('digest16')}, plan is {digest[:16]}) — re-approve the current plan"
     return True, f"approval: OK for {feat!r} ({digest[:16]}, {rec.get('approved_at', '?')})"
 
 
-def review_state(root, feat, digest, task_paths):
+def migrate_records(root, feat, digest, legacy_digest, stamp_path):
+    """--migrate-records --feature <slug>: re-digest the review stamp, the approval record and the plan-review record
+    from the 0.6 form to the current one — each only when it carries the 0.6 digest of the CURRENT plan (the proof the
+    plan is unchanged). A record that matches neither form is left alone and named. The checkout's own plan-check must
+    be this script: the guard runs that copy, and an older one would read the migrated records as stale."""
+    mine = os.path.join(root, "scripts", "reef-plan-check.py")
+    try:
+        if os.path.isfile(mine) and open(mine, "rb").read() != open(os.path.abspath(__file__), "rb").read():
+            print(f"FAIL: {os.path.relpath(mine, root)} differs from this script — the guard here runs that copy; bring the checkout's scripts up first "
+                  "(the main checkout: reef-update; a worktree: merge the base branch), then migrate")
+            return 1
+    except OSError:
+        pass
+    new16, old16, rc = digest[:16], legacy_digest[:16], 0
+    main = main_checkout(root)
+    for label, p in (("approval", os.path.join(main, ".reef", "approvals", f"{feat}.json")),
+                     ("review", os.path.join(main, ".reef", "review", f"plan-{feat}.json"))):
+        try:
+            with open(p, encoding="utf-8") as f:
+                rec = json.load(f)
+        except Exception:
+            print(f"{label}: none for {feat!r} — nothing to migrate")
+            continue
+        got = str(rec.get("digest16", ""))
+        if got == new16:
+            print(f"{label}: {feat!r} current ({new16})")
+        elif got == old16:
+            rec["digest16"], rec["migrated_from_0_6"] = new16, old16
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(rec, f, indent=1)
+                f.write("\n")
+            print(f"{label}: {feat!r} {old16} → {new16} (the plan is unchanged; the record keeps its date)")
+        else:
+            print(f"{label}: {feat!r} carries {got}, neither form of the current plan — the plan changed; not a migration, nothing written")
+            rc = 1
+    try:
+        stamp = json.loads(read(stamp_path))
+        feats = stamp.get("features") or {}
+        if feats.get(feat) == digest:
+            print(f"stamp: {feat!r} current")
+        elif feats.get(feat) == legacy_digest:
+            feats[feat] = digest
+            with open(stamp_path, "w") as f:
+                json.dump(stamp, f, indent=2, sort_keys=True)
+                f.write("\n")
+            print(f"stamp: {feat!r} re-digested")
+        else:
+            print(f"stamp: {feat!r} stale or missing — run reef-plan-check.py (the deterministic checks re-stamp it)")
+    except Exception:
+        print("stamp: missing — run reef-plan-check.py")
+    return rc
+
+
+def review_state(root, feat, digest, task_paths, legacy_digest=""):
     """(ok, line, required): the plan reviewer's verdict, a record `scripts/reef-record plan-review` writes, must be
     PASS at this digest for a feature with any task above `light` (the deterministic stamp alone never meant the
     semantic review passed — first contact, 2026-10-16)."""
@@ -295,6 +361,8 @@ def review_state(root, feat, digest, task_paths):
     except Exception:
         return False, f"review: MISSING for {feat!r} ({os.path.relpath(p, root)}) — run /reef-plan-review; it records the verdict with scripts/reef-record plan-review", True
     if str(rec.get("digest16", "")) != digest[:16]:
+        if legacy_digest and str(rec.get("digest16", "")) == legacy_digest[:16]:
+            return False, f"review: LEGACY for {feat!r} (reviewed {rec.get('digest16')} in the 0.6 digest form; the plan is unchanged) — {MIGRATE_CMD} --feature {feat}", True
         return False, f"review: STALE for {feat!r} (reviewed {rec.get('digest16')}, plan is {digest[:16]}) — re-run /reef-plan-review", True
     if str(rec.get("verdict", "")).upper() != "PASS":
         return False, f"review: FAILED for {feat!r} ({rec.get('verdict')}, {rec.get('recorded_at', '?')}) — fix the findings and re-run /reef-plan-review", True
@@ -344,9 +412,9 @@ def hunter_state(task_paths):
         return (f"hunter: STALE {','.join(stale)} — the plan changed since the hunter's pass: a re-check within hunter.plan_rounds, "
                 "or `reef-adversarial <task> plan --decided <mark>` once the owner ruled")
     if legacy:
-        plugin = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        plugin = os.environ.get("CLAUDE_PLUGIN_ROOT") or "<plugin>"
         return (f"hunter: LEGACY {','.join(legacy)} — a 0.6 stamp, the plan unchanged: python3 {os.path.join(plugin, 'scripts', 'reef-adversarial')} "
-                "<task> plan --migrate")
+                "<task> plan --migrate (the plugin's copy)")
     return f"hunter: OK ({ok} design/critical task(s))" if ok else "hunter: n/a (no design/critical task)"
 
 
@@ -483,7 +551,7 @@ def main():
             return os.path.basename(p)
         return os.path.relpath(p, folder_of_any(p) or root)
 
-    def stamp_body(p):
+    def stamp_body(p, legacy=False):
         """Strip what EXECUTION writes, keep what PLANNING wrote. Otherwise every commit
         invalidates the review and the semantic pass gets paid for on every task.
         The Log cut requires the exact '## Log' heading ('## Login' is plan content),
@@ -508,8 +576,8 @@ def main():
             # record BOUND to the digest (`--verify-stamp` prints `hunter:`; the guard denies a stale one at dispatch),
             # not inside it — inside, `plan --decided` after Approve and a stamp migration voided the approval of a
             # plan nobody had changed.
-            fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-plan|adversarial-guard|adversarial-decided):.*(?:\r?\n|\Z)", "",
-                        m.group(1), flags=re.M)
+            keys = "status|attempts|last_failure_sig|dispatches|worktree|adversarial-guard|adversarial-decided" + ("" if legacy else "|adversarial-plan")
+            fm = re.sub(r"^(" + keys + r"):.*(?:\r?\n|\Z)", "", m.group(1), flags=re.M)
             text = fm + text[m.end():]
         return text.encode()
 
@@ -523,12 +591,12 @@ def main():
             feat = ""
         by_feature.setdefault(feat, []).append(p)
 
-    def digest_for(feat):
+    def digest_for(feat, legacy=False):
         h = hashlib.sha256()
         extra = [p for p in folder_files(folders[feat]) if p not in stamp_task_set and TASK_NAME_RE.match(os.path.basename(p)) is None] if feat in folders else []
         for p in sorted(set(by_feature.get(feat, []) + adr_files + extra), key=stamp_key):
             h.update(stamp_key(p).encode() + b"\0")
-            h.update(stamp_body(p) + b"\0")
+            h.update(stamp_body(p, legacy) + b"\0")
         return h.hexdigest()
 
     for slug in folders:
@@ -542,6 +610,17 @@ def main():
             sys.exit(1)
         print(f"digest: {feature_filter} {digest_for(feature_filter)}")
         sys.exit(0)
+    if flags["legacy_digest"]:
+        if feature_filter is None:
+            print("FAIL: --legacy-digest requires --feature SLUG")
+            sys.exit(1)
+        print(f"digest(0.6): {feature_filter} {digest_for(feature_filter, legacy=True)}")
+        sys.exit(0)
+    if flags["migrate_records"]:
+        if feature_filter is None:
+            print("FAIL: --migrate-records requires --feature SLUG")
+            sys.exit(1)
+        sys.exit(migrate_records(root, feature_filter, digest_for(feature_filter), digest_for(feature_filter, legacy=True), stamp_path))
 
     if verify_stamp:
         plugin = os.environ.get("CLAUDE_PLUGIN_ROOT") or ""
@@ -570,6 +649,10 @@ def main():
             scope = "every feature"
             feats = sorted(digests)
         if not same:
+            legacy_same = all(stamped.get(f) == digest_for(f, legacy=True) for f in feats) and all(f in stamped for f in feats)
+            if legacy_same:
+                print(f"stamp: LEGACY — the 0.6 digest form ({scope}); the plan is unchanged: {MIGRATE_CMD} --feature {feats[0]}")
+                sys.exit(1)
             print(f"stamp: STALE — plan artifacts changed since last review ({scope}); re-review required")
             sys.exit(1)
         print(f"stamp: MATCH — plan unchanged since last review ({scope})")
@@ -577,7 +660,7 @@ def main():
         rc = 0
         for feat in feats:
             enforced = planned_under_06(stamp, feat) or feat in folders
-            okd, line = approval_state(root, feat, digest_for(feat))
+            okd, line = approval_state(root, feat, digest_for(feat), digest_for(feat, legacy=True))
             if okd:
                 print(line)
             elif enforced:
@@ -585,7 +668,7 @@ def main():
                 rc = 1
             else:
                 print(f"warning: {line} (feature planned before 0.6 — not enforced)")
-            okr, rline, _required = review_state(root, feat, digest_for(feat), by_feature.get(feat, []))
+            okr, rline, _required = review_state(root, feat, digest_for(feat), by_feature.get(feat, []), digest_for(feat, legacy=True))
             if okr:
                 print(rline)
             elif enforced:

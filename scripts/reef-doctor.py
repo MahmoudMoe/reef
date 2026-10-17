@@ -23,6 +23,7 @@ branch, and asked "why two AGENTS.md" — nothing on disk named the state or the
 import importlib.machinery
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -201,6 +202,23 @@ def main(argv):
                     "the hunter's re-check within hunter.plan_rounds, or `reef-adversarial <task> plan --decided <mark>` at the gate")
         if states and all(st == "current" for _, _, st in states):
             say("OK", f"stamps: {len(states)} design/critical task(s) current")
+        # records written before 2026-10-18 carry the 0.6 digest form (the hunter's stamp inside); the plugin's plan-check names them
+        import glob
+        pc = os.path.join(plugin, "scripts", "reef-plan-check.py")
+        legacy_recs = 0
+        for co in [root] + [w["path"] for w in wts[1:]]:
+            for spec in sorted(glob.glob(os.path.join(co, features, "*", "SPEC.md"))):
+                slug = os.path.basename(os.path.dirname(spec))
+                try:
+                    r = subprocess.run([sys.executable, pc, co, "--verify-stamp", "--feature", slug], capture_output=True, text=True, timeout=60)
+                except Exception:
+                    continue
+                if re.search(r"^(stamp|approval|review): LEGACY", r.stdout, re.M):
+                    legacy_recs += 1
+                    say("WARN", f"records: {slug} in {os.path.relpath(co, root) or '.'} carry the 0.6 digest form (the plan is unchanged)",
+                        f"cd {co} && python3 {pc} . --migrate-records --feature {slug}  (after its scripts/ match the plugin)")
+        if not legacy_recs:
+            say("OK", "records: every approval and review record in the current digest form")
     # loop
     try:
         with open(os.path.join(root, ".reef", "loop.json"), encoding="utf-8") as f:

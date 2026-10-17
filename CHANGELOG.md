@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Records written in the 0.6 digest form migrate, they are never re-asked** (2026-10-18, measured on the trial right
+  after the change below: the three live features' approval and review records, and their stamps, read as STALE — a
+  re-review and a re-approval of plans nobody had edited). `--verify-stamp` names a stamp, an approval or a review
+  record that carries the 0.6 digest of the CURRENT plan as `LEGACY` with the one command; `reef-plan-check.py .
+  --migrate-records --feature <slug>` re-digests each such record in place (date kept, `migrated_from_0_6` added),
+  leaves a record matching neither form alone (the plan changed), and refuses in a checkout whose own plan-check
+  lags the plugin (the guard runs that copy). `--legacy-digest` prints the 0.6 form; the tick holds such a feature
+  under `awaiting:` with the command; `reef-doctor` lists them per checkout.
 - **The hunter's plan pass is bound to the approval digest, not inside it** (2026-10-18, qassimha): `adversarial-plan`
   sat inside `reef-plan-check`'s digest, so `plan --decided` after Approve (the designed path for a hole open after
   round 2) and a stamp migration voided the approval of a plan nobody had edited. It is now stripped like the guard pass
