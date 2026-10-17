@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Ceremony sized to the row** (v2 phase 2, B7): a `found` row whose fix is one file in no risk class is one `mech`/`light`
+  task — no hunter, no semantic review; the planner argues a heavier tier in one `## Decision` line. Measured per row by
+  `reef-cost.py growth --feature`, target under 10k of planning.
 - **One command to update, one screen to diagnose, a map on disk, a status page** (workflow v2 phase 2; usability plan
   A1, A2, A4): `scripts/reef-update.py [--commit] [--push]` pulls the plugin clone (must be on `main`, clean), refreshes
   the project with `reef-init`, lists proposals with their accept/keep commands and commits Reef's own files only;
