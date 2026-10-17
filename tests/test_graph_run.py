@@ -78,7 +78,8 @@ class Generate(unittest.TestCase):
         self.assertEqual(len(scripts), 1)
         js = open(scripts[0]).read()
         self.assertTrue(js.startswith("export const meta = {"))
-        self.assertIn("REEF-TASK: " + os.path.join(d, "tasks", "101-a.md"), js)
+        self.assertTrue(("REEF-TASK: " + os.path.join(d, "tasks", "101-a.md")) in js or ("REEF-TASK: " + os.path.join(os.path.realpath(d), "tasks", "101-a.md")) in js,
+                        "the task's REEF-TASK: line (macOS: /var/folders resolves to /private/var/folders)")
         self.assertIn("agentType: 'reef:implementer'", js)
         self.assertIn("agentType: 'reef:mechanic'", js)
         self.assertIn("pipeline(TASKS", js)

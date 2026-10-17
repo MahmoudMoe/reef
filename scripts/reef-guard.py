@@ -161,9 +161,28 @@ def check_bash(cmd, depth=0):
             deny("guard internal error on a command that mentions a gate bypass — failing closed")
 
 
+SIMPLE_ASSIGN = re.compile(r"(?:^|[;&|\n]\s*)([A-Za-z_]\w*)=([^\s;&|'\"$`()]+)")
+
+
+def expand_simple_vars(cmd):
+    """`S=/tmp/claude-…/scratchpad/r2; mkdir -p $S` — the value of a plain `NAME=path` assignment made earlier in the
+    SAME command stands in for `$NAME`/`${NAME}` after it, so the scratch check sees the path (2026-10-18: a judge was
+    refused `mkdir -p $S` in its own scratchpad). Only unquoted, expansion-free values; anything else stays literal
+    and is judged as before (a variable the guard cannot read is still a write it cannot place)."""
+    out = cmd
+    for m in SIMPLE_ASSIGN.finditer(cmd):
+        name, value = m.group(1), m.group(2)
+        tail_start = m.end()
+        head, tail = out[:tail_start], out[tail_start:]
+        tail = re.sub(r"\$\{" + re.escape(name) + r"\}|\$" + re.escape(name) + r"\b", value.replace("\\", "\\\\"), tail)
+        out = head + tail
+    return out
+
+
 def _check_bash(cmd, depth=0):
     if depth > MAX_DEPTH:
         deny("shell nesting too deep to analyze — refusing a command that hides commands this many layers down")
+    cmd = expand_simple_vars(cmd)
     cmd = re.sub(r"\\\r?\n", " ", cmd)     # backslash line continuations JOIN a command
     cmd = re.sub(r"(\d*>&\d+|&>>?)", " ", cmd)  # fd redirections are not operators (2>&1, &>)
     toks = tokenize(cmd)                    # one pass: quotes span newlines, comments end at theirs
@@ -175,10 +194,19 @@ def _check_bash(cmd, depth=0):
         return
     seg = []
     pipefail = "pipefail" in cmd
+    if depth == 0:
+        CTX.pop("cd_hint", None)
     for t in toks + [";"]:
         if t in OPS:
             if seg:
                 check_segment(seg, depth, next_op=t, pipefail=pipefail)
+                # `cd /abs/path && …`: later relative write targets in this command live under that path (2026-10-18:
+                # a judge's `cd $S && cat > mod.ts` in its scratchpad was refused as a project write)
+                k = 0
+                while k < len(seg) and (ENV_ASSIGN.match(seg[k]) or seg[k] in PREFIX_WORDS):
+                    k += 1
+                if k + 1 < len(seg) and os.path.basename(seg[k]) == "cd" and t in (";", "&&") and os.path.isabs(seg[k + 1]):
+                    CTX["cd_hint"] = seg[k + 1]
             seg = []
         else:
             seg.append(t)
@@ -295,7 +323,9 @@ def check_reviewer_lock(seg, ctx):
                 deny(f"{who} is read-only: `git {sub} {' '.join(args[1:3])}` writes")
             break
     targets = write_targets(seg)
-    if targets and not all(is_scratch(x) for x in targets):
+    hint = ctx.get("cd_hint")
+    in_scratch = lambda x: is_scratch(x) or bool(hint and not os.path.isabs(x) and not x.startswith("~") and is_scratch(os.path.join(hint, x)))
+    if targets and not all(in_scratch(x) for x in targets):
         # a judge never mutates the PROJECT; its own scratch space (the session scratchpad, the temp dir) is not the
         # project — first contact, 2026-10-16: the hunter was refused `mkdir -p …/scratchpad/pk` to inspect a tarball
         deny(f"{who} is read-only: {' '.join(seg[:4])!r} writes a file — judge, don't fix")
@@ -866,6 +896,11 @@ def _check_dispatch(tool_input, payload):
     if "implementer" not in sub:
         if tier and any(t in sub for t in ("verifier", "loophole-hunter")):
             m = re.search(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", prompt, re.M)
+            if not m:
+                # 2026-10-18: a hunter plan pass sent with REEF-FEATURE: only crashed here and read as "guard internal error"
+                deny(f"{sub} dispatch without a 'REEF-TASK: <task-file>' first line — a judge is dispatched per task, the hunter's "
+                     "PLAN pass included (one task file per pass; its report's RUN line names pass=plan); the guard resolves the tier, "
+                     "the model and the verifying marker from that line")
             path = m.group(1) if os.path.isabs(m.group(1)) else os.path.join(cwd, m.group(1))
             fm, _ = read_frontmatter(path)
             write_marker(troot, sub, "verifying", {"id": fm.get("id", "?"), "task": os.path.abspath(path), "tier": tier})

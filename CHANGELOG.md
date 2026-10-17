@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Fixes from the second day's live loop** (2026-10-18): `reef-adversarial`'s plan hash (the guard imports it) now cuts at
+  `## Reviewer notes` like `reef-plan-check`'s digest — notes added after the hunter's pass changed the stamp and the
+  orchestrator reverted the notes to match; a verifier or hunter dispatched without a `REEF-TASK:` first line is denied
+  with the fix instead of "guard internal error"; a judge's `S=<scratchpad>; mkdir -p $S && cd $S && cat > f` is read
+  as scratch work: a plain `NAME=path` assigned earlier in the same command stands in for `$NAME`, and a `cd /abs` in
+  the same command places later relative targets; `test_graph_run` accepts macOS's `/private/var` realpath.
 - **Graph mode** (workflow v2, phase 3; `/reef-graph`, `scripts/reef-graph-run.py`): the ready task graph as ONE Claude
   Code workflow — implementer → gate (`reef:mechanic`) → verifier ‖ hunter → snapshot per task, as a pipeline in fresh
   contexts — instead of one agent result per orchestrator turn. `generate` runs the worktree, `reef-attempt`, the
