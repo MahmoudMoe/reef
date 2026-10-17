@@ -268,6 +268,8 @@ def run(cap_flag, path, failure):
         effort = "high" if attempts > 0 else base
         print(f"dispatch: model={model} effort={effort} attempt={attempts + 1}/{cap}")
         print(f"author: model={model} tier={tier}")
+        print(f"hand-back: .reef/ci-local/handback-{task.get('id')}.md in the task worktree — the implementer writes it; "
+              f"the orchestrator only checks it (reef-claims) and never types it from the agent's message")
         rw = int((cfg.get("writing") or {}).get("report_words", 0) or 0) if isinstance(cfg.get("writing"), dict) else 0
         acs = re.search(r"^##\s+Acceptance Criteria\s*$(.*?)(?=^##\s|\Z)", task.text, re.M | re.S)
         n_ac = len([l for l in (acs.group(1) if acs else "").splitlines()

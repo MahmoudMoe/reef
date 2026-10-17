@@ -194,6 +194,18 @@ class Tick(unittest.TestCase):
         self.assertIn("101", st["dispatch_now"])
 
 
+class InFlightAcrossWorktrees(unittest.TestCase):
+    def test_a_marker_in_a_feature_worktree_is_in_flight(self):
+        # 2026-10-17: "in flight: -" while 1101 was building — reef-attempt ran in the feature worktree, its marker lived there
+        d = project()
+        g = ["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t"]
+        subprocess.run(g + ["worktree", "add", "-q", "-b", "feat/first", os.path.join(d, ".reef", "worktrees", "first"), "main"], check=True, capture_output=True)
+        write(d, ".reef/worktrees/first/.reef/inflight/101", json.dumps({"id": 101, "tier": "light"}))
+        text = loop(d, "tick").stdout
+        self.assertRegex(text, r"in flight: 101\b")
+        self.assertNotIn("dispatch now: 101", text)
+
+
 class ClosedRowsInWorktrees(unittest.TestCase):
     def test_an_archived_rows_spec_inside_a_feature_worktree_is_not_building(self):
         # 2026-10-17: every feature worktree is a full checkout, so row 1's closed SPEC made "building rows: 1, 11, 13, 2"

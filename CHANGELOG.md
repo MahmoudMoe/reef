@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Evidence is the agent's, never the orchestrator's** (2026-10-17: a hunter report "written from the hand-back" and a
+  1101 hand-back typed "so the next session can verify it"): the guard refuses the main session writing
+  `.reef/ci-local/{handback,report,hunt,plan-review}-*.md` or `.reef/hunt/*.md` by any means but `cp`/`mv` (a sub-agent,
+  with an `agent_id`, writes its own); `reef-attempt` prints the `hand-back:` path; implementer, verifier, hunter and
+  plan-reviewer definitions make the file the deliverable and the message its path; a missing file means resuming the
+  agent, never transcribing it.
+- **The tick sees in-flight work in every worktree**: `.reef/inflight/` and `.reef/verifying/` markers are read from the
+  main checkout and each worktree (reef-attempt runs where the task lives; 2026-10-17: `in flight: -` while 1101 built).
+- **`reef:planner`**: a lean agent for drafting and amending plan files (measured 2026-10-17: Reef agents start at ~7k
+  context, a general-purpose agent at ~29k); it returns plan-check green. The reef-plan skill dispatches it, never
+  general-purpose. Not yet in the guard's model-pin table.
 - **Nothing cosmetic voids an approval, and nothing broken gets one** (2026-10-17, three planning sessions without a
   line of code): plan-review advisories go to `## Reviewer notes` in the task (right before `## Log`; outside the
   digest like the Log; only the Log may follow it; the implementer does or declines each, the verifier lists the

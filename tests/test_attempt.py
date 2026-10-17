@@ -26,6 +26,12 @@ class Attempt(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="reef-attempt-test.")
 
+    def test_dispatch_names_the_hand_back_file_and_whose_it_is(self):
+        p = make_task(self.dir)
+        r = run(p)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("\nhand-back: .reef/ci-local/handback-7.md in the task worktree — the implementer writes it", r.stdout)
+
     def test_clean_dispatch_prints_header(self):
         p = make_task(self.dir)
         r = run(p)

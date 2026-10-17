@@ -527,5 +527,31 @@ class FeatureStamp(unittest.TestCase):
         self.assertEqual(r.returncode, 2, "the newly arrived feature itself was never reviewed here")
 
 
+
+class EvidenceIsTheAgents(unittest.TestCase):
+    """0.7: a hand-back or a judge's report typed by the orchestrator is evidence nobody but the orchestrator wrote
+    (2026-10-17: a hunter report "written from the hand-back", a 1101 hand-back written "so the next session can verify it")."""
+
+    def test_main_session_cannot_author_evidence_but_may_copy_it(self):
+        for cmd in ("cat > .reef/ci-local/handback-1101.md <<'EOF'\nRUN: x\nEOF", "echo 'VERDICT: PASS' > .reef/hunt/row2-plan-r4.md",
+                    "printf 'x' >> .reef/ci-local/report-1101.md", "tee .reef/ci-local/plan-review-demo.md"):
+            with self.subTest(cmd=cmd):
+                r = bash(cmd)
+                self.assertEqual(r.returncode, 2, cmd)
+                self.assertIn("Resume that agent", r.stderr)
+        for cmd in ("cp /tmp/claude-1/x/scratchpad/row2.md .reef/hunt/row2-plan-r4.md", "mv /tmp/claude-1/x/scratchpad/h.md .reef/ci-local/handback-1101.md",
+                    "cat .reef/ci-local/handback-1101.md", "python3 scripts/reef-claims.py check --handback .reef/ci-local/handback-1101.md"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(bash(cmd).returncode, 0, cmd)
+        r = run_guard({"tool_name": "Write", "tool_input": {"file_path": ".reef/ci-local/handback-1101.md", "content": "RUN: x"}})
+        self.assertEqual(r.returncode, 2, "the Write tool is authoring too")
+        r = run_guard({"tool_name": "Write", "agent_id": "a0e1e40f", "agent_type": "reef:implementer",
+                       "tool_input": {"file_path": ".reef/ci-local/handback-1101.md", "content": "RUN: x"}})
+        self.assertEqual(r.returncode, 0, "the implementer writes its own hand-back: " + r.stderr)
+        r = run_guard({"tool_name": "Bash", "agent_id": "a0e1e40f", "agent_type": "reef:implementer",
+                       "tool_input": {"command": "cat > .reef/ci-local/handback-1101.md <<'EOF'\nRUN: x\nEOF"}})
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
