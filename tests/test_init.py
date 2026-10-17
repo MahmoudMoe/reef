@@ -302,6 +302,30 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class OwnerDecisionsSurviveARender(unittest.TestCase):
+    def test_the_owners_decision_points_block_is_kept_in_place_across_a_refresh(self):
+        # first contact (2026-10-17): a refresh re-rendered AGENTS.md and put the template's "(fill in — examples: …)" back
+        # over the owner's own list of decision points
+        d = tempfile.mkdtemp(prefix="reef-init-owner.")
+        subprocess.run(["git", "init", "-q", d], check=True)
+        init(d)
+        agents = read(d, "AGENTS.md")
+        self.assertIn("<!-- BEGIN:reef-owner-decisions -->", agents)
+        mine = "<!-- BEGIN:reef-owner-decisions -->Only the owner decides: money, personal data, the look of the product.<!-- END:reef-owner-decisions -->"
+        agents = re.sub(r"<!-- BEGIN:reef-owner-decisions -->.*?<!-- END:reef-owner-decisions -->", mine, agents, flags=re.S)
+        write(d, "AGENTS.md", agents)
+        write(d, "package.json", json.dumps({"name": "demo-app", "scripts": {"test": "vitest run", "build": "next build"}}))   # the stack arrives: a real re-render
+        r = init(d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        after = read(d, "AGENTS.md")
+        self.assertIn("npm ci", after, "the Node rendering arrived")
+        self.assertIn("Only the owner decides: money, personal data, the look of the product.", after)
+        self.assertNotIn("fill in — examples", after)
+        self.assertEqual(after.count("<!-- BEGIN:reef-owner-decisions -->"), 1, "replaced in place, not appended twice")
+        self.assertIn("updated  AGENTS.md", r.stdout, "the rest of the file was re-rendered, the owner block rode along in place")
+        self.assertNotIn("foreign block(s) kept", r.stdout.split("updated  AGENTS.md")[1].splitlines()[0], "the owner's block is the template's own, not another tool's")
+
+
 class RefreshKeepsRecords(unittest.TestCase):
     def test_refresh_keeps_the_day_zero_date_the_name_the_adrs_and_the_constitution(self):
         # first contact (2026-10-17): a plain refresh re-dated four ADRs and the constitution's "Ratified" line to today

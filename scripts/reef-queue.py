@@ -123,7 +123,8 @@ def parse_table(text):
 
 
 def current_batch(text):
-    m = re.search(r"^Current batch:[ \t]*(\S+)", text, re.M)
+    # `Current batch: 2²⁶` — the owner's footnote marker rides on the line (first contact, 2026-10-17: read as batch "2²⁶")
+    m = re.search(r"^Current batch:[ \t]*(\d+)", text, re.M)
     return m.group(1) if m else None
 
 

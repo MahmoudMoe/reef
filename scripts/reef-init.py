@@ -297,7 +297,21 @@ def split_foreign(text):
 
 
 def with_foreign(content, blocks):
-    return content if not blocks else content.rstrip("\n") + "\n\n" + "\n\n".join(blocks) + "\n"
+    """The current file's blocks ride into the new rendering. A block the TEMPLATE also carries (the owner's decision
+    points in AGENTS.md, `reef-owner-decisions`) is replaced IN PLACE by the current one, so the owner's text survives
+    a re-render (first contact, 2026-10-17: a refresh put the template's "(fill in — examples: …)" back over the
+    owner's list). Any other block is appended, as before."""
+    if not blocks:
+        return content
+    rest = []
+    for b in blocks:
+        name = re.match(r"<!-- BEGIN:([\w.-]+) -->", b.strip()).group(1)
+        pat = re.compile(r"<!-- BEGIN:" + re.escape(name) + r" -->.*?<!-- END:" + re.escape(name) + r" -->", re.S)
+        if pat.search(content):
+            content = pat.sub(lambda _m: b.strip("\n"), content, count=1)
+        else:
+            rest.append(b)
+    return content if not rest else content.rstrip("\n") + "\n\n" + "\n\n".join(rest) + "\n"
 
 
 def sha(data):
@@ -344,6 +358,8 @@ class Writer:
             with open(target, "rb") as f:
                 current = f.read()
             core, blocks = split_foreign(current.decode("utf-8", "replace"))
+            own = {m.group(1) for m in re.finditer(r"<!-- BEGIN:([\w.-]+) -->", content)}   # the template's own blocks
+            foreign_n = len([b for b in blocks if re.match(r"<!-- BEGIN:([\w.-]+) -->", b.strip()).group(1) not in own])
             content = with_foreign(content, blocks)   # whatever happens, another tool's blocks ride along
             if current == content.encode("utf-8"):
                 self.skipped.append(rel)
@@ -357,7 +373,7 @@ class Writer:
                     with open(target, "w", encoding="utf-8", newline="") as f:
                         f.write(content)
                     self.manifest[rel] = sha(split_foreign(content)[0])
-                self.updated.append(rel + (f" (+{len(blocks)} foreign block(s) kept)" if blocks else ""))
+                self.updated.append(rel + (f" (+{foreign_n} foreign block(s) kept)" if foreign_n else ""))
                 return
             prop = os.path.join(self.root, ".reef", "proposed", rel)
             if not self.dry:
@@ -374,7 +390,7 @@ class Writer:
                 f.write(content)
             if executable:
                 os.chmod(target, os.stat(target).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-            self.manifest[rel] = sha(content)
+            self.manifest[rel] = sha(split_foreign(content)[0])   # the core, as the other paths record it (the owner block is not Reef's)
         self.written.append(rel)
 
     def append_lines(self, rel, lines):
