@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- AGENTS.md's **Owner decision points** live in a kept block (`<!-- BEGIN:reef-owner-decisions -->`): a re-render replaces
+  the block in place with the owner's current text, never with the template's placeholder (first contact, 2026-10-17).
+- `reef-queue.py`: `Current batch: 2²⁶` is batch 2 — a footnote marker may ride on the line.
+- Skills: **read lean** in reef-task and reef-loop (no `git diff` of code, no script source, no full reports; measured 126k
+  of 150k on one 3-task feature); reef-plan never reads `reef-approval.py`; reef-review splits a diff over
+  `review.split_lines` (1500) by task, and runs `worktree.setup` in the main checkout after the merge when the feature
+  added dependencies.
 - **A refresh never touches a record**: `reef-init` pins the project's day-zero date and its name in the manifest
   (`_init`) and renders with them; the constitution and the draft ADRs are write-once like the journal. First contact
   (2026-10-17): a plain refresh re-dated four ADRs and the constitution's "Ratified" line to today, lowercased the
