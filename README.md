@@ -55,7 +55,6 @@ mechanism ships with a test that shows it going red on the defect it exists to c
 - [Layout](#layout)
 - [Selftests](#selftests)
 - [Status and what is next](#status-and-what-is-next)
-- [Acknowledgments](#acknowledgments)
 
 </details>
 
@@ -289,13 +288,5 @@ Open for 0.7, in `CHANGELOG.md` under "0.7 (unreleased)" and the dogfood report:
 session), a sonnet author for the `light` tier once an author eval exists, recalibrating a project that already runs Reef, and
 the found rows the Reef-on-itself run filed. Done this cycle: the planning cut (`docs/design/plan-cost.md`), `/reef-assess` as data,
 the guard's own checkpoint at the ceiling, `reef-watch`.
-
-## Acknowledgments
-
-Reef is an original implementation, but its process ideas stand on two open projects:
-- [iusztinpaul/squid](https://github.com/iusztinpaul/squid) (Apache-2.0) — the agent-team lifecycle, author/verifier separation, retry-cap concept, artifacts-as-memory.
-- [mattpocock/skills](https://github.com/mattpocock/skills) (MIT) — grilling, vertical-slice/tracer-bullet rules (a few planning heuristics in reef-plan closely paraphrase that repo's wording), spec/ticket discipline.
-
-No code was copied from either project. Thanks to Paul Iusztin and Matt Pocock for publishing their work openly. The reviewers Reef calls by name (`plan-review`, `code-excellence`, `code-security`) are [mahmoudmoe84/review-toolkit](https://github.com/mahmoudmoe84/review-toolkit).
 
 MIT licensed. Built with Claude Code.

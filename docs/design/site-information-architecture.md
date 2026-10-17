@@ -25,7 +25,7 @@ The first two readers get everything above the fold or one scroll below it. The 
 
 | Surface | Owns | Links to (never copies) |
 |---|---|---|
-| `README.md` (the GitHub page) | The claim, the quick start, the **honesty ledger**, the tiers, the settings table, the measured summary, the layout, the status, the acknowledgments | the site, the manual, `docs/perf`, `docs/design` |
+| `README.md` (the GitHub page) | The claim, the quick start, the **honesty ledger**, the tiers, the settings table, the measured summary, the layout, the status | the site, the manual, `docs/perf`, `docs/design` |
 | `docs/index.html` (the site) | The *presentation*: the situation chooser, the pipeline explorer, the roles, the growth chart, the expandable layout tree | **the ledger and the settings table are fetched from the README at page load and parsed**; every number links to its `docs/perf` report |
 | `docs/manual/ar/index.html` | The Arabic user manual (learning path, daily use, troubleshooting) | the README for reference facts |
 | `docs/design/*.md` | Design decisions and their reasoning (the graph executor, the planning cost cut, this document) | — |
@@ -60,8 +60,8 @@ form and not another.
 | 7 | Measured | What does a row cost, what did the eval show | Stat tiles (hero number: the cost of one row) and a single-series bar chart of orchestrator context growth per stage, hover for the max context | A number per claim is the README's promise; tiles isolate the headline numbers and the chart shows the one shape the text argues about (planning is the expensive stage) |
 | 8 | Settings | Which key, what default, what effect | The README's settings table, parsed and searchable | Owners look a key up by name; search is the right interaction for a reference table |
 | 9 | Layout | Where a file lives after `/reef-init` | An expandable tree with a one-line purpose per node | A tree is the shape of the thing; expanding it on demand keeps the first view to the top level |
-| 10 | Documents | Where to read more | Cards: design docs, perf reports, the Arabic manual, the changelog, the acknowledgments | The last reader wants the sources, grouped by kind |
-| 11 | Footer | License, the two projects whose ideas Reef stands on | One line each | Required and honest, not prominent |
+| 10 | Documents | Where to read more | Cards: design docs, perf reports, the Arabic manual, the changelog | The last reader wants the sources, grouped by kind |
+| 11 | Footer | License, where the page's source lives | One line | Required, not prominent |
 
 ## 4. Display rules
 
