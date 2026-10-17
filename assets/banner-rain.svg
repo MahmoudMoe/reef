@@ -17,7 +17,7 @@
   .tag { font-size: 22px; letter-spacing: 4px; fill: #4FB3B1; }
   .tl { font-size: 21px; fill: #E9E6DF; }
   .tl.k { fill: #EF7A63; }
-  .ty { animation: type both; }
+  .ty { animation: type backwards; }
   @keyframes type { from { width: 0; } to { width: 820px; } }
   .cursor { animation: blink 1s steps(1, end) infinite; }
   @keyframes blink { 50% { opacity: 0; } }
@@ -34,7 +34,7 @@
   <linearGradient id="band" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4FB3B1" stop-opacity="0"/><stop offset=".5" stop-color="#4FB3B1" stop-opacity=".16"/><stop offset="1" stop-color="#4FB3B1" stop-opacity="0"/></linearGradient>
   <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0B1418"/><stop offset=".18" stop-color="#0B1418" stop-opacity="0"/><stop offset=".82" stop-color="#0B1418" stop-opacity="0"/><stop offset="1" stop-color="#0B1418"/></linearGradient>
   <clipPath id="frame"><rect width="1200" height="520" rx="22"/></clipPath>
-  <clipPath id="l0"><rect class="ty" style="animation-duration:1.12s;animation-delay:1.2s;animation-timing-function:steps(40,end)" x="110" y="296" width="0" height="30"/></clipPath><clipPath id="l1"><rect class="ty" style="animation-duration:1.43s;animation-delay:2.35s;animation-timing-function:steps(51,end)" x="110" y="324" width="0" height="30"/></clipPath><clipPath id="l2"><rect class="ty" style="animation-duration:1.54s;animation-delay:3.5s;animation-timing-function:steps(55,end)" x="110" y="352" width="0" height="30"/></clipPath><clipPath id="l3"><rect class="ty" style="animation-duration:1.18s;animation-delay:4.65s;animation-timing-function:steps(42,end)" x="110" y="380" width="0" height="30"/></clipPath><clipPath id="l4"><rect class="ty" style="animation-duration:1.29s;animation-delay:5.8s;animation-timing-function:steps(46,end)" x="110" y="408" width="0" height="30"/></clipPath>
+  <clipPath id="l0"><rect class="ty" style="animation-duration:1.12s;animation-delay:1.2s;animation-timing-function:steps(40,end)" x="110" y="296" width="820" height="30"/></clipPath><clipPath id="l1"><rect class="ty" style="animation-duration:1.43s;animation-delay:2.35s;animation-timing-function:steps(51,end)" x="110" y="324" width="820" height="30"/></clipPath><clipPath id="l2"><rect class="ty" style="animation-duration:1.54s;animation-delay:3.5s;animation-timing-function:steps(55,end)" x="110" y="352" width="820" height="30"/></clipPath><clipPath id="l3"><rect class="ty" style="animation-duration:1.18s;animation-delay:4.65s;animation-timing-function:steps(42,end)" x="110" y="380" width="820" height="30"/></clipPath><clipPath id="l4"><rect class="ty" style="animation-duration:1.29s;animation-delay:5.8s;animation-timing-function:steps(46,end)" x="110" y="408" width="820" height="30"/></clipPath>
 </defs>
 <g clip-path="url(#frame)">
 <rect width="1200" height="520" fill="#0B1418"/>
