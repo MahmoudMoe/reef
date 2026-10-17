@@ -1,12 +1,12 @@
 /* Reef site. No dependencies. Everything here chooses what to show; nothing here is the only copy of a fact.
-   The ledger and the settings table are read from the README (one home per fact); see
+   The settings table and the version are read from the README (one home per fact); see
    docs/design/site-information-architecture.md. */
 (function () {
   'use strict';
   const REPO = 'https://github.com/MahmoudMoe/reef';
   const BLOB = REPO + '/blob/main/';
   const README_URLS = ['README.md', '../README.md', 'https://raw.githubusercontent.com/MahmoudMoe/reef/main/README.md'];
-  const TABLE_HEADINGS = { ledger: 'What is enforced, and how', settings: 'Settings' };
+  const TABLE_HEADINGS = { settings: 'Settings' };
 
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
@@ -127,55 +127,6 @@
     return { header, body };
   }
 
-  function classesOf(layerCell) {
-    const t = layerCell.toLowerCase(); const out = [];
-    if (/\bcode\b/.test(t)) out.push('code');
-    if (t.includes('tripwire')) out.push('tripwire');
-    if (t.includes('prose')) out.push('prose');
-    if (t.includes('ci is the wall')) out.push('ci');
-    return out;
-  }
-
-  function renderLedger(table) {
-    const host = $('#ledger'); if (!host) return;
-    const li = table.header.findIndex(h => /layer/i.test(h));
-    const rows = table.body.map(r => {
-      const layer = li >= 0 ? (r[li] || '') : (r[2] || '');
-      const cls = classesOf(layer); // a row whose layer cell is blank gets no badge: the page asserts nothing the README does not
-      return { rule: r[0] || '', by: r[1] || '', layer, cls };
-    });
-    let html = '<table class="stack"><thead><tr><th style="width:44%">Rule</th><th>Enforced by</th><th style="width:18%">Layer</th></tr></thead><tbody>';
-    rows.forEach((r, i) => {
-      const badges = r.cls.map(c => `<span class="badge ${c}">${c === 'ci' ? 'CI is the wall' : c}</span>`).join('');
-      // The gloss is whatever the layer cell says beyond the class words themselves ("code (at turn end)").
-      const plain = r.layer.replace(/\*\*/g, '');
-      const rest = plain.replace(/\b(code|tripwire|prose)\b|CI is the wall/gi, '').replace(/[\s+·—-]+/g, ' ').trim();
-      const gloss = rest ? `<div class="muted" style="font-size:.82rem;margin-top:4px">${inline(plain)}</div>` : '';
-      html += `<tr data-i="${i}" data-cls="${r.cls.join(' ')}"><td>${inline(r.rule)}</td><td>${inline(r.by)}</td><td>${badges}${gloss}</td></tr>`;
-    });
-    html += '</tbody></table>';
-    host.innerHTML = html;
-
-    const trs = $$('tbody tr', host); const chips = $$('#ledger-chips .chip'); const search = $('#ledger-search'); const count = $('#ledger-count');
-    const counts = { all: rows.length, code: 0, tripwire: 0, prose: 0, ci: 0 };
-    rows.forEach(r => r.cls.forEach(c => counts[c]++));
-    chips.forEach(ch => { const n = $('.n', ch); if (n) n.textContent = counts[ch.dataset.class]; });
-    $$('[data-ledger-n]').forEach(el => el.textContent = rows.length);
-    let cls = 'all';
-    function apply() {
-      const q = (search.value || '').trim().toLowerCase(); let shown = 0;
-      trs.forEach(tr => {
-        const okC = cls === 'all' || tr.dataset.cls.split(' ').includes(cls);
-        const okQ = !q || tr.textContent.toLowerCase().includes(q);
-        tr.hidden = !(okC && okQ); if (!tr.hidden) shown++;
-      });
-      count.textContent = shown === rows.length ? `${rows.length} rules` : `${shown} of ${rows.length}`;
-    }
-    chips.forEach(ch => ch.addEventListener('click', () => { cls = ch.dataset.class; chips.forEach(c => c.setAttribute('aria-pressed', String(c === ch))); apply(); }));
-    search.addEventListener('input', apply);
-    apply();
-  }
-
   function renderSettings(table) {
     const host = $('#settings-table'); if (!host) return;
     let html = `<table><thead><tr>${table.header.map(h => `<th>${inline(h)}</th>`).join('')}</tr></thead><tbody>`;
@@ -204,14 +155,10 @@
   async function loadReadmeTables() {
     const md = await fetchReadme();
     if (!md) return; // the sections keep their README links
-    const ledger = tableAfterHeading(md, TABLE_HEADINGS.ledger);
     const settings = tableAfterHeading(md, TABLE_HEADINGS.settings);
-    if (ledger) renderLedger(ledger);
     if (settings) renderSettings(settings);
     const v = md.match(/version-(\d+\.\d+\.\d+)/);
     if (v) $$('[data-version]').forEach(el => el.textContent = 'v' + v[1]);
-    const n = md.match(/(\d+)\s+sabotage and contract tests/);
-    if (n) $$('.proofs .n').forEach(el => { if (el.textContent.trim() === '440') el.textContent = n[1]; });
   }
   loadReadmeTables();
 })();
