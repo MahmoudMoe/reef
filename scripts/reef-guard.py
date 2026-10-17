@@ -77,6 +77,14 @@ WRITE_HEADS = {"tee", "cp", "mv", "rm", "touch", "mkdir", "rmdir", "truncate", "
 REDIRECTS = {">", ">>", ">|"}
 STATUS_LINE = re.compile(r"in flight:.*?/\s*waiting on:.*?/\s*next:\s*\S", re.S)
 RECORD_DIRS = re.compile(r"(^|/)\.reef/(approvals|review)(/|$)")
+# evidence an AGENT produced: a hand-back, a verifier/hunter report, a plan review. The main session (no agent_id in
+# the payload) may copy one (cp/mv from the scratchpad) but never write its content (2026-10-17: a hunter report and
+# a hand-back were typed by the orchestrator "from the agent's message" — evidence nobody but the orchestrator wrote).
+EVIDENCE = re.compile(r"(^|/)\.reef/(ci-local/(handback|report|hunt|plan-review)-[^/]+\.md|hunt/[^/]+\.md)$")
+COPY_HEADS = {"cp", "mv", "install", "rsync"}
+EVIDENCE_DENIAL = ("the main session does not write an agent's evidence ({path}): the agent writes its own file (the hand-back into "
+                   "its worktree's .reef/ci-local/, a judge's report into the scratchpad) and the orchestrator copies it with cp. "
+                   "Missing? Resume that agent (SendMessage) with 'write your report to <path>' — never type it from its message")
 GUARD_FILES = re.compile(r"(^|/)(scripts/reef-[^/]+|\.githooks/[^/]+|hooks/hooks\.json|\.reef/config\.json)$")
 PROTECTED_KEYS = ("roles", "caps", "gates", "tiers")
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "5"))
@@ -229,6 +237,17 @@ def check_record_dirs(seg):
              "AskUserQuestion hook and scripts/reef-record, bound to a digest or a forge SHA")
 
 
+def check_evidence_authoring(seg, ctx):
+    if not ctx.get("main_session") or not is_write(seg):
+        return
+    head = next((os.path.basename(x) for x in seg if os.path.basename(x) in WRITE_HEADS), None)
+    if head in COPY_HEADS:
+        return   # a copy carries the agent's words unchanged
+    hits = [x for x in write_targets(seg) if EVIDENCE.search(x)]
+    if hits:
+        deny(EVIDENCE_DENIAL.format(path=hits[0]))
+
+
 def check_guard_files(seg, ctx):
     """scripts/reef-*, .githooks/*, hooks/hooks.json, .reef/config.json: a Bash write (redirect, cp, mv, sed -i …)
     is allowed only inside the plugin's own repository or under a critical task in flight. rm/mv/chmod on the
@@ -335,6 +354,7 @@ def check_segment(seg, depth=0, next_op=";", pipefail=False):
         if ENV_ASSIGN.match(t) and HOOKSPATH.search(t):
             deny(f"environment assignment smuggles hooksPath: {t!r}")
     check_record_dirs(seg)
+    check_evidence_authoring(seg, CTX)
     check_guard_files(seg, CTX)
     check_reviewer_lock(seg, CTX)
     check_forge_merge(seg, CTX)
@@ -947,6 +967,7 @@ def context_for(payload):
         verifying = verifying or (os.path.isdir(v) and bool(os.listdir(v)))
     return {"cwd": cwd, "roots": roots, "plugin_root": plugin_root, "critical_inflight": critical,
             "agent_type": str(payload.get("agent_type") or ""),
+            "main_session": not payload.get("agent_id") and not payload.get("agent_type"),
             "typeless_locked": bool(payload.get("agent_id")) and not payload.get("agent_type") and verifying}
 
 
@@ -958,6 +979,8 @@ def check_edit(tool_input, payload, ctx):
     if RECORD_DIRS.search(path) or RECORD_DIRS.search(rel):
         deny("editing under .reef/approvals/ or .reef/review/ — these records are written by the AskUserQuestion "
              "hook and scripts/reef-record, bound to a digest or a forge SHA; a hand-written one is an approval nobody gave")
+    if ctx.get("main_session") and (EVIDENCE.search(path) or EVIDENCE.search(rel)):
+        deny(EVIDENCE_DENIAL.format(path=rel))
     if not (GUARD_FILES.search(path) or GUARD_FILES.search(rel)):
         return
     if ctx["plugin_root"] or ctx["critical_inflight"]:

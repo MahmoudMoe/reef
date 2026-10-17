@@ -63,7 +63,26 @@ def run(cmd, cwd, timeout=20):
         return 1, ""
 
 
+def all_roots(root):
+    """The main checkout and every worktree: reef-attempt runs where the task file lives, so its in-flight marker
+    lands in that worktree's .reef/ (2026-10-17: 'in flight: -' while 1101 was building in a feature worktree)."""
+    _, wt = run(["git", "worktree", "list", "--porcelain"], root)
+    others = [l[len("worktree "):].strip() for l in wt.splitlines() if l.startswith("worktree ")]
+    return [root] + [o for o in others if os.path.realpath(o) != os.path.realpath(root)]
+
+
 def markers(root, kind, stale_minutes=None):
+    roots = root if isinstance(root, list) else [root]
+    out, seen = [], set()
+    for r in roots:
+        for rec in _markers(r, kind, stale_minutes):
+            if rec["id"] not in seen:
+                seen.add(rec["id"])
+                out.append(rec)
+    return out
+
+
+def _markers(root, kind, stale_minutes=None):
     d = os.path.join(root, ".reef", kind)
     out = []
     for f in (sorted(os.listdir(d)) if os.path.isdir(d) else []):
@@ -130,8 +149,9 @@ def tick(root):
         ready_tasks = json.loads(g_ready) if rc_g == 0 and g_ready.strip() else []
     except ValueError:
         ready_tasks = []
-    inflight = markers(root, "inflight", stale)
-    verifying = markers(root, "verifying", stale)
+    roots_all = all_roots(root)
+    inflight = markers(roots_all, "inflight", stale)
+    verifying = markers(roots_all, "verifying", stale)
     inflight_ids = {str(m.get("id")) for m in inflight if not m["stale"]}
     returned = [m for m in inflight if m["stale"]]
     dispatch_now = [t for t in ready_tasks if str(t["id"]) not in inflight_ids and not t["id"].startswith("R")]

@@ -54,4 +54,4 @@ Tier discipline:
 - Questions 1, 2, 5: BLOCKING when they produce a finding — the artifacts disagree with each other; mechanical, fixable.
 - Questions 3, 4: ADVISORY — judgments about the plan itself; the human decides. One line each. Mark an advisory `WILL BITE` only when you can name the input that makes it fail in this codebase; the rest are read in a list with a default of leave as is.
 
-Report starts `RUN: agent=plan-reviewer feature=<slug>`; ends `VERDICT: PASS` or `VERDICT: FAIL`, followed by a BLOCKING section and an ADVISORY section.
+The report is a FILE in the scratchpad (the path your prompt names), written before your final message; the message is that path plus the VERDICT line. Report starts `RUN: agent=plan-reviewer feature=<slug>`; ends `VERDICT: PASS` or `VERDICT: FAIL`, followed by a BLOCKING section and an ADVISORY section.
