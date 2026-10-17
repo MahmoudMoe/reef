@@ -146,6 +146,25 @@ def qrepo():
     return d
 
 
+class JournalStatuses(unittest.TestCase):
+    def test_statuses_are_read_from_the_acs_column_not_from_prose(self):
+        # first contact (2026-10-17): "AC-9 and AC-13 were probed" in a Verified paragraph was rejected as the status "and";
+        # three honest entries were reworded to pass. The closed set applies to the table's ACs column only.
+        d = qrepo()
+        write(d, ".reef/version", "0.7.0\n")
+        write(d, "tasks/101-a.md", "---\nid: 101\nfeature: 1\nstatus: done\n---\n")
+        write(d, "docs/journal.md", "# Journal\n\n| Task | Implementer | Verifier | Attempts | Result | ACs | Escaped defects |\n|---|---|---|---|---|---|---|\n"
+                                    "| 101 | opus | opus | 0 | PASS | AC-1 achieved; AC-2 achieved | - |\n\n"
+                                    "- **Verified, and how**: AC-9 and AC-13 were probed with a live canary; AC-4 was re-run by the mechanic.\n")
+        r = queue(d, "check")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        write(d, "docs/journal.md", "# Journal\n\n| Task | Implementer | Verifier | Attempts | Result | ACs | Escaped defects |\n|---|---|---|---|---|---|---|\n"
+                                    "| 101 | opus | opus | 0 | PASS | AC-1 achieved; AC-2 maybe | - |\n")
+        r = queue(d, "check")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("AC status 'maybe'", r.stdout)
+
+
 class Queue(unittest.TestCase):
     def test_status_derived_from_task_files(self):
         d = qrepo()
