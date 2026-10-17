@@ -195,7 +195,7 @@ def main(argv):
         for co, rel, state in states:
             if state == "legacy":
                 say("WARN", f"stamp: {rel} carries a 0.6 adversarial-plan (the plan is unchanged)",
-                    f"cd {co} && python3 scripts/reef-adversarial {rel} plan --migrate")
+                    f"cd {co} && python3 {os.path.join(plugin, 'scripts', 'reef-adversarial')} {rel} plan --migrate  (the plugin's copy: a worktree's scripts/ lags)")
             elif state == "stale":
                 say("WARN", f"stamp: {rel}: the plan changed since the hunter's pass",
                     "the hunter's re-check within hunter.plan_rounds, or `reef-adversarial <task> plan --decided <mark>` at the gate")

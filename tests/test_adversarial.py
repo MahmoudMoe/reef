@@ -277,6 +277,7 @@ class MigrateTheStamp(unittest.TestCase):
         r = dispatch(self.d, self.t)
         self.assertEqual(r.returncode, 2)
         self.assertIn("plan --migrate", r.stderr, "the denial must name the re-stamp, not a hunter round the cap forbids")
+        self.assertIn(f"python3 {ADV} ", r.stderr, "the plugin's copy: a feature worktree's scripts/ has no --migrate until the next merge")
         self.assertNotIn("run the hunter again", r.stderr)
         r = adv(self.t, "plan", "--migrate")
         self.assertEqual(r.returncode, 0, r.stderr)

@@ -69,7 +69,8 @@ class StampCheck(unittest.TestCase):
         line = [l for l in r.stdout.splitlines() if l.startswith("WARN") and "stamp:" in l]
         self.assertEqual(len(line), 1, r.stdout)
         self.assertIn("0.6 adversarial-plan", line[0])
-        self.assertIn("reef-adversarial reef/features/demo/tasks/001-t.md plan --migrate", line[0])
+        self.assertIn(f"python3 {os.path.join(ROOT, 'scripts', 'reef-adversarial')} reef/features/demo/tasks/001-t.md plan --migrate", line[0],
+                      "the plugin's copy, not the checkout's (a worktree's scripts/ lags the base)")
         m = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-adversarial"), p, "plan", "--migrate"], capture_output=True, text=True)
         self.assertEqual(m.returncode, 0, m.stderr)
         r = doctor(d)
