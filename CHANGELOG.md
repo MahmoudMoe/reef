@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- `plan.max_acs` ships as `0` (warn above 8) instead of `8`: `reef-init` merges new template keys into an existing project's config, and
+  the trial's running batch holds an approved 21-criterion task that `8` would have blocked mid-flight. Set `8` at a batch boundary.
 - **Fixes from the second day's live loop** (2026-10-18): `reef-adversarial`'s plan hash (the guard imports it) now cuts at
   `## Reviewer notes` like `reef-plan-check`'s digest — notes added after the hunter's pass changed the stamp and the
   orchestrator reverted the notes to match; a verifier or hunter dispatched without a `REEF-TASK:` first line is denied
