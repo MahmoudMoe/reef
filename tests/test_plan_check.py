@@ -59,6 +59,28 @@ def run(root, *args):
     return subprocess.run([sys.executable, CHECK, root, *args], capture_output=True, text=True)
 
 
+class DoneFolderAndStatusAgree(unittest.TestCase):
+    def test_done_folder_without_done_status_and_the_reverse_fail(self):
+        # first contact (2026-10-17): 103 was merged and moved to done/ with `status: in-progress` and no Log line; the
+        # orchestrator caught it by eye. The folder and the status are one fact — the checker holds them together.
+        tmp = repo(tempfile.mkdtemp(prefix="reef-pc."))
+        p = os.path.join(tmp, "tasks", "001-demo.md")
+        shutil.move(p, os.path.join(tmp, "tasks", "done", "001-demo.md"))
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("under tasks/done/ with status='pending'", r.stdout)
+        p2 = os.path.join(tmp, "tasks", "done", "001-demo.md")
+        with open(p2) as f:
+            done_text = f.read().replace("status: pending", "status: done")
+        with open(p2, "w") as f:
+            f.write(done_text)
+        self.assertEqual(run(tmp).returncode, 0, "done/ + status: done is the close-out's shape")
+        shutil.move(p2, p)
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("status: done but not under tasks/done/", r.stdout)
+
+
 class Stacks(unittest.TestCase):
     """K3: every stack reef-init advertises must be able to phrase a passing criterion."""
 
