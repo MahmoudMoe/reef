@@ -71,7 +71,8 @@ def loop(d, *args, env=None):
 
 
 def stop_hook(d, **extra):
-    payload = {"hook_event_name": "Stop", "cwd": d, "stop_hook_active": False, "last_assistant_message": "done", "background_tasks": [], "session_crons": []}
+    payload = {"hook_event_name": "Stop", "cwd": d, "stop_hook_active": False,
+               "last_assistant_message": "in flight: - / waiting on: - / next: /reef-task", "background_tasks": [], "session_crons": []}
     payload.update(extra)
     return subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True)
 
@@ -231,6 +232,20 @@ class StopHook(unittest.TestCase):
         approve(d, "1")
         self.assertEqual(stop_hook(d).returncode, 2)
         self.assertEqual(stop_hook(d).returncode, 0)
+
+    def test_a_reply_without_the_status_line_is_refused_once_while_the_loop_is_active(self):
+        # first full loop (2026-10-17): the owner asked "what do I run now?" after every stop; the tick knows the answer
+        d = project()
+        self.assertEqual(stop_hook(d, last_assistant_message="All done, merged.").returncode, 0, "loop inactive: no demand")
+        loop(d, "start")
+        loop(d, "wait", "grill question pending")   # a wait: the idle check is quiet, the status line is still owed
+        r = stop_hook(d, last_assistant_message="All done, merged.")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("status line", r.stderr)
+        self.assertIn("next:", r.stderr)
+        self.assertEqual(stop_hook(d, last_assistant_message="All done, merged.").returncode, 0, "the same reply is never refused twice")
+        self.assertEqual(stop_hook(d, last_assistant_message="Merged 101.\n\nin flight: 102 / waiting on: its hand-back / next: /reef-task demo").returncode, 0)
+        self.assertEqual(stop_hook(d, last_assistant_message="in flight: - / waiting on: you").returncode, 2, "no next: is no status line")
 
     def test_wait_inactive_inflight_stop_and_active_flag_allow(self):
         d = project()

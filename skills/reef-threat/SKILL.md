@@ -14,4 +14,4 @@ Runs on the `critical` tier table. **Input:** `reef/architecture/architecture.md
 4. Unmitigated rows → `python3 scripts/reef-threat.py rows` prints them as `found` queue rows with `touches:` set (`auth` for S/E, `pii` for I); append them to the queue's next batch. Each becomes a `critical` task through the normal loop.
 5. Freshness: `scripts/reef-plan-check.py` demands a re-run when a `critical` task carries `touches: auth|pii|money` and the threat model is older than the architecture document (`scripts/reef-threat.py fresh`). The loophole-hunter's `pass=system` (4.4) takes this file as its input and maps its findings to these rows.
 
-End with the lint's last line and the count of unmitigated rows; `in flight: … / waiting on: …`.
+End with the lint's last line and the count of unmitigated rows; `in flight: … / waiting on: … / next: <command>`.
