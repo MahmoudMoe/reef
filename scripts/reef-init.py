@@ -3,7 +3,7 @@
 """Reef init — the full project setup, generated from templates, idempotent.
 
 Usage:
-  reef-init.py [--root DIR] [--plugin DIR] [--name NAME] [--base BRANCH] [--release BRANCH] [--dry-run]
+  reef-init.py [--root DIR] [--plugin DIR] [--name NAME] [--base BRANCH] [--release BRANCH] [--dry-run] [--verbose]
                [--grill answers.json]
   reef-init.py [--root DIR] --accept <path> [<path> ...]     apply a proposed rendering (after the human said so)
   reef-init.py [--root DIR] --keep <path> [<path> ...]       mark a rendered file as the project's own: never proposed again
@@ -574,6 +574,8 @@ def accept(root, paths):
 
 def main(argv):
     root, name, base, release, dry, to_accept, to_keep, grill = ".", None, "develop", "main", False, [], [], None
+    verbose = "--verbose" in argv
+    argv = [a for a in argv if a != "--verbose"]
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -645,8 +647,18 @@ def main(argv):
         print(f"  written  {r}")
     for r in w.updated:
         print(f"  updated  {r} (Reef's own rendering, untouched since it was placed — replaced without a question)")
-    for r in w.skipped:
-        print(f"  skipped  {r}" + ("" if "(" in r else " (identical)"))
+    if verbose:
+        for r in w.skipped:
+            print(f"  skipped  {r}" + ("" if "(" in r else " (identical)"))
+    elif w.skipped:
+        # one line, not forty (first full loop, 2026-10-17: every refresh printed 38 `skipped` lines the owner had to
+        # read past to find the one `PROPOSED`); --verbose lists them
+        kinds = {"record": 0, "own": 0, "identical": 0}
+        for r in w.skipped:
+            kinds["record" if "record" in r else "own" if "project's own" in r else "identical"] += 1
+        parts = [f"{kinds['identical']} identical"] + ([f"{kinds['record']} record(s)"] if kinds["record"] else []) + \
+                ([f"{kinds['own']} the project's own"] if kinds["own"] else [])
+        print(f"  skipped  {len(w.skipped)} ({', '.join(parts)}; --verbose lists them)")
     for rel, diff in w.proposed:
         print(f"  PROPOSED {rel} differs from the rendering — NOT overwritten; see .reef/proposed/{rel}")
         print("".join("    " + l for l in diff.splitlines(True)), end="")

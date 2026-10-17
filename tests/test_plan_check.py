@@ -59,6 +59,23 @@ def run(root, *args):
     return subprocess.run([sys.executable, CHECK, root, *args], capture_output=True, text=True)
 
 
+class Quiet(unittest.TestCase):
+    def test_quiet_prints_fail_and_summary_only(self):
+        tmp = repo(tempfile.mkdtemp(prefix="reef-pc."))
+        r = run(tmp, "--quiet")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("OK   ", r.stdout)
+        self.assertRegex(r.stdout, r"\d+ checks, 0 failed")
+        with open(os.path.join(tmp, "tasks", "001-demo.md")) as f:
+            t = f.read()
+        with open(os.path.join(tmp, "tasks", "001-demo.md"), "w") as f:
+            f.write(t.replace("status: pending", "status: nonsense"))
+        r = run(tmp, "--quiet")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("FAIL", r.stdout)
+        self.assertNotIn("OK   ", r.stdout)
+
+
 class DoneFolderAndStatusAgree(unittest.TestCase):
     def test_done_folder_without_done_status_and_the_reverse_fail(self):
         # first contact (2026-10-17): 103 was merged and moved to done/ with `status: in-progress` and no Log line; the

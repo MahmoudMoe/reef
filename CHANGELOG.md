@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- Quiet by default: `reef-init` prints one `skipped N (…)` line (`--verbose` lists them); `reef-plan-check --quiet`
+  prints FAIL/WARN and the summary only, and the plan and plan-review skills run it so. First full loop: 38 skipped
+  lines per refresh, 24 OK lines per check, all read by the owner or the orchestrator.
 - `docs/design/usability-autopilot-plan.md`: what first contact showed about ease of use and autopilot maturity, what
   quantum-loop, Ralph Wiggum, claude-code-harness, spec-kit, BMAD, Superpowers and Claude Code 2.1 do, and the plan in
   two tracks with a mechanism and a measure per item (external runner, progress page, `reef-update`/`/reef:doctor`,

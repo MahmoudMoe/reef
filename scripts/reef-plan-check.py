@@ -164,7 +164,7 @@ FEATURE_GATE = ("ci", "local")
 
 def parse_args(argv):
     verify, feature, args = False, None, []
-    flags = {"digest": False, "needs_agent": False, "rules": False}
+    flags = {"digest": False, "needs_agent": False, "rules": False, "quiet": False}
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -176,6 +176,8 @@ def parse_args(argv):
             flags["needs_agent"] = True
         elif a == "--rules":
             flags["rules"] = True
+        elif a == "--quiet":
+            flags["quiet"] = True      # FAIL/WARN and the summary only: the OK lines are context the orchestrator does not need
         elif a == "--feature":
             if i + 1 >= len(argv) or not argv[i + 1].strip():
                 print("FAIL: --feature requires a feature slug")
@@ -994,9 +996,12 @@ def main():
             ok(f"{rel}: no open-questions heading")
 
     # report
-    for _, line in results:
+    for okd, line in results:
+        if okd and flags.get("quiet"):
+            continue
         print(line)
-    print(print_manual)
+    if not flags.get("quiet"):
+        print(print_manual)
     failed = sum(1 for okd, _ in results if not okd)
     print(f"{len(results)} checks, {failed} failed")
     if failed:

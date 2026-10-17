@@ -13,7 +13,22 @@ INIT = os.path.join(ROOT, "scripts", "reef-init.py")
 
 
 def init(root, *args):
-    return subprocess.run([sys.executable, INIT, "--root", root, *args], capture_output=True, text=True)
+    return subprocess.run([sys.executable, INIT, "--root", root, "--verbose", *args], capture_output=True, text=True)
+
+
+class QuietByDefault(unittest.TestCase):
+    def test_a_refresh_prints_one_skipped_line_unless_verbose(self):
+        # first full loop (2026-10-17): every refresh printed 38 `skipped` lines the owner read past to find one PROPOSED
+        d = node_project(tempfile.mkdtemp(prefix="reef-init-quiet."))
+        init(d)
+        r = subprocess.run([sys.executable, INIT, "--root", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = [l for l in r.stdout.splitlines() if l.startswith("  skipped")]
+        self.assertEqual(len(lines), 1, r.stdout)
+        self.assertRegex(lines[0], r"^  skipped  \d+ \(\d+ identical, \d+ record\(s\); --verbose lists them\)$")
+        self.assertIn("0 written, ", r.stdout)
+        v = init(d)
+        self.assertGreater(len([l for l in v.stdout.splitlines() if l.startswith("  skipped")]), 10, "--verbose lists every file")
 
 
 def read(root, rel):
