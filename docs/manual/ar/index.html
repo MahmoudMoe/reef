@@ -185,7 +185,7 @@
 <p><code>.reef/config.json</code> يُدمَج: المفاتيح الناقصة تُضاف بقيمها الافتراضية، وما ضبطته أنت لا يتغير. <code>.gitignore</code> وMakefile يُضاف إليهما سطر، ولا يُعاد كتابتهما. <code>CLAUDE.md</code> الذي كتبته أنت يبقى لك ولا يُقترح بديل. بوابات الإصدار الأمنية في مشروع موجود تأتي <strong>مقترحة</strong> في <code>.reef/proposed/</code> لا كـCI أحمر مفاجئ.</p>
 <h3>ثم <code>/reef-assess</code>: اليوم صفر لمشروع له تاريخ</h3>
 <p>يقرأ كيف يعمل مشروعك، وكيف كُتب، وكيف يُدفع: كل ادعاء إما <strong>Observed</strong> مع مسار يثبته أو <strong>Inferred</strong>. يقيس إلى أي حد يستطيع إطار كهذا أن يمسك بالمشروع، ثم <strong>يعيد معايرة</strong> مستنداتك إلى الشجرة تحت موافقة واحدة مجمَّعة: القرار يصير ADR، ومواصفة العمل المفتوح تصير مجلد ميزة وصفًا في الطابور، والمسرد يُدمَج، والمتكرر والقديم يذهب إلى <code>reef/archive/&lt;date&gt;/</code> بفهرسه. يُؤرشف ولا يحذف أبدًا، في commit واحد يعيده <code>git revert</code> واحد. ما يشير إليه الكود أو CI أو بناء التوثيق يبقى في مكانه. ومن تاريخ git يستنتج فروعك ومن يدمج واتفاقية الـcommit ويقترحها في الإعدادات.</p>
-<div class="note"><strong>الترقية من 0.5:</strong> أعد تشغيل <code>/reef-init</code>. يعمل <code>scripts/reef-migrate</code> أولًا ويضيف مفاتيح فقط، ويبقي <code>gates.test</code> كاسم بديل، ويكتب <code>.reef/version</code>. كل فحص جديد في 0.6 <strong>يحذّر</strong> على محتوى خُطط تحت 0.5 ولا يفشل إلا على محتوى خُطط تحت 0.6. التخطيط القديم (<code>.specify/constitution.md</code>، <code>docs/queue.md</code>، مجلد <code>tasks/</code> المسطح) يظل يعمل كما هو، والدستور الذي عندك يُشار إليه ولا يُكتب ثانٍ؛ وعندما تريد الشجرة، <code>python3 scripts/reef-migrate --layout</code> ينقلها في commit واحد تراجعه، مع إعادة كتابة الروابط. بعد ترقية الإضافة أعد <code>/reef-init</code>: السكربتات المتغيرة تُقترح لا تُستبدل، واقبلها فهي ملك Reef لا ملكك.</div>
+<div class="note"><strong>الترقية من 0.5</strong> (إن كان هذا أول استخدام لك لـReef فتجاوز هذه الملاحظة): أعد تشغيل <code>/reef-init</code>. يعمل <code>scripts/reef-migrate</code> أولًا ويضيف مفاتيح فقط، ويبقي <code>gates.test</code> كاسم بديل، ويكتب <code>.reef/version</code>. كل فحص جديد في 0.6 <strong>يحذّر</strong> على محتوى خُطط تحت 0.5 ولا يفشل إلا على محتوى خُطط تحت 0.6. التخطيط القديم (<code>.specify/constitution.md</code>، <code>docs/queue.md</code>، مجلد <code>tasks/</code> المسطح) يظل يعمل كما هو، والدستور الذي عندك يُشار إليه ولا يُكتب ثانٍ؛ وعندما تريد الشجرة، <code>python3 scripts/reef-migrate --layout</code> ينقلها في commit واحد تراجعه، مع إعادة كتابة الروابط. بعد ترقية الإضافة أعد <code>/reef-init</code>: السكربتات المتغيرة تُقترح لا تُستبدل، واقبلها فهي ملك Reef لا ملكك.</div>
 
 <h2 id="daily">5. الاستخدام اليومي</h2>
 <h3>الحلقة رسم بياني</h3>
@@ -195,21 +195,21 @@
   <g font-family="IBM Plex Sans Arabic, sans-serif" font-size="14" fill="currentColor" stroke="currentColor">
     <g fill="none" stroke-width="1.6">
       <circle cx="780" cy="115" r="34"/><circle cx="560" cy="55" r="34"/><circle cx="560" cy="175" r="34"/><circle cx="340" cy="115" r="34"/>
-      <rect x="120" y="20" width="150" height="70" rx="10" stroke-dasharray="4 4"/><rect x="120" y="140" width="150" height="70" rx="10" stroke-dasharray="4 4"/>
+      <rect x="30" y="20" width="250" height="70" rx="10" stroke-dasharray="4 4"/><rect x="30" y="140" width="250" height="70" rx="10" stroke-dasharray="4 4"/>
     </g>
     <g stroke-width="1.6" marker-end="url(#b)">
       <line x1="746" y1="100" x2="596" y2="62"/><line x1="746" y1="130" x2="596" y2="168"/>
       <line x1="526" y1="62" x2="376" y2="100"/><line x1="526" y1="168" x2="376" y2="130"/>
     </g>
     <g stroke="none" text-anchor="middle">
-      <text x="780" y="110">1</text><text x="780" y="128" font-size="11">done</text>
-      <text x="560" y="50">2</text><text x="560" y="68" font-size="11">in-progress</text>
-      <text x="560" y="170">3</text><text x="560" y="188" font-size="11">in-progress</text>
-      <text x="340" y="110">4</text><text x="340" y="128" font-size="11">waiting</text>
-      <text x="195" y="48" font-size="12">.reef/worktrees/2</text><text x="195" y="70" font-size="12">task/2-slug · resources: [db]</text>
-      <text x="195" y="168" font-size="12">.reef/worktrees/3</text><text x="195" y="190" font-size="12">task/3-slug · resources: [port:3000]</text>
+      <text x="780" y="110">1</text><text x="780" y="128" font-size="11" direction="ltr">done</text>
+      <text x="560" y="50">2</text><text x="560" y="68" font-size="11" direction="ltr">in-progress</text>
+      <text x="560" y="170">3</text><text x="560" y="188" font-size="11" direction="ltr">in-progress</text>
+      <text x="340" y="110">4</text><text x="340" y="128" font-size="11" direction="ltr">waiting</text>
+      <text x="155" y="48" font-size="12" direction="ltr" unicode-bidi="embed">.reef/worktrees/2</text><text x="155" y="70" font-size="12" direction="ltr" unicode-bidi="embed">task/2-slug · resources: [db]</text>
+      <text x="155" y="168" font-size="12" direction="ltr" unicode-bidi="embed">.reef/worktrees/3</text><text x="155" y="190" font-size="12" direction="ltr" unicode-bidi="embed">task/3-slug · resources: [port:3000]</text>
     </g>
-    <g stroke-width="1.2" stroke-dasharray="3 3"><line x1="526" y1="40" x2="270" y2="40"/><line x1="526" y1="190" x2="270" y2="190"/></g>
+    <g stroke-width="1.2" stroke-dasharray="3 3"><line x1="526" y1="40" x2="280" y2="40"/><line x1="526" y1="190" x2="280" y2="190"/></g>
   </g>
 </svg>
 <figcaption>المهمتان 2 و3 جاهزتان معًا بعد اكتمال 1 فتُرسَلان في الرسالة نفسها، كل واحدة في worktree خاص بها ومواردها معلنة. المهمة 4 تنتظر. الحارس يرفض إرسال 4 الآن، وأي مهمة ثانية تطلب <code>db</code> وهو محجوز.</figcaption>
@@ -262,24 +262,25 @@
 </tbody></table>
 
 <h2 id="mistakes">8. الأخطاء الشائعة وكيف تتجنبها</h2>
-<p>كلها وُجدت في مشاريع حقيقية، ولكل واحدة آلية أو سطر في <code>AGENTS.md</code> المولَّد، لا الاثنان معًا:</p>
-<table><thead><tr><th>الخطأ</th><th>ما يمنعه</th></tr></thead><tbody>
-<tr><td>جولات إصلاح بعد GREEN</td><td>سقف واحد للبند؛ <code>reef-claims.py claims-only</code>؛ BLOCKER أو صف جديد</td></tr>
-<tr><td>حقيقة مكررة تنحرف فتتعطل المراجعة على جملة خاطئة لا على عيب</td><td>مكان واحد لكل حقيقة؛ قائمة ادعاءات مربوطة بسطور الجولة (<code>reef-claims.py check</code>)</td></tr>
-<tr><td>خطة تُعدَّل بعد الموافقة أو بعد المراجعة</td><td>الموافقة والختم مربوطان ببصمة المجلد كله؛ الحارس يرفض الإرسال حتى تُسأل وتُراجَع من جديد</td></tr>
-<tr><td>الوكيل يكتب موافقته أو سجله بنفسه</td><td>الحارس يرفض أي كتابة تحت <code>.reef/approvals/</code> و<code>.reef/review/</code> إلا من الخطاف والسكربت</td></tr>
-<tr><td>دفعة كود بعد الحكم الأخضر ثم دمج</td><td>السجل مربوط برأس الـPR؛ تحت <code>merge.by: loop</code> يرفض الحارس <code>gh pr merge</code> بلا سجل لهذا الرأس</td></tr>
-<tr><td><code>git stash</code> مع worktrees متوازية (pop وكيل طبّق عمل وكيل آخر)</td><td>الحارس يرفضه</td></tr>
-<tr><td>بوابة عبر <code>| tail</code> فيختفي exit code</td><td>الحارس يرفضه؛ <code>reef-ci-local.sh</code> يقرأ كل كود مباشرة</td></tr>
-<tr><td>استعادة ملف مولَّد تحت خادم يعمل، أو إعادة توليد عميل مشترك من worktree</td><td><code>worktree.setup</code> لكل نسخة؛ سطر في AGENTS.md</td></tr>
-<tr><td>«لا أستطيع التحقق هنا» بلا فحص (كانت هناك قاعدة بيانات محلية)</td><td>المُحقّق يلصق ناتج الفحص قبل الجملة، أو يكتب <code>Not verified in a browser:</code> صراحة</td></tr>
-<tr><td>حارس ضُيِّق من «ارفض إلا المستثنى» إلى «اقبل إلا المذكور»</td><td>ملفات الحارس ومفاتيح <code>roles</code> و<code>caps</code> و<code>gates</code> و<code>tiers</code> لا تتغير إلا تحت مهمة critical؛ المرحلة العدائية تبحث عنها</td></tr>
-<tr><td>اختبار متخطَّى يُقرأ أخضر؛ فحص لا يعمل إلا على <code>main</code></td><td>exit 2 للتخطي؛ CI يشغّل نفس السكربت المحلي</td></tr>
-<tr><td>الدور ينتهي وهناك مهام جاهزة لم تُرسَل</td><td>خطاف الإيقاف يرفض إنهاء الدور ما دامت الحلقة نشطة وهناك عمل جاهز ولا شيء في الطريق</td></tr>
-<tr><td>CI مرتين لكل إصدار</td><td>لا <code>push:</code> في الـworkflow المولَّد</td></tr>
-<tr><td>دمج قبل التسليم النهائي للوكيل؛ توسع النطاق وسط الدفعة</td><td>سطر في AGENTS.md؛ الدفعة مجمَّدة بمادة في الدستور وقاعدة في الطابور</td></tr>
-<tr><td>وكلاء ثقال كثيرون على جهاز واحد</td><td><code>graph.parallel</code>، و<code>heavy</code> بفتحتين</td></tr>
-<tr><td>صفوف الطابور تعيش على فرع الميزة فلا تراها النبضة</td><td>الطابور له مكان واحد على فرع التكامل؛ فحص الخطة يفشل فرع ميزة طابوره يختلف عن أصله</td></tr>
+<p>هذا القسم لك أنت، صاحب المشروع: ما قد تفعله بحسن نية فيعطّل الحلقة أو يرفضه الحارس، ولماذا، وماذا تفعل بدله. أخطاء الوكلاء ليست شأنك؛ الحارس والبوابات تمنعها، والقسم 9 يشرح رسائلها.</p>
+<table><thead><tr><th>ما قد تفعله</th><th>لماذا يضر</th><th>افعل بدله</th></tr></thead><tbody>
+<tr><td>تعديل الخطة (المواصفة أو المهام أو القرارات) بعد الموافقة أو بعد المراجعة</td><td>الموافقة والختم مربوطان ببصمة المجلد كله، فيرفض الحارس الإرسال</td><td>عدّل، ثم أجب عن سؤال الموافقة من جديد وشغّل <code>/reef-plan-review</code></td></tr>
+<tr><td>تعديل <code>blocked-by</code> لتمرير مهمة تنتظر</td><td>تهدم الترتيب الذي لأجله الخطة، وتُبطل الختم</td><td>انتظر اكتمال الاعتمادية؛ وإن كانت الحافة وهمية فعدّلها وأعد المراجعة</td></tr>
+<tr><td>كتابة ملف موافقة أو سجل مراجعة باليد، أو الطلب من الوكيل أن يفعل</td><td>الحارس يرفض أي كتابة تحت <code>.reef/approvals/</code> و<code>.reef/review/</code>؛ السجل يكتبه الخطاف من جوابك أنت</td><td>أجب عن السؤال في المحادثة</td></tr>
+<tr><td><code>git stash</code> وبجانبك worktrees متوازية</td><td>قد يطبّق pop عمل وكيل على نسخة وكيل آخر؛ الحارس يرفضه</td><td>commit على فرع المهمة، أو worktree آخر</td></tr>
+<tr><td>تمرير البوابة عبر <code>| tail</code> أو <code>| grep</code>، أو <code>--no-verify</code></td><td>يختفي exit code فتمر بوابة حمراء؛ الحارس يرفضه</td><td>اقرأ exit code مباشرة؛ <code>scripts/reef-ci-local.sh</code> يفعل ذلك لك</td></tr>
+<tr><td>الدفع إلى فرع التكامل أثناء CI لـpull request الإصدار</td><td>يختلط ما يُختبر بما تغيّر، وتعاد CI من أولها</td><td>انتظر دمج الإصدار ثم ادفع</td></tr>
+<tr><td>دفع كود إلى PR الميزة بعد حكم GREEN ثم طلب الدمج</td><td>السجل الأخضر مربوط برأس الـPR القديم، فتُعاد المراجعة</td><td>بعد GREEN: commit ادعاءات فقط، أو BLOCKER، أو صف جديد</td></tr>
+<tr><td>طلب «مراجعة إضافية» على مهمة light، أو تخفيف طبقة مهمة حساسة</td><td>الطبقة لا تخف أبدًا؛ والمراجعة الزائدة على light تكلفة بلا عائد</td><td>ارفع الطبقة في ملف المهمة إن كان الخطر يستحق</td></tr>
+<tr><td>فك حظر مهمة عند السقف بإعادة التشغيل فقط</td><td>يُعاد الفشل نفسه، والعداد ما زال عند السقف</td><td>اقرأ الفشل المسجل وقرر: أعد التخطيط أو افتح صفًا جديدًا (القسم 9)</td></tr>
+<tr><td>نسخ رقم أو قاعدة في مكانين (AGENTS.md والدستور مثلًا)</td><td>ينحرف أحدهما، وتتعطل المراجعة على جملة خاطئة لا على عيب</td><td>مكان واحد: الأرقام في <code>.reef/config.json</code>، والباقي يشير إليه</td></tr>
+<tr><td>تغيير نموذج دور في ملفات الوكلاء</td><td>الحارس يفرض ما في الإعدادات عند الإرسال</td><td><code>tiers.&lt;tier&gt;.roles</code> في <code>.reef/config.json</code></td></tr>
+<tr><td>تعديل سكربتات Reef أو مفاتيح <code>roles</code> و<code>caps</code> و<code>gates</code> و<code>tiers</code> مباشرة</td><td>محمية؛ لا تتغير إلا تحت مهمة critical</td><td>افتح صفًا critical، أو اقبل مقترح <code>/reef-init</code> بـ<code>--accept</code></td></tr>
+<tr><td>إضافة صف إلى الطابور على فرع ميزة</td><td>النبضة لا تراه، وفحص الخطة يفشل فرعًا طابوره يختلف عن أصله</td><td>الطابور على فرع التكامل في النسخة الرئيسية فقط</td></tr>
+<tr><td>توسيع نطاق الدفعة في منتصفها</td><td>الدفعة مجمَّدة بمادة في الدستور وقاعدة في الطابور</td><td>العمل المكتشف يدخل الدفعة التالية بـ<code>Source: found</code></td></tr>
+<tr><td>لصق سجل CI كامل في المحادثة</td><td>يستهلك السياق وتقترب الجلسة من سقفها</td><td>اقرأ الكتلة الفاشلة التي تطبعها البوابة، والملف الكامل في <code>.reef/ci-local/</code></td></tr>
+<tr><td>تجاهل <code>/clear now</code> والاستمرار</td><td>الإرسالات مرفوضة عند السقف؛ لا شيء يتقدم</td><td><code>/clear</code>؛ الجلسة التالية تكمل من القرص</td></tr>
+<tr><td>استنساخ جديد بلا <code>make setup</code></td><td>الخطافات إعداد git محلي؛ بدونها تمر commits بلا بوابة محليًا</td><td><code>make setup</code> بعد كل استنساخ</td></tr>
 </tbody></table>
 
 <h2 id="trouble">9. حل المشاكل</h2>
