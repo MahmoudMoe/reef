@@ -1,0 +1,391 @@
+#!/usr/bin/env python3
+# CLASS: code
+"""Reef graph run — the task graph as a Claude Code WORKFLOW (dynamic workflow, 2.1.29x+): every ready task runs
+implementer → gate → verifier ‖ hunter as a pipeline in the background, in fresh contexts, and the orchestrator reads
+ONE summary instead of one agent result per 90k-context turn (workflow v2, phase 3; measured 2026-10-17: a task cost
+the orchestrator 25 turns and 49k of growth in chat mode).
+
+Usage:
+  reef-graph-run.py probe       [--repo DIR]          write .reef/graph/probe.js — ONE workflow agent tries a forbidden write
+  reef-graph-run.py probe-check <results.json> [--repo DIR]
+                                                      the probe's return value: the guard denied it AND no file exists →
+                                                      .reef/graph/gate.json ok; anything else → graph mode stays OFF
+  reef-graph-run.py generate    [--repo DIR] [--tasks 101,102]
+                                                      the tick's `dispatch now` tasks (or --tasks): worktree + reef-attempt
+                                                      per task (the same checks and markers as chat mode), then
+                                                      .reef/graph/run-<hash>.js — the script the orchestrator hands to
+                                                      the Workflow tool (scriptPath). Refused while gate.json is not ok.
+  reef-graph-run.py settle      <results.json> [--repo DIR]
+                                                      the workflow's return value: per task, the gate exit, the hand-back
+                                                      check, the snapshot before and after the judges, the verdicts and
+                                                      report files → the report checks and the guard-pass record run here;
+                                                      READY TO MERGE <id> or FAIL <id>: <why> (attempt counted)
+
+Why a script and not the chat: a workflow script has no filesystem and runs only agents, so every mechanical step
+(reef-attempt, the gate, the snapshot, reef-claims) is done by a `reef:mechanic` agent inside the pipeline or by
+this script before and after. What the chat orchestrator keeps: the merge (single writer on the feature branch) and
+the owner's questions.
+
+The GATE (fail closed): Claude Code's PreToolUse hooks — reef-guard — must apply to workflow agents, or a workflow
+is a way around every denial. The probe proves it on this machine before any real run; the probe's record is
+.reef/graph/gate.json and `generate` refuses without it. Dispatch-time checks the guard makes on a Task call
+(approval record, review record, model pin, in-flight marker) happen here at generation instead, through
+reef-plan-check --verify-stamp and reef-attempt.
+Exit 0 ok · 1 refused / a task failed · 2 usage.
+"""
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+GRAPH_DIR = os.path.join(".reef", "graph")
+
+
+def die(msg, code=2):
+    print(f"reef-graph-run: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def root_of(repo):
+    r = subprocess.run(["git", "-C", repo, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else os.path.abspath(repo)
+
+
+def run(args, cwd, timeout=120):
+    r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    return r.returncode, r.stdout, r.stderr
+
+
+def script(root, name):
+    p = os.path.join(root, "scripts", name)
+    return p if os.path.isfile(p) else os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+
+
+def gate_ok(root):
+    try:
+        with open(os.path.join(root, GRAPH_DIR, "gate.json"), encoding="utf-8") as f:
+            g = json.load(f)
+        return bool(g.get("ok"))
+    except Exception:
+        return False
+
+
+def js_str(s):
+    return json.dumps(s)
+
+
+# ---------------------------------------------------------------- probe
+
+PROBE_SCHEMA = {"type": "object", "properties": {"denied": {"type": "boolean"}, "output": {"type": "string"}}, "required": ["denied", "output"]}
+
+
+def cmd_probe(root):
+    prompt = (f"You are a probe, not a worker. In the repository at {root} run EXACTLY this one shell command and nothing else: "
+              f"printf '{{}}' > .reef/approvals/graph-probe.json . Then run: ls .reef/approvals/ . "
+              f"Return denied=true if the first command was refused by a hook (its output names reef-guard or says DENY), "
+              f"denied=false if it ran. Put both commands' full output in `output`. Do not retry, do not work around a refusal.")
+    js = f"""export const meta = {{
+  name: 'reef-graph-probe',
+  description: 'Reef graph mode gate: does reef-guard deny a forbidden write made by a workflow agent?',
+  phases: [{{ title: 'Probe' }}],
+}}
+const PROBE = {json.dumps(PROBE_SCHEMA)}
+phase('Probe')
+const r = await agent({js_str(prompt)}, {{ label: 'probe:forbidden-write', phase: 'Probe', agentType: 'reef:mechanic', schema: PROBE }})
+return r
+"""
+    d = os.path.join(root, GRAPH_DIR)
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, "probe.js")
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(js)
+    print(f"probe: {p}")
+    print("next: call the Workflow tool with scriptPath set to that file; save its return value as JSON to .reef/graph/probe-results.json; "
+          "then `reef-graph-run.py probe-check .reef/graph/probe-results.json`")
+    return 0
+
+
+def cmd_probe_check(root, results_path):
+    try:
+        with open(results_path, encoding="utf-8") as f:
+            res = json.load(f)
+    except Exception as e:
+        die(f"cannot read the probe's results: {e}", 1)
+    leaked = os.path.join(root, ".reef", "approvals", "graph-probe.json")
+    exists = os.path.isfile(leaked)
+    denied = bool(isinstance(res, dict) and res.get("denied"))
+    d = os.path.join(root, GRAPH_DIR)
+    os.makedirs(d, exist_ok=True)
+    ok = denied and not exists
+    with open(os.path.join(d, "gate.json"), "w", encoding="utf-8") as f:
+        json.dump({"ok": ok, "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "denied": denied, "file_existed": exists}, f, indent=1)
+    if exists:
+        os.unlink(leaked)   # a hand-written approval record for a feature that does not exist: never left in the tree
+    if ok:
+        print("GATE OK: reef-guard denied the workflow agent's forbidden write and no file was created — graph mode may run (.reef/graph/gate.json)")
+        return 0
+    why = "the file .reef/approvals/graph-probe.json was created (removed now)" if exists else "the agent reports the write was not denied"
+    print(f"GATE FAILED: {why} — PreToolUse hooks do not reach workflow agents on this machine; graph mode stays OFF (generate refuses). "
+          f"Chat mode (/reef-task) keeps every guarantee.")
+    return 1
+
+
+# ---------------------------------------------------------------- generate
+
+SNAP_SCHEMA = {"type": "object", "properties": {"gate_exit": {"type": "integer"}, "handback_check": {"type": "string"}, "snapshot": {"type": "string"},
+                                                "notes": {"type": "string"}}, "required": ["gate_exit", "handback_check", "snapshot"]}
+RESNAP_SCHEMA = {"type": "object", "properties": {"snapshot": {"type": "string"}}, "required": ["snapshot"]}
+JUDGE_SCHEMA = {"type": "object", "properties": {"verdict": {"type": "string", "enum": ["PASS", "FAIL"]}, "report_path": {"type": "string"},
+                                                 "summary": {"type": "string"}}, "required": ["verdict", "report_path"]}
+MODELS = {"opus", "sonnet", "haiku"}
+
+
+def ready_tasks(root, only):
+    rc, out, err = run([sys.executable, script(root, "reef-loop.py"), "tick", "--json", "--repo", root], root)
+    if rc != 0:
+        die(f"tick failed: {err.strip() or out.strip()}", 1)
+    state = json.loads(out)
+    ids = [str(x) for x in state.get("dispatch_now", [])]
+    if only:
+        ids = [i for i in ids if i in only]
+        missing = [i for i in only if i not in ids]
+        if missing:
+            print(f"skipped (not in the tick's dispatch now — blocked, in flight, or awaiting): {', '.join(missing)}")
+    paths = {}
+    rc, out, _ = run([sys.executable, script(root, "reef-graph.py"), "ready", "--json", "--root", root], root)
+    for t in (json.loads(out) if rc == 0 and out.strip() else []):
+        paths[str(t["id"])] = t["path"]
+    # feature worktrees hold their own ready tasks (the tick saw them the same way)
+    rc, wt, _ = run(["git", "worktree", "list", "--porcelain"], root)
+    for l in wt.splitlines():
+        if l.startswith("worktree ") and os.path.realpath(l[9:].strip()) != os.path.realpath(root):
+            w = l[9:].strip()
+            rc, out, _ = run([sys.executable, script(root, "reef-graph.py"), "ready", "--json", "--root", w], w)
+            for t in (json.loads(out) if rc == 0 and out.strip() else []):
+                paths.setdefault(str(t["id"]), t["path"])
+    return [(i, paths.get(i)) for i in ids], state
+
+
+def mark_dispatched(root, task_path, tid):
+    """What the guard does on an allowed Task dispatch (reef-guard check_dispatch): the task becomes in-progress, its
+    dispatch odometer moves, and .reef/inflight/<id> is written in the main checkout — so the tick, the Stop hook
+    and the reviewer lock see a graph-mode task exactly as a chat-mode one."""
+    with open(task_path, encoding="utf-8", newline="") as f:
+        text = f.read()
+    m = re.match(r"\A---\r?\n(.*?\r?\n)---\r?\n", text, re.S)
+    fm = m.group(1) if m else ""
+    feature = (re.search(r"^feature:[ \t]*(\S+)", fm, re.M) or [None, ""])[1]
+    tier = (re.search(r"^tier:[ \t]*(\S+)", fm, re.M) or [None, "full"])[1]
+    if m:
+        new_fm = re.sub(r"^status:.*$", "status: in-progress", fm, count=1, flags=re.M)
+        dm = re.search(r"^dispatches:[ \t]*(\d+)", new_fm, re.M)
+        if dm:
+            new_fm = new_fm[:dm.start()] + f"dispatches: {int(dm.group(1)) + 1}" + new_fm[dm.end():]
+        if new_fm != fm:
+            with open(task_path, "w", encoding="utf-8", newline="") as f:
+                f.write(text[:m.start(1)] + new_fm + text[m.end(1):])
+    d = os.path.join(root, ".reef", "inflight")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, str(tid)), "w", encoding="utf-8") as f:
+        json.dump({"id": tid, "task": os.path.abspath(task_path), "feature": feature, "tier": tier, "agent": "reef:implementer (workflow)",
+                   "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f)
+
+
+def attempt_lines(root, task_path):
+    rc, out, err = run([sys.executable, script(root, "reef-attempt"), task_path], os.path.dirname(task_path), timeout=120)
+    return rc, out, err
+
+
+def cmd_generate(root, only):
+    if not gate_ok(root):
+        die("graph mode is OFF: no .reef/graph/gate.json with ok=true — run `reef-graph-run.py probe`, hand .reef/graph/probe.js to the "
+            "Workflow tool, then `probe-check` its return value. Chat mode (/reef-task) keeps every guarantee meanwhile.", 1)
+    tasks, state = ready_tasks(root, only)
+    if not tasks:
+        print("nothing to dispatch: the tick's `dispatch now` is empty")
+        return 1
+    report_dir = os.path.join("/tmp", f"reef-graph-{hashlib.sha1(root.encode()).hexdigest()[:8]}")
+    os.makedirs(report_dir, exist_ok=True)
+    items, skipped = [], []
+    for tid, path in tasks:
+        if not path or not os.path.isfile(path):
+            skipped.append(f"{tid}: task file not found")
+            continue
+        tdir = os.path.dirname(os.path.dirname(os.path.abspath(path))) if os.path.basename(os.path.dirname(path)) == "tasks" else os.path.dirname(os.path.abspath(path))
+        checkout = root_of(tdir)
+        rc, wout, werr = run([sys.executable, script(root, "reef-graph.py"), "worktree", path], checkout, timeout=600)
+        m = re.search(r"^worktree:\s*(\S+)", wout, re.M)
+        if rc != 0 or not m:
+            skipped.append(f"{tid}: worktree: {(werr or wout).strip().splitlines()[-1] if (werr or wout).strip() else rc}")
+            continue
+        worktree = m.group(1) if os.path.isabs(m.group(1)) else os.path.join(checkout, m.group(1))
+        rc, aout, aerr = attempt_lines(root, path)
+        if rc != 0:
+            skipped.append(f"{tid}: reef-attempt: {(aerr or aout).strip().splitlines()[-1] if (aerr or aout).strip() else rc}")
+            continue
+        get = lambda key: (re.search(rf"^{re.escape(key)}:\s*(.+)$", aout, re.M) or [None, ""])[1].strip() if re.search(rf"^{re.escape(key)}:", aout, re.M) else ""
+        author_model = (re.search(r"model=(\w+)", get("author")) or [None, ""])[1]
+        verifier_model = (re.search(r"model=(\w+)", get("verifier")) or [None, ""])[1]
+        adversary_model = (re.search(r"model=(\w+)", get("adversary")) or [None, ""])[1]
+        effort = (re.search(r"effort=(\w+)", get("dispatch")) or [None, ""])[1]
+        reef_task = f"REEF-TASK: {os.path.abspath(path)}"
+        mark_dispatched(root, path, tid)
+        judge = bool(get("verifier"))
+        hunter = bool(get("adversary"))
+        items.append({
+            "id": tid, "task": os.path.abspath(path), "worktree": worktree, "checkout": checkout,
+            "judge": judge, "hunter": hunter,
+            "author_model": author_model if author_model in MODELS else None, "verifier_model": verifier_model if verifier_model in MODELS else None,
+            "adversary_model": adversary_model if adversary_model in MODELS else None, "effort": effort or None,
+            "implement_prompt": f"{reef_task}\nEffort: {effort or 'medium'}. Work in the worktree {worktree} (the task's own checkout; the task file stays where it is). "
+                                f"Write your hand-back FILE to {worktree}/.reef/ci-local/handback-{tid}.md before your final message (writing.handback_words; evidence only); "
+                                f"return that path and the RUN line only.",
+            "gate_prompt": f"{reef_task}\nMechanic, in {worktree}: (1) python3 scripts/reef-claims.py check --handback .reef/ci-local/handback-{tid}.md — put its first line in handback_check; "
+                           f"(2) sh scripts/reef-gate.sh fast --failures — put its exit code in gate_exit and, if it failed, the failing block (under 60 lines) in notes; "
+                           f"(3) sh scripts/reef-snapshot.sh — put the hash it prints in snapshot. Change no file. Return the JSON only.",
+            "verifier_prompt": f"{reef_task}\n{get('report') or ''}\nVerify the task's work in the worktree {worktree} (read-only). Write your report FILE to "
+                               f"{report_dir}/report-{tid}-verifier.md before your final message; return verdict and report_path.",
+            "hunter_prompt": f"{reef_task}\n{get('hunter-report') or ''}\nGuard pass on the finished code in the worktree {worktree} (read-only): how can every check be green while "
+                             f"the defect happens? Write your report FILE to {report_dir}/report-{tid}-hunter.md before your final message; return verdict (FAIL iff a BLOCKER) and report_path.",
+            "resnap_prompt": f"{reef_task}\nMechanic, in {worktree}: run sh scripts/reef-snapshot.sh and return the hash it prints as snapshot. Change no file.",
+        })
+    for s in skipped:
+        print(f"skipped {s}")
+    if not items:
+        return 1
+    tasks_json = json.dumps(items, indent=1)
+    js = f"""export const meta = {{
+  name: 'reef-graph',
+  description: 'Reef task graph: implementer, gate, verifier and hunter per ready task, as a pipeline in fresh contexts',
+  phases: [{{ title: 'Implement' }}, {{ title: 'Gate' }}, {{ title: 'Judge' }}, {{ title: 'Snapshot' }}],
+}}
+const TASKS = {tasks_json}
+const SNAP = {json.dumps(SNAP_SCHEMA)}
+const RESNAP = {json.dumps(RESNAP_SCHEMA)}
+const JUDGE = {json.dumps(JUDGE_SCHEMA)}
+const opt = (o) => Object.fromEntries(Object.entries(o).filter(([k, v]) => v !== null && v !== undefined))
+log(`reef graph: ${{TASKS.length}} task(s): ${{TASKS.map(t => t.id).join(', ')}}`)
+const results = await pipeline(TASKS,
+  t => agent(t.implement_prompt, opt({{ label: `implement:${{t.id}}`, phase: 'Implement', agentType: 'reef:implementer', model: t.author_model, effort: t.effort }}))
+        .then(text => ({{ implementer: text }})),
+  (r, t) => agent(t.gate_prompt, {{ label: `gate:${{t.id}}`, phase: 'Gate', agentType: 'reef:mechanic', schema: SNAP, effort: 'low' }})
+        .then(g => ({{ ...r, gate: g }})),
+  (r, t) => {{
+    if (!r.gate || r.gate.gate_exit !== 0 || !t.judge) return Promise.resolve({{ ...r, judges: [] }})
+    const thunks = [() => agent(t.verifier_prompt, opt({{ label: `verify:${{t.id}}`, phase: 'Judge', agentType: 'reef:verifier', schema: JUDGE, model: t.verifier_model }})).then(v => ({{ role: 'verifier', ...v }}))]
+    if (t.hunter) thunks.push(() => agent(t.hunter_prompt, opt({{ label: `hunt:${{t.id}}`, phase: 'Judge', agentType: 'reef:loophole-hunter', schema: JUDGE, model: t.adversary_model }})).then(h => ({{ role: 'hunter', ...h }})))
+    return parallel(thunks).then(js => ({{ ...r, judges: js.filter(Boolean) }}))
+  }},
+  (r, t) => (r.judges && r.judges.length
+      ? agent(t.resnap_prompt, {{ label: `snapshot:${{t.id}}`, phase: 'Snapshot', agentType: 'reef:mechanic', schema: RESNAP, effort: 'low' }}).then(s => s.snapshot)
+      : Promise.resolve(r.gate ? r.gate.snapshot : null))
+    .then(after => ({{ task: t.id, worktree: t.worktree, task_file: t.task, judge: t.judge, hunter: t.hunter, gate: r.gate || null, judges: r.judges || [], snapshot_after: after }}))
+)
+return {{ tasks: results.filter(Boolean), skipped: TASKS.length - results.filter(Boolean).length }}
+"""
+    d = os.path.join(root, GRAPH_DIR)
+    os.makedirs(d, exist_ok=True)
+    h = hashlib.sha1(tasks_json.encode()).hexdigest()[:10]
+    p = os.path.join(d, f"run-{h}.js")
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(js)
+    print(f"graph: {len(items)} task(s): {', '.join(i['id'] for i in items)}  reports: {report_dir}")
+    print(f"script: {p}")
+    print(f"next: call the Workflow tool with scriptPath {p}; save its return value as JSON to .reef/graph/results-{h}.json; then `reef-graph-run.py settle` that file")
+    return 0
+
+
+# ---------------------------------------------------------------- settle
+
+def cmd_settle(root, results_path):
+    try:
+        with open(results_path, encoding="utf-8") as f:
+            res = json.load(f)
+    except Exception as e:
+        die(f"cannot read the results: {e}", 1)
+    tasks = res.get("tasks") if isinstance(res, dict) else None
+    if not isinstance(tasks, list):
+        die("results hold no `tasks` list — save the Workflow tool's return value as it came", 1)
+    failed = 0
+    for r in tasks:
+        tid, task_file, wt = str(r.get("task")), r.get("task_file") or "", r.get("worktree") or ""
+        marker = os.path.join(root, ".reef", "inflight", tid)
+        if os.path.isfile(marker):
+            os.unlink(marker)   # handed back: the task is no longer in flight (chat mode: /reef-task removes it on the hand-back)
+        gate = r.get("gate") or {}
+        why = []
+        if not os.path.isfile(task_file):
+            why.append("task file missing")
+        if gate.get("gate_exit") != 0:
+            why.append(f"gate exit {gate.get('gate_exit')}" + (f": {str(gate.get('notes'))[:120]}" if gate.get("notes") else ""))
+        if not str(gate.get("handback_check", "")).lower().startswith("ok"):
+            why.append(f"hand-back: {str(gate.get('handback_check'))[:100] or 'not checked'}")
+        if r.get("judge"):
+            judges = {j.get("role"): j for j in (r.get("judges") or []) if isinstance(j, dict)}
+            if "verifier" not in judges:
+                why.append("no verifier verdict")
+            if r.get("hunter") and "hunter" not in judges:
+                why.append("no hunter verdict")
+            if gate.get("snapshot") and r.get("snapshot_after") and gate.get("snapshot") != r.get("snapshot_after"):
+                why.append(f"the tree changed while the judges read it ({gate.get('snapshot')[:12]} → {str(r.get('snapshot_after'))[:12]})")
+            for role, j in judges.items():
+                rp = j.get("report_path") or ""
+                if not os.path.isfile(rp):
+                    why.append(f"{role} report file missing ({rp})")
+                    continue
+                dest = os.path.join(wt, ".reef", "ci-local", f"report-{tid}{'' if role == 'verifier' else '-hunter'}.md")
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                with open(rp, "rb") as a, open(dest, "wb") as b:
+                    b.write(a.read())   # a copy: the agent's words unchanged
+                if role == "verifier":
+                    rc, out, err = run([sys.executable, script(root, "reef-claims.py"), "report", dest, "--task", task_file], root)
+                    if rc != 0:
+                        why.append(f"verifier report rejected: {(out or err).strip().splitlines()[0][:120] if (out or err).strip() else rc}")
+                if j.get("verdict") != "PASS":
+                    why.append(f"{role}: {j.get('verdict')} — {str(j.get('summary', ''))[:140]}")
+                elif role == "hunter":
+                    rc, out, err = run([sys.executable, script(root, "reef-adversarial"), task_file, "guard", dest], root)
+                    if rc != 0:
+                        why.append(f"guard-pass record refused: {err.strip().splitlines()[-1][:140] if err.strip() else rc}")
+        if why:
+            failed += 1
+            reason = "; ".join(why)
+            print(f"FAIL {tid}: {reason}")
+            if os.path.isfile(task_file) and not any(w.startswith(("task file", "no verifier", "no hunter")) for w in why):
+                run([sys.executable, script(root, "reef-attempt"), task_file, reason[:300]], os.path.dirname(task_file))
+        else:
+            print(f"READY TO MERGE {tid} ({wt}) — /reef-task step 4: commit in the worktree, merge --no-ff into the feature branch, status done, journal row")
+    return 1 if failed else 0
+
+
+def main(argv):
+    repo = argv[argv.index("--repo") + 1] if "--repo" in argv else "."
+    if "--repo" in argv:
+        i = argv.index("--repo")
+        argv = argv[:i] + argv[i + 2:]
+    root = root_of(repo)
+    if not argv:
+        die("usage: reef-graph-run.py probe | probe-check <results.json> | generate [--tasks a,b] | settle <results.json>  [--repo DIR]")
+    cmd = argv[0]
+    # a results path given relative to the project (as the `next:` lines print it) resolves against the project
+    if len(argv) >= 2 and not os.path.isabs(argv[1]) and not os.path.isfile(argv[1]) and os.path.isfile(os.path.join(root, argv[1])):
+        argv[1] = os.path.join(root, argv[1])
+    if not os.path.isfile(os.path.join(root, ".reef", "config.json")):
+        die(f"{root} is not a Reef project (no .reef/config.json)")
+    if cmd == "probe":
+        return cmd_probe(root)
+    if cmd == "probe-check" and len(argv) >= 2:
+        return cmd_probe_check(root, argv[1])
+    if cmd == "generate":
+        only = argv[argv.index("--tasks") + 1].split(",") if "--tasks" in argv else None
+        return cmd_generate(root, [x.strip() for x in only] if only else None)
+    if cmd == "settle" and len(argv) >= 2:
+        return cmd_settle(root, argv[1])
+    die(f"unknown command {cmd!r}")
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

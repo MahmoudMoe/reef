@@ -176,7 +176,30 @@ def feature_rows(path):
                     turn_ctx.append(ctx(msg["usage"]))
                     turn_of[rid] = len(turn_pos)
                 for b in content if isinstance(content, list) else []:
-                    if not (isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ("Task", "Agent")):
+                    if not isinstance(b, dict) or b.get("type") != "tool_use":
+                        continue
+                    if b.get("name") == "Workflow":
+                        # graph mode (v2 phase 3): one Workflow call runs many tasks; its script (inline or at scriptPath,
+                        # written by reef-graph-run) carries their REEF-TASK: lines — each is a dispatch of role `workflow`
+                        inp = b.get("input") or {}
+                        src = inp.get("script") or ""
+                        sp = inp.get("scriptPath")
+                        if not src and isinstance(sp, str) and os.path.isfile(sp):
+                            try:
+                                with open(sp, encoding="utf-8", errors="replace") as sf:
+                                    src = sf.read()
+                            except OSError:
+                                src = ""
+                        for tpath in sorted(set(re.findall(r"REEF-TASK:[ \t]*([^\s\\\"]+)", src))):
+                            feat_w = feature_slug(f"REEF-TASK: {tpath}")
+                            turn_w = turn_of.get(rid, max(len(turn_pos), 1))
+                            if feat_w:
+                                dispatches.append((feat_w, b.get("id"), turn_w, "workflow", False))
+                            tid_w = re.match(r"^(R?\d+)", os.path.basename(tpath))
+                            if tid_w:
+                                task_dispatches.append((tid_w.group(1), "workflow", b.get("id"), turn_w))
+                        continue
+                    if b.get("name") not in ("Task", "Agent"):
                         continue
                     prompt = (b.get("input") or {}).get("prompt")
                     feat = feature_slug(prompt) if isinstance(prompt, str) else None
