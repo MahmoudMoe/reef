@@ -722,7 +722,7 @@ def check_single_rollup(path, fm):
 
 
 # subagent name -> the .reef/config.json roles.* key whose model it must run on. The owner's
-# routing (2026-10-04): fable plans, opus writes/attacks/verifies/reviews, sonnet does light
+# routing (2026-10-04, opus everywhere since 2026-10-17): opus plans, writes, attacks, verifies and reviews; sonnet does light
 # mechanical work. Each project overrides per role; an unset role is not checked.
 ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "plan_reviewer",
            "loophole-hunter": "adversary", "mechanic": "mechanic", "Explore": "mechanic"}

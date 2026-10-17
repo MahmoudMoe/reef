@@ -4,7 +4,7 @@
 Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
 - Checks task files, ADRs, brief, and .reef/config.json for structural defects. No model, no network.
 - One line per check: OK / FAIL: <what and where>. Exit 0 = all pass, 1 = at least one FAIL.
-  On success the last line names the plan-reviewer's model (roles.plan_reviewer, default fable).
+  On success the last line names the plan-reviewer's model (roles.plan_reviewer, default opus).
 - On success writes <tasks>/.plan-review.json: one sha256 PER FEATURE over that feature's task
   files plus the ADRs, and the check count. The stamp is per-worktree state and must be
   gitignored (a tracked stamp is a FAIL). The hash covers what PLANNING wrote, not what
@@ -1008,7 +1008,7 @@ def main():
         json.dump({"features": digests, "checks": len(results), "planned_under": planned}, f, indent=2, sort_keys=True)
         f.write("\n")
     # the plan-reviewer's model comes from the heaviest tier among the stamped features' tasks
-    # (tiers.<tier>.roles.plan_reviewer, then roles.plan_reviewer, then fable); "none" on an
+    # (tiers.<tier>.roles.plan_reviewer, then roles.plan_reviewer, then opus); "none" on an
     # all-light plan means the deterministic check alone stamps
     roles = cfg.get("roles", {}) if isinstance(cfg.get("roles", {}), dict) else {}
     tiers_cfg = cfg.get("tiers", {}) if isinstance(cfg.get("tiers", {}), dict) else {}
@@ -1016,7 +1016,7 @@ def main():
                if not os.path.basename(rel).startswith("R") and (feature_filter is None or fm.get("feature") == feature_filter)]
     heaviest = max(present, key=lambda t: TIER_ORDER.index(t) if t in TIER_ORDER else 1, default="full")
     trole = (tiers_cfg.get(heaviest, {}) or {}).get("roles", {}) if isinstance(tiers_cfg.get(heaviest, {}), dict) else {}
-    model = str((trole or {}).get("plan_reviewer") or roles.get("plan_reviewer") or "fable")
+    model = str((trole or {}).get("plan_reviewer") or roles.get("plan_reviewer") or "opus")
     if model.lower() == "none":
         print(f"plan-reviewer: none (heaviest tier {heaviest}: the deterministic check alone stamps)")
         sys.exit(3 if flags["needs_agent"] else 0)

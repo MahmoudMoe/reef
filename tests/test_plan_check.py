@@ -581,7 +581,7 @@ class Config(unittest.TestCase):
 
     def test_plan_reviewer_model_defaults_to_agent_default(self):
         r = self.check(None, True)
-        self.assertIn("plan-reviewer: model=fable", r.stdout)
+        self.assertIn("plan-reviewer: model=opus", r.stdout)
 
 
 class MaxWords(unittest.TestCase):

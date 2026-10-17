@@ -144,9 +144,9 @@ guard on mismatch — `tiers.<tier>` in `.reef/config.json`, every key overridab
 
 | Tier | Meaning | planner / plan_reviewer / adversary / verifier / reviewer / security | author | effort | verify |
 |---|---|---|---|---|---|
-| `critical` | first-time analysis, architecture, constitution, threat model, `touches: money|pii|auth`, the guard paths | fable | opus (set fable per project) | high | judge; adversary on plan and on guard |
-| `design` | two people would build it differently; a mechanism that failed twice | fable / fable / opus / opus / opus / opus | opus | high | judge; adversary twice |
-| `full` | the default | fable / fable / opus / opus / opus / opus | opus | medium | judge |
+| `critical` | first-time analysis, architecture, constitution, threat model, `touches: money|pii|auth`, the guard paths | opus | opus (set a heavier model per project) | high | judge; adversary on plan and on guard |
+| `design` | two people would build it differently; a mechanism that failed twice | opus / opus / opus / opus / opus / opus | opus | high | judge; adversary twice |
+| `full` | the default | opus / opus / opus / opus / opus / opus | opus | medium | judge |
 | `light` | allowlisted paths, no risk path, under the line ceiling | plan_reviewer **none** (the deterministic check alone stamps) | opus (**sonnet not shipped**: unproven by the eval) | low | gate + golden test, no judge |
 
 Agent files carry a DEFAULT model equal to the role's default; the dispatch-time model always overrides it. Effort
@@ -178,7 +178,7 @@ seven NEW-ROWs. Its eval: catch-rate 1.00, precision 1.00, false-FAIL 0.17 at k=
 | **`tiers.<tier>.roles` / `.effort` / `.paths`** | the table above; design paths auth/crypto/secrets/migrations; critical paths `.githooks/**`, `scripts/reef-*`, `hooks/**`, `.reef/config.json` | model per role, effort, path classes that force the tier |
 | `tiers.light.allow` / `max_lines` / `migrations` | `docs/**, README.md` / `80` / migration dirs | what may be light |
 | `graph.parallel` · `resources.<name>.slots` · `worktree.dir` / `worktree.setup` | `10` · `1` (`heavy` 2) · `.reef/worktrees` / stack install | as in 0.5 |
-| `roles.*` | author opus · verifier opus · plan_reviewer fable · planner fable · adversary opus · reviewer opus · security opus · mechanic sonnet | the fallback when the tier table does not name the role |
+| `roles.*` | author opus · verifier opus · plan_reviewer opus · planner opus · adversary opus · reviewer opus · security opus · mechanic sonnet | the fallback when the tier table does not name the role |
 | `merge.by` · `ci.feature_gate` · `branches.base` / `branches.release` | `human` · `ci` · `main` / `main` (init: `develop` / `main`) | as in 0.5; `ci.check_name` (`every gate, once`) names the required check for `reef-repo` |
 | **`paths.features`** · `paths.tasks` / `adr` / `glossary` / `runlog` / `queue` | `reef/features` (0.6 tree) · 0.5 locations for a 0.5 project, `reef/…` for a 0.6 one | where things live; the loaders accept either shape |
 | `plan.test_re` / `plan.max_words` / **`plan.max_tasks`** | `""` / `0` / `12` | test-name override / task word cap / split a feature above this |
@@ -245,7 +245,7 @@ Task|Agent · Edit|Write|MultiEdit; PostToolUse AskUserQuestion; Stop; SessionSt
 
 ## Selftests
 
-`sh tests/run.sh` — 439 sabotage and contract tests (350 Python + 89 shell, as the suite runs them). Every mechanism in
+`sh tests/run.sh` — 440 sabotage and contract tests (351 Python + 89 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
 script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials

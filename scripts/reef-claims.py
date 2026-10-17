@@ -18,6 +18,7 @@ Usage:
       (a path:line, a test name or a command) on every PASS/FAIL line, and writing.report_words when set
       (0 = unmeasured: warn only). Exit 1 names what is missing.
   reef-claims.py claims-only <base>..<head> [--repo DIR]
+  reef-claims.py blocking-fixed <plan-review-report> <since-rev> [--repo DIR]   every BLOCKING path:line changed since <since-rev>
       Exit 0 iff the range, stripped of documentation files and of comment/blank lines, is
       EMPTY — the only commit allowed after a GREEN verdict. Exit 1 names the first code
       lines that make it a code change (then it is a BLOCKER or a new queue row, never a
@@ -261,6 +262,61 @@ DIMENSIONS = ("type safety", "module boundaries", "framework opinionation", "tes
 PROOF = re.compile(r"`[^`]+`|[\w./-]+\.[A-Za-z]+:\d+|\b[\w./-]+/[\w./-]+\b")
 
 
+CITE = re.compile(r"(?<![\w/])((?:[\w.-]+/)*[\w.-]+\.(?:md|ts|tsx|js|py|json|yml|yaml|toml|sh|mts))[:#](\d+)")
+
+
+def cmd_blocking_fixed(repo, report_path, since):
+    """Every `path:line` a plan review's BLOCKING section cites must have changed since <since> (the HEAD before the
+    orchestrator applied the fixes): the cited line's text, as it was in <since>, is no longer in the file. First contact
+    (2026-10-17): one cited line (an ADR's Consequences) was left as it was, the fresh reviewer failed on it again, and
+    the round rule stopped the loop — a 4-minute review spent on a one-line miss a grep would have caught."""
+    try:
+        with open(report_path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError as e:
+        die(f"cannot read: {e}")
+    m = re.search(r"^#*\s*\**BLOCKING\**[^\n]*$(.*?)(?=^#*\s*\**ADVISORY\**|^VERDICT:|\Z)", text, re.M | re.S)
+    section = m.group(1) if m else ""
+    cites = []
+    for path, line in CITE.findall(section):
+        if (path, int(line)) not in cites:
+            cites.append((path, int(line)))
+    if not cites:
+        print("blocking-fixed: no path:line citations in the BLOCKING section — nothing to check (the reviewer cites "
+              "`path:line`; a shorthand like `prisma:34` cannot be checked)")
+        return 0
+    bad, skipped, ok_n = [], [], 0
+    for path, line in cites:
+        r = subprocess.run(["git", "-C", repo, "show", f"{since}:{path}"], capture_output=True, text=True)
+        if r.returncode != 0:
+            skipped.append(f"{path}:{line} (not in {since})")
+            continue
+        old_lines = r.stdout.splitlines()
+        if line < 1 or line > len(old_lines):
+            skipped.append(f"{path}:{line} (no such line in {since})")
+            continue
+        old = old_lines[line - 1].strip()
+        try:
+            with open(os.path.join(repo, path), encoding="utf-8") as f:
+                now = [l.strip() for l in f.read().splitlines()]
+        except OSError:
+            ok_n += 1          # the file is gone: the line is gone with it
+            continue
+        if old and old in now:
+            bad.append(f"{path}:{line} unchanged since {since}: {old[:90]!r}")
+        else:
+            ok_n += 1
+    for s in skipped:
+        print(f"note: skipped {s}")
+    if bad:
+        print("NOT FIXED — the reviewer will fail on the same line again; change it before re-dispatching:")
+        for b in bad:
+            print(f"  - {b}")
+        return 1
+    print(f"ok: {ok_n} cited line(s) changed since {since}")
+    return 0
+
+
 def cmd_assess(repo, root):
     """`/reef-assess`'s output as DATA: architecture.md and conventions.md carry the four observed sections and every
     top-level claim is `Observed — <proof>` (a path:line, a path or a command in backticks) or `Inferred — …`;
@@ -358,9 +414,11 @@ def main(argv):
         return cmd_check(repo, argv[1], argv[2])
     if argv[0] == "claims-only" and len(argv) == 2:
         return cmd_claims_only(repo, argv[1])
+    if argv[0] == "blocking-fixed" and len(argv) == 3:
+        return cmd_blocking_fixed(repo, argv[1], argv[2])
     if argv[0] == "assess" and len(argv) in (1, 2):
         return cmd_assess(repo, argv[1] if len(argv) == 2 else repo)
-    die("usage: reef-claims.py check <base>..<head> <claims-file> | check --handback <file> | report <file> --task <task> | claims-only <base>..<head> | assess [<project-root>]")
+    die("usage: reef-claims.py check <base>..<head> <claims-file> | check --handback <file> | report <file> --task <task> | claims-only <base>..<head> | blocking-fixed <review-report> <since-rev> | assess [<project-root>]")
 
 
 if __name__ == "__main__":

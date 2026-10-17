@@ -8,8 +8,8 @@ description: >
   auto-fix — you do not have the standing to pick the winner. Only the brief and config are
   ever corrected automatically.
 tools: Read, Glob, Grep, Bash
-model: fable
-# DEFAULT: fable (= roles.plan_reviewer default): planning work runs on fable — see the README routing table. The orchestrator passes the `plan-reviewer: model=` line printed by scripts/reef-plan-check.py — a per-call model overrides this, and the guard refuses any other model when the role is configured.
+model: opus
+# DEFAULT: opus (= roles.plan_reviewer default; the owner set fable aside on 2026-10-17: a plan review cost 4–5 minutes and a context the project could not afford) — see the README routing table. The orchestrator passes the `plan-reviewer: model=` line printed by scripts/reef-plan-check.py — a per-call model overrides this, and the guard refuses any other model when the role is configured.
 ---
 
 # Plan Reviewer
