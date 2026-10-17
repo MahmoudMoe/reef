@@ -52,6 +52,6 @@ Caveat lines (first line of your output, when they apply):
 Tier discipline:
 - FINDING requires a citation — file:line, or a quote from both sides. Anything without one is demoted to a JUDGMENT ending "— my read, your call." Never blend the two. Never score anything.
 - Questions 1, 2, 5: BLOCKING when they produce a finding — the artifacts disagree with each other; mechanical, fixable.
-- Questions 3, 4: ADVISORY — judgments about the plan itself; the human decides.
+- Questions 3, 4: ADVISORY — judgments about the plan itself; the human decides. One line each. Mark an advisory `WILL BITE` only when you can name the input that makes it fail in this codebase; the rest are read in a list with a default of leave as is.
 
 Report starts `RUN: agent=plan-reviewer feature=<slug>`; ends `VERDICT: PASS` or `VERDICT: FAIL`, followed by a BLOCKING section and an ADVISORY section.

@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- Plan review: an approved plan is edited only for a BLOCKING fix, a HALT ruling or an owner decision — never cosmetics
+  (two approvals were voided by an ADR status line and a sentence trim). Advisories go to the human as one list with a
+  default of leave as is; only one the reviewer marks `WILL BITE` is a question. The loop plans colliding rows one at a
+  time (a HALT between two plans voided both).
 - Plan pass of the loophole-hunter: **two rounds at most** (pass, fix, re-check); a BLOCKER still open afterwards is a
   decision for the human in the gate's question set, never a third round (first full loop, 2026-10-17: one row took four
   rounds, planning three rows spent a whole session before any gate). The hunter writes its report to the scratchpad or
