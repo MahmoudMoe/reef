@@ -128,10 +128,18 @@ class Tick(unittest.TestCase):
         os.unlink(os.path.join(d, ".reef", "approvals", "1.json"))
         st = json.loads(loop(d, "tick", "--json").stdout)
         self.assertEqual(st["dispatch_now"], [])
-        self.assertEqual(st["awaiting"], ["1 (approval)"])
+        self.assertEqual(st["awaiting"], ["1 (approval (the gate: the machines passed))"])
         text = loop(d, "tick").stdout
         self.assertIn("dispatch now: -", text)
-        self.assertIn("awaiting: 1 (approval)", text)
+        self.assertIn("awaiting: 1 (approval (the gate: the machines passed))", text)
+        # v2 order: a task above light needs the review; with it missing (and the approval stale) the tick asks for
+        # the machines first, never the owner
+        write(d, "tasks/101-a.md", task(101, "1").replace("complexity: mech", "complexity: design").replace("tier: light", "tier: design")
+              .replace("verify: gate-only", "verify: judge").replace("## Scope\nx", "## Scope\nx\n\n## Decision\nhuman wrote this"))
+        r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-plan-check.py"), d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["awaiting"], ["1 (machine review (hunter ‖ plan reviewer) before the gate)"])
+        write(d, "tasks/101-a.md", task(101, "1"))
         approve(d, "1")
         write(d, "tasks/101-a.md", task(101, "1").replace("## Scope\nx", "## Scope\nedited after the review"))
         st = json.loads(loop(d, "tick", "--json").stdout)

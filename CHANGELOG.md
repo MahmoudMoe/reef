@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Workflow v2, phase 1** (`docs/design/workflow-v2.md`; 2026-10-17: three planning sessions, no code): the owner's
+  gate is LAST. `/reef-plan` creates the feature worktree first, `reef:planner` drafts there, the hunter and the plan
+  reviewer run in parallel on the same digest, one fix round (BLOCKING, hunter BLOCKERs, `WILL BITE`), one fresh re-check,
+  then the gate; after Approve only a HALT ruling edits the plan. `reef-adversarial` enforces `hunter.plan_rounds` (2)
+  and `plan --decided <mark>` re-stamps a plan the owner ruled on; `plan.max_acs` (template 8; unset = warn above 8)
+  bounds a task; the tick names the machine review before the approval; the verifier and the hunter run at the same
+  time on a finished task.
 - **Evidence is the agent's, never the orchestrator's** (2026-10-17: a hunter report "written from the hand-back" and a
   1101 hand-back typed "so the next session can verify it"): the guard refuses the main session writing
   `.reef/ci-local/{handback,report,hunt,plan-review}-*.md` or `.reef/hunt/*.md` by any means but `cp`/`mv` (a sub-agent,

@@ -119,16 +119,18 @@ def plan_gate(root, scripts, py, tasks):
         if feat in verdict:
             continue
         rc, out = run([py, pc, root, "--verify-stamp", "--feature", feat], root, timeout=60)
+        # v2 order (2026-10-17): the machines review first, the owner approves LAST — so a missing review is named
+        # before a missing approval, and nothing after the gate but a HALT voids it
         if rc == 0:
             verdict[feat] = None
-        elif re.search(r"^approval: MISSING", out, re.M):
-            verdict[feat] = "approval"
-        elif re.search(r"^approval: STALE", out, re.M):
-            verdict[feat] = "re-approval (plan edited after approval)"
-        elif re.search(r"^review: (MISSING|STALE)", out, re.M):
-            verdict[feat] = "plan review verdict (run /reef-plan-review)"
         elif re.search(r"^review: FAILED", out, re.M):
             verdict[feat] = "plan review FAILED (fix the findings)"
+        elif re.search(r"^review: (MISSING|STALE)", out, re.M):
+            verdict[feat] = "machine review (hunter ‖ plan reviewer) before the gate"
+        elif re.search(r"^approval: MISSING", out, re.M):
+            verdict[feat] = "approval (the gate: the machines passed)"
+        elif re.search(r"^approval: STALE", out, re.M):
+            verdict[feat] = "re-approval (plan edited after approval)"
         else:
             verdict[feat] = "plan review"
     go = [t for t in tasks if verdict.get(task_feature(t.get("path", ""))) is None]

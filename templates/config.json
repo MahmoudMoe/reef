@@ -32,7 +32,11 @@
     "base": "main",
     "release": "main"
   },
+  "hunter": {
+    "plan_rounds": 2
+  },
   "plan": {
+    "max_acs": 8,
     "test_re": "",
     "max_words": 0
   },

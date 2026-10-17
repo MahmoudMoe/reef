@@ -3,6 +3,7 @@ adversarial-plan check) and for scripts/reef-claims.py (claims bound to the roun
 nothing but claims after GREEN). Every refusal here is a shortcut the pilot took once."""
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -219,3 +220,57 @@ class Claims(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlanRoundCap(unittest.TestCase):
+    """0.7 / v2: the plan pass is capped (hunter.plan_rounds, default 2). 2026-10-17: rows 2 and 13 reached round 6."""
+
+    def report(self, d, rnd, suffix=""):
+        return write(d, f"r{rnd}.md", f"RUN: agent=loophole-hunter task=1 pass=plan {suffix or f'round={rnd}'}\nDEFECT: x\nBLOCKER: none\nVERDICT: PASS\n")
+
+    def test_round_three_is_refused_and_round_two_recorded(self):
+        d = tempfile.mkdtemp(prefix="reef-adv.")
+        p = task(d)
+        self.assertEqual(adv(p, "plan", self.report(d, 2)).returncode, 0)
+        r = adv(p, "plan", self.report(d, 3))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("round 3 > hunter.plan_rounds 2", r.stderr)
+        self.assertIn("--decided", r.stderr)
+        r = adv(p, "plan", self.report(d, 5, "(round 5)"))
+        self.assertEqual(r.returncode, 2, "the parenthesised spelling seen live counts too")
+        self.assertEqual(adv(p, "plan", write(d, "r0.md", "RUN: agent=loophole-hunter task=1 pass=plan\nBLOCKER: none\nVERDICT: PASS\n")).returncode, 0,
+                         "no round on the RUN line = round 1 (older reports)")
+
+    def test_cap_from_config_and_zero_means_none(self):
+        d = tempfile.mkdtemp(prefix="reef-adv.")
+        p = task(d)
+        os.makedirs(os.path.join(d, ".reef"))
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump({"hunter": {"plan_rounds": 3}}, f)
+        self.assertEqual(adv(p, "plan", self.report(d, 3)).returncode, 0)
+        self.assertEqual(adv(p, "plan", self.report(d, 4)).returncode, 2)
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump({"hunter": {"plan_rounds": 0}}, f)
+        self.assertEqual(adv(p, "plan", self.report(d, 9)).returncode, 0)
+
+    def test_decided_restamps_without_a_round_and_stays_outside_the_hash(self):
+        d = tempfile.mkdtemp(prefix="reef-adv.")
+        p = task(d)
+        self.assertNotEqual(adv(p, "plan", "--decided", "³⁰").returncode, 0, "a decision replaces a re-check, never the first pass")
+        self.assertEqual(adv(p, "plan", self.report(d, 1)).returncode, 0)
+        with open(p) as f:
+            t = f.read()
+        with open(p, "w") as f:
+            f.write(t.replace("## Scope\nthe defect", "## Scope\nthe defect, as the owner ruled"))
+        stamped = re.search(r"^adversarial-plan: (\w+)", t, re.M).group(1)
+        self.assertNotEqual(adv(p, "plan-hash").stdout.strip(), stamped, "the edit staled the stamp")
+        r = adv(p, "plan", "--decided", "³⁰")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(p) as f:
+            t2 = f.read()
+        self.assertIn("adversarial-decided: ³⁰", t2)
+        self.assertEqual(re.search(r"^adversarial-plan: (\w+)", t2, re.M).group(1), adv(p, "plan-hash").stdout.strip())
+        before = adv(p, "plan-hash").stdout.strip()
+        with open(p, "w") as f:
+            f.write(t2.replace("adversarial-decided: ³⁰\n", ""))
+        self.assertEqual(adv(p, "plan-hash").stdout.strip(), before, "the decided key is an execution key, outside the plan hash")
