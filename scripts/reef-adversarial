@@ -6,6 +6,13 @@ Usage:
   reef-adversarial <task-file> plan  <report-file>    record the pass on the PLAN (before code)
   reef-adversarial <task-file> guard <report-file>    record the pass on the finished GUARD (after)
   reef-adversarial <task-file> plan-hash               print the plan hash the guard will compare
+  reef-adversarial <task-file> plan --decided <mark>   (0.7) the owner ruled at the gate (queue footnote <mark>) on a
+                                                       plan edited after the hunter's last pass: re-stamp without a round
+
+The plan pass has a ROUND CAP (0.7, `hunter.plan_rounds`, default 2): the pass, one fix, one re-check. A report whose
+RUN line says `round=N` / `(round N)` above the cap is refused — the hole it names is the owner's decision at the gate
+(fix as drafted / accept as a found row / drop the task), or an AC/Proof row the CODE proves, never a third hunter
+round on prose (2026-10-17: rows 2 and 13 reached round 6 and three planning sessions produced no code).
 
 A `tier: design` task runs the loophole-hunter twice. This script turns each pass into a
 frontmatter key the mechanisms read:
@@ -24,6 +31,7 @@ only decorate the file.
 Exit 0 = recorded. 2 = refused (reason on stderr). Never a traceback.
 """
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -32,7 +40,33 @@ import tempfile
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 LOG_HEADING = re.compile(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", re.M)
-EXEC_KEYS = r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-plan|adversarial-guard):.*(?:\r?\n|\Z)"
+EXEC_KEYS = r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-plan|adversarial-guard|adversarial-decided):.*(?:\r?\n|\Z)"
+ROUND = re.compile(r"\bround[= ](\d+)\b|\(round (\d+)\)", re.I)
+
+
+def plan_rounds_cap(task_path):
+    """hunter.plan_rounds from the nearest .reef/config.json above the task file (default 2; 0 = no cap)."""
+    d = os.path.dirname(os.path.abspath(task_path))
+    for _ in range(12):
+        cfg = os.path.join(d, ".reef", "config.json")
+        if os.path.isfile(cfg):
+            try:
+                with open(cfg, encoding="utf-8") as f:
+                    h = (json.load(f).get("hunter") or {})
+                return int(h.get("plan_rounds", 2) or 0)
+            except Exception:
+                return 2
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    return 2
+
+
+def report_round(report):
+    head = re.search(r"^RUN:.*$", report, re.M)
+    m = ROUND.search(head.group(0)) if head else None
+    return int(m.group(1) or m.group(2)) if m else 1
 PASSES = ("plan", "guard")
 
 
@@ -124,8 +158,23 @@ def main(argv):
     if len(argv) == 2 and argv[1] == "plan-hash":
         print(plan_hash(read(argv[0])))
         return 0
+    if len(argv) == 4 and argv[1] == "plan" and argv[2] == "--decided":
+        task_path, mark = argv[0], argv[3].strip()
+        if not os.path.isfile(task_path):
+            die(f"file not found: {task_path}")
+        if not mark:
+            die("--decided needs the queue footnote mark that records the owner's ruling")
+        text = read(task_path)
+        fm = frontmatter(text)
+        if fm is None or "adversarial-plan" not in fm:
+            die("--decided re-stamps a plan the hunter already passed once; there is no adversarial-plan record here — run the hunter")
+        value = plan_hash(text)
+        set_key(task_path, text, "adversarial-plan", value)
+        set_key(task_path, read(task_path), "adversarial-decided", mark)
+        print(f"adversarial-plan: {value} (owner decision {mark}, no hunter round)")
+        return 0
     if len(argv) != 3 or argv[1] not in PASSES:
-        die("usage: reef-adversarial <task-file> plan|guard <report-file>  |  <task-file> plan-hash")
+        die("usage: reef-adversarial <task-file> plan|guard <report-file>  |  <task-file> plan --decided <mark>  |  <task-file> plan-hash")
     task_path, which, report_path = argv
     for p in (task_path, report_path):
         if not os.path.isfile(p):
@@ -136,8 +185,14 @@ def main(argv):
         die(f"{task_path} has no frontmatter fence — not a reef task file")
     if fm.get("complexity") == "mech" or fm.get("tier") == "light":
         die("the adversarial stage never runs on a mech/light task — nothing to record")
-    check_report(read(report_path), which)
+    report = read(report_path)
+    check_report(report, which)
     if which == "plan":
+        cap, rnd = plan_rounds_cap(task_path), report_round(report)
+        if cap and rnd > cap:
+            die(f"plan pass round {rnd} > hunter.plan_rounds {cap}: the plan gets no further hunter round. An open hole is the owner's "
+                f"decision at the gate (fix as drafted / accept it as a found row / drop the task) — record his words as a queue footnote and run "
+                f"`reef-adversarial <task> plan --decided <mark>`; a hole the code must prove becomes an AC with a Proof row, and the hunter's next pass is on the CODE")
         value = plan_hash(text)
     else:
         if "adversarial-plan" not in fm:

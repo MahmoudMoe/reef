@@ -59,6 +59,22 @@ def run(root, *args):
     return subprocess.run([sys.executable, CHECK, root, *args], capture_output=True, text=True)
 
 
+class MaxAcs(unittest.TestCase):
+    def test_unset_warns_above_eight_and_set_fails(self):
+        # 2026-10-17: 1302 carried 21 criteria; one slice a verifier judges in one sitting is the unit
+        acs = "\n".join(f"- test_c{i} goes red then green" for i in range(9))
+        tmp = repo(tempfile.mkdtemp(prefix="reef-pc."), acs=acs)
+        r = run(tmp)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("9 acceptance criteria (8 is the slice", r.stdout)
+        tmp = repo(tempfile.mkdtemp(prefix="reef-pc."), acs=acs, extra_cfg={"plan": {"max_acs": 8}})
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("9 acceptance criteria > plan.max_acs 8 — split the task", r.stdout)
+        tmp = repo(tempfile.mkdtemp(prefix="reef-pc."), acs="\n".join(f"- test_c{i} goes red then green" for i in range(8)), extra_cfg={"plan": {"max_acs": 8}})
+        self.assertEqual(run(tmp).returncode, 0)
+
+
 class Quiet(unittest.TestCase):
     def test_quiet_prints_fail_and_summary_only(self):
         tmp = repo(tempfile.mkdtemp(prefix="reef-pc."))

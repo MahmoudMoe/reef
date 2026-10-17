@@ -456,7 +456,7 @@ def main():
             # what EXECUTION writes: the status keys, the worktree, and the hunter's guard-pass record (written after
             # the code exists — first contact, 2026-10-16: it staled the stamp the moment 101 merged, and the guard
             # refused 102). `adversarial-plan` stays: the approved plan is the hunted plan.
-            fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-guard):.*(?:\r?\n|\Z)", "",
+            fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-guard|adversarial-decided):.*(?:\r?\n|\Z)", "",
                         m.group(1), flags=re.M)
             text = fm + text[m.end():]
         return text.encode()
@@ -790,6 +790,14 @@ def main():
             # an empty list must never pass vacuously as "every criterion is covered"
             fail(f"{rel}: ## Acceptance Criteria has no criteria bullets")
             continue
+        # 0.7: a task is one slice a verifier judges in one sitting. plan.max_acs set → FAIL above it (split the task);
+        # unset → WARN above 8 (2026-10-17: 1302 carried 21 criteria; Superpowers plans 2–5 minute tasks)
+        n_crit = len(crits)
+        max_acs = int((cfg.get("plan") or {}).get("max_acs", 0) or 0) if isinstance(cfg.get("plan"), dict) else 0
+        if max_acs and n_crit > max_acs:
+            fail(f"{rel}: {n_crit} acceptance criteria > plan.max_acs {max_acs} — split the task (one slice a verifier judges in one sitting)")
+        elif not max_acs and n_crit > 8:
+            print(f"warning: {rel}: {n_crit} acceptance criteria (8 is the slice a verifier judges in one sitting; set plan.max_acs to enforce)")
         fdir = folder_of.get(path)
         is06 = bool(fdir) or (marker0 is not None and planned_under_06({"planned_under": planned_prev}, fm.get("feature", "")))
         warn = lambda m: print(f"warning: {m}")
