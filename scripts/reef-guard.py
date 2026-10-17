@@ -679,6 +679,10 @@ def check_adversarial_plan(path, fm, text):
         deny(f"{path} is tier: design with no adversarial-plan record — run the loophole-hunter on the plan "
              "and record its PASS with scripts/reef-adversarial <task> plan <report> before any code")
     if got != want:
+        if got == adv.legacy_plan_hash(text):
+            # 2026-10-18: the cut moved to ## Reviewer notes (fda6801) and every stamp written before it read as "the plan changed"
+            deny(f"{path}: adversarial-plan {got} is a 0.6 stamp (it hashed the Reviewer notes) and the plan is unchanged — "
+                 f"re-stamp it without a hunter round: python3 scripts/reef-adversarial {path} plan --migrate")
         deny(f"{path}: the plan changed since the loophole-hunter's pass (adversarial-plan {got} != {want}) — "
              "run the hunter again on the current plan")
 

@@ -11,6 +11,7 @@ Checks, each OK / WARN / FAIL with the fix on the same line:
   scripts  scripts/reef-* in the project (and in every feature worktree) identical to the plugin's
   queue    the queue has one home: no feature worktree carries queue edits the base lacks
   worktrees  each worktree, its branch, and whether it is a feature or a task checkout
+  stamp    a design/critical task's adversarial-plan is current, a 0.6 stamp (--migrate) or stale
   loop     .reef/loop.json: active, wait, stop; the status page
   tools    gh auth, docker (when a compose file exists)
   proposals  renderings waiting in .reef/proposed/ and the command that accepts or keeps them
@@ -19,6 +20,7 @@ Exit 0 = no FAIL · 1 = at least one FAIL · 2 = not a Reef project.
 Usability plan A1 (2026-10-17): the owner typed `--accept` and `--keep` by trial, pulled the plugin on the wrong
 branch, and asked "why two AGENTS.md" — nothing on disk named the state or the fix.
 """
+import importlib.machinery
 import json
 import os
 import subprocess
@@ -71,6 +73,35 @@ def behind_scripts(tree, plugin):
                     out.append(name)
         except OSError:
             continue
+    return out
+
+
+def stamp_states(root, checkouts, plugin, features):
+    """Every design/critical task file in each checkout with an adversarial-plan stamp: (checkout, rel, state) where
+    state is current / legacy (the 0.6 form, before the cut moved to ## Reviewer notes) / stale (neither)."""
+    import glob
+    import importlib.util
+    spec = importlib.util.spec_from_loader("reef_adversarial", importlib.machinery.SourceFileLoader(
+        "reef_adversarial", os.path.join(plugin, "scripts", "reef-adversarial")))
+    adv = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(adv)
+    except Exception:
+        return []
+    out = []
+    for co in checkouts:
+        for p in sorted(glob.glob(os.path.join(co, features, "*", "tasks", "*.md"))):
+            try:
+                with open(p, encoding="utf-8", newline="") as f:
+                    text = f.read()
+            except OSError:
+                continue
+            fm = adv.frontmatter(text) or {}
+            got = (fm.get("adversarial-plan") or "").strip()
+            if fm.get("tier") not in ("design", "critical") or not got:
+                continue
+            state = "current" if got == adv.plan_hash(text) else ("legacy" if got == adv.legacy_plan_hash(text) else "stale")
+            out.append((co, os.path.relpath(p, co), state))
     return out
 
 
@@ -157,6 +188,19 @@ def main(argv):
         say("WARN" if note else "OK", f"worktree: {os.path.relpath(w['path'], root)} [{w['branch'] or 'detached'}] ({kind})", note)
     if len(wts) <= 1:
         say("OK", "worktrees: none (nothing building)")
+    # the hunter's plan stamps (2026-10-18: the cut moved and every earlier stamp read as "the plan changed")
+    if plugin:
+        features = str((cfg.get("paths") or {}).get("features") or "reef/features")
+        states = stamp_states(root, [root] + [w["path"] for w in wts[1:]], plugin, features)
+        for co, rel, state in states:
+            if state == "legacy":
+                say("WARN", f"stamp: {rel} carries a 0.6 adversarial-plan (the plan is unchanged)",
+                    f"cd {co} && python3 scripts/reef-adversarial {rel} plan --migrate")
+            elif state == "stale":
+                say("WARN", f"stamp: {rel}: the plan changed since the hunter's pass",
+                    "the hunter's re-check within hunter.plan_rounds, or `reef-adversarial <task> plan --decided <mark>` at the gate")
+        if states and all(st == "current" for _, _, st in states):
+            say("OK", f"stamps: {len(states)} design/critical task(s) current")
     # loop
     try:
         with open(os.path.join(root, ".reef", "loop.json"), encoding="utf-8") as f:
