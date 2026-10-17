@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Project files stay the project's.** The glossary is a record (write-once, like the journal). `reef-init --keep
+  <path>…` marks a rendered file as the project's own (ci.yml after a feature added a service): never proposed again.
+  AGENTS.md's Boundaries section is a kept block like the owner's decision points, and the first render after a block
+  arrives ADOPTS the current section's text into it. First contact (2026-10-17): the refresh after the first feature
+  proposed three reverts — the placeholder and the template's Boundaries line over the owner's AGENTS.md, ci.yml without
+  the Postgres service task 103 added, the glossary without the feature's four terms.
 - AGENTS.md's **Owner decision points** live in a kept block (`<!-- BEGIN:reef-owner-decisions -->`): a re-render replaces
   the block in place with the owner's current text, never with the template's placeholder (first contact, 2026-10-17).
 - `reef-queue.py`: `Current batch: 2²⁶` is batch 2 — a footnote marker may ride on the line.
