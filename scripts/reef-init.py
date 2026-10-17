@@ -349,7 +349,7 @@ class Writer:
                 self.skipped.append(rel)
                 self.manifest[rel] = sha(core)
                 return
-            if self.manifest.get(rel) == sha(core):
+            if rel != "_init" and self.manifest.get(rel) == sha(core):
                 # Reef's own rendering, byte-identical to what it placed last time — nobody touched it (first
                 # contact, 2026-10-16: four files init wrote on an empty repo came back as questions minutes
                 # later when the stack arrived; a question about replacing one's own untouched draft is noise)
@@ -450,10 +450,13 @@ def run(root, facts, dry):
     facts["day_zero_path"], facts["glossary_path"] = lay["day_zero"], lay["glossary"]
     facts["features_path"] = lay["features"] or "tasks"
     targets = dict(TEMPLATES_COMMON)
+    w.manifest.setdefault("_init", {"date": facts["date"], "name": facts["name"]})
     for key, tpl in TEMPLATE_OF.items():
         rel = lay.get(key)
         if rel is None:
             continue
+        if key == "constitution":
+            w.write_once.add(rel)   # ratified once; a record like the journal
         if key == "constitution" and facts.get("constitution"):
             w.skipped.append(f"{facts['constitution']} (existing constitution — pointed at, never duplicated)")
             continue
@@ -464,6 +467,7 @@ def run(root, facts, dry):
         with open(os.path.join(PLUGIN, "templates", tpl), encoding="utf-8") as f:
             w.place(rel, render(f.read(), facts), executable=rel.startswith(".githooks/"))
     for name_, text in (facts.get("draft_adrs") or {}).items():
+        w.write_once.add(f"{lay['adr']}/{name_}")   # a decision record is written at birth, never re-rendered
         w.place(f"{lay['adr']}/{name_}", text)
     if lay["features"] and not dry:
         os.makedirs(os.path.join(root, lay["features"]), exist_ok=True)
@@ -545,6 +549,13 @@ def main(argv):
     facts = detect(root)
     if name:
         facts["name"] = name
+    # a refresh keeps the project's day zero and its name: the first init records both in the manifest (first contact,
+    # 2026-10-17: a refresh re-dated four ADRs and the constitution's "Ratified" line to today and lowercased the name)
+    pinned = load_manifest(root).get("_init") or {}
+    if not name and pinned.get("name"):
+        facts["name"] = pinned["name"]
+    if pinned.get("date"):
+        facts["date"] = pinned["date"]
     facts["base"], facts["release"] = base, release
     if os.path.isfile(os.path.join(root, ".reef", "config.json")) and not dry:
         # 6.3: versioned, idempotent migrations run before rendering (0.5 -> 0.6 adds keys only, writes .reef/version)

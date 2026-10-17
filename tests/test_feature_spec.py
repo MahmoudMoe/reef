@@ -521,6 +521,34 @@ class Converge(unittest.TestCase):
         self.assertIn("contradicts", r.stdout)
         self.assertEqual(len([f for f in os.listdir(os.path.dirname(rollup)) if f.startswith("R")]), 1, "one rollup per feature, appended to")
 
+    def test_vitest_names_are_tests_mechanic_rows_are_skipped_and_the_template_is_found_from_a_project_copy(self):
+        # first contact (2026-10-17): 26 vitest names in backticks ran as shell and came back "missing"; then the script
+        # looked for <project>/templates/task.md and crashed before writing the rollup
+        write(self.d, "tests/export.test.ts", 'import { it } from "vitest";\nit("csv header is written", () => {});\n')
+        task = TASK_NEW.replace("| AC-1 | `test_csv_header_and_rows` |", "| AC-1 | `csv header is written` |") \
+                       .replace("| AC-2 | `test_csv_two_decimals` |", "| AC-2 | [mechanic] `rm -f .env && python3 -m unittest -q` |")
+        write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
+        r = self.converge()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Converged", r.stdout)
+        self.assertIn("1 [mechanic] row(s) not run here", r.stdout)
+        self.assertNotIn("missing", r.stdout)
+        # the project's copy of the script, far from the plugin's templates/: a finding still gets its rollup
+        copy = os.path.join(self.d, "scripts", "reef-converge")
+        shutil.copy(CONVERGE, copy)
+        write(self.d, "tests/export.test.ts", 'import { it } from "vitest";\nit("csv header is renamed", () => {});\n')
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PLUGIN_ROOT"}
+        r = subprocess.run([sys.executable, copy, "csv-export-for-orders", "--repo", self.d], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("AC-1: missing", r.stdout)
+        self.assertNotIn("Traceback", r.stderr)
+        rollup = os.path.join(self.d, "reef/features/csv-export-for-orders/tasks/R01-csv-export-for-orders.md")
+        self.assertTrue(os.path.isfile(rollup), r.stdout + r.stderr)
+        with open(rollup) as f:
+            body = f.read()
+        self.assertTrue(body.startswith("---\nid: R1\nfeature: csv-export-for-orders\n"), body[:80])
+        self.assertIn("## Converge", body)
+
 
 if __name__ == "__main__":
     unittest.main()

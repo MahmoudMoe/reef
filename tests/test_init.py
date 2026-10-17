@@ -302,6 +302,34 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class RefreshKeepsRecords(unittest.TestCase):
+    def test_refresh_keeps_the_day_zero_date_the_name_the_adrs_and_the_constitution(self):
+        # first contact (2026-10-17): a plain refresh re-dated four ADRs and the constitution's "Ratified" line to today
+        # and lowercased the project's name (it fell back to package.json); the feature's plan review went stale on it
+        d = node_project(tempfile.mkdtemp(prefix="reef-init-refresh."))
+        write(d, "answers.json", json.dumps({"host": "fly.io", "shape": "web-app", "scale": "100 users", "store": "postgres",
+                                             "auth": "magic link", "non_goals": [], "intent": "x"}))
+        r = init(d, "--grill", os.path.join(d, "answers.json"), "--name", "Qassimha")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        man = json.loads(read(d, ".reef/init-manifest.json"))
+        self.assertEqual(man["_init"]["name"], "Qassimha")
+        self.assertRegex(man["_init"]["date"], r"^\d{4}-\d{2}-\d{2}$")
+        # pretend day zero was long ago: the refresh must render with THAT date, never today's
+        man["_init"]["date"] = "2026-01-02"
+        write(d, ".reef/init-manifest.json", json.dumps(man))
+        const_before = read(d, "reef/constitution.md")
+        adr_before = read(d, "reef/architecture/adr/draft-1-hosting.md")
+        write(d, "package.json", json.dumps({"name": "qassimha", "scripts": {"test": "vitest run", "build": "next build"}}))   # a real re-render trigger
+        r = init(d)   # no --name, no --grill: the owner's refresh after a plugin update
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(read(d, "reef/constitution.md"), const_before, "the constitution is ratified once")
+        self.assertEqual(read(d, "reef/architecture/adr/draft-1-hosting.md"), adr_before, "a decision record is never re-rendered")
+        self.assertIn("skipped  reef/constitution.md (record, never re-rendered)", r.stdout)
+        self.assertIn("Qassimha", read(d, "AGENTS.md"), "the name is pinned in the manifest, not re-derived from package.json")
+        man2 = json.loads(read(d, ".reef/init-manifest.json"))
+        self.assertEqual(man2["_init"], {"date": "2026-01-02", "name": "Qassimha"}, "the pin survives the refresh")
+
+
 class DayZero(unittest.TestCase):
     """0.6 Phase 3: the layout switch, the architecture grill (3.1), stack opinions (3.1b), an existing
     constitution read and never duplicated (3.5)."""

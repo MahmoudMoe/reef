@@ -1,6 +1,16 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **A refresh never touches a record**: `reef-init` pins the project's day-zero date and its name in the manifest
+  (`_init`) and renders with them; the constitution and the draft ADRs are write-once like the journal. First contact
+  (2026-10-17): a plain refresh re-dated four ADRs and the constitution's "Ratified" line to today, lowercased the
+  name, and staled the feature's plan review through the ADRs.
+- `reef-queue.py check`: the journal's closed set of AC statuses is read from the table's ACs column only — a sentence
+  like "AC-9 and AC-13 were probed" is prose (first contact: three honest entries were reworded to pass).
+- `reef-converge`: a backticked Proof is a command only when it reads like one (shell operators, a flag, a path, a known
+  runner); vitest/jest names with spaces are tests. `[mechanic]` rows are listed, never run. The rollup template is
+  found in the plugin (`CLAUDE_PLUGIN_ROOT` or the script's own tree) or embedded — the project's copy used to crash on
+  `<project>/templates/task.md`. First contact: 26 false "missing" findings, then nothing written.
 - Plan check: a task file under `tasks/done/` must be `status: done` and a `status: done` file must be under `done/`
   (one fact, two homes). First contact (2026-10-17): 103 was merged into `done/` still `in-progress`; the orchestrator
   caught it by eye. The task skill also says where `git branch -d` works (the feature worktree) and when `-D` is right.

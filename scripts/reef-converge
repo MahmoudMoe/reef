@@ -13,6 +13,52 @@ import subprocess
 import sys
 
 TEST_RE = re.compile(r"(?<![A-Za-z0-9_])test_[a-z0-9_]+|(?<![A-Za-z0-9_])Test[A-Z][A-Za-z0-9_]*|(?:\bit|\btest|\bdescribe)\((['\"])(.+?)\1\)")
+# a backticked Proof is a COMMAND when it reads like one — shell operators, a flag, a path, or a known runner up front;
+# otherwise it is a test's name (vitest/jest names are sentences with spaces: `health reports database and storage ok`;
+# first contact, 2026-10-17: 26 of them were run as shell and reported missing)
+SHELL_OPS = re.compile(r"&&|\|\||[|;<>]|\$\(|\$\{|\s--?[a-zA-Z]|=|^!")
+RUNNERS = {"sh", "bash", "zsh", "env", "npm", "npx", "pnpm", "yarn", "bun", "node", "deno", "python", "python3", "pytest", "uv", "pip",
+           "go", "cargo", "make", "docker", "git", "test", "curl", "wget", "grep", "rg", "find", "ls", "cat", "diff", "cmp", "exit", "true", "false"}
+TPL_FALLBACK = """---
+id: NNNnn
+feature: <feature-slug>
+status: pending
+complexity: design
+effort: medium
+blocked-by: []
+resources: []
+tier: full
+touches: []
+verify: judge
+attempts: 0
+dispatches: 0
+last_failure_sig: ""
+---
+# NNNnn — <title>
+
+## Scope
+The feature's Proof table executed on the integrated branch: every `missing` and `contradicts` line below is fixed here.
+
+## Acceptance Criteria
+- AC-1: every Proof row of the feature holds on the branch (`reef-converge` prints Converged).
+
+## Proof
+| AC | Proof |
+|---|---|
+| AC-1 | `python3 scripts/reef-converge <feature> --dry-run` |
+
+## Log
+"""
+
+
+def looks_like_command(s):
+    s = s.strip()
+    if not s:
+        return False
+    if SHELL_OPS.search(s):
+        return True
+    head = s.split()[0]
+    return head in RUNNERS or head.startswith(("./", "/", "../", "~"))
 
 
 def die(msg, code=2):
@@ -51,10 +97,13 @@ def proofs(text):
             p = rows.get(ac_id)
             if p is None:
                 continue
-            if p.startswith("`") and p.endswith("`") and not TEST_RE.fullmatch(p.strip("`")):
-                out.append((ac_id, p.strip("`"), "cmd"))
+            body = p.strip("`").strip()
+            if re.match(r"^\[mechanic\]", p):
+                out.append((ac_id, re.sub(r"^\[mechanic\]\s*", "", p).strip("`").strip(), "mechanic"))
+            elif p.startswith("`") and p.endswith("`") and not TEST_RE.fullmatch(body) and looks_like_command(body):
+                out.append((ac_id, body, "cmd"))
             else:
-                out.append((ac_id, p.strip("`"), "test"))
+                out.append((ac_id, body, "test"))
         else:
             for t in TEST_RE.finditer(ac):
                 out.append((ac_id, t.group(2) or t.group(0), "test"))
@@ -106,10 +155,13 @@ def main(argv):
         die(f"no task files for feature {feature!r}", 2)
     test_cmd = str((cfg.get("converge") or {}).get("test_cmd", "") or "")
     gate = None
-    findings = []
+    findings, mechanic_rows = [], []
     for path, text in tasks:
         for ac_id, proof, kind in proofs(text):
             label = f"{os.path.basename(path)} {ac_id}"
+            if kind == "mechanic":
+                mechanic_rows.append(f"{label}: `{proof}`")   # writes files: the mechanic runs it, converge never does
+                continue
             if kind == "cmd":
                 r = subprocess.run(["sh", "-c", proof], cwd=root, capture_output=True, text=True)
                 if r.returncode == 127 or "not found" in (r.stderr or "").lower() and r.returncode != 0:
@@ -129,6 +181,10 @@ def main(argv):
                     gate = subprocess.run(["sh", os.path.join("scripts", "reef-gate.sh"), "full"], cwd=root, capture_output=True, text=True).returncode
                 if gate != 0:
                     findings.append(f"{label}: contradicts — {proof} exists but the full gate is red (exit {gate})")
+    if mechanic_rows:
+        print(f"{len(mechanic_rows)} [mechanic] row(s) not run here (they write files — the mechanic runs them verbatim):")
+        for m_ in mechanic_rows:
+            print(f"  - {m_}")
     if not findings:
         print("Converged")
         return 0
@@ -140,8 +196,16 @@ def main(argv):
     rollup = next((os.path.join(d, f) for d in (tdir, os.path.join(tdir, "done")) for f in (sorted(os.listdir(d)) if os.path.isdir(d) else [])
                    if re.match(r"^R\d+-.*\.md$", f) and re.search(rf"^feature:\s*{re.escape(feature)}\s*$", read(os.path.join(d, f)), re.M)), None)
     if rollup is None:
-        plugin = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        tpl = read(os.path.join(plugin, "templates", "task.md"))
+        # the template lives in the PLUGIN; this script usually runs as the project's copy under scripts/ (first contact,
+        # 2026-10-17: it looked for <project>/templates/task.md and crashed, writing nothing)
+        tpl = None
+        for cand in (os.environ.get("CLAUDE_PLUGIN_ROOT") or "", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))):
+            tp = os.path.join(cand, "templates", "task.md") if cand else ""
+            if tp and os.path.isfile(tp):
+                tpl = read(tp)
+                break
+        if tpl is None:
+            tpl = TPL_FALLBACK
         n = 1 + len([f for d in (tdir, os.path.join(tdir, "done")) for f in (os.listdir(d) if os.path.isdir(d) else []) if f.startswith("R")])
         rollup = os.path.join(tdir, f"R{n:02d}-{feature}.md")
         text = tpl.replace("id: NNNnn", f"id: R{n}").replace("feature: <feature-slug>", f"feature: {feature}").replace("# NNNnn — <title>", f"# R{n} — {feature} rollup")

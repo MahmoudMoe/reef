@@ -238,8 +238,20 @@ def cmd_check(root):
     jpath = os.path.join(root, cfg.get("paths", {}).get("runlog", "docs/journal.md"))
     is06 = os.path.isfile(os.path.join(root, ".reef", "version"))
     if os.path.isfile(jpath):
+        # the closed set applies to the table's ACs column, not to prose: "AC-9 and AC-13 were probed" in a Verified
+        # paragraph is a sentence, not a status (first contact, 2026-10-17: three honest journal entries were reworded
+        # to get past this check)
+        ac_col = None
         for line in read(jpath).splitlines():
-            for m in re.finditer(r"\bAC-?\d+\s+([a-z-]+)", line):
+            if not line.lstrip().startswith("|"):
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if "ACs" in cells:
+                ac_col = cells.index("ACs")
+                continue
+            if ac_col is None or len(cells) <= ac_col or re.fullmatch(r"-+", cells[ac_col] or "-"):
+                continue
+            for m in re.finditer(r"\bAC-?\d+\s+([a-z-]+)", cells[ac_col]):
                 st = m.group(1)
                 if st not in ("not-verified", "partially-verified", "achieved", "contradicted"):
                     msg = f"journal: AC status {st!r} is not one of not-verified | partially-verified | achieved | contradicted"
