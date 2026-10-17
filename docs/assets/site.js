@@ -81,6 +81,40 @@
     if (close) close.addEventListener('click', () => $$('details', tree).forEach(d => d.open = false));
   }
 
+  /* ---------- the rain: a canvas behind the hero, in Reef's colours ---------- */
+  function rain() {
+    const cv = $('#rain'); const hero = cv && cv.parentElement; if (!cv) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { cv.remove(); return; }
+    const ctx = cv.getContext('2d'); const glyphs = '01REEF→✓✗§¶∞≥≤{}[]/\\|=+-*#@%$:;λΣΔΩ';
+    let cols = [], size = 18, w = 0, h = 0, raf = 0, running = false;
+    function resize() {
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      w = hero.clientWidth; h = hero.clientHeight;
+      cv.width = w * dpr; cv.height = h * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = '#0B1418'; ctx.fillRect(0, 0, w, h);
+      const n = Math.ceil(w / size);
+      cols = Array.from({ length: n }, (_, i) => ({ x: i * size, y: Math.random() * -h / size, v: 0.35 + Math.random() * 0.9, hue: Math.random() < 0.16 ? '#EF7A63' : (Math.random() < 0.08 ? '#D9A441' : '#4FB3B1') }));
+      ctx.font = size + 'px "IBM Plex Mono", ui-monospace, Menlo, monospace';
+    }
+    function frame() {
+      ctx.fillStyle = 'rgba(11,20,24,0.06)'; ctx.fillRect(0, 0, w, h);
+      for (const c of cols) {
+        const ch = glyphs[(Math.random() * glyphs.length) | 0]; const y = c.y * size;
+        ctx.fillStyle = '#F6F2E9'; ctx.fillText(ch, c.x, y);
+        ctx.fillStyle = c.hue; ctx.fillText(glyphs[(Math.random() * glyphs.length) | 0], c.x, y - size);
+        c.y += c.v; if (y > h && Math.random() > 0.975) c.y = -2;
+      }
+      raf = requestAnimationFrame(frame);
+    }
+    function start() { if (!running) { running = true; raf = requestAnimationFrame(frame); } }
+    function stop() { running = false; cancelAnimationFrame(raf); }
+    resize(); start();
+    addEventListener('resize', () => { resize(); });
+    if ('IntersectionObserver' in window) new IntersectionObserver(e => e[0].isIntersecting ? start() : stop(), { threshold: 0 }).observe(hero);
+    document.addEventListener('visibilitychange', () => document.hidden ? stop() : start());
+  }
+  rain();
+
   /* ---------- README tables: fetch, parse, render ---------- */
   function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
 
