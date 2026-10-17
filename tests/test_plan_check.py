@@ -276,6 +276,44 @@ class Decoration(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("LAST section", r.stdout)
 
+    def test_reviewer_notes_are_outside_the_digest_and_only_the_log_may_follow(self):
+        # 2026-10-17: 28 plan-review advisories applied as plan edits re-ran three hunters, approvals and reviews.
+        # Advisories now ride in `## Reviewer notes`, which the stamp ignores like the Log.
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        p = os.path.join(tmp, "tasks", "001-demo.md")
+        before = run(tmp, "--digest", "--feature", "demo").stdout.split()[-1]
+        with open(p) as f:
+            t = f.read()
+        with open(p, "w") as f:
+            f.write(t.replace("## Log\n", "## Reviewer notes\n- A3: AC-12 is only true until 203 lands — assert it per task\n\n## Log\n"))
+        self.assertEqual(run(tmp).returncode, 0, run(tmp).stdout)
+        self.assertEqual(run(tmp, "--digest", "--feature", "demo").stdout.split()[-1], before, "notes change no digest")
+        with open(p, "a") as f:
+            f.write("- attempt 1\n")
+        self.assertEqual(run(tmp, "--digest", "--feature", "demo").stdout.split()[-1], before, "the Log after the notes is still the Log")
+        # a plan section hidden after the notes would be edited invisibly: refused
+        with open(p, "w") as f:
+            f.write(t.replace("## Log\n", "## Reviewer notes\n- x\n\n## Scope\nmore\n\n## Log\n"))
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("only ## Log may follow ## Reviewer notes", r.stdout)
+
+    def test_adr_status_line_is_outside_the_digest(self):
+        # 2026-10-17: "Status: Accepted (number at merge)" written after the gate voided two approvals
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        adr = os.path.join(tmp, "docs", "adr", "draft-demo.md")
+        with open(adr, "w") as f:
+            f.write("# Demo boundary\n\nStatus: Proposed (number at merge)\n\n## Context\none\n\n## Decision\ntwo\n")
+        before = run(tmp, "--digest", "--feature", "demo").stdout.split()[-1]
+        with open(adr, "w") as f:
+            f.write("# Demo boundary\n\nStatus: Accepted (number at merge)\n\n## Context\none\n\n## Decision\ntwo\n")
+        self.assertEqual(run(tmp, "--digest", "--feature", "demo").stdout.split()[-1], before)
+        with open(adr, "w") as f:
+            f.write("# Demo boundary\n\nStatus: Accepted (number at merge)\n\n## Context\none\n\n## Decision\nthree\n")
+        self.assertNotEqual(run(tmp, "--digest", "--feature", "demo").stdout.split()[-1], before, "a decision still counts")
+
     def test_lowercase_log_heading_still_cut_from_stamp(self):
         # round-3: '## log' hashed the log body, so every append staled the plan
         tmp = tempfile.mkdtemp(prefix="reef-pc.")

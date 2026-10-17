@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Nothing cosmetic voids an approval, and nothing broken gets one** (2026-10-17, three planning sessions without a
+  line of code): plan-review advisories go to `## Reviewer notes` in the task (right before `## Log`; outside the
+  digest like the Log; only the Log may follow it; the implementer does or declines each, the verifier lists the
+  rest as NITs) instead of plan edits that re-ran three hunters, three approvals and three reviews; the ADR
+  `Status:` line is outside the digest (it voided two approvals); `reef-approval.py` refuses to record an approval
+  while `reef-plan-check.py` fails in the plan's checkout (five long sentences surfaced after the gate).
 - **Found-row triage as a command** (usability plan B5): `reef-queue.py triage` lists `found` rows still queued two
   batches after they entered, grouped by module, with rule 7's three outcomes as ONE owner question, and the open
   found-vs-planned count; `set-batch ID N` and `drop-row ID --reason` carry the answer out (deletion recorded as a
