@@ -97,7 +97,7 @@ form and not another.
 | A ledger row | nothing: the site links the ledger and does not show it |
 | A new command or skill | the situation chooser and the pipeline detail in `docs/index.html` |
 | A README heading rename ("Settings") | the matching heading text in `site.js` (`TABLE_HEADINGS`) |
-| The Arabic manual | it was written for 0.5.0 and says so in its lead; rewriting it for the 0.6 tree is open work |
+| The Arabic manual | `docs/manual/ar/index.html` mirrors the README's quick start, layout and settings and the site's stops table at 0.6.0; a new command, path or stop message is a row or a sentence there too |
 
 ## 6. Deployment
 
