@@ -467,11 +467,14 @@ class JudgeScratch(unittest.TestCase):
         for cmd in ("mkdir -p /private/tmp/claude-501/x/scratchpad/pk && cd /private/tmp/claude-501/x/scratchpad/pk && curl -sL u | tar -xz",
                     "curl -sL u | tar -xzO 2>/dev/null | grep -o x",
                     "npm test > /tmp/out.txt; tail /tmp/out.txt",
-                    "ls .reef/approvals 2>/dev/null"):
+                    "ls .reef/approvals 2>/dev/null",
+                    # first contact (2026-10-17): the plan-reviewer was refused `git worktree list`, a read
+                    "git worktree list --porcelain", "git stash list", "git submodule status"):
             with self.subTest(cmd=cmd):
                 r = self.judge(cmd)
                 self.assertEqual(r.returncode, 0, f"FALSE POSITIVE: {cmd!r}\n{r.stderr}")
-        for cmd in ("echo x | tee src/x.ts", "npm test > out.txt", "cp /tmp/x src/y.ts", "mkdir -p src/new", "sed -i s/a/b/ README.md"):
+        for cmd in ("echo x | tee src/x.ts", "npm test > out.txt", "cp /tmp/x src/y.ts", "mkdir -p src/new", "sed -i s/a/b/ README.md",
+                    "git worktree add ../x", "git worktree remove ../x", "git worktree prune", "git stash", "git stash pop"):
             with self.subTest(cmd=cmd):
                 r = self.judge(cmd, who="reef:verifier")
                 self.assertEqual(r.returncode, 2, f"NOT DENIED: {cmd!r}")

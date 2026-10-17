@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- Guard: a read-only judge may run `git worktree list`, `git stash list` and `git submodule status` (reads); the other
+  verbs of those commands stay denied. First contact (2026-10-17): the plan-reviewer was refused `git worktree list`.
 - Tick: a ready task whose implementer handed back (`handback-<id>.md` newer than any `report-<id>.md`, in any
   checkout) is listed under **`verify now:`**, not `dispatch now:` — first contact (2026-10-17) the fresh session's tick
   said "dispatch now: 103" over a handed-back, uncommitted worktree. The task skill starts such a task at the gate.

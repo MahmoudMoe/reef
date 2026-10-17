@@ -265,7 +265,10 @@ def check_reviewer_lock(seg, ctx):
         if os.path.basename(t) == "git":
             args = seg[j + 1:]
             sub = next((a for a in args if not a.startswith("-")), None)
-            if sub in MUTATING_GIT:
+            # `git worktree list` and `git stash list` read; the other verbs of those commands write (first contact,
+            # 2026-10-17: the plan-reviewer was refused `git worktree list` and re-ran its whole command without it)
+            verb = next((a for a in args[args.index(sub) + 1:] if not a.startswith("-")), None) if sub in ("worktree", "stash", "submodule") else None
+            if sub in MUTATING_GIT and not (sub in ("worktree", "stash", "submodule") and verb in ("list", "show", "status")):
                 deny(f"{who} is read-only: `git {sub}` mutates the tree or the refs the orchestrator hash-checks")
             if sub in ("branch", "tag") and any(a in ("-d", "-D", "-m", "-M", "-c", "-C", "-f") for a in args) \
                or sub == "config" and not any(a in ("--get", "--get-all", "--list", "-l", "get", "list") for a in args):
