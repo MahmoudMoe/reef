@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- Tick: a ready task whose implementer handed back (`handback-<id>.md` newer than any `report-<id>.md`, in any
+  checkout) is listed under **`verify now:`**, not `dispatch now:` — first contact (2026-10-17) the fresh session's tick
+  said "dispatch now: 103" over a handed-back, uncommitted worktree. The task skill starts such a task at the gate.
 - **Judges learn their report budget before they write**: `reef-attempt` prints `report: budget=N words, RULE lines free
   (k criteria)` and `hunter-report: budget=N words`; the task skill passes the line in the dispatch prompt; the agent
   definitions name it. `reef-claims.py report` no longer counts RULE lines (the contract's length is the plan's) and the
