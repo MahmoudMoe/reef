@@ -617,6 +617,15 @@ def main():
                 errs.append(f"{key}={fm[key]!r} not in {sorted(legal)}")
         if "id" in fm and not re.fullmatch(r"R?\d+", fm["id"]):
             errs.append(f"id={fm['id']!r} not NNN or RNN")
+        # the folder and the status are one fact with two homes: a file under done/ is `status: done` and a
+        # `status: done` file is under done/ (first contact, 2026-10-17: 103 was merged into done/ still `in-progress`,
+        # the tick would have kept it building; the orchestrator noticed, a check must)
+        in_done = os.path.basename(os.path.dirname(path)) == "done"
+        if "status" in fm and not os.path.basename(path).startswith("R"):
+            if in_done and fm["status"] != "done":
+                errs.append(f"under tasks/done/ with status={fm['status']!r} — the close-out sets `status: done` in the same commit that moves the file")
+            if not in_done and fm["status"] == "done":
+                errs.append("status: done but not under tasks/done/ — the close-out `git mv`s the file in the same commit")
         if "attempts" in fm and not re.fullmatch(r"\d+", fm["attempts"]):
             errs.append(f"attempts={fm['attempts']!r} not a non-negative integer (a negative value would multiply the retry cap)")
         if "dispatches" in fm and not re.fullmatch(r"\d+", fm["dispatches"]):

@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- Plan check: a task file under `tasks/done/` must be `status: done` and a `status: done` file must be under `done/`
+  (one fact, two homes). First contact (2026-10-17): 103 was merged into `done/` still `in-progress`; the orchestrator
+  caught it by eye. The task skill also says where `git branch -d` works (the feature worktree) and when `-D` is right.
 - **Opus everywhere by default**: `planner`, `plan_reviewer` and the `critical` tier's judges were `fable`; the owner set it
   aside (2026-10-17: a plan review ran 4–5 minutes on a context the project could not afford). Set a heavier model per
   project in `.reef/config.json` if wanted.
