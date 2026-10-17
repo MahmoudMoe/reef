@@ -681,8 +681,10 @@ def check_adversarial_plan(path, fm, text):
     if got != want:
         if got == adv.legacy_plan_hash(text):
             # 2026-10-18: the cut moved to ## Reviewer notes (fda6801) and every stamp written before it read as "the plan changed"
+            # the plugin's copy: a feature worktree's scripts/ lags the base until the next merge and has no --migrate
+            here = os.path.dirname(os.path.abspath(__file__))
             deny(f"{path}: adversarial-plan {got} is a 0.6 stamp (it hashed the Reviewer notes) and the plan is unchanged — "
-                 f"re-stamp it without a hunter round: python3 scripts/reef-adversarial {path} plan --migrate")
+                 f"re-stamp it without a hunter round: python3 {os.path.join(here, 'reef-adversarial')} {path} plan --migrate")
         deny(f"{path}: the plan changed since the loophole-hunter's pass (adversarial-plan {got} != {want}) — "
              "run the hunter again on the current plan")
 
