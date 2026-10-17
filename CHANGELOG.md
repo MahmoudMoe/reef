@@ -5,8 +5,8 @@
   aside (2026-10-17: a plan review ran 4–5 minutes on a context the project could not afford). Set a heavier model per
   project in `.reef/config.json` if wanted.
 - `reef-claims.py blocking-fixed <review-report> <since-rev>`: every `path:line` the BLOCKING section cites must have
-  changed since the fixes began; the plan-review skill runs it before any re-dispatch and RESUMES the same reviewer
-  instead of spawning a fresh one. First contact: one ADR line missed cost a full review round and the round-rule stop.
+  changed since the fixes began; the plan-review skill runs it before any re-dispatch (the re-review itself stays a
+  fresh-context agent). First contact: one ADR line missed cost a full review round and the round-rule stop.
 - Guard: a read-only judge may run `git worktree list`, `git stash list` and `git submodule status` (reads); the other
   verbs of those commands stay denied. First contact (2026-10-17): the plan-reviewer was refused `git worktree list`.
 - Tick: a ready task whose implementer handed back (`handback-<id>.md` newer than any `report-<id>.md`, in any
