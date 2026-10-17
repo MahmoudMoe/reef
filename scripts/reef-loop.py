@@ -222,6 +222,9 @@ def tick(root):
     planned_elsewhere = {r for r in planned_elsewhere if r in live}
     to_plan = [r for r in to_plan if r[0] not in planned_elsewhere]
     building = building + [[r] for r in sorted(planned_elsewhere) if r not in {b[0] for b in building}]
+    # rule 7: found rows two batches old with no task file — the triage question is the orchestrator's at the batch boundary
+    rc_t, triage = run([py, os.path.join(scripts, "reef-queue.py"), "triage", "--count", "--repo", root], root)
+    triage_line = triage.strip().splitlines()[0] if rc_t == 1 and triage.strip() else ""
     # tasks whose orchestrator growth (summed over sessions, .reef/cost/tasks.json) passed caps.task_growth (0 = off)
     over = []
     cap_growth = int((cfg.get("caps") or {}).get("task_growth", 0) or 0)
@@ -241,7 +244,7 @@ def tick(root):
         "rows_to_close": [r[0] for r in to_close],
         "in_flight": sorted(inflight_ids) + [f"verifying:{m['id']}" for m in verifying if not m["stale"]],
         "returned_unmerged": [m["id"] for m in returned], "parked": blocked, "building": [r[0] for r in building],
-        "worktrees": len(worktrees), "wait": st.get("wait"), "active": bool(st.get("active")), "stop": stop, "over_growth": over,
+        "worktrees": len(worktrees), "wait": st.get("wait"), "active": bool(st.get("active")), "stop": stop, "over_growth": over, "triage": triage_line,
         "broken": [] if rc_g == 0 else ["task graph broken or unreadable (reef-graph ready failed)"],
     }
     h = hashlib.sha1(json.dumps({k: state[k] for k in ("rows_to_plan", "dispatch_now", "verify_now", "awaiting", "prs_to_review", "rows_to_close", "in_flight", "returned_unmerged", "parked", "building")}, sort_keys=True).encode()).hexdigest()[:12]
@@ -276,7 +279,8 @@ def render(state):
              f"returned, unmerged: {', '.join(state['returned_unmerged']) or '-'}",
              f"parked: {', '.join(state['parked']) or '-'}" + (f"  LOOP PARKED: {state['parked_loop']}" if state.get("parked_loop") else ""),
              f"building rows: {', '.join(state['building']) or '-'}  worktrees: {state['worktrees']}"
-             + (f"  GROWTH over caps.task_growth: {', '.join(state['over_growth'])} — say why in the journal" if state.get("over_growth") else ""),
+             + (f"  GROWTH over caps.task_growth: {', '.join(state['over_growth'])} — say why in the journal" if state.get("over_growth") else "")
+             + (f"\n{state['triage']} — python3 scripts/reef-queue.py triage, ONE owner question at the batch boundary" if state.get("triage") else ""),
              f"next: {nxt}"]
     lines += [f"BROKEN: {b}" for b in state["broken"]]
     return "\n".join(lines[:MAX_LINES]) + "\n"

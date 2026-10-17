@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Found-row triage as a command** (usability plan B5): `reef-queue.py triage` lists `found` rows still queued two
+  batches after they entered, grouped by module, with rule 7's three outcomes as ONE owner question, and the open
+  found-vs-planned count; `set-batch ID N` and `drop-row ID --reason` carry the answer out (deletion recorded as a
+  footnote). The tick prints `stale found (rule 7): N` when there is something to ask. First full loop: 18 of 26
+  open rows were `found` and no moment asked about them.
 - **Fix**: the tick no longer lists a closed row as building because its SPEC sits in every feature worktree's full
   checkout ("building rows: 1, 11, 13, 2" with row 1 archived); only rows still in the queue count.
 - **Cost in the record**: the Stop hook folds the session's per-task orchestrator growth into `.reef/cost/tasks.json`

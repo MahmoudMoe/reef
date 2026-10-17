@@ -205,6 +205,97 @@ Current batch: 2
 """
 
 
+TRIAGE_MD = """# Queue — Demo
+Current batch: 3
+
+## Rules
+1. x
+
+## Batch 1
+
+| Id | Item | Depends | Source | Batch | Admitted |
+|---|---|---|---|---|---|
+| 14 | Test-DB setup hardening (tests/setup-database.mts; hunter, task 101) | 1 | found | 1 | |
+| 16 | Receipt cache lifetime: `put` sets `cacheControl` (src/lib/supabase-receipts.ts; hunter, task 102) | 1 | found | 1 | |
+
+## Batch 2
+
+| Id | Item | Depends | Source | Batch | Admitted |
+|---|---|---|---|---|---|
+| 18 | Bill page wiring test (src/app/b/[id]/page.tsx; hunter) | 1 | found | 2 | |
+| 20 | Share links¹² | 11 | planned | 2 | |
+
+## Batch 3
+
+| Id | Item | Depends | Source | Batch | Admitted |
+|---|---|---|---|---|---|
+| 25 | CDN purge smoke (owner) | 1 | found | 3 | |
+| 30 | Exact calculations | 20 | planned | 3 | |
+
+## Footnotes
+¹² deletion closes before promotion (2026-10-16)
+"""
+
+
+class Triage(unittest.TestCase):
+    """0.7 (usability plan B5): the first full loop had 18 of 26 open rows `found` and no moment that asked about them.
+    Rule 7 as a command: the stale set, grouped by module, the three outcomes as one owner question, and the two
+    commands that carry his answer out."""
+
+    def setUp(self):
+        self.d = qrepo()
+        write(self.d, "docs/queue.md", TRIAGE_MD)
+        write(self.d, "docs/queue-archive.md", "# Archive\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 1 | skeleton | | planned | 1 | |\n| 11 | sign-in | 1 | planned | 2 | |\n")
+
+    def test_stale_found_rows_two_batches_old_grouped_by_module_as_one_question(self):
+        r = queue(self.d, "triage")
+        self.assertEqual(r.returncode, 1, "exit 1: there is something to triage")
+        self.assertIn("triage: batch 3 · open found 4 vs planned 2 · stale found (rule 7): 2", r.stdout)
+        self.assertIn("found rows outnumber planned ones", r.stdout)
+        self.assertIn("## src/lib", r.stdout)
+        self.assertIn("## tests/setup-database.mts", r.stdout)
+        self.assertIn("- row 14 (entered batch 1", r.stdout)
+        self.assertIn("- row 16 (entered batch 1", r.stdout)
+        self.assertNotIn("row 18", r.stdout, "batch 2 is one behind, not two")
+        self.assertNotIn("row 25", r.stdout)
+        self.assertNotIn("row 20", r.stdout, "planned rows are never triaged")
+        for word in ("Promote", "Merge into design row", "Delete"):
+            self.assertIn(word, r.stdout)
+        self.assertEqual(queue(self.d, "triage", "--count").stdout.strip(), "triage: batch 3 · open found 4 vs planned 2 · stale found (rule 7): 2")
+
+    def test_nothing_stale_exits_zero(self):
+        write(self.d, "docs/queue.md", TRIAGE_MD.replace("Current batch: 3", "Current batch: 2"))
+        r = queue(self.d, "triage")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("nothing to triage", r.stdout)
+        self.assertEqual(queue(self.d, "triage", "--count").returncode, 0)
+
+    def test_set_batch_moves_the_row_under_its_new_heading(self):
+        r = queue(self.d, "set-batch", "14", "3")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        q = read_file(self.d, "docs/queue.md")
+        b3 = q[q.index("## Batch 3"):q.index("## Footnotes")]
+        self.assertIn("| 14 | Test-DB setup hardening", b3)
+        self.assertRegex(b3, r"\| 14 \|[^\n]*\| found \| 3 \|")
+        self.assertNotIn("| 14 |", q[q.index("## Batch 1"):q.index("## Batch 2")])
+        self.assertEqual(queue(self.d, "check").returncode, 0, "the queue is still consistent")
+        self.assertIn("triage: batch 3 · open found 4 vs planned 2 · stale found (rule 7): 1", queue(self.d, "triage", "--count").stdout)
+
+    def test_drop_row_deletes_a_queued_row_and_records_the_reason(self):
+        self.assertNotEqual(queue(self.d, "drop-row", "16").returncode, 0, "no reason, no deletion")
+        r = queue(self.d, "drop-row", "16", "--reason", "storage-js 2.90 caps cacheControl at the signed-URL TTL")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        q = read_file(self.d, "docs/queue.md")
+        self.assertNotIn("| 16 |", q)
+        self.assertIn("¹³ row 16 deleted (rule 7): storage-js 2.90 caps cacheControl at the signed-URL TTL — was: Receipt cache lifetime", q)
+        self.assertEqual(queue(self.d, "check").returncode, 0)
+        # a built row is not dropped: its close-out archives it
+        write(self.d, "tasks/1401-a.md", "---\nid: 1401\nfeature: 14\nstatus: pending\n---\n# x\n")
+        r = queue(self.d, "drop-row", "14", "--reason", "x")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("only a queued row", r.stderr + r.stdout)
+
+
 class QueueEdits(unittest.TestCase):
     """0.7: the orchestrator's queue edits (a footnote, a found row, a Depends change) were inline Python heredocs — the
     largest Reef-attributable context share of the first full loop (assistant:tool_use 15%). One command each, shape kept."""
