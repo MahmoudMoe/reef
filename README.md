@@ -338,3 +338,5 @@ the found rows the Reef-on-itself run filed. Done this cycle: the planning cut (
 the guard's own checkpoint at the ceiling, `reef-watch`.
 
 MIT licensed. Built with Claude Code.
+
+The plan after first contact for ease of use and autopilot maturity: [`docs/design/usability-autopilot-plan.md`](docs/design/usability-autopilot-plan.md).
