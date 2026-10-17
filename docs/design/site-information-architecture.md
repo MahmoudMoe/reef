@@ -16,7 +16,7 @@ that order, top to bottom, so every reader stops at the first section that answe
 | **Adopter** (has a project and wants to try it) | 10 minutes | Where do I start for *my* situation? | The situation chooser: five situations, one command each, what happens next |
 | **Operator** (runs it daily, needs to understand a stop or a denial) | as needed | Why did Reef refuse that, and who decides? | The pipeline explorer, the roles, the enforcement ledger with search |
 | **Owner** (tunes the numbers, sets the models) | as needed | Which key, what default, what effect? | The tiers table and the searchable settings reference |
-| **Skeptic / contributor** | 30 minutes | Where are the numbers, and where is the code? | The measured section with a source link per number; the layout tree; the docs index |
+| **Skeptic / contributor** | 30 minutes | Where are the numbers, and where is the code? | The measured section, which points at the reports rather than restating them; the layout tree; the docs index |
 
 The first two readers get everything above the fold or one scroll below it. The last three get sections that are
 **interactive on purpose**: a 42-row ledger is read by filtering it, not by scrolling it.
@@ -26,7 +26,7 @@ The first two readers get everything above the fold or one scroll below it. The 
 | Surface | Owns | Links to (never copies) |
 |---|---|---|
 | `README.md` (the GitHub page) | The claim, the quick start, the **honesty ledger**, the tiers, the settings table, the measured summary, the layout, the status | the site, the manual, `docs/perf`, `docs/design` |
-| `docs/index.html` (the site) | The *presentation*: the situation chooser, the pipeline explorer, the roles, the growth chart, the expandable layout tree | **the ledger and the settings table are fetched from the README at page load and parsed**; every number links to its `docs/perf` report |
+| `docs/index.html` (the site) | The *presentation*: the situation chooser, the pipeline explorer, the roles, the expandable layout tree | **the ledger and the settings table are fetched from the README at page load and parsed**; the measured section links to `docs/perf` instead of restating it |
 | `docs/manual/ar/index.html` | The Arabic user manual (learning path, daily use, troubleshooting) | the README for reference facts |
 | `docs/design/*.md` | Design decisions and their reasoning (the graph executor, the planning cost cut, this document) | — |
 | `docs/perf/*.md` | Every measured number: the dogfood run, the baseline, the eval, the payloads, the guard profile | — |
@@ -39,9 +39,9 @@ Two consequences:
   table at runtime (`docs/assets/site.js`, `loadReadmeTables`). It tries the README served beside the site first,
   then the raw file on GitHub. If both fail or the heading moves, the section degrades to a link to the README
   section. Nothing in the site's HTML restates a ledger row.
-- **The site's own numbers are few and sourced.** The stat tiles and the growth chart carry about a dozen numbers,
-  each hand-copied from `docs/perf/dogfood-2026-10-16.md` or the eval report, and each tile links to its source
-  line. They change only at a release, together with the version string, and the maintenance list below names them.
+- **The site does not advertise figures.** No cost, token or eval number is restated on the page; the measured section
+  points at the reports in `docs/perf/` and the hero's three proof chips (the selftest count, the two dogfood runs, the
+  ledger's row count) are the only counts, each a link to its evidence.
 
 ## 3. The site, section by section
 
@@ -57,7 +57,7 @@ form and not another.
 | 4 | Who does what | Which agent runs, with which tools, read-only or not | Six role cards with a read-only or writes badge and the dispatch rule | Operators debug denials by role ("the verifier may not run that"); cards group the facts a denial message refers to |
 | 5 | What is enforced | Is this rule code, a tripwire, or prose | The README's ledger, parsed, with a class filter and a search box and a live count | Honesty is the project's differentiator; a filter makes the "prose" rows findable in one click, which is the point of the ledger |
 | 6 | Tiers | Which model and judge my task gets | A four-row table with a short gloss per tier | Four rows fit a table; the gloss turns the tier names into the question an owner asks ("would two people build it differently?") |
-| 7 | Measured | What does a row cost, what did the eval show | Stat tiles (hero number: the cost of one row) and a single-series bar chart of orchestrator context growth per stage, hover for the max context | A number per claim is the README's promise; tiles isolate the headline numbers and the chart shows the one shape the text argues about (planning is the expensive stage) |
+| 7 | Measured | Where do the numbers live | A short pointer to `docs/perf/` and four cards into the reports | The reports hold the measurements; the page does not sell with figures, so it names where they are and stops |
 | 8 | Settings | Which key, what default, what effect | The README's settings table, parsed and searchable | Owners look a key up by name; search is the right interaction for a reference table |
 | 9 | Layout | Where a file lives after `/reef-init` | An expandable tree with a one-line purpose per node | A tree is the shape of the thing; expanding it on demand keeps the first view to the top level |
 | 10 | Documents | Where to read more | Cards: design docs, perf reports, the Arabic manual, the changelog | The last reader wants the sources, grouped by kind |
@@ -65,7 +65,7 @@ form and not another.
 
 ## 4. Display rules
 
-- **Every number links to its source.** A stat tile without a link to a `docs/perf` line is not allowed.
+- **Every count links to its source.** The page restates no measurement; a count it does show (the proof chips) links to the evidence.
 - **Three enforcement classes, three colours, used nowhere else.** code = teal, tripwire = amber, prose = coral.
   The same three colours mean the same three things in the ledger, the pipeline detail, and the role cards.
 - **The palette is the banner's.** Cream surface, coral, teal, navy, amber, slate (`assets/banner-light.svg`), with
@@ -86,7 +86,7 @@ form and not another.
 | Event | Touch |
 |---|---|
 | A release | the version in `README.md` badges, `.claude-plugin/plugin.json`, and the hero chip in `docs/index.html` (`data-version`) |
-| A new measurement in `docs/perf` | the stat tiles and chart data in `docs/index.html` (`data-source` attributes name the file) |
+| A new report in `docs/perf` | a card in the measured section of `docs/index.html` |
 | A ledger or settings row | nothing: the site reads the README |
 | A new command or skill | the situation chooser and the pipeline detail in `docs/index.html` |
 | A README heading rename ("What is enforced, and how", "Settings") | the matching heading text in `site.js` (`TABLE_HEADINGS`) |

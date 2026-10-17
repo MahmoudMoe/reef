@@ -81,52 +81,6 @@
     if (close) close.addEventListener('click', () => $$('details', tree).forEach(d => d.open = false));
   }
 
-  /* ---------- growth chart (single series, bars, hover tooltip) ---------- */
-  function growthChart() {
-    const host = $('#growth-chart'); const rows = $$('#growth-table tr');
-    if (!host || !rows.length) return;
-    const data = rows.map(r => ({
-      label: r.dataset.label, growth: +r.dataset.growth, max: +r.dataset.max, alt: r.dataset.alt === '1', note: r.dataset.note || ''
-    }));
-    const W = 920, left = 196, right = 70, top = 10, band = 36, barH = 20, H = top + data.length * band + 34;
-    const maxV = 120; const x = v => left + (v / maxV) * (W - left - right);
-    const ticks = [0, 25, 50, 75, 100];
-    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Orchestrator context growth per session, in thousands of tokens">`;
-    ticks.forEach(t => {
-      svg += `<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${top}" y2="${top + data.length * band}"/>`;
-      svg += `<text class="axis" x="${x(t)}" y="${top + data.length * band + 20}" text-anchor="middle">${t === 0 ? '0' : t + 'K'}</text>`;
-    });
-    data.forEach((d, i) => {
-      const y = top + i * band + (band - barH) / 2;
-      const w = Math.max(4, x(d.growth) - x(0));
-      const r = 4;
-      // square at the baseline, 4px rounded data-end
-      const path = `M${x(0)} ${y} H${x(0) + w - r} a${r} ${r} 0 0 1 ${r} ${r} V${y + barH - r} a${r} ${r} 0 0 1 -${r} ${r} H${x(0)} Z`;
-      svg += `<text class="cat" x="${left - 12}" y="${y + barH / 2 + 4}" text-anchor="end">${esc(d.label)}</text>`;
-      svg += `<rect class="hit" x="${x(0)}" y="${top + i * band}" width="${W - left - right}" height="${band}" tabindex="0" data-i="${i}" aria-label="${esc(d.label)}: grew ${d.growth}k, maximum context ${d.max}k"/>`;
-      svg += `<path class="bar${d.alt ? ' alt' : ''}" d="${path}" data-i="${i}"/>`;
-      svg += `<text class="lbl" x="${x(0) + w + 8}" y="${y + barH / 2 + 4}">${d.growth}k</text>`;
-    });
-    svg += '</svg><div class="tip" role="tooltip" id="growth-tip"></div>';
-    host.innerHTML = svg;
-    const tip = $('#growth-tip');
-    function show(i, el) {
-      const d = data[i]; const box = host.getBoundingClientRect(); const b = el.getBoundingClientRect();
-      tip.innerHTML = `<b>${esc(d.label)}</b><br>growth ${d.growth}k · max context ${d.max}k${d.note ? '<br>' + esc(d.note) : ''}`;
-      tip.style.left = (b.left - box.left + b.width / 2) + 'px';
-      tip.style.top = (b.top - box.top) + 'px';
-      tip.classList.add('show');
-    }
-    $$('.hit', host).forEach(h => {
-      const bar = () => $(`.bar[data-i="${h.dataset.i}"]`, host);
-      h.addEventListener('mouseenter', () => show(+h.dataset.i, bar()));
-      h.addEventListener('focus', () => show(+h.dataset.i, bar()));
-      h.addEventListener('mouseleave', () => tip.classList.remove('show'));
-      h.addEventListener('blur', () => tip.classList.remove('show'));
-    });
-  }
-  growthChart();
-
   /* ---------- README tables: fetch, parse, render ---------- */
   function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
 

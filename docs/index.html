@@ -320,42 +320,10 @@
   <div class="wrap">
     <div class="sec-head">
       <span class="eyebrow">Measured</span>
-      <h2>Every claim has a number behind it.</h2>
-      <p>The numbers below were measured on real runs and each tile links to the report that holds it. Reef 0.7 was run headless on a fresh Python project, six stages end to end, and on a clone of itself for one critical-tier row.</p>
+      <h2>Where the numbers live.</h2>
+      <p>Reef was run headless on a fresh Python project, six stages end to end, and on a clone of itself for one critical-tier row. The reports in <code>docs/perf/</code> hold every measurement; the cards below lead to them.</p>
     </div>
-    <div class="stats">
-      <a class="stat hero-stat" href="https://github.com/MahmoudMoe/reef/blob/main/docs/perf/dogfood-2026-10-16.md#a-a-fresh-project-end-to-end-ledger" data-source="docs/perf/dogfood-2026-10-16.md §A"><span class="label">One two-task row, five sessions</span><span class="value">$15.67</span><span class="sub">at API list prices; 31 minutes of wall time, 90 turns</span><span class="src">dogfood §A</span></a>
-      <a class="stat" href="https://github.com/MahmoudMoe/reef#selftests"><span class="label">Selftests</span><span class="value">440</span><span class="sub">351 Python + 89 shell, each shows its mechanism going red</span><span class="src">README · Selftests</span></a>
-      <a class="stat" href="https://github.com/MahmoudMoe/reef/blob/main/docs/perf/dogfood-2026-10-16.md#e-what-the-numbers-say-and-the-caps"><span class="label">Session start injection</span><span class="value">~300 <small>tokens</small></span><span class="sub">against an 8,000 cap; the 0.5 baseline's 91k first turn is gone</span><span class="src">dogfood §E</span></a>
-      <a class="stat" href="https://github.com/MahmoudMoe/reef/blob/main/docs/perf/eval-baseline-2026-10-16.md"><span class="label">Hunter eval, k=3</span><span class="value">1.00 · 1.00 · 0.17</span><span class="sub">catch rate · precision · false-FAIL (was 0.33)</span><span class="src">eval-baseline</span></a>
-      <a class="stat" href="https://github.com/MahmoudMoe/reef/blob/main/docs/perf/eval-baseline-2026-10-16.md"><span class="label">Verifier false-FAIL</span><span class="value">0.33 → 0.00</span><span class="sub">nothing dropped; the corpus's own PASS fixtures were wrong three times</span><span class="src">eval-baseline</span></a>
-      <a class="stat" href="https://github.com/MahmoudMoe/reef/blob/main/docs/perf/guard-profile-2026-10-16.md"><span class="label">Guard p95 per hook</span><span class="value">≤ 130 <small>ms</small></span><span class="sub">every hook timeout at least 5 × p95</span><span class="src">guard-profile</span></a>
-    </div>
-
-    <div class="chartbox">
-      <h3>Orchestrator context growth per session, one row end to end</h3>
-      <p class="sub">Thousands of tokens the main session grew by. Every session starts at 46–48k before the first turn. Planning is the expensive stage, and the next cut. Hover a bar for the session's maximum context.</p>
-      <div class="chart" id="growth-chart" data-source="docs/perf/dogfood-2026-10-16.md §E"></div>
-      <div class="chart-legend"><span><i style="background:var(--teal)"></i>fresh project, tier full</span><span><i style="background:var(--coral)"></i>Reef on itself, tier critical</span></div>
-      <details class="tableview">
-        <summary>The same numbers as a table</summary>
-        <table>
-          <thead><tr><th>Session</th><th>Growth</th><th>Max context</th></tr></thead>
-          <tbody id="growth-table">
-            <tr data-label="/reef-init" data-growth="11" data-max="58"><td><code>/reef-init</code></td><td>11k</td><td>58k</td></tr>
-            <tr data-label="/reef-plan" data-growth="66" data-max="114" data-note="one row, 2 tasks"><td><code>/reef-plan</code> (one row, 2 tasks)</td><td>66k</td><td>114k</td></tr>
-            <tr data-label="/reef-plan-review" data-growth="25" data-max="70"><td><code>/reef-plan-review</code></td><td>25k</td><td>70k</td></tr>
-            <tr data-label="/reef-task" data-growth="63" data-max="111" data-note="2 tasks, tier full; 39.7k inside the dispatch span"><td><code>/reef-task</code> (2 tasks, tier full)</td><td>63k</td><td>111k</td></tr>
-            <tr data-label="/reef-review" data-growth="54" data-max="102"><td><code>/reef-review</code></td><td>54k</td><td>102k</td></tr>
-            <tr data-label="close" data-growth="39" data-max="86"><td>close</td><td>39k</td><td>86k</td></tr>
-            <tr data-label="/reef-task (critical)" data-growth="111" data-max="159" data-alt="1" data-note="1 task, Reef on itself; 34.1k inside the span"><td><code>/reef-task</code> (1 task, tier critical, Reef on itself)</td><td>111k</td><td>159k</td></tr>
-          </tbody>
-        </table>
-      </details>
-      <p class="ledger-note">Source: <a href="https://github.com/MahmoudMoe/reef/blob/main/docs/perf/dogfood-2026-10-16.md#e-what-the-numbers-say-and-the-caps">dogfood-2026-10-16.md §E</a>. The caps were set from these rows: <code>caps.context_warn: 100000</code>, <code>caps.context_tokens: 150000</code>; p90 of the session maxima is 148k.</p>
-    </div>
-
-    <div class="cards" style="margin-top:14px">
+    <div class="cards">
       <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/docs/perf/dogfood-2026-10-16.md"><h3>The dogfood run</h3><p>Six stages on a fresh project, one critical row on Reef itself, seven defects found and fixed with a test shown red first.</p><span class="meta">docs/perf/dogfood-2026-10-16.md</span></a>
       <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/docs/perf/baseline-2026-10-16.md"><h3>The 0.5 baseline</h3><p>What the 0.6 targets were set against: a 91k first turn, 43% of context in attachments, 31% raw Bash output.</p><span class="meta">docs/perf/baseline-2026-10-16.md</span></a>
       <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/docs/perf/payloads-2026-10-16.md"><h3>The hook payloads</h3><p>What Claude Code actually sends each hook, captured live, with what was and was not verified.</p><span class="meta">docs/perf/payloads-2026-10-16.md</span></a>
