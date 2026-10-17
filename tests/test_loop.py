@@ -194,6 +194,35 @@ class Tick(unittest.TestCase):
         self.assertIn("101", st["dispatch_now"])
 
 
+class ClosedRowsInWorktrees(unittest.TestCase):
+    def test_an_archived_rows_spec_inside_a_feature_worktree_is_not_building(self):
+        # 2026-10-17: every feature worktree is a full checkout, so row 1's closed SPEC made "building rows: 1, 11, 13, 2"
+        d = project({"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md", "runlog": "reef/journal.md", "features": "reef/features"},
+                     "branches": {"base": "main", "feature_prefix": "feat/"}})
+        write(d, "reef/features/first/SPEC.md", "# first\nRow: 1\n")
+        write(d, "reef/features/second/SPEC.md", "# second\nRow: 2\n")
+        # row 1 closes: archived, its SPEC stays in the tree
+        write(d, "reef/queue.md", "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 2 | second | 1 | planned | 1 | |\n")
+        write(d, "reef/queue-archive.md", "# Archive\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 1 | first | | planned | 1 | |\n")
+        g = ["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t"]
+        subprocess.run(g + ["add", "-A"], check=True, capture_output=True)
+        subprocess.run(g + ["commit", "-qm", "row 1 closed; row 2 planned"], check=True, capture_output=True)
+        subprocess.run(g + ["worktree", "add", "-q", "-b", "feat/second", os.path.join(d, ".reef", "worktrees", "second"), "main"], check=True, capture_output=True)
+        text = loop(d, "tick").stdout
+        self.assertRegex(text, r"building rows: 2\b")
+        self.assertNotRegex(text, r"building rows: 1")
+
+
+class GrowthCap(unittest.TestCase):
+    def test_the_tick_names_tasks_over_caps_task_growth(self):
+        d = project({"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md", "runlog": "reef/journal.md"}, "caps": {"task_growth": 20000}})
+        write(d, ".reef/cost/tasks.json", json.dumps({"101": {"s1": {"growth": 15000, "turns": 3, "roles": {}}, "s2": {"growth": 9000, "turns": 2, "roles": {}}},
+                                                       "102": {"s1": {"growth": 4000, "turns": 1, "roles": {}}}}))
+        text = loop(d, "tick").stdout
+        self.assertIn("GROWTH over caps.task_growth: 101 (24,000) — say why in the journal", text)
+        self.assertNotIn("102 (", text)
+
+
 class VerifyNow(unittest.TestCase):
     def test_a_handed_back_task_is_to_verify_not_to_dispatch(self):
         # first contact (2026-10-17): the fresh session's tick said "dispatch now: 103" while 103's implementer had

@@ -216,15 +216,32 @@ def tick(root):
             if n > ceiling:
                 stop = stop or f"budget: {n} tokens > caps ceiling {ceiling} — the feature/batch parks (5.3)"
                 budget_note = stop
+    # a feature worktree is a full checkout, so it also carries every CLOSED row's SPEC (2026-10-17: "building rows:
+    # 1, 11, 13, 2" with row 1 archived): only rows still in the queue count
+    live = {r[0] for r in rows if len(r) > 1}
+    planned_elsewhere = {r for r in planned_elsewhere if r in live}
     to_plan = [r for r in to_plan if r[0] not in planned_elsewhere]
     building = building + [[r] for r in sorted(planned_elsewhere) if r not in {b[0] for b in building}]
+    # tasks whose orchestrator growth (summed over sessions, .reef/cost/tasks.json) passed caps.task_growth (0 = off)
+    over = []
+    cap_growth = int((cfg.get("caps") or {}).get("task_growth", 0) or 0)
+    if cap_growth:
+        try:
+            with open(os.path.join(root, ".reef", "cost", "tasks.json"), encoding="utf-8") as f:
+                store = json.load(f)
+            for tid, sessions in sorted(store.items()):
+                g = sum(int(s.get("growth", 0)) for s in sessions.values())
+                if g > cap_growth:
+                    over.append(f"{tid} ({g:,})")
+        except (OSError, ValueError):
+            pass
     state = {
         "rows_to_plan": [r[0] for r in to_plan], "dispatch_now": [t["id"] for t in dispatch_now], "verify_now": verify_now, "awaiting": awaiting,
         "prs_to_review": [f"#{p['number']} {p['headRefName']}" for p in prs], "other_prs": len(other_prs),
         "rows_to_close": [r[0] for r in to_close],
         "in_flight": sorted(inflight_ids) + [f"verifying:{m['id']}" for m in verifying if not m["stale"]],
         "returned_unmerged": [m["id"] for m in returned], "parked": blocked, "building": [r[0] for r in building],
-        "worktrees": len(worktrees), "wait": st.get("wait"), "active": bool(st.get("active")), "stop": stop,
+        "worktrees": len(worktrees), "wait": st.get("wait"), "active": bool(st.get("active")), "stop": stop, "over_growth": over,
         "broken": [] if rc_g == 0 else ["task graph broken or unreadable (reef-graph ready failed)"],
     }
     h = hashlib.sha1(json.dumps({k: state[k] for k in ("rows_to_plan", "dispatch_now", "verify_now", "awaiting", "prs_to_review", "rows_to_close", "in_flight", "returned_unmerged", "parked", "building")}, sort_keys=True).encode()).hexdigest()[:12]
@@ -258,7 +275,8 @@ def render(state):
              f"in flight: {', '.join(state['in_flight']) or '-'}",
              f"returned, unmerged: {', '.join(state['returned_unmerged']) or '-'}",
              f"parked: {', '.join(state['parked']) or '-'}" + (f"  LOOP PARKED: {state['parked_loop']}" if state.get("parked_loop") else ""),
-             f"building rows: {', '.join(state['building']) or '-'}  worktrees: {state['worktrees']}",
+             f"building rows: {', '.join(state['building']) or '-'}  worktrees: {state['worktrees']}"
+             + (f"  GROWTH over caps.task_growth: {', '.join(state['over_growth'])} — say why in the journal" if state.get("over_growth") else ""),
              f"next: {nxt}"]
     lines += [f"BROKEN: {b}" for b in state["broken"]]
     return "\n".join(lines[:MAX_LINES]) + "\n"
