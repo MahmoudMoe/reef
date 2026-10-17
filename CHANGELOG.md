@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- Plan pass of the loophole-hunter: **two rounds at most** (pass, fix, re-check); a BLOCKER still open afterwards is a
+  decision for the human in the gate's question set, never a third round (first full loop, 2026-10-17: one row took four
+  rounds, planning three rows spent a whole session before any gate). The hunter writes its report to the scratchpad or
+  returns it; the orchestrator records it under `.reef/ci-local/`.
 - **Project files stay the project's.** The glossary is a record (write-once, like the journal). `reef-init --keep
   <path>…` marks a rendered file as the project's own (ci.yml after a feature added a service): never proposed again.
   AGENTS.md's Boundaries section is a kept block like the owner's decision points, and the first render after a block
