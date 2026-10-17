@@ -193,6 +193,27 @@ class Tick(unittest.TestCase):
         self.assertIn("101", st["dispatch_now"])
 
 
+class VerifyNow(unittest.TestCase):
+    def test_a_handed_back_task_is_to_verify_not_to_dispatch(self):
+        # first contact (2026-10-17): the fresh session's tick said "dispatch now: 103" while 103's implementer had
+        # handed back and its work sat uncommitted in the worktree; a second implementer would have been wrong
+        d = project()
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertIn("101", st["dispatch_now"])
+        write(d, ".reef/ci-local/handback-101.md", "RUN: agent=implementer task=101\nclaims\n")
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["verify_now"], ["101"])
+        self.assertNotIn("101", st["dispatch_now"])
+        text = loop(d, "tick").stdout
+        self.assertIn("verify now: 101 (handed back, uncommitted", text)
+        self.assertIn("next: verify: 101", text)
+        time.sleep(0.05)
+        write(d, ".reef/ci-local/report-101.md", "RUN: agent=verifier task=101\nVERDICT: PASS\n")   # a report newer than the hand-back
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["verify_now"], [])
+        self.assertIn("101", st["dispatch_now"], "judged: the tick is back to the graph's word (the task closes or re-dispatches)")
+
+
 class StopHook(unittest.TestCase):
     def test_ready_undispatched_refused_once_then_allowed(self):
         d = project()

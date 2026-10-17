@@ -186,6 +186,19 @@ def tick(root):
             awaiting += [h for h in held_w if h not in awaiting]
             entry = None
     dispatch_now = dispatch_now + extra_ready
+    # a ready task whose implementer already handed back (handback-<id>.md in any checkout's .reef/ci-local, with no
+    # report newer than it) is not to DISPATCH but to VERIFY: first contact (2026-10-17) the fresh session's tick said
+    # "dispatch now: 103" over an uncommitted, handed-back worktree — a second implementer would have burnt a dispatch
+    verify_now = []
+    for t in list(dispatch_now):
+        tid = str(t["id"])
+        for d_ in [root] + worktrees:
+            hb = os.path.join(d_, ".reef", "ci-local", f"handback-{tid}.md")
+            rp = os.path.join(d_, ".reef", "ci-local", f"report-{tid}.md")
+            if os.path.isfile(hb) and (not os.path.isfile(rp) or os.path.getmtime(rp) < os.path.getmtime(hb)):
+                verify_now.append(tid)
+                dispatch_now.remove(t)
+                break
     parked = [l.split("\t")[0] for l in q_status.splitlines()] and []   # rows park through their tasks: status blocked
     rc_gs, g_status = run([py, os.path.join(scripts, "reef-graph.py"), "status", "--root", root], root)
     blocked = [l.split("\t")[0] for l in g_status.splitlines() if "\tblocked\t" in l]
@@ -206,7 +219,7 @@ def tick(root):
     to_plan = [r for r in to_plan if r[0] not in planned_elsewhere]
     building = building + [[r] for r in sorted(planned_elsewhere) if r not in {b[0] for b in building}]
     state = {
-        "rows_to_plan": [r[0] for r in to_plan], "dispatch_now": [t["id"] for t in dispatch_now], "awaiting": awaiting,
+        "rows_to_plan": [r[0] for r in to_plan], "dispatch_now": [t["id"] for t in dispatch_now], "verify_now": verify_now, "awaiting": awaiting,
         "prs_to_review": [f"#{p['number']} {p['headRefName']}" for p in prs], "other_prs": len(other_prs),
         "rows_to_close": [r[0] for r in to_close],
         "in_flight": sorted(inflight_ids) + [f"verifying:{m['id']}" for m in verifying if not m["stale"]],
@@ -214,7 +227,7 @@ def tick(root):
         "worktrees": len(worktrees), "wait": st.get("wait"), "active": bool(st.get("active")), "stop": stop,
         "broken": [] if rc_g == 0 else ["task graph broken or unreadable (reef-graph ready failed)"],
     }
-    h = hashlib.sha1(json.dumps({k: state[k] for k in ("rows_to_plan", "dispatch_now", "awaiting", "prs_to_review", "rows_to_close", "in_flight", "returned_unmerged", "parked", "building")}, sort_keys=True).encode()).hexdigest()[:12]
+    h = hashlib.sha1(json.dumps({k: state[k] for k in ("rows_to_plan", "dispatch_now", "verify_now", "awaiting", "prs_to_review", "rows_to_close", "in_flight", "returned_unmerged", "parked", "building")}, sort_keys=True).encode()).hexdigest()[:12]
     state["hash"] = h
     # no-progress parking (5.3): K identical ticks with nothing in flight
     k = int((cfg.get("loop") or {}).get("no_progress_ticks", 3) or 3)
@@ -230,14 +243,15 @@ def tick(root):
 
 
 def render(state):
-    nxt = ("dispatch: " + ", ".join(state["dispatch_now"])) if state["dispatch_now"] else \
+    nxt = ("verify: " + ", ".join(state["verify_now"])) if state.get("verify_now") else \
+          ("dispatch: " + ", ".join(state["dispatch_now"])) if state["dispatch_now"] else \
           ("review: " + state["prs_to_review"][0]) if state["prs_to_review"] else \
           ("close: " + ", ".join(state["rows_to_close"])) if state["rows_to_close"] else \
           ("plan: " + ", ".join(state["rows_to_plan"])) if state["rows_to_plan"] else \
           ("awaiting: " + "; ".join(state.get("awaiting") or [])) if state.get("awaiting") else "nothing ready — stop or wait"
     lines = [f"tick {state['hash']}  loop={'active' if state['active'] else 'inactive'}" + (f"  wait={state['wait']!r}" if state["wait"] else "") + (f"  STOP={state['stop']}" if state["stop"] else ""),
              f"rows to plan: {', '.join(state['rows_to_plan']) or '-'}",
-             f"dispatch now: {', '.join(state['dispatch_now']) or '-'}",
+             f"dispatch now: {', '.join(state['dispatch_now']) or '-'}" + (f"  verify now: {', '.join(state['verify_now'])} (handed back, uncommitted — gate + verifier, no implementer)" if state.get("verify_now") else ""),
              f"awaiting: {'; '.join(state.get('awaiting') or []) or '-'}",
              f"PRs to review: {', '.join(state['prs_to_review']) or '-'}" + (f"  ({state['other_prs']} other PR(s) into the base, not the loop's)" if state.get("other_prs") else ""),
              f"rows to close: {', '.join(state['rows_to_close']) or '-'}",
@@ -354,12 +368,12 @@ def main(argv):
         return 0
     sys.stdout.write(render(state))
     if "--assert-no-idle" in argv:
-        idle = (state["active"] and not state["wait"] and state["dispatch_now"] and not state["in_flight"]
+        idle = (state["active"] and not state["wait"] and (state["dispatch_now"] or state.get("verify_now")) and not state["in_flight"]
                 and not state["stop"] and not st.get("parked") and not state["broken"])
         if idle and st.get("refused") != state["hash"]:
             st["refused"] = state["hash"]
             save_state(root, st)
-            print(f"IDLE: ready task(s) {', '.join(state['dispatch_now'])} undispatched while the loop is active — dispatch them (reef-task step 2) or record a wait (reef-loop.py wait \"<reason>\")", file=sys.stderr)
+            print(f"IDLE: ready task(s) {', '.join(state['dispatch_now'] + state.get('verify_now', []))} undispatched while the loop is active — dispatch them (reef-task step 2) or record a wait (reef-loop.py wait \"<reason>\")", file=sys.stderr)
             return 2
     return 0
 
