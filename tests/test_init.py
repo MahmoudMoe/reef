@@ -326,6 +326,46 @@ class OwnerDecisionsSurviveARender(unittest.TestCase):
         self.assertNotIn("foreign block(s) kept", r.stdout.split("updated  AGENTS.md")[1].splitlines()[0], "the owner's block is the template's own, not another tool's")
 
 
+class ProjectFilesStayTheProjects(unittest.TestCase):
+    def test_unmarked_sections_are_adopted_keep_stops_proposals_and_the_glossary_is_a_record(self):
+        # first contact (2026-10-17), the refresh after the first feature proposed three reverts: AGENTS.md back to the
+        # template's decision points and Boundaries, ci.yml without the Postgres service 103 added, the glossary
+        # without the four terms the feature added
+        d = tempfile.mkdtemp(prefix="reef-init-own.")
+        subprocess.run(["git", "init", "-q", d], check=True)
+        init(d)
+        agents = read(d, "AGENTS.md")
+        # the project's AGENTS.md as the first feature left it: both sections edited, no markers (an older render)
+        agents = re.sub(r"<!-- BEGIN:reef-owner-decisions -->.*?<!-- END:reef-owner-decisions -->", "Only the owner decides: money and personal data.", agents, flags=re.S)
+        agents = re.sub(r"<!-- BEGIN:reef-boundaries -->.*?<!-- END:reef-boundaries -->", "`.reef/` is machine state · the owner's deployments: only `vercel-build` connects, in this trial none exist.", agents, flags=re.S)
+        write(d, "AGENTS.md", agents)
+        ci = read(d, ".github/workflows/ci.yml") + "    # services: db (postgres:16) added by task 103\n"
+        write(d, ".github/workflows/ci.yml", ci)
+        with open(os.path.join(d, "reef", "glossary.md"), "a", encoding="utf-8") as f:
+            f.write("| Bill | One row of the Bill table. |\n")
+        r = init(d, "--keep", ".github/workflows/ci.yml")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("kept as the project's own: .github/workflows/ci.yml", r.stdout)
+        write(d, "package.json", json.dumps({"name": "late", "scripts": {"test": "vitest run"}}))   # a real re-render trigger
+        r = init(d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("skipped  .github/workflows/ci.yml (the project's own since `reef-init --keep`; never proposed)", r.stdout)
+        self.assertEqual(read(d, ".github/workflows/ci.yml"), ci)
+        self.assertIn("skipped  reef/glossary.md (record, never re-rendered)", r.stdout)
+        self.assertIn("| Bill |", read(d, "reef/glossary.md"))
+        self.assertIn("PROPOSED AGENTS.md", r.stdout, "edited without markers: proposed, never overwritten")
+        proposed = read(d, ".reef/proposed/AGENTS.md")
+        self.assertIn("<!-- BEGIN:reef-owner-decisions -->Only the owner decides: money and personal data.<!-- END:reef-owner-decisions -->", proposed)
+        self.assertIn("<!-- BEGIN:reef-boundaries -->`.reef/` is machine state · the owner's deployments: only `vercel-build` connects, in this trial none exist.<!-- END:reef-boundaries -->", proposed)
+        self.assertNotIn("fill in — examples", proposed)
+        self.assertIn("npm ci", proposed, "the rest is the new rendering")
+        r = init(d, "--accept", "AGENTS.md")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = init(d)
+        self.assertNotIn("PROPOSED AGENTS.md", r.stdout, "accepted once, with the markers in: never proposed for these sections again")
+        self.assertIn("Only the owner decides: money and personal data.", read(d, "AGENTS.md"))
+
+
 class RefreshKeepsRecords(unittest.TestCase):
     def test_refresh_keeps_the_day_zero_date_the_name_the_adrs_and_the_constitution(self):
         # first contact (2026-10-17): a plain refresh re-dated four ADRs and the constitution's "Ratified" line to today
