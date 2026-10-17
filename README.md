@@ -40,6 +40,8 @@ the release.** Everything in between is decided by code on state the agent canno
 | The same, as a page with a pipeline explorer | **[mahmoudmoe.github.io/reef](https://mahmoudmoe.github.io/reef/)** |
 | Which rules are code and which are only prose, the measurements, what is next | [For maintainers](#for-maintainers) |
 
+<p align="center"><img src="assets/divider-rain.svg" alt="" width="100%"></p>
+
 ## Install
 
 ```
@@ -66,6 +68,8 @@ under 0.6. The flat `tasks/` and `docs/` layout keeps working; `python3 scripts/
 reviewed commit when you want the tree.
 
 </details>
+
+<p align="center"><img src="assets/divider-rain.svg" alt="" width="100%"></p>
 
 ## How it works
 
@@ -103,6 +107,8 @@ flowchart LR
 6. **Resume anywhere.** Everything is on disk. A new session, or one after `/clear`, reads the handoff head and one
    status tick and continues every row from its last completed step.
 
+<p align="center"><img src="assets/divider-rain.svg" alt="" width="100%"></p>
+
 ## Before you run it
 
 **What it needs**
@@ -128,6 +134,8 @@ flowchart LR
 - A forge is part of the loop: review verdicts are records tied to the PR head on GitHub. Without a remote, the loop
   hands the merge to you.
 
+<p align="center"><img src="assets/divider-rain.svg" alt="" width="100%"></p>
+
 ## When it stops
 
 | You see | It means | You do |
@@ -141,6 +149,8 @@ flowchart LR
 | The loop parked | Identical ticks with nothing in flight, or a feature or batch token budget reached. | `scripts/reef-watch` shows what happened while nobody was in the room. Change the queue, the cap, or the budget. |
 | A check warns instead of failing | Content planned under 0.5 meets a rule new in 0.6. | Nothing. The rule fails only for content planned under 0.6. |
 | `Not verified in a browser:` in a verifier report | The judge could not open the app; it says so instead of claiming. | Check that part yourself, or give the task a browser proof row. |
+
+<p align="center"><img src="assets/divider-rain.svg" alt="" width="100%"></p>
 
 ## Who runs what
 
@@ -165,6 +175,8 @@ the paths it touches can only move it up.
 
 Change the model per role and tier in `.reef/config.json` under `tiers.<tier>.roles`; a project with no tier table gets
 one model per role (`roles.*`).
+
+<p align="center"><img src="assets/divider-rain.svg" alt="" width="100%"></p>
 
 ## Settings (`.reef/config.json`)
 
@@ -191,6 +203,8 @@ Every cap, model, branch name and path Reef uses is a key in this one file, writ
 
 0.5 configs keep working: `gates.test` is an alias of `gates.full`; every new key defaults to the old behaviour;
 `scripts/reef-migrate` adds the keys once.
+
+<p align="center"><img src="assets/divider-rain.svg" alt="" width="100%"></p>
 
 ## Layout
 
@@ -225,6 +239,8 @@ The plugin itself: `skills/` (init, assess, explore, loop, plan, plan-review, ta
 Task|Agent · Edit|Write|MultiEdit; PostToolUse AskUserQuestion; Stop; SessionStart) · `migrations/` ·
 `schemas/task.schema.json` · `templates/` (config, task, spec, adr, glossary, runlog, pre-commit, stacks/, project/) ·
 `tests/eval/` (the corpus) · `tests/fixtures/payloads/` · `docs/perf/`
+
+<p align="center"><img src="assets/divider-rain.svg" alt="" width="100%"></p>
 
 ## For maintainers
 

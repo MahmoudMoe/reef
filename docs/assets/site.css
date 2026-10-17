@@ -82,7 +82,25 @@ section:first-of-type { border-top: 0; }
 .sec-head p { color: var(--muted); font-size: 1.05rem; margin: 0; }
 
 /* Hero */
-.hero { padding: 64px 0 56px; border-top: 0; position: relative; overflow: hidden; }
+.hero { padding: 72px 0 64px; border-top: 0; position: relative; overflow: hidden; background: #0B1418; color: #E9E6DF; }
+.hero #rain { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: .9; }
+.hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(11,20,24,.72) 0%, rgba(11,20,24,.42) 55%, rgba(11,20,24,.1) 100%), repeating-linear-gradient(0deg, rgba(0,0,0,.14) 0 2px, transparent 2px 4px); pointer-events: none; }
+.hero .wrap { position: relative; z-index: 1; }
+.hero h1 { color: #F6F2E9; }
+.hero h1 em { color: #4FB3B1; animation: glitch 6s steps(1, end) infinite; }
+@keyframes glitch { 0%, 88%, 100% { text-shadow: none; } 90% { text-shadow: -3px 0 #EF7A63, 3px 0 #4FB3B1; } 92% { text-shadow: 3px 0 #EF7A63, -3px 0 #4FB3B1; } 94% { text-shadow: -2px 0 #EF7A63; } 96% { text-shadow: none; } }
+.hero .lead { color: #A2ADB5; }
+.hero .eyebrow { color: #4FB3B1; }
+.hero .eyebrow .dot { background: #3B4852; }
+.hero .proofs a { background: rgba(24,34,40,.85); color: #E9E6DF; border-color: #2B353D; }
+.hero .proofs a:hover { border-color: #4FB3B1; }
+.hero .proofs .n { color: #4FB3B1; background: #163436; }
+.hero .install pre { background: #0C1215; border-color: #2B353D; color: #E9E6DF; }
+.hero .copy { background: #182228; color: #A2ADB5; border-color: #2B353D; }
+.hero .copy:hover { color: #E9E6DF; }
+.hero .btn { background: #182228; color: #E9E6DF; border-color: #2B353D; }
+.hero .btn:hover { border-color: #4FB3B1; }
+.hero .btn.primary { background: #4FB3B1; border-color: #4FB3B1; color: #0B1418; }
 .hero .wrap { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr); gap: 40px; align-items: center; }
 .hero h1 { font-size: clamp(2rem, 4.4vw, 3.1rem); font-weight: 800; letter-spacing: -.02em; }
 .hero h1 em { font-style: normal; color: var(--teal); }
@@ -260,4 +278,6 @@ footer a { color: var(--ink); }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .stage, .tip { transition: none; }
+  .hero h1 em { animation: none; }
+  .hero #rain { display: none; }
 }
