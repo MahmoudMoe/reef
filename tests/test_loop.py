@@ -5,6 +5,7 @@ stop reason allow), no-progress parking and the budgets (5.3), the context ceili
 handoff (5.5) and the lean session start (6.2 part: under the cap; nothing for a directory without Reef)."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOOP = os.path.join(ROOT, "scripts", "reef-loop.py")
 GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
 HANDOFF = os.path.join(ROOT, "scripts", "reef-handoff")
+
+
+def read_file(p):
+    with open(p, encoding="utf-8") as f:
+        return f.read()
 
 
 def write(root, rel, text):
@@ -241,6 +247,22 @@ class TriageLine(unittest.TestCase):
         self.assertIn("stale found (rule 7): 1 — python3 scripts/reef-queue.py triage, ONE owner question at the batch boundary", text)
         write(d, "reef/queue.md", "# Queue\nCurrent batch: 2\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 1 | first | | planned | 1 | |\n| 2 | second | 1 | planned | 1 | |\n| 3 | a leak (src/lib/x.ts) | 1 | found | 1 | |\n")
         self.assertNotIn("rule 7", loop(d, "tick").stdout)
+
+
+class StatusPage(unittest.TestCase):
+    def test_every_tick_writes_the_status_page(self):
+        # usability plan A2: the owner asked "where are we" in chat after every stop
+        d = project()
+        loop(d, "start")
+        loop(d, "wait", "owner question set 1")
+        text = loop(d, "tick").stdout
+        page = read_file(os.path.join(d, ".reef", "status.html"))
+        self.assertIn('http-equiv="refresh" content="60"', page)
+        self.assertIn("owner question set 1", page)
+        self.assertIn('class="badge waiting"', page)
+        h = re.search(r"tick (\w+)", text).group(1)
+        self.assertIn(f"tick {h}", page)
+        self.assertIn("in flight:", page)
 
 
 class GrowthCap(unittest.TestCase):

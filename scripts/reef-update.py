@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+# CLASS: code
+"""Reef update — pull a new Reef into a project in ONE command.
+
+Usage: reef-update.py [--repo DIR] [--plugin DIR] [--commit] [--push] [--dry-run]
+
+1. The plugin clone (--plugin, else $CLAUDE_PLUGIN_ROOT, else this script's own repo) must be on `main` and clean;
+   `git pull --ff-only` brings it up and the old..new range is printed.
+2. `reef-init.py --root <project> --plugin <plugin>` refreshes the project's copies (scripts/reef-*, the rendered
+   files); its summary line is printed. Proposals (files you edited) are listed with their accept/keep commands,
+   never applied.
+3. --commit stages ONLY Reef's own paths (scripts/reef-*, .reef/init-manifest.json, .reef/version, .githooks/*, the
+   rendered map) and commits `reef: scripts <version> (<plugin sha>)`; --push pushes the current branch.
+4. Prints the two Claude Code commands that reload the plugin.
+Exit 0 ok · 1 a step failed (its line says which) · 2 usage.
+
+Usability plan A1 (2026-10-17): the pull dance was five commands across two tools, and one of them (`--accept`)
+sometimes said "nothing proposed" for reasons nobody could see.
+"""
+import json
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def run(args, cwd, timeout=300):
+    r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def plugin_root(arg):
+    for cand in (arg, os.environ.get("CLAUDE_PLUGIN_ROOT"), os.path.dirname(HERE)):
+        if cand and os.path.isfile(os.path.join(cand, ".claude-plugin", "plugin.json")):
+            return os.path.abspath(cand)
+    return None
+
+
+def main(argv):
+    opt = lambda k: argv[argv.index(k) + 1] if k in argv else None
+    dry = "--dry-run" in argv
+    rc, root = run(["git", "rev-parse", "--show-toplevel"], opt("--repo") or ".")
+    root = root if rc == 0 else os.path.abspath(opt("--repo") or ".")
+    if not os.path.isfile(os.path.join(root, ".reef", "config.json")):
+        print(f"reef-update: {root} is not a Reef project (no .reef/config.json)", file=sys.stderr)
+        return 2
+    plugin = plugin_root(opt("--plugin"))
+    if not plugin:
+        print("reef-update: no plugin clone found — pass --plugin <dir>", file=sys.stderr)
+        return 2
+    rc, branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], plugin)
+    if branch != "main":
+        print(f"reef-update FAILED: the plugin clone {plugin} is on `{branch}`, not main — git -C {plugin} checkout main (the plugin runs whatever is checked out)")
+        return 1
+    rc, dirty = run(["git", "status", "--porcelain"], plugin)
+    if dirty:
+        print(f"reef-update FAILED: the plugin clone {plugin} has local changes — it is not a working tree; stash or commit them elsewhere")
+        return 1
+    _, old = run(["git", "rev-parse", "--short=12", "HEAD"], plugin)
+    if dry:
+        print(f"plugin: {plugin} at {old} (dry run: no pull)")
+    else:
+        rc, out = run(["git", "pull", "--ff-only", "-q"], plugin, timeout=600)
+        if rc != 0:
+            print(f"reef-update FAILED: git pull in {plugin}: {out.splitlines()[-1] if out else rc}")
+            return 1
+        _, new = run(["git", "rev-parse", "--short=12", "HEAD"], plugin)
+        if new == old:
+            print(f"plugin: {plugin} already at {new}")
+        else:
+            _, log = run(["git", "log", "--oneline", f"{old}..{new}"], plugin)
+            print(f"plugin: {old}..{new} ({len(log.splitlines())} commit(s))")
+            for l in log.splitlines()[:8]:
+                print(f"  {l[:110]}")
+    init = os.path.join(plugin, "scripts", "reef-init.py")
+    args = [sys.executable, init, "--root", root, "--plugin", plugin] + (["--dry-run"] if dry else [])
+    rc, out = run(args, root, timeout=600)
+    lines = out.splitlines()
+    summary = [l for l in lines if "written" in l or l.lstrip().startswith(("PROPOSED", "proposed", "skipped"))]
+    for l in summary[:12]:
+        print(f"init: {l.strip()}")
+    if rc != 0:
+        print(f"reef-update FAILED: reef-init exit {rc}" + (f": {lines[-1]}" if lines else ""))
+        return 1
+    pdir = os.path.join(root, ".reef", "proposed")
+    props = []
+    for dp, _, fn in os.walk(pdir):
+        props += [os.path.relpath(os.path.join(dp, f), pdir) for f in fn if not f.endswith(".diff")]
+    for p in props[:6]:
+        print(f"proposal: {p} — accept: python3 scripts/reef-init.py --accept {p}   keep yours: --keep {p}")
+    try:
+        with open(os.path.join(plugin, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
+            version = str(json.load(f).get("version") or "?")
+    except Exception:
+        version = "?"
+    _, sha = run(["git", "rev-parse", "--short=12", "HEAD"], plugin)
+    paths = ["scripts", ".reef/init-manifest.json", ".reef/version", ".githooks"]
+    for cand in ("reef/README.md", "docs/REEF.md"):
+        if os.path.isfile(os.path.join(root, cand)):
+            paths.append(cand)
+    _, changed = run(["git", "status", "--porcelain", "--"] + paths, root)
+    changed_files = [l[3:] for l in changed.splitlines() if l[3:].startswith(("scripts/reef-", ".reef/", ".githooks/", "reef/README.md", "docs/REEF.md"))]
+    if not changed_files:
+        print("project: nothing changed")
+    elif "--commit" in argv and not dry:
+        rc, out = run(["git", "add", "--"] + changed_files, root)
+        if rc == 0:
+            rc, out = run(["git", "commit", "-q", "-m", f"reef: scripts {version} ({sha})"], root, timeout=600)
+        if rc != 0:
+            print(f"reef-update FAILED: commit: {out.splitlines()[-1] if out else rc}")
+            return 1
+        print(f"project: committed {len(changed_files)} file(s) as 'reef: scripts {version} ({sha})'")
+        if "--push" in argv:
+            rc, out = run(["git", "push", "-q"], root, timeout=600)
+            print("project: pushed" if rc == 0 else f"reef-update FAILED: push: {out.splitlines()[-1] if out else rc}")
+            if rc != 0:
+                return 1
+    else:
+        print(f"project: {len(changed_files)} Reef file(s) changed — commit them: git add -- {' '.join(changed_files[:6])}{' …' if len(changed_files) > 6 else ''} && git commit -m 'reef: scripts {version} ({sha})'   (or re-run with --commit)")
+    print("now, in Claude Code:  /plugin marketplace update <marketplace>   then   /reload-plugins")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -4,6 +4,7 @@
 Usage: reef-cost.py [<transcript.jsonl>] [--repo DIR] [--format text|md|json] | --session-start | --live
        reef-cost.py <transcript.jsonl> --record [--repo DIR]   (0.7) fold this session's per-task growth into .reef/cost/tasks.json
        reef-cost.py growth <task-id> [--repo DIR]             (0.7) the task's orchestrator growth so far, across sessions
+       reef-cost.py growth --feature <slug> [--repo DIR]      (0.7) the feature's share and planning share, across sessions
        (cat hook-payload.json | reef-cost.py --live  reads transcript_path from the payload)
 Turns = one per requestId; context = input + cache writes + cache reads; a compaction counts once (boundary record,
 else summary record); --live reads the last 256 KB only. Rows: per feature dispatched through Task/Agent
@@ -135,7 +136,7 @@ def feature_rows(path):
     """Per feature: the main-session span from its first Task/Agent dispatch turn to the latest turn
     after one of its dispatches' results (a task-notification for the id, else its tool_result)."""
     turn_pos, turn_ctx, turn_of = [], [], {}
-    dispatches = []                     # (feature, tool_use id, dispatch turn)
+    dispatches = []                     # (feature, tool_use id, dispatch turn, role, planning?)
     task_dispatches = []                # (task id, role, tool_use id, dispatch turn) — 0.7, per task and role
     notified, returned = {}, {}         # tool_use id -> record position
     boundary_pos, summary_pos = [], []
@@ -180,7 +181,11 @@ def feature_rows(path):
                     prompt = (b.get("input") or {}).get("prompt")
                     feat = feature_slug(prompt) if isinstance(prompt, str) else None
                     if feat:
-                        dispatches.append((feat, b.get("id"), turn_of.get(rid, max(len(turn_pos), 1))))
+                        role_f = str((b.get("input") or {}).get("subagent_type") or "?").split(":")[-1]
+                        # planning roles work on the plan (no REEF-TASK: line): planner, plan-reviewer, the hunter's plan
+                        # pass, a general-purpose amendment agent; a REEF-TASK: dispatch is build
+                        planning = not REEF_TASK.search(prompt)
+                        dispatches.append((feat, b.get("id"), turn_of.get(rid, max(len(turn_pos), 1)), role_f, planning))
                         tm = REEF_TASK.search(prompt)
                         if tm:
                             tid_m = re.match(r"^(R?\d+)", os.path.basename(tm.group(1)))
@@ -205,10 +210,28 @@ def feature_rows(path):
             return n
         return next((i + 1 for i, p in enumerate(turn_pos) if p > pos), n)
 
-    spans = {}
-    for feat, tid, turn in dispatches:
+    spans, roles_of, build_start = {}, {}, {}
+    for feat, tid, turn, role_f, planning in dispatches:
         first, last, count = spans.get(feat, (turn, turn, 0))
         spans[feat] = (min(first, turn), max(last, turn, result_turn(tid)), count + 1)
+        r = roles_of.setdefault(feat, {})
+        r[role_f] = r.get(role_f, 0) + 1
+        if not planning:
+            build_start[feat] = min(build_start.get(feat, turn), turn)
+    # 0.7 (workflow v2, phase 2): features run concurrently, so a span's growth over-counts — the turn both features
+    # dispatch in is charged to both. `share` splits each turn's growth equally among the features active in it
+    # (sums to at most the session's growth); `planning_share` is the part before the feature's first REEF-TASK dispatch.
+    active = {}
+    for feat, (first, last, _) in spans.items():
+        for i in range(min(first, n), min(last, n)):
+            active.setdefault(i, []).append(feat)
+    share, planning_share = {}, {}
+    for i, feats in active.items():
+        g = max(0, turn_ctx[i] - turn_ctx[i - 1]) / len(feats)
+        for feat in feats:
+            share[feat] = share.get(feat, 0.0) + g
+            if i < build_start.get(feat, n + 1):
+                planning_share[feat] = planning_share.get(feat, 0.0) + g
     rows = []
     for feat, (first, last, count) in spans.items():
         first, last = min(first, n), min(last, n)
@@ -217,7 +240,9 @@ def feature_rows(path):
         s = sum(1 for p in summary_pos if lo < p < hi)
         rows.append({"feature": feat, "first_turn": first, "last_turn": last,
                      "growth": sum(max(0, turn_ctx[i] - turn_ctx[i - 1]) for i in range(first, last)),
-                     "compactions": b if b else s, "turns": last - first + 1, "dispatches": count})
+                     "share": int(round(share.get(feat, 0.0))), "planning_share": int(round(planning_share.get(feat, 0.0))),
+                     "compactions": b if b else s, "turns": last - first + 1, "dispatches": count,
+                     "roles": dict(sorted(roles_of.get(feat, {}).items()))})
     # 0.7: per task, the roles dispatched for it and the main-session growth over its span — where execution is
     # expensive (first real execution: one task, 43 orchestrator turns, 64k growth, and no way to say which role)
     tspans = {}
@@ -312,9 +337,11 @@ def render_md(rep, subs, rounds, rows=()):
                        f"{s['first_turn_context']:,} | {s['context']['max']:,} | {s['cache']['output']:,} |")
     if rows:
         out += ["", "## Rows (main-session context per feature)", "",
-                "| feature | first turn | last turn | growth | compactions | turns | dispatches |", "|---|---|---|---|---|---|---|"]
-        out += [f"| {r['feature']} | {r['first_turn']} | {r['last_turn']} | {r['growth']:,} | {r['compactions']} | "
-                f"{r['turns']} | {r['dispatches']} |" for r in rows]
+                "share = the span's growth split equally among the features active in each turn (sums to the session); "
+                "planning = the share before the feature's first REEF-TASK dispatch.", "",
+                "| feature | turns | span growth | share | planning | compactions | dispatches |", "|---|---|---|---|---|---|---|"]
+        out += [f"| {r['feature']} | {r['first_turn']}–{r['last_turn']} | {r['growth']:,} | {r['share']:,} | {r['planning_share']:,} | {r['compactions']} | "
+                + (", ".join(f"{k} ×{v}" for k, v in r["roles"].items()) or str(r["dispatches"])) + " |" for r in rows]
     tasks = getattr(feature_rows, "tasks", [])
     if tasks:
         out += ["", "## Tasks (main-session growth per task, dispatches per role)", "",
@@ -328,6 +355,7 @@ def render_md(rep, subs, rounds, rows=()):
 
 
 COST_FILE = os.path.join(".reef", "cost", "tasks.json")
+FEATURE_COST_FILE = os.path.join(".reef", "cost", "features.json")
 
 
 def record_growth(path, repo):
@@ -335,8 +363,24 @@ def record_growth(path, repo):
     transcript (a task that spans two sessions adds up; re-recording the same session replaces its number). The
     Stop hook calls it every turn; the close-out reads it (first full loop, 2026-10-17: the cost of a task was
     computed by hand from the transcript after the fact, and never reached the journal)."""
-    feature_rows(path)
+    rows = feature_rows(path)
     tasks = getattr(feature_rows, "tasks", []) or []
+    key = os.path.splitext(os.path.basename(path))[0]
+    fout = os.path.join(repo, FEATURE_COST_FILE)
+    try:
+        with open(fout, encoding="utf-8") as f:
+            fstore = json.load(f)
+    except (OSError, ValueError):
+        fstore = {}
+    if not isinstance(fstore, dict):
+        fstore = {}
+    for r in rows:
+        fstore.setdefault(str(r["feature"]), {})[key] = {"share": int(r["share"]), "planning_share": int(r["planning_share"]),
+                                                            "turns": int(r["turns"]), "roles": r["roles"]}
+    if rows:
+        os.makedirs(os.path.dirname(fout), exist_ok=True)
+        with open(fout, "w", encoding="utf-8") as f:
+            json.dump(fstore, f, indent=1, sort_keys=True)
     out = os.path.join(repo, COST_FILE)
     try:
         with open(out, encoding="utf-8") as f:
@@ -345,7 +389,6 @@ def record_growth(path, repo):
         store = {}
     if not isinstance(store, dict):
         store = {}
-    key = os.path.splitext(os.path.basename(path))[0]
     for x in tasks:
         entry = store.setdefault(str(x["task"]), {})
         entry[key] = {"growth": int(x["growth"]), "turns": int(x["turns"]), "roles": x["roles"]}
@@ -353,6 +396,23 @@ def record_growth(path, repo):
     with open(out, "w", encoding="utf-8") as f:
         json.dump(store, f, indent=1, sort_keys=True)
     return store
+
+
+def feature_growth_of(repo, feature):
+    try:
+        with open(os.path.join(repo, FEATURE_COST_FILE), encoding="utf-8") as f:
+            store = json.load(f)
+    except (OSError, ValueError):
+        return None
+    sessions = store.get(str(feature)) if isinstance(store, dict) else None
+    if not sessions:
+        return None
+    roles = {}
+    for s in sessions.values():
+        for k, v in (s.get("roles") or {}).items():
+            roles[k] = roles.get(k, 0) + int(v)
+    return {"share": sum(int(s.get("share", 0)) for s in sessions.values()),
+            "planning": sum(int(s.get("planning_share", 0)) for s in sessions.values()), "sessions": len(sessions), "roles": roles}
 
 
 def growth_of(repo, task):
@@ -372,6 +432,14 @@ def growth_of(repo, task):
 
 
 def main(argv):
+    if argv and argv[0] == "growth" and len(argv) >= 3 and argv[1] == "--feature":
+        repo = argv[argv.index("--repo") + 1] if "--repo" in argv else "."
+        g = feature_growth_of(repo, argv[2])
+        if g is None:
+            print(f"growth: no record for feature {argv[2]} (the Stop hook records after a turn with a dispatch naming it)")
+            return 1
+        print(f"share={g['share']} planning={g['planning']} sessions={g['sessions']} roles=" + ",".join(f"{k}×{v}" for k, v in sorted(g["roles"].items())))
+        return 0
     if argv and argv[0] == "growth" and len(argv) >= 2:
         repo = argv[argv.index("--repo") + 1] if "--repo" in argv else "."
         g = growth_of(repo, argv[1])
@@ -431,7 +499,7 @@ def main(argv):
               f"cache_writes={rep['cache']['writes']} cache_reads={rep['cache']['reads']} subagents={len(subs)}")
         for r in rows:
             print(f"row feature={r['feature']} first_turn={r['first_turn']} last_turn={r['last_turn']} growth={r['growth']} "
-                  f"compactions={r['compactions']} turns={r['turns']} dispatches={r['dispatches']}")
+                  f"compactions={r['compactions']} turns={r['turns']} dispatches={r['dispatches']} share={r['share']} planning={r['planning_share']}")
     return 0
 
 

@@ -208,6 +208,30 @@ class Rows(unittest.TestCase):
         self.assertEqual((b["first_turn"], b["last_turn"], b["growth"], b["turns"], b["dispatches"]), (4, 5, 600, 2, 1))
         self.assertEqual((a["compactions"], b["compactions"]), (0, 0))
 
+    def test_share_splits_concurrent_features_and_planning_is_before_the_first_task_dispatch(self):
+        # workflow v2 phase 2 (2026-10-17): three rows planned at once — span growth charged turn 4 to both alpha and
+        # beta; the share splits it, and the planning part is what the gate order is meant to shrink
+        rows = rows_of(write_transcript(self.d, "two.jsonl", TWO_FEATURES))
+        a, b = rows["alpha"], rows["beta"]
+        # growth per turn: t1→2 1000, t2→3 500, t3→4 500, t4→5 600. alpha active t2..t4, beta active t4
+        self.assertEqual((a["share"], b["share"]), (500 + 500 + 300, 300))
+        self.assertEqual(a["planning_share"], 0, "alpha's first dispatch is a REEF-TASK: build from turn 2")
+        self.assertEqual(b["planning_share"], 300, "beta has only a REEF-FEATURE agent: all planning")
+        self.assertEqual(b["roles"], {"?": 1})
+        md = cost(write_transcript(self.d, "two2.jsonl", TWO_FEATURES), "--format", "md").stdout
+        self.assertIn("| alpha | 2–5 | 1,600 | 1,300 | 0 | 0 |", md)
+
+    def test_record_keeps_feature_shares_and_growth_feature_sums_them(self):
+        d = tempfile.mkdtemp(prefix="reef-cost-feat.")
+        s1 = write_transcript(d, "s1.jsonl", TWO_FEATURES)
+        s2 = write_transcript(d, "s2.jsonl", TWO_FEATURES)
+        self.assertEqual(cost(s1, "--record", "--repo", d).returncode, 0)
+        self.assertEqual(cost(s2, "--record", "--repo", d).returncode, 0)
+        r = cost("growth", "--feature", "beta", "--repo", d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout.strip(), "share=600 planning=600 sessions=2 roles=?×2")
+        self.assertEqual(cost("growth", "--feature", "nope", "--repo", d).returncode, 1)
+
     def test_tasks_table_growth_per_task_and_dispatches_per_role(self):
         # 0.7: the first real execution could not say which role cost what; the main-session span per task and the
         # roles dispatched for it (implementer, verifier, loophole-hunter, mechanic) come from the REEF-TASK: lines
@@ -280,11 +304,11 @@ class Rows(unittest.TestCase):
         j = json.loads(cost(t, "--format", "json").stdout)
         self.assertIsInstance(j["rows"], list)
         self.assertEqual([r["feature"] for r in j["rows"]], ["alpha", "beta"], "one object per feature, by first turn")
-        self.assertEqual(set(j["rows"][0]), {"feature", "first_turn", "last_turn", "growth", "compactions", "turns", "dispatches"})
+        self.assertEqual(set(j["rows"][0]), {"feature", "first_turn", "last_turn", "growth", "compactions", "turns", "dispatches", "share", "planning_share", "roles"})
         md = cost(t, "--format", "md").stdout
-        self.assertIn("| feature | first turn | last turn | growth | compactions | turns | dispatches |", md)
-        self.assertIn("| alpha | 2 | 5 | 1,600 | 0 | 4 | 2 |", md)
-        self.assertIn("| beta | 4 | 5 | 600 | 0 | 2 | 1 |", md)
+        self.assertIn("| feature | turns | span growth | share | planning | compactions | dispatches |", md)
+        self.assertIn("| alpha | 2–5 | 1,600 | 1,300 | 0 | 0 | ? ×2 |", md)
+        self.assertIn("| beta | 4–5 | 600 | 300 | 300 | 0 | ? ×1 |", md)
         txt = cost(t).stdout
         self.assertIn("row feature=alpha first_turn=2 last_turn=5 growth=1600 compactions=0 turns=4 dispatches=2", txt)
 

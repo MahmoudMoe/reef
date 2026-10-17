@@ -75,18 +75,18 @@ TEMPLATES_COMMON = {   # published path -> template under templates/project (or 
 LAYOUTS = {   # the files whose place depends on the layout (0.5 flat vs 0.6 one tree); paths.* follow them
     "0.5": {"constitution": ".specify/constitution.md", "queue": "docs/queue.md", "adr_readme": "docs/adr/README.md",
             "journal": "docs/journal.md", "day_zero": "docs/day-zero.md", "glossary": "docs/glossary.md",
-            "adr": "docs/adr", "tasks": "tasks", "features": None, "architecture": None},
+            "adr": "docs/adr", "tasks": "tasks", "features": None, "architecture": None, "map": "docs/REEF.md"},
     "0.6": {"constitution": "reef/constitution.md", "queue": "reef/queue.md", "adr_readme": "reef/architecture/adr/README.md",
             "journal": "reef/journal.md", "day_zero": "reef/day-zero.md", "glossary": "reef/glossary.md",
-            "adr": "reef/architecture/adr", "tasks": "tasks", "features": "reef/features", "architecture": "reef/architecture/architecture.md"},
+            "adr": "reef/architecture/adr", "tasks": "tasks", "features": "reef/features", "architecture": "reef/architecture/architecture.md", "map": "reef/README.md"},
 }
 TEMPLATE_OF = {"constitution": "project/constitution.md", "queue": "project/queue.md", "adr_readme": "project/adr-README.md",
                "journal": "project/journal.md", "day_zero": "project/day-zero.md", "glossary": "glossary.md",
-               "architecture": "project/architecture.md"}
+               "architecture": "project/architecture.md", "map": "project/reef-README.md"}
 EXISTING_CONSTITUTIONS = (".specify/constitution.md", ".specify/memory/constitution.md")
 STACK_OPINIONS = {"node": "node.md", "python": "python.md", "rust": "rust.md", "go": "go.md"}
 GITIGNORE_LINES = [".reef/worktrees/", ".reef/proposed/", ".reef/ci-local/", ".reef/approvals/", ".reef/review/",
-                   ".reef/verifying/", ".reef/inflight/", ".reef/loop.json", "tasks/.plan-review.json", ".env"]
+                   ".reef/verifying/", ".reef/inflight/", ".reef/loop.json", ".reef/status.html", ".reef/cost/", "tasks/.plan-review.json", ".env"]
 VERSION = "0.6.0"   # written to .reef/version; absent = a 0.5 project (every 0.6 check warns instead of failing)
 MAKEFILE_TARGET = "\nsetup: ## git hooks (once per clone) — reef\n\tgit config core.hooksPath .githooks\n\tchmod +x .githooks/*\n"
 
@@ -493,6 +493,16 @@ def run(root, facts, dry):
     facts["queue_path"], facts["journal_path"], facts["adr_path"] = lay["queue"], lay["journal"], lay["adr"]
     facts["day_zero_path"], facts["glossary_path"] = lay["day_zero"], lay["glossary"]
     facts["features_path"] = lay["features"] or "tasks"
+    # the map (usability plan A4): the project's real worktree dir and feature prefix, from its config when it has one
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            _c = json.load(f)
+    except Exception:
+        _c = {}
+    facts.setdefault("worktrees_dir", str(((_c.get("worktree") or {}).get("dir")) or ".reef/worktrees").rstrip("/"))
+    facts.setdefault("feature_prefix", str(((_c.get("branches") or {}).get("feature_prefix")) or "feat/"))
+    facts.setdefault("glossary_path", lay["glossary"])
+    facts.setdefault("constitution_path", facts.get("constitution") or lay["constitution"])
     targets = dict(TEMPLATES_COMMON)
     w.manifest.setdefault("_init", {"date": facts["date"], "name": facts["name"]})
     for key, tpl in TEMPLATE_OF.items():

@@ -1,6 +1,19 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **One command to update, one screen to diagnose, a map on disk, a status page** (workflow v2 phase 2; usability plan
+  A1, A2, A4): `scripts/reef-update.py [--commit] [--push]` pulls the plugin clone (must be on `main`, clean), refreshes
+  the project with `reef-init`, lists proposals with their accept/keep commands and commits Reef's own files only;
+  `scripts/reef-doctor.py` / `/reef-doctor` prints OK/WARN/FAIL lines with the fix on each (plugin branch and
+  freshness, version, scripts behind the plugin in the main checkout and every worktree, the queue's one home,
+  worktrees, loop state, gh, Docker, proposals); `reef-init` renders `reef/README.md` (0.5: `docs/REEF.md`) — the
+  branches, worktrees, records, rendered files and the loop's state in the project's real paths; every tick writes
+  `.reef/status.html` (auto-refresh 60 s: the tick, the wait or stop, the handoff's head). `.reef/status.html` and
+  `.reef/cost/` are gitignored.
+- **Planning cost per feature, measured** (workflow v2, phase 2): `reef-cost` splits each turn's growth equally among
+  the features active in it (`share`, sums to the session) and names the part before the feature's first `REEF-TASK`
+  dispatch (`planning`); dispatches per role per feature; the Stop hook records both into `.reef/cost/features.json`;
+  `reef-cost.py growth --feature <slug>` sums them across sessions. The number phase 1 is judged by.
 - **Workflow v2, phase 1** (`docs/design/workflow-v2.md`; 2026-10-17: three planning sessions, no code): the owner's
   gate is LAST. `/reef-plan` creates the feature worktree first, `reef:planner` drafts there, the hunter and the plan
   reviewer run in parallel on the same digest, one fix round (BLOCKING, hunter BLOCKERs, `WILL BITE`), one fresh re-check,
