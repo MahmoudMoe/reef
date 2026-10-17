@@ -17,15 +17,15 @@
   .tag { font-size: 22px; letter-spacing: 4px; fill: #4FB3B1; }
   .tl { font-size: 21px; fill: #E9E6DF; }
   .tl.k { fill: #EF7A63; }
-  .ty { animation: type backwards; }
-  @keyframes type { from { width: 0; } to { width: 820px; } }
+  .ty { animation: type backwards; clip-path: inset(0 0 0 0); }
+  @keyframes type { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
   .cursor { animation: blink 1s steps(1, end) infinite; }
   @keyframes blink { 50% { opacity: 0; } }
   .sweep { animation: sweep 7s linear infinite; }
   @keyframes sweep { from { transform: translateY(-140px); } to { transform: translateY(660px); } }
   .coral { animation: breathe 4s ease-in-out infinite; transform-origin: 980px 330px; }
   @keyframes breathe { 50% { transform: scale(1.05); } }
-  @media (prefers-reduced-motion: reduce) { .c, .g1, .g2, .ty, .cursor, .sweep, .coral { animation: none; } .ty { width: 820px; } .g1, .g2 { display: none; } }
+  @media (prefers-reduced-motion: reduce) { .c, .g1, .g2, .ty, .cursor, .sweep, .coral { animation: none; } .ty { clip-path: none; } .g1, .g2 { display: none; } }
 </style>
 <defs>
   <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
@@ -34,7 +34,7 @@
   <linearGradient id="band" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4FB3B1" stop-opacity="0"/><stop offset=".5" stop-color="#4FB3B1" stop-opacity=".16"/><stop offset="1" stop-color="#4FB3B1" stop-opacity="0"/></linearGradient>
   <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0B1418"/><stop offset=".18" stop-color="#0B1418" stop-opacity="0"/><stop offset=".82" stop-color="#0B1418" stop-opacity="0"/><stop offset="1" stop-color="#0B1418"/></linearGradient>
   <clipPath id="frame"><rect width="1200" height="520" rx="22"/></clipPath>
-  <clipPath id="l0"><rect class="ty" style="animation-duration:1.12s;animation-delay:1.2s;animation-timing-function:steps(40,end)" x="110" y="296" width="820" height="30"/></clipPath><clipPath id="l1"><rect class="ty" style="animation-duration:1.43s;animation-delay:2.35s;animation-timing-function:steps(51,end)" x="110" y="324" width="820" height="30"/></clipPath><clipPath id="l2"><rect class="ty" style="animation-duration:1.54s;animation-delay:3.5s;animation-timing-function:steps(55,end)" x="110" y="352" width="820" height="30"/></clipPath><clipPath id="l3"><rect class="ty" style="animation-duration:1.18s;animation-delay:4.65s;animation-timing-function:steps(42,end)" x="110" y="380" width="820" height="30"/></clipPath><clipPath id="l4"><rect class="ty" style="animation-duration:1.29s;animation-delay:5.8s;animation-timing-function:steps(46,end)" x="110" y="408" width="820" height="30"/></clipPath>
+  
 </defs>
 <g clip-path="url(#frame)">
 <rect width="1200" height="520" fill="#0B1418"/>
@@ -123,7 +123,7 @@
 <text class="wm g0" x="110" y="220">REEF</text>
 <text class="tag" x="114" y="266">A GRAPH OF GATED WORK <tspan fill="#EF7A63">·</tspan> RULES PROVED IN CODE</text>
 <!-- the terminal -->
-<g clip-path="url(#l0)"><text class="tl t" x="112" y="318">&gt; queue row 1 · walking skeleton · ready</text></g><g clip-path="url(#l1)"><text class="tl t" x="112" y="346">&gt; /reef-plan · approve plan at 9bcedd14? · approved</text></g><g clip-path="url(#l2)"><text class="tl t" x="112" y="374">&gt; /reef-task · 2 tasks · each verified by a fresh judge</text></g><g clip-path="url(#l3)"><text class="tl t" x="112" y="402">&gt; /reef-review · GREEN at 0182d3a · merged</text></g><g clip-path="url(#l4)"><text class="tl k" x="112" y="430">&gt; you decide twice. the code decides the rest.</text></g>
+<g class="ty" style="animation-duration:1.12s;animation-delay:1.2s;animation-timing-function:steps(40,end)"><text class="tl t" x="112" y="318">&gt; queue row 1 · walking skeleton · ready</text></g><g class="ty" style="animation-duration:1.43s;animation-delay:2.35s;animation-timing-function:steps(51,end)"><text class="tl t" x="112" y="346">&gt; /reef-plan · approve plan at 9bcedd14? · approved</text></g><g class="ty" style="animation-duration:1.54s;animation-delay:3.5s;animation-timing-function:steps(55,end)"><text class="tl t" x="112" y="374">&gt; /reef-task · 2 tasks · each verified by a fresh judge</text></g><g class="ty" style="animation-duration:1.18s;animation-delay:4.65s;animation-timing-function:steps(42,end)"><text class="tl t" x="112" y="402">&gt; /reef-review · GREEN at 0182d3a · merged</text></g><g class="ty" style="animation-duration:1.29s;animation-delay:5.8s;animation-timing-function:steps(46,end)"><text class="tl k" x="112" y="430">&gt; you decide twice. the code decides the rest.</text></g>
 <rect class="cursor" x="730" y="422" width="12" height="22" fill="#EF7A63"/>
 <text x="1104" y="96" font-size="13" fill="#A2ADB5" text-anchor="end" letter-spacing="2">/plugin marketplace add MahmoudMoe/reef</text>
 </g>
