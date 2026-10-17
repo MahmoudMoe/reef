@@ -194,6 +194,8 @@ td .badge { margin: 2px 4px 2px 0; }
 
 /* Tiers */
 .tier-row td:first-child { white-space: nowrap; }
+.stops td:first-child { width: 26%; }
+.stops td code { white-space: normal; }
 .tier .gloss { color: var(--muted); font-size: .85rem; display: block; margin-top: 2px; }
 
 /* Measured */
@@ -251,6 +253,8 @@ footer a { color: var(--ink); }
   table.stack td:nth-child(2)::before { content: "Enforced by"; display: block; font-family: var(--mono); font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
   table.stack td:nth-child(3) { margin-top: 6px; }
   table.stack td code { white-space: normal; }
+  table.stops td:nth-child(2)::before { content: "It means"; }
+  table.stops td:nth-child(3)::before { content: "You do"; display: block; font-family: var(--mono); font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }

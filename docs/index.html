@@ -30,7 +30,7 @@
       <a href="#roles">Roles</a>
       <a href="#enforced">Enforced</a>
       <a href="#tiers">Tiers</a>
-      <a href="#measured">Measured</a>
+      <a href="#practice">In practice</a>
       <a href="#settings">Settings</a>
       <a href="#layout">Layout</a>
       <a href="#docs">Docs</a>
@@ -315,20 +315,55 @@
   </div>
 </section>
 
-<!-- 7. MEASURED -->
-<section id="measured">
+<!-- 7. IN PRACTICE: what a user needs to know before and while running it -->
+<section id="practice">
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">Measured</span>
-      <h2>Where the numbers live.</h2>
-      <p>Reef was run headless on a fresh Python project, six stages end to end, and on a clone of itself for one critical-tier row. The reports in <code>docs/perf/</code> hold every measurement; the cards below lead to them.</p>
+      <span class="eyebrow">In practice</span>
+      <h2>What to know before you run it.</h2>
+      <p>What Reef needs from your machine, what it will never do to your project, and what each of its stops means and asks of you.</p>
     </div>
     <div class="cards">
-      <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/docs/perf/dogfood-2026-10-16.md"><h3>The dogfood run</h3><p>Six stages on a fresh project, one critical row on Reef itself, seven defects found and fixed with a test shown red first.</p><span class="meta">docs/perf/dogfood-2026-10-16.md</span></a>
-      <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/docs/perf/baseline-2026-10-16.md"><h3>The 0.5 baseline</h3><p>What the 0.6 targets were set against: a 91k first turn, 43% of context in attachments, 31% raw Bash output.</p><span class="meta">docs/perf/baseline-2026-10-16.md</span></a>
-      <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/docs/perf/payloads-2026-10-16.md"><h3>The hook payloads</h3><p>What Claude Code actually sends each hook, captured live, with what was and was not verified.</p><span class="meta">docs/perf/payloads-2026-10-16.md</span></a>
-      <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/docs/design/plan-cost.md"><h3>Where planning tokens go</h3><p>A fifth went to reading the checker's source; <code>reef-plan-check.py --rules</code> replaces that read.</p><span class="meta">docs/design/plan-cost.md</span></a>
+      <div class="card">
+        <h3>What it needs</h3>
+        <p><strong>Claude Code</strong> with the plugin installed from the marketplace.</p>
+        <p><strong><code>python3</code> on the PATH.</strong> The guard is Python; without it a dispatch is denied and the Bash check runs degraded.</p>
+        <p><strong>git with the hooks installed.</strong> Hooks are local git config: run <code>make setup</code> after every clone.</p>
+        <p><strong><code>gh</code> logged in</strong> for the review, record and merge steps. Without it Reef stops with <code>USER ACTION REQUIRED</code> and lists the exact commands it would have run.</p>
+      </div>
+      <div class="card">
+        <h3>What it never does</h3>
+        <p><strong>Overwrite a file you wrote.</strong> A differing rendering lands in <code>.reef/proposed/</code> with a diff; only <code>--accept</code> applies it.</p>
+        <p><strong>Delete a document.</strong> Recalibration archives into <code>reef/archive/&lt;date&gt;/</code> in one commit that one <code>git revert</code> undoes.</p>
+        <p><strong>Let a judge write.</strong> The verifier, the hunter and the plan-reviewer are read-only by the guard, and a tree hash proves it.</p>
+        <p><strong>Merge the release.</strong> The release PR is yours. There is no push gate by design; CI is the wall.</p>
+      </div>
+      <div class="card">
+        <h3>What you accept</h3>
+        <p><strong>Two human gates, nothing between.</strong> You approve a plan at its digest and you merge the release. Everything else is decided by code on state the agent cannot author.</p>
+        <p><strong>A row costs real tokens.</strong> Planning, review, the task graph and the close are separate sessions, each on the tier's model. On a subscription that is plan usage, not an invoice.</p>
+        <p><strong>A forge is part of the loop.</strong> Review verdicts are records bound to the PR head on GitHub; without a remote the loop hands the merge to you.</p>
+      </div>
     </div>
+
+    <h3 style="margin:28px 0 10px">When it stops, what it means</h3>
+    <div class="tablebox"><div class="scroll">
+      <table class="stack stops">
+        <thead><tr><th>You see</th><th>It means</th><th>You do</th></tr></thead>
+        <tbody>
+          <tr><td><code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code></td><td>The one human question of a feature. The approval is a record bound to that digest; an edit afterwards approves nothing.</td><td>Answer <em>Approve</em>, or say what to change and the plan is redone and asked again.</td></tr>
+          <tr><td><code>awaiting: &lt;feature&gt; (approval | re-approval | plan review)</code> in the tick</td><td>The plan has no approval at its current digest, was edited after one, or has no <code>PASS</code> record from the plan review.</td><td>Approve it, or run <code>/reef-plan-review &lt;slug&gt;</code>. The tick will not advertise its tasks until then.</td></tr>
+          <tr><td><code>USER ACTION REQUIRED</code> with a list of commands</td><td>No remote, or no <code>gh</code> login. Reef does not guess at a forge.</td><td>Run the listed commands yourself (push, PR, records, merge), then run the next command the handoff names.</td></tr>
+          <tr><td><code>/clear now</code> and a fresh <code>HANDOFF.md</code></td><td>The session's context reached the ceiling, or has no room left for a new task. State is on disk.</td><td>Run <code>/clear</code>. The next session reads the handoff head and the tick, and continues every row from its furthest completed step.</td></tr>
+          <tr><td>The guard denied a dispatch</td><td>Outside the ready set, over the retry cap, the wrong model for the tier, or no approval or review record. The message names which.</td><td>Fix the named cause. Nothing was dispatched and no marker was written.</td></tr>
+          <tr><td>The guard denied a command</td><td>A gate bypass (<code>--no-verify</code>, <code>hooksPath</code>, a stash, a gate piped into <code>tail</code>), a hand-written approval or record, or a protected file outside a critical task.</td><td>Do it the gated way. If the rule itself is wrong, that is a <code>critical</code> task, not an edit.</td></tr>
+          <tr><td>The loop parked</td><td>Identical ticks with nothing in flight (<code>loop.no_progress_ticks</code>), or a feature or batch token budget reached.</td><td><code>scripts/reef-watch</code> shows what happened while nobody was in the room. Change the queue, the cap, or the budget.</td></tr>
+          <tr><td>A check warns instead of failing</td><td>Content planned under 0.5 meets a rule new in 0.6.</td><td>Nothing. The rule fails only for content planned under 0.6.</td></tr>
+          <tr><td><code>Not verified in a browser:</code> in a verifier report</td><td>The judge could not open the app; it says so instead of claiming.</td><td>Check that part yourself, or give the task a browser proof row.</td></tr>
+        </tbody>
+      </table>
+    </div></div>
+    <p class="ledger-note">Every stop leaves its reason on disk: the tick (<code>python3 scripts/reef-loop.py tick</code>), the handoff, the judge's report saved verbatim beside the task. The measurements behind the defaults live in <a href="https://github.com/MahmoudMoe/reef/tree/main/docs/perf">docs/perf/</a>.</p>
   </div>
 </section>
 
@@ -424,6 +459,7 @@
       <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/docs/design/graph-and-setup.md"><h3>Design: the graph executor</h3><p>The invariant, the scheduler, isolation, guard enforcement, the outer loop, what <code>/reef-init</code> generates, and what this still cannot cover.</p><span class="meta">docs/design/graph-and-setup.md</span></a>
       <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/docs/design/site-information-architecture.md"><h3>Design: this page</h3><p>Who reads it in what order, which surface owns which fact, why each section has the form it has, and what to touch when.</p><span class="meta">docs/design/site-information-architecture.md</span></a>
       <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/CHANGELOG.md"><h3>Changelog</h3><p>Every change with the first contact that caused it. 0.7 is open; 0.6.0 is released.</p><span class="meta">CHANGELOG.md</span></a>
+      <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/docs/perf/dogfood-2026-10-16.md"><h3>The dogfood run</h3><p>Reef run end to end on a fresh project and on a clone of itself, with the defects it found in itself and how each was fixed.</p><span class="meta">docs/perf/dogfood-2026-10-16.md</span></a>
       <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/docs/perf/report-0.6-2026-10-16.md"><h3>The 0.6 report</h3><p>The release report with its targets and what met them.</p><span class="meta">docs/perf/report-0.6-2026-10-16.md</span></a>
     </div>
   </div>

@@ -14,9 +14,9 @@ that order, top to bottom, so every reader stops at the first section that answe
 |---|---|---|---|
 | **Evaluator** (saw the repo in a list, a feed, a link) | 90 seconds | What is this, and is it real? | The hero: one sentence, the install command, three proofs (selftests, the dogfood run, the honesty ledger) |
 | **Adopter** (has a project and wants to try it) | 10 minutes | Where do I start for *my* situation? | The situation chooser: five situations, one command each, what happens next |
-| **Operator** (runs it daily, needs to understand a stop or a denial) | as needed | Why did Reef refuse that, and who decides? | The pipeline explorer, the roles, the enforcement ledger with search |
+| **Operator** (runs it daily, needs to understand a stop or a denial) | as needed | Why did Reef refuse that, and who decides? | The pipeline explorer, the roles, the enforcement ledger with search, and the **in practice** section: what it needs, what it never does, and a table of every stop with what it means and what to do |
 | **Owner** (tunes the numbers, sets the models) | as needed | Which key, what default, what effect? | The tiers table and the searchable settings reference |
-| **Skeptic / contributor** | 30 minutes | Where are the numbers, and where is the code? | The measured section, which points at the reports rather than restating them; the layout tree; the docs index |
+| **Skeptic / contributor** | 30 minutes | Where are the numbers, and where is the code? | The docs index (every `docs/perf` report is a card), the layout tree |
 
 The first two readers get everything above the fold or one scroll below it. The last three get sections that are
 **interactive on purpose**: a 42-row ledger is read by filtering it, not by scrolling it.
@@ -26,7 +26,7 @@ The first two readers get everything above the fold or one scroll below it. The 
 | Surface | Owns | Links to (never copies) |
 |---|---|---|
 | `README.md` (the GitHub page) | The claim, the quick start, the **honesty ledger**, the tiers, the settings table, the measured summary, the layout, the status | the site, the manual, `docs/perf`, `docs/design` |
-| `docs/index.html` (the site) | The *presentation*: the situation chooser, the pipeline explorer, the roles, the expandable layout tree | **the ledger and the settings table are fetched from the README at page load and parsed**; the measured section links to `docs/perf` instead of restating it |
+| `docs/index.html` (the site) | The *presentation*: the situation chooser, the pipeline explorer, the roles, the expandable layout tree | **the ledger and the settings table are fetched from the README at page load and parsed**; the docs index links `docs/perf` instead of restating it |
 | `docs/manual/ar/index.html` | The Arabic user manual (learning path, daily use, troubleshooting) | the README for reference facts |
 | `docs/design/*.md` | Design decisions and their reasoning (the graph executor, the planning cost cut, this document) | — |
 | `docs/perf/*.md` | Every measured number: the dogfood run, the baseline, the eval, the payloads, the guard profile | — |
@@ -39,9 +39,9 @@ Two consequences:
   table at runtime (`docs/assets/site.js`, `loadReadmeTables`). It tries the README served beside the site first,
   then the raw file on GitHub. If both fail or the heading moves, the section degrades to a link to the README
   section. Nothing in the site's HTML restates a ledger row.
-- **The site does not advertise figures.** No cost, token or eval number is restated on the page; the measured section
-  points at the reports in `docs/perf/` and the hero's three proof chips (the selftest count, the two dogfood runs, the
-  ledger's row count) are the only counts, each a link to its evidence.
+- **The site does not advertise figures.** No cost, token or eval number is restated on the page; the docs index links
+  the reports in `docs/perf/` and the hero's three proof chips (the selftest count, the two dogfood runs, the ledger's
+  row count) are the only counts, each a link to its evidence.
 
 ## 3. The site, section by section
 
@@ -57,7 +57,7 @@ form and not another.
 | 4 | Who does what | Which agent runs, with which tools, read-only or not | Six role cards with a read-only or writes badge and the dispatch rule | Operators debug denials by role ("the verifier may not run that"); cards group the facts a denial message refers to |
 | 5 | What is enforced | Is this rule code, a tripwire, or prose | The README's ledger, parsed, with a class filter and a search box and a live count | Honesty is the project's differentiator; a filter makes the "prose" rows findable in one click, which is the point of the ledger |
 | 6 | Tiers | Which model and judge my task gets | A four-row table with a short gloss per tier | Four rows fit a table; the gloss turns the tier names into the question an owner asks ("would two people build it differently?") |
-| 7 | Measured | Where do the numbers live | A short pointer to `docs/perf/` and four cards into the reports | The reports hold the measurements; the page does not sell with figures, so it names where they are and stops |
+| 7 | In practice | What does it need, what will it never do, what does this stop mean | Three cards (needs, never does, what you accept) and a three-column table: you see, it means, you do | An operator meets Reef through its stops and denials; a lookup table keyed on the message they see answers them faster than any narrative, and the three cards are the facts an adopter decides on before installing |
 | 8 | Settings | Which key, what default, what effect | The README's settings table, parsed and searchable | Owners look a key up by name; search is the right interaction for a reference table |
 | 9 | Layout | Where a file lives after `/reef-init` | An expandable tree with a one-line purpose per node | A tree is the shape of the thing; expanding it on demand keeps the first view to the top level |
 | 10 | Documents | Where to read more | Cards: design docs, perf reports, the Arabic manual, the changelog | The last reader wants the sources, grouped by kind |
@@ -86,7 +86,8 @@ form and not another.
 | Event | Touch |
 |---|---|
 | A release | the version in `README.md` badges, `.claude-plugin/plugin.json`, and the hero chip in `docs/index.html` (`data-version`) |
-| A new report in `docs/perf` | a card in the measured section of `docs/index.html` |
+| A new report in `docs/perf` | a card in the docs section of `docs/index.html` |
+| A new stop message or guard denial | a row in the "When it stops" table of `docs/index.html` |
 | A ledger or settings row | nothing: the site reads the README |
 | A new command or skill | the situation chooser and the pipeline detail in `docs/index.html` |
 | A README heading rename ("What is enforced, and how", "Settings") | the matching heading text in `site.js` (`TABLE_HEADINGS`) |
