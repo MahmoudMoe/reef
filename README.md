@@ -57,6 +57,7 @@ Then, inside your project:
 | **An existing project** | `/reef-init`, then `/reef-assess` | Nothing you wrote is overwritten: a differing rendering lands in `.reef/proposed/<path>` with a diff and `python3 scripts/reef-init.py --accept <path>` applies the ones you choose. `/reef-assess` reads how the project works and was written, every claim with a proving path, then moves its documents into the tree under one approval. Archive, never delete; one `git revert` undoes it. |
 | **A feature to build** | `/reef-plan <row>` → `/reef-task <slug>` → `/reef-review <slug>` | The grill; the spec and the tasks drafted in the feature worktree; the hunter and a fresh reviewer in parallel; then the one question for you, last — nothing after it voids your approval. Every ready task at once, each in its own worktree, each verified by a fresh judge. The PR, the acceptance against the spec, the diff review, the merge and the close. |
 | **A queue of rows** | `/reef-loop` | Every ready row through the four commands above, in parallel where rows do not collide. It stops only for your decisions, a missing credential, a wrong spec, or a cap, and batches its questions. |
+| **Several tasks ready** | `/reef-graph` | The task graph as one Claude Code workflow: implementer, gate, verifier and hunter per task, in the background, one summary back. Gated by a probe that proves the guard reaches workflow agents on this machine; the merge stays with the orchestrator. |
 | **Something looks off** | `/reef-doctor` | One screen: the plugin clone's branch and freshness, scripts behind the plugin, the queue's home, worktrees, the loop's state, gh, Docker, waiting proposals — each with its fix. `reef/README.md` is the map of the tree; `.reef/status.html` the live page. |
 | **A new Reef** | `python3 <plugin>/scripts/reef-update.py --commit` | Pulls the plugin clone, refreshes the project, commits Reef's own files, prints the two Claude Code commands. |
 | **A fresh clone** | `make setup` | Hooks are local git config and do not survive a clone. |
@@ -231,7 +232,7 @@ reef/                                                       # every committed Re
 scripts/reef-*   .githooks/   .github/workflows/ci.yml      # tooling where git and CI expect it
 ```
 
-The plugin itself: `skills/` (init, assess, explore, loop, plan, plan-review, task, verify, review, c4, threat, doctor) ·
+The plugin itself: `skills/` (init, assess, explore, loop, plan, plan-review, task, graph, verify, review, c4, threat, doctor) ·
 `commands/` · `agents/` (implementer, verifier, plan-reviewer, loophole-hunter, mechanic, planner) · `scripts/` (`reef-init.py`,
 `reef-migrate`, `reef-loop.py` [tick|start|stop|wait], `reef-handoff`, `reef-gate.sh` [fast|full|--failures],
 `reef-attempt`, `reef-guard.py`, `reef-approval.py`, `reef-record`, `reef-graph.py`, `reef-plan-check.py`
@@ -337,7 +338,7 @@ Every claim above has a number behind it, and the numbers live in `docs/perf/`:
 
 ### Selftests
 
-`sh tests/run.sh` — 477 sabotage and contract tests (388 Python + 89 shell, as the suite runs them). Every mechanism in
+`sh tests/run.sh` — 483 sabotage and contract tests (394 Python + 89 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
 script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials

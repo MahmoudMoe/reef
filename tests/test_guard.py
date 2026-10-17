@@ -473,6 +473,16 @@ class JudgeScratch(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 r = self.judge(cmd)
                 self.assertEqual(r.returncode, 0, f"FALSE POSITIVE: {cmd!r}\n{r.stderr}")
+        # 2026-10-18: `S=<scratchpad>; mkdir -p $S` was refused — the value assigned in the same command stands in for $S
+        for cmd in ("S=/private/tmp/claude-501/x/scratchpad/r2; mkdir -p $S && cd $S && cat > mod.ts <<'EOF'\nx\nEOF",
+                    "D=/tmp/claude-1/x/scratchpad; mkdir -p ${D}/brand; printf 'x' > ${D}/brand/m2.ts"):
+            with self.subTest(cmd=cmd):
+                r = self.judge(cmd)
+                self.assertEqual(r.returncode, 0, f"FALSE POSITIVE: {cmd!r}\n{r.stderr}")
+        for cmd in ("S=src/new; mkdir -p $S", "S=/home/u/proj/src; printf x > $S/a.ts", "mkdir -p $UNKNOWN/x",
+                    "cd /tmp/claude-1/x/scratchpad; cd /home/u/proj && printf x > a.ts", "cd /tmp/claude-1/x/scratchpad | cat > a.ts"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.judge(cmd).returncode, 2, f"a project path through a variable, or a variable the guard cannot read, is still a write: {cmd!r}")
         for cmd in ("echo x | tee src/x.ts", "npm test > out.txt", "cp /tmp/x src/y.ts", "mkdir -p src/new", "sed -i s/a/b/ README.md",
                     "git worktree add ../x", "git worktree remove ../x", "git worktree prune", "git stash", "git stash pop"):
             with self.subTest(cmd=cmd):

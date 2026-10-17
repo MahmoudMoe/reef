@@ -222,6 +222,22 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class NotesOutsideTheHash(unittest.TestCase):
+    def test_reviewer_notes_do_not_change_the_plan_hash(self):
+        # 2026-10-18: notes added after the hunter's pass changed adversarial-plan; the orchestrator reverted the notes to match
+        d = tempfile.mkdtemp(prefix="reef-adv.")
+        p = task(d)
+        before = adv(p, "plan-hash").stdout.strip()
+        with open(p) as f:
+            t = f.read()
+        with open(p, "w") as f:
+            f.write(t.replace("## Log\n", "## Reviewer notes\n- (plan review A3) a cast is refused only by AC-5's grep\n\n## Log\n- attempt 1\n"))
+        self.assertEqual(adv(p, "plan-hash").stdout.strip(), before)
+        with open(p, "w") as f:
+            f.write(t.replace("## Scope\nthe defect", "## Scope\nthe defect, widened"))
+        self.assertNotEqual(adv(p, "plan-hash").stdout.strip(), before, "plan text still counts")
+
+
 class PlanRoundCap(unittest.TestCase):
     """0.7 / v2: the plan pass is capped (hunter.plan_rounds, default 2). 2026-10-17: rows 2 and 13 reached round 6."""
 

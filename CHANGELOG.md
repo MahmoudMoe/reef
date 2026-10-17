@@ -1,6 +1,22 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Fixes from the second day's live loop** (2026-10-18): `reef-adversarial`'s plan hash (the guard imports it) now cuts at
+  `## Reviewer notes` like `reef-plan-check`'s digest — notes added after the hunter's pass changed the stamp and the
+  orchestrator reverted the notes to match; a verifier or hunter dispatched without a `REEF-TASK:` first line is denied
+  with the fix instead of "guard internal error"; a judge's `S=<scratchpad>; mkdir -p $S && cd $S && cat > f` is read
+  as scratch work: a plain `NAME=path` assigned earlier in the same command stands in for `$NAME`, and a `cd /abs` in
+  the same command places later relative targets; `test_graph_run` accepts macOS's `/private/var` realpath.
+- **Graph mode** (workflow v2, phase 3; `/reef-graph`, `scripts/reef-graph-run.py`): the ready task graph as ONE Claude
+  Code workflow — implementer → gate (`reef:mechanic`) → verifier ‖ hunter → snapshot per task, as a pipeline in fresh
+  contexts — instead of one agent result per orchestrator turn. `generate` runs the worktree, `reef-attempt`, the
+  in-progress status, the dispatch count and the in-flight marker (what the guard does on a chat dispatch) and writes
+  `.reef/graph/run-<hash>.js`; `settle` runs the report checks and the guard-pass record on the workflow's return value,
+  clears the markers and prints `READY TO MERGE` or `FAIL` (attempt counted). **Gated, fail closed**: `probe` writes a
+  one-agent workflow that tries a forbidden write; `probe-check` records `GATE OK` only when reef-guard denied it and no
+  file exists — otherwise graph mode stays OFF on that machine. `reef-cost` attributes a Workflow call to the tasks its
+  script names (role `workflow`). `.reef/graph/` is gitignored. A spike: measure a graph-mode task against a chat-mode
+  one before preferring it.
 - **Ceremony sized to the row** (v2 phase 2, B7): a `found` row whose fix is one file in no risk class is one `mech`/`light`
   task — no hunter, no semantic review; the planner argues a heavier tier in one `## Decision` line. Measured per row by
   `reef-cost.py growth --feature`, target under 10k of planning.

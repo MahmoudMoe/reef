@@ -232,6 +232,20 @@ class Rows(unittest.TestCase):
         self.assertEqual(r.stdout.strip(), "share=600 planning=600 sessions=2 roles=?×2")
         self.assertEqual(cost("growth", "--feature", "nope", "--repo", d).returncode, 1)
 
+    def test_a_workflow_call_is_attributed_to_the_tasks_its_script_names(self):
+        # graph mode (v2 phase 3): one Workflow tool call runs the tasks; its script carries their REEF-TASK: lines
+        d = tempfile.mkdtemp(prefix="reef-cost-wf.")
+        js = 'const TASKS = [{"implement_prompt": "REEF-TASK: reef/features/demo/tasks/101-page.md\\nEffort: medium"}, {"implement_prompt": "REEF-TASK: reef/features/other/tasks/201-x.md\\n"}]\n'
+        sp = os.path.join(d, "run-abc.js")
+        with open(sp, "w") as f:
+            f.write(js)
+        recs = [assistant("w1", 1000, 0, 0, 5, [{"type": "tool_use", "id": "tu_w", "name": "Workflow", "input": {"scriptPath": sp}}]),
+                list_result("tu_w", '{"tasks": []}'), assistant("w2", 6000, 0, 0, 5)]
+        j = json.loads(cost(write_transcript(d, "s.jsonl", recs), "--format", "json").stdout)
+        self.assertEqual({x["task"]: x["roles"] for x in j["tasks"]}, {"101": {"workflow": 1}, "201": {"workflow": 1}})
+        self.assertEqual(sorted(r["feature"] for r in j["rows"]), ["demo", "other"])
+        self.assertEqual(j["rows"][0]["roles"], {"workflow": 1})
+
     def test_tasks_table_growth_per_task_and_dispatches_per_role(self):
         # 0.7: the first real execution could not say which role cost what; the main-session span per task and the
         # roles dispatched for it (implementer, verifier, loophole-hunter, mechanic) come from the REEF-TASK: lines

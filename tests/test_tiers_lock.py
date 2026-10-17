@@ -263,6 +263,16 @@ class HumanOnlyApproval(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "approvals", "demo.json")), "a failing plan is not approved")
 
 
+class JudgeDispatchNeedsTheTaskLine(unittest.TestCase):
+    def test_a_hunter_dispatched_without_reef_task_is_denied_with_the_fix(self):
+        # 2026-10-18: a plan-pass hunter sent with REEF-FEATURE: only read as "guard internal error — failing closed"
+        d = project({"gates": {"test": "true"}}, {"007-demo.md": task_text(7, "demo", "critical", "design")})
+        r = dispatch(d, "reef:loophole-hunter", "REEF-FEATURE: demo\nhunt the plan")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("without a 'REEF-TASK: <task-file>' first line", r.stderr)
+        self.assertNotIn("internal error", r.stderr)
+
+
 class ApprovalInAWorktree(unittest.TestCase):
     """First contact (2026-10-16): the plan was moved to a feature worktree; the hook computed the digest in the main
     checkout (develop had no feature files) and an 'Approve' wrote nothing. The digest is computed where the plan

@@ -40,6 +40,9 @@ import tempfile
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 LOG_HEADING = re.compile(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", re.M)
+# the Reviewer notes (plan-review advisories) are outside the plan, like the Log — reef-plan-check cuts the same way
+# (2026-10-18: notes added after the hunter's pass changed this hash and the orchestrator reverted the notes to match)
+CUT_HEADING = re.compile(r"^##[ \t]+(?:[Ll][Oo][Gg]|Reviewer notes)[ \t]*$", re.M)
 EXEC_KEYS = r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-plan|adversarial-guard|adversarial-decided):.*(?:\r?\n|\Z)"
 ROUND = re.compile(r"\bround[= ](\d+)\b|\(round (\d+)\)", re.I)
 
@@ -94,9 +97,9 @@ def frontmatter(text):
 
 
 def plan_hash(text):
-    """What PLANNING wrote: the frontmatter minus execution keys, the body up to ## Log.
+    """What PLANNING wrote: the frontmatter minus execution keys, the body up to ## Reviewer notes / ## Log.
     The same strip reef-plan-check uses for the stamp, plus this script's own keys."""
-    text = LOG_HEADING.split(text, maxsplit=1)[0]
+    text = CUT_HEADING.split(text, maxsplit=1)[0]
     m = FENCE.match(text)
     if m:
         fm = re.sub(EXEC_KEYS, "", m.group(1), flags=re.M)

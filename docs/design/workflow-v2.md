@@ -89,7 +89,7 @@ The planner splits; the reviewer never does.
 | 0 (2026-10-17, shipped) | quiet commands, status line, cost in the record, triage, notes outside the digest, approval hook requires green plan-check, evidence is the agent's, in-flight across worktrees, `reef:planner` | PRs #39–#45 merged |
 | 1 (this PR) | D1, D2, D3; hunter ‖ reviewer; verifier ‖ hunter guard; worktree first; skills reordered | three rows plan in one session; ≤ 2 question sets; zero re-approvals caused by a review |
 | 2 | `reef-cost` attributes planning roles to the feature; `reef-update`, `/reef:doctor`, `status.html`, `reef/README.md`; `found` one-file rows are `light` | planning a found row under 10k; the owner never types `--accept`/`--keep` unprompted |
-| 3 | graph mode spike: `reef-graph-run` builds a workflow script from `tick --json`; gate test: a workflow agent's forbidden write is denied by `reef-guard` or graph mode stays off | one feature both ways, cost and wall time by `reef-cost`; decision by the numbers |
+| 3 | graph mode spike (shipped 2026-10-17 as `/reef-graph`): `reef-graph-run.py probe / generate / settle`; the gate is the probe's recorded denial, fail closed; a workflow script has no filesystem, so the mechanical steps run as a `reef:mechanic` agent inside the pipeline and at generate/settle; the merge stays with the orchestrator | one feature both ways, cost and wall time by `reef-cost` (`growth <id>`, role `workflow`); decision by the numbers |
 | 4 | external runner `reef-run` if the workflow is not enough; release drill to `main`; verifier FAIL drill | a batch runs to its owner questions with zero `/clear`; a release lands |
 
 What the five phases do not change: the price of one orchestrator turn. Only phase 3 moves that.
