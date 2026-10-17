@@ -213,6 +213,16 @@ class ClosedRowsInWorktrees(unittest.TestCase):
         self.assertNotRegex(text, r"building rows: 1")
 
 
+class TriageLine(unittest.TestCase):
+    def test_the_tick_names_stale_found_rows(self):
+        d = project()
+        write(d, "reef/queue.md", "# Queue\nCurrent batch: 3\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 1 | first | | planned | 1 | |\n| 2 | second | 1 | planned | 1 | |\n| 3 | a leak (src/lib/x.ts) | 1 | found | 1 | |\n")
+        text = loop(d, "tick").stdout
+        self.assertIn("stale found (rule 7): 1 — python3 scripts/reef-queue.py triage, ONE owner question at the batch boundary", text)
+        write(d, "reef/queue.md", "# Queue\nCurrent batch: 2\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 1 | first | | planned | 1 | |\n| 2 | second | 1 | planned | 1 | |\n| 3 | a leak (src/lib/x.ts) | 1 | found | 1 | |\n")
+        self.assertNotIn("rule 7", loop(d, "tick").stdout)
+
+
 class GrowthCap(unittest.TestCase):
     def test_the_tick_names_tasks_over_caps_task_growth(self):
         d = project({"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md", "runlog": "reef/journal.md"}, "caps": {"task_growth": 20000}})

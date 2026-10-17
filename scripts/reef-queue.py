@@ -17,6 +17,11 @@ Usage:
   reef-queue.py add-row --item "<text>" [--depends "1, 2"] [--source planned|found] [--batch N] [--admitted "<ground>"]
                                                  (0.7) the next id, in its batch's table (found: next batch by default); prints the id
   reef-queue.py set-depends ID "<ids>" [--repo DIR]        (0.7) replace a row's Depends cell
+  reef-queue.py triage [--repo DIR] [--count]              (0.7) rule 7: found rows still queued two batches after they
+                                                 entered, grouped by module, with the three outcomes as ONE owner
+                                                 question; the open found vs planned count; --count prints one line
+  reef-queue.py set-batch ID N [--repo DIR]                (0.7) move a row to batch N (a promotion; footnote the reason)
+  reef-queue.py drop-row ID --reason "<text>" [--repo DIR] (0.7) delete a queued row (rule 7) and record the reason as a footnote
   reef-queue.py index [--repo DIR]              (0.6) regenerate <paths.features>/README.md: feature, row, batch,
                                                 status, task counts, ADRs — never hand-edited
   `check` also validates (0.6) every feature folder's slug (2-5 kebab-case words, no bare number, no
@@ -288,6 +293,110 @@ def cmd_set_depends(root, row_id, depends):
     return 0
 
 
+PATH_RE = re.compile(r"(?<![\w/])((?:[\w.-]+/)+[\w.-]+|[\w-]+\.(?:ts|tsx|js|mjs|mts|py|md|json|yaml|yml|toml|sh|css|sql))")
+
+
+def module_of(item):
+    """The module a found row names: the first path in its Item, cut to two segments (`src/lib/x.ts` → `src/lib`);
+    a bare file keeps its name; nothing path-like → `general`."""
+    m = PATH_RE.search(item)
+    if not m:
+        return "general"
+    parts = [p for p in m.group(1).split("/") if p]
+    return "/".join(parts[:2]) if len(parts) > 1 else parts[0]
+
+
+def triage_rows(rows, text):
+    """Rule 7's set: `found` rows with no task file yet, whose batch is two or more behind the current one."""
+    cur = current_batch(text)
+    stale, open_found, open_planned = [], [], []
+    for r in rows:
+        if r["_status"] == "done":
+            continue
+        src = (r.get("Source") or "").strip().lower()
+        (open_found if src == "found" else open_planned).append(r)
+        b = re.match(r"\d+", r.get("Batch", "") or "")
+        if src == "found" and r["_status"] == "queued" and cur and b and int(cur) - int(b.group()) >= 2:
+            stale.append(r)
+    return stale, open_found, open_planned
+
+
+def cmd_triage(root, count_only):
+    """Found-row triage as a command (usability plan B5). The first full loop had 18 of 26 open rows `found` and no
+    moment that asked about them; rule 7 says a found row untouched after two batches is promoted once with a reason,
+    merged into a design row, or deleted, and deletion is a first-class outcome. Prints the owner's ONE question."""
+    _, text, rows, archived, _ = load(root)
+    stale, open_found, open_planned = triage_rows(rows, text)
+    cur = current_batch(text) or "?"
+    head = f"triage: batch {cur} · open found {len(open_found)} vs planned {len(open_planned)} · stale found (rule 7): {len(stale)}"
+    if count_only:
+        print(head)
+        return 0 if not stale else 1
+    print(head)
+    if len(open_found) > len(open_planned):
+        print("  found rows outnumber planned ones: the roadmap is behind its findings (plan measure: found ≤ planned at batch start)")
+    if not stale:
+        print("  nothing to triage")
+        return 0
+    groups = {}
+    for r in stale:
+        groups.setdefault(module_of(r.get("Item", "")), []).append(r)
+    print("\nONE owner question (AskUserQuestion, one entry per row; his words go to a footnote):")
+    for mod in sorted(groups):
+        print(f"\n## {mod}")
+        for r in groups[mod]:
+            item = re.sub(r"[⁰¹²³⁴⁵⁶⁷⁸⁹ ]+$", "", r.get("Item", "")).strip()
+            print(f"- row {r['Id']} (entered batch {r.get('Batch', '?')}, depends {', '.join(r['_depends']) or '-'}): {item[:140]}")
+            print(f"    Promote → set-batch {r['Id']} {cur} + footnote --row {r['Id']} \"promoted: <reason>\"")
+            print(f"    Merge into design row <id> → footnote --row <id> \"absorbs row {r['Id']}: …\" + drop-row {r['Id']} --reason \"merged into <id>\"")
+            print(f"    Delete → drop-row {r['Id']} --reason \"<why it no longer matters>\"   (first-class outcome)")
+    return 1
+
+
+def cmd_set_batch(root, row_id, batch):
+    _, qpath, _ = queue_paths(root)
+    q = read(qpath)
+    if not re.fullmatch(r"\d+", batch or ""):
+        die("batch is a number")
+    # the row line: Id | Item | Depends | Source | Batch | Admitted
+    pat = re.compile(rf"^(\|\s*{re.escape(row_id)}\s*\|(?:[^|\n]*\|){{3}})([^|\n]*)(\|)", re.M)
+    m = pat.search(q)
+    if not m:
+        die(f"no row {row_id} in the queue", 1)
+    line_start = q.rfind("\n", 0, m.start()) + 1
+    line_end = q.find("\n", m.end())
+    line = q[line_start:line_end]
+    new_line = line[:m.start(2) - line_start] + f" {batch} " + line[m.end(2) - line_start:]
+    q = q[:line_start] + q[line_end + 1:]   # take the row line out of its table (no blank line left: it would split the table) …
+    sec = re.search(rf"^## Batch {re.escape(batch)}\s*$(.*?)(?=^## |\Z)", q, re.M | re.S)
+    if sec:
+        body = sec.group(1).rstrip("\n")   # … and put it under its new batch heading
+        q = q[:sec.start(1)] + body + "\n" + new_line + "\n\n" + q[sec.end(1):]
+    else:
+        q = q[:line_start] + new_line + "\n" + q[line_start:]   # a flat queue: the cell changes in place
+    write_text(qpath, q)
+    print(f"{row_id}\tbatch={batch}")
+    return 0
+
+
+def cmd_drop_row(root, row_id, reason):
+    _, qpath, _ = queue_paths(root)
+    _, text, rows, archived, states = load(root)
+    r = next((x for x in rows if x["Id"] == row_id), None)
+    if r is None:
+        die(f"no row {row_id} in the queue", 1)
+    if r["_status"] != "queued":
+        die(f"row {row_id} is {r['_status']}: only a queued row (no task file) is dropped; a built one is archived by the close-out", 1)
+    if not (reason or "").strip():
+        die("--reason is the ground, recorded as a footnote (rule 7: deletion is a first-class outcome)")
+    q = read(qpath)
+    lines = q.splitlines()
+    keep = [l for l in lines if not re.match(rf"^\|\s*{re.escape(row_id)}\s*\|", l)]
+    write_text(qpath, "\n".join(keep) + "\n")
+    cmd_footnote(root, f"row {row_id} deleted (rule 7): {reason.strip()} — was: {r.get('Item', '').strip()[:120]}", None)
+    return 0
+
+
 def cmd_status(root):
     _, _, rows, archived, _ = load(root)
     for r in rows:
@@ -485,7 +594,7 @@ def main(argv):
         argv = argv[:i] + argv[i + 2:]
     root = repo_root(repo)
     if not argv:
-        die("usage: reef-queue.py status|ready [--all]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids> [--repo DIR]")
+        die("usage: reef-queue.py status|ready [--all]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids>|triage [--count]|set-batch ID N|drop-row ID --reason <text> [--repo DIR]")
     cmd = argv[0]
     if cmd == "status":
         return cmd_status(root)
@@ -508,6 +617,12 @@ def main(argv):
         return cmd_add_row(root, opt("--item"), opt("--depends"), src, opt("--batch", None), opt("--admitted"))
     if cmd == "set-depends" and len(argv) >= 3:
         return cmd_set_depends(root, argv[1], argv[2])
+    if cmd == "triage":
+        return cmd_triage(root, "--count" in argv)
+    if cmd == "set-batch" and len(argv) >= 3:
+        return cmd_set_batch(root, argv[1], argv[2])
+    if cmd == "drop-row" and len(argv) >= 2 and "--reason" in argv:
+        return cmd_drop_row(root, argv[1], opt("--reason"))
     die(f"unknown command {cmd!r}")
 
 

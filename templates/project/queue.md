@@ -11,7 +11,7 @@ Current batch: 1
 4. Decisions that close an alternative: a project-wide one as `{{adr_path}}/draft-<row>-<slug>.md`, a feature's own under its folder's `adr/`; unnumbered; the number is allocated on `{{base}}` at merge (two branches that each "checked first" take the same number).
 5. Merge with `--delete-branch`, then close in the same breath: row → archive with its footnotes, draft ADR numbered, journal entry, worktree removed.
 6. **The batch boundary is fixed** (constitution). Found work enters the next batch, with `Source: found` and the batch it entered; the fix-now exception is journaled with its ground.
-7. A `found` row untouched after two batches is re-triaged: promoted once with a stated reason, merged into a design row, or deleted. Deletion is a first-class outcome.
+7. A `found` row untouched after two batches is re-triaged: promoted once with a stated reason, merged into a design row, or deleted. Deletion is a first-class outcome. `python3 scripts/reef-queue.py triage` lists them as the owner's one question; `set-batch` and `drop-row --reason` carry his answer out.
 8. Three findings in one module is one design row, not a third patch.
 9. At most two open PRs into `{{base}}`.
 10. Promotion to `{{release}}` is a pull request from `{{base}}`, after the batch's security pass; CI runs there; the owner merges it. Hold pushes to `{{base}}` while that PR's CI runs.
