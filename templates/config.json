@@ -36,7 +36,7 @@
     "plan_rounds": 2
   },
   "plan": {
-    "max_acs": 8,
+    "max_acs": 0,
     "test_re": "",
     "max_words": 0
   },
