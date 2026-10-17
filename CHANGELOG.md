@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- `reef-queue.py footnote "<text>" [--row ID]`, `add-row --item … [--depends …] [--source planned|found] [--batch N]
+  [--admitted …]`, `set-depends ID "<ids>"`: the orchestrator's queue edits as one command each (next footnote number
+  across queue and archive, dated; a found row lands in the next batch unless admitted; the shape kept). First full
+  loop (2026-10-17): these were inline Python heredocs — `assistant:tool_use` was the largest Reef-attributable context
+  share of the session (15%).
 - Plan review: an approved plan is edited only for a BLOCKING fix, a HALT ruling or an owner decision — never cosmetics
   (two approvals were voided by an ADR status line and a sentence trim). Advisories go to the human as one list with a
   default of leave as is; only one the reviewer marks `WILL BITE` is a question. The loop plans colliding rows one at a
