@@ -35,7 +35,7 @@ mechanism ships with a test that shows it going red on the defect it exists to c
 
 | If you want | Go to |
 |---|---|
-| The page: the pipeline explorer, the ledger with a search box, the measured numbers | **[mahmoudmoe.github.io/reef](https://mahmoudmoe.github.io/reef/)** |
+| The page: how it works, what it needs, what it never does, what each stop means | **[mahmoudmoe.github.io/reef](https://mahmoudmoe.github.io/reef/)** |
 | To install and run it on a project | [Quick start](#quick-start), then [How it works](#how-it-works) |
 | To know what is code and what is only prose | [The honesty ledger](#what-is-enforced-and-how-the-honesty-ledger) |
 | The numbers behind every claim | [Measured](#measured) and [`docs/perf/`](docs/perf/) |
