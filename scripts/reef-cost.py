@@ -2,6 +2,8 @@
 # CLASS: code
 """Reef cost — what a session cost, from the Claude Code transcript (stdlib only).
 Usage: reef-cost.py [<transcript.jsonl>] [--repo DIR] [--format text|md|json] | --session-start | --live
+       reef-cost.py <transcript.jsonl> --record [--repo DIR]   (0.7) fold this session's per-task growth into .reef/cost/tasks.json
+       reef-cost.py growth <task-id> [--repo DIR]             (0.7) the task's orchestrator growth so far, across sessions
        (cat hook-payload.json | reef-cost.py --live  reads transcript_path from the payload)
 Turns = one per requestId; context = input + cache writes + cache reads; a compaction counts once (boundary record,
 else summary record); --live reads the last 256 KB only. Rows: per feature dispatched through Task/Agent
@@ -325,7 +327,59 @@ def render_md(rep, subs, rounds, rows=()):
     return "\n".join(out) + "\n"
 
 
+COST_FILE = os.path.join(".reef", "cost", "tasks.json")
+
+
+def record_growth(path, repo):
+    """Fold this transcript's per-task main-session growth into <repo>/.reef/cost/tasks.json, keyed by task then by
+    transcript (a task that spans two sessions adds up; re-recording the same session replaces its number). The
+    Stop hook calls it every turn; the close-out reads it (first full loop, 2026-10-17: the cost of a task was
+    computed by hand from the transcript after the fact, and never reached the journal)."""
+    feature_rows(path)
+    tasks = getattr(feature_rows, "tasks", []) or []
+    out = os.path.join(repo, COST_FILE)
+    try:
+        with open(out, encoding="utf-8") as f:
+            store = json.load(f)
+    except (OSError, ValueError):
+        store = {}
+    if not isinstance(store, dict):
+        store = {}
+    key = os.path.splitext(os.path.basename(path))[0]
+    for x in tasks:
+        entry = store.setdefault(str(x["task"]), {})
+        entry[key] = {"growth": int(x["growth"]), "turns": int(x["turns"]), "roles": x["roles"]}
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(store, f, indent=1, sort_keys=True)
+    return store
+
+
+def growth_of(repo, task):
+    try:
+        with open(os.path.join(repo, COST_FILE), encoding="utf-8") as f:
+            store = json.load(f)
+    except (OSError, ValueError):
+        return None
+    sessions = store.get(str(task)) if isinstance(store, dict) else None
+    if not sessions:
+        return None
+    roles = {}
+    for s in sessions.values():
+        for k, v in (s.get("roles") or {}).items():
+            roles[k] = roles.get(k, 0) + int(v)
+    return {"growth": sum(int(s.get("growth", 0)) for s in sessions.values()), "sessions": len(sessions), "roles": roles}
+
+
 def main(argv):
+    if argv and argv[0] == "growth" and len(argv) >= 2:
+        repo = argv[argv.index("--repo") + 1] if "--repo" in argv else "."
+        g = growth_of(repo, argv[1])
+        if g is None:
+            print(f"growth: no record for task {argv[1]} (the Stop hook records after a turn with a dispatch)")
+            return 1
+        print(f"growth={g['growth']} sessions={g['sessions']} roles=" + ",".join(f"{k}×{v}" for k, v in sorted(g["roles"].items())))
+        return 0
     path, repo, fmt, mode = None, None, "text", None
     i = 0
     while i < len(argv):
@@ -334,7 +388,7 @@ def main(argv):
             repo = argv[i + 1]; i += 2
         elif a == "--format":
             fmt = argv[i + 1]; i += 2
-        elif a in ("--live", "--session-start"):
+        elif a in ("--live", "--session-start", "--record"):
             mode = a; i += 1
         elif a.startswith("-"):
             die(f"unknown option {a!r}")
@@ -352,6 +406,10 @@ def main(argv):
         if n is None:
             die("no assistant turn with usage in the transcript tail")
         print(f"context_tokens={n}")
+        return 0
+    if mode == "--record":
+        store = record_growth(path, repo or ".")
+        print(f"recorded {len(getattr(feature_rows, 'tasks', []) or [])} task(s) into {COST_FILE} ({len(store)} task(s) on file)")
         return 0
     if mode == "--session-start":
         rep = analyse(path)

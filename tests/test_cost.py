@@ -239,6 +239,27 @@ class Rows(unittest.TestCase):
         self.assertIn("## Tasks (main-session growth per task, dispatches per role)", md)
         self.assertIn("| 101 | 4 | 4,500 | ? ×1, implementer ×1, loophole-hunter ×1, verifier ×1 |", md)
 
+    def test_record_folds_growth_per_task_across_sessions_and_growth_reads_it(self):
+        # first full loop (2026-10-17): a task's orchestrator cost was computed by hand from the transcript, after the fact
+        d = tempfile.mkdtemp(prefix="reef-cost-rec.")
+        prompt = "REEF-TASK: reef/features/demo/tasks/101-page.md\nimplement"
+        s1 = write_transcript(d, "s1.jsonl", [
+            assistant("r1", 1000, 0, 0, 5, [{"type": "tool_use", "id": "tu_i", "name": "Task", "input": {"prompt": prompt, "subagent_type": "reef:implementer"}}]),
+            list_result("tu_i", "done"), assistant("r2", 4000, 0, 0, 5)])
+        s2 = write_transcript(d, "s2.jsonl", [
+            assistant("q1", 2000, 0, 0, 5, [{"type": "tool_use", "id": "tu_v", "name": "Task", "input": {"prompt": prompt, "subagent_type": "reef:verifier"}}]),
+            list_result("tu_v", "PASS"), assistant("q2", 3500, 0, 0, 5)])
+        self.assertEqual(cost(s1, "--record", "--repo", d).returncode, 0)
+        self.assertEqual(cost(s1, "--record", "--repo", d).returncode, 0, "re-recording a session replaces, never doubles")
+        self.assertEqual(cost(s2, "--record", "--repo", d).returncode, 0)
+        with open(os.path.join(d, ".reef", "cost", "tasks.json")) as f:
+            store = json.load(f)
+        self.assertEqual(set(store["101"]), {"s1", "s2"})
+        r = cost("growth", "101", "--repo", d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout.strip(), "growth=4500 sessions=2 roles=implementer×1,verifier×1")
+        self.assertEqual(cost("growth", "999", "--repo", d).returncode, 1)
+
     def test_rows_absent_without_dispatch(self):
         bash_only = FIXTURE + [TWO_FEATURES[-2], TWO_FEATURES[-1]]
         for recs in (FIXTURE, bash_only):

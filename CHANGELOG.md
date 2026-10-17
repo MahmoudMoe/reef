@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Fix**: the tick no longer lists a closed row as building because its SPEC sits in every feature worktree's full
+  checkout ("building rows: 1, 11, 13, 2" with row 1 archived); only rows still in the queue count.
+- **Cost in the record**: the Stop hook folds the session's per-task orchestrator growth into `.reef/cost/tasks.json`
+  (`reef-cost.py <transcript> --record`); `reef-cost.py growth <id>` sums it over sessions for the journal's new
+  `Orchestrator` column; the tick names tasks over `caps.task_growth` (template `0` = off; set it from ten measured
+  tasks). First full loop: a task's cost was computed by hand from the transcript and never reached the journal.
 - The status line ends with the next command: `in flight: … / waiting on: … / next: <command>`, and the Stop hook
   refuses (once per reply) a reply without it while the loop is active. First full loop: the owner asked "what do I
   run now?" after every stop while the tick already knew.

@@ -1028,6 +1028,14 @@ def check_stop(payload):
                 pass
             deny("end the reply with the status line, on its own last line: `in flight: <ids or ->` / `waiting on: <what or ->` / "
                  "`next: <the one command the owner runs, from the tick's next command:>`")
+    tp = payload.get("transcript_path")
+    if st.get("active") and tp and os.path.isfile(tp):
+        # the cost record: this session's per-task growth into .reef/cost/tasks.json, read by the close-out and the tick
+        cost = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-cost.py")
+        try:
+            subprocess.run([sys.executable, cost, tp, "--record", "--repo", root], capture_output=True, text=True, timeout=8)
+        except Exception:
+            pass
     if payload.get("background_tasks"):
         return   # sub-agents still running: the world is in flight
     try:
