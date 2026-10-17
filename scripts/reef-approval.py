@@ -72,6 +72,22 @@ def current_digest(root, feature):
     return m.group(1) if m else None
 
 
+def plan_check_failures(root, feature):
+    """The FAIL lines of reef-plan-check.py for this feature in this checkout, or [] (2026-10-17: five sentences over
+    the word ceiling were found AFTER the owner approved; fixing them voided the approval and cost a second gate)."""
+    script = os.path.join(root, "scripts", "reef-plan-check.py")
+    if not os.path.isfile(script):
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
+    try:
+        r = subprocess.run([sys.executable, script, root, "--feature", feature, "--quiet"], capture_output=True, text=True, timeout=120)
+    except Exception as e:   # a check that cannot run is not a green check
+        return [f"plan-check did not run: {e}"]
+    if r.returncode == 0:
+        return []
+    fails = [l for l in r.stdout.splitlines() if l.startswith("FAIL")]
+    return fails or [f"plan-check exit {r.returncode}"]
+
+
 def plan_digests(cwd, feature):
     """{checkout: digest} for every checkout where the plan is present. The plan the human approves may live in a
     feature worktree while the hook runs in the main checkout (first contact, 2026-10-16: the plan had been moved to
@@ -125,6 +141,10 @@ def main(argv):
         if not where:
             seen = ", ".join(f"{dg[:16]} in {os.path.basename(wt) or wt}" for wt, dg in digests.items())
             print(f"reef-approval: {feature}: the question's digest {digest16} matches no checkout's plan ({seen}) (stale) — nothing written")
+            continue
+        fails = plan_check_failures(where[0], feature)
+        if fails:
+            print(f"reef-approval: {feature}: REFUSED — reef-plan-check.py FAILS in {where[0]}: {fails[0][:200]} — fix, re-digest, ask again; nothing written")
             continue
         d = os.path.join(root, ".reef", "approvals")
         os.makedirs(d, exist_ok=True)

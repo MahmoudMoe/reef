@@ -136,6 +136,12 @@ def section(text, heading):
 # CommonMark: 0-3 leading spaces is still a sibling list item; 4+ is continuation/code
 BULLET = re.compile(r"^ {0,3}[-*+] +|^ {0,3}\d+[.)] +")
 LOG_HEADING = re.compile(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", re.M)
+# 0.7: `## Reviewer notes` holds the plan review's ADVISORY findings for the implementer and the verifier; like the Log it
+# is outside the digest, so carrying advisories into a task voids no approval (2026-10-17: 28 advisories applied as plan
+# edits re-ran three hunters, three approvals and three reviews). Only the Log may follow it.
+NOTES_HEADING = re.compile(r"^##[ \t]+Reviewer notes[ \t]*$", re.M)
+CUT_HEADING = re.compile(r"^##[ \t]+(?:[Ll][Oo][Gg]|Reviewer notes)[ \t]*$", re.M)
+ADR_STATUS = re.compile(r"^Status:.*(?:\r?\n|\Z)", re.M)
 
 
 def criteria(text):
@@ -436,11 +442,15 @@ def main():
         line that happens to start with 'status:' is plan content too."""
         raw = open(p, "rb").read()
         if p not in stamp_task_set:
+            if os.path.basename(os.path.dirname(p)) == "adr":
+                # the ADR's Status line is a lifecycle marker the close-out moves (Proposed → Accepted → numbered), not
+                # a decision: 2026-10-17, two approvals were voided by "Status: Accepted (number at merge)"
+                return ADR_STATUS.sub("", raw.decode("utf-8", "replace"), count=1).encode()
             return raw
         text = raw.decode("utf-8", "replace")
         # cut at the Log heading in any case/spacing — a '## log' variant would
-        # otherwise hash the log body and stale the plan on the first log append
-        text = LOG_HEADING.split(text, maxsplit=1)[0]
+        # otherwise hash the log body and stale the plan on the first log append; the Reviewer notes cut the same way
+        text = CUT_HEADING.split(text, maxsplit=1)[0]
         m = FM_RE.match(text)
         if m:
             # what EXECUTION writes: the status keys, the worktree, and the hunter's guard-pass record (written after
@@ -741,6 +751,12 @@ def main():
         log_parts = LOG_HEADING.split(text, maxsplit=1)
         if len(log_parts) == 2 and re.search(r"^##[ \t]", log_parts[1], re.M):
             fail(f"{rel}: ## Log must be the LAST section — the stamp ignores everything after it")
+        notes_parts = NOTES_HEADING.split(text, maxsplit=1)
+        if len(notes_parts) == 2:
+            after = [h for h in re.findall(r"^##[ \t]+(.*?)[ \t]*$", notes_parts[1], re.M) if not re.fullmatch(r"[Ll][Oo][Gg]", h)]
+            if after:
+                fail(f"{rel}: only ## Log may follow ## Reviewer notes (found ## {after[0]}) — the stamp ignores everything after the notes")
+            log_parts = [notes_parts[0], notes_parts[1]]   # the word cap counts plan text only
         cap, cap_name = word_cap(fm)
         if cap:
             plan_text = log_parts[0]

@@ -247,6 +247,22 @@ class HumanOnlyApproval(unittest.TestCase):
         self.assertIn("approval: STALE", r.stdout)
 
 
+    def test_hook_refuses_while_plan_check_fails(self):
+        # 2026-10-17: five sentences over the word ceiling surfaced AFTER the owner approved; fixing them voided the approval
+        tp = os.path.join(self.d, "tasks", "007-demo.md")
+        with open(tp) as f:
+            t = f.read()
+        long = "this one sentence runs on and on past the ceiling of twenty five words that the writing rule sets for every task file in a feature folder and more"
+        with open(tp, "w") as f:
+            f.write(t.replace("## Scope\nx", "## Scope\n" + long))
+        digest = plan_check(self.d, "--digest", "--feature", "demo").stdout.split()[-1]
+        r = self._hook(f"Approve plan demo at {digest[:16]}?", "Approve")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("REFUSED", r.stdout)
+        self.assertIn("plan-check", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "approvals", "demo.json")), "a failing plan is not approved")
+
+
 class ApprovalInAWorktree(unittest.TestCase):
     """First contact (2026-10-16): the plan was moved to a feature worktree; the hook computed the digest in the main
     checkout (develop had no feature files) and an 'Approve' wrote nothing. The digest is computed where the plan
