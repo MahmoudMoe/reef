@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- `docs/design/usability-autopilot-plan.md`: what first contact showed about ease of use and autopilot maturity, what
+  quantum-loop, Ralph Wiggum, claude-code-harness, spec-kit, BMAD, Superpowers and Claude Code 2.1 do, and the plan in
+  two tracks with a mechanism and a measure per item (external runner, progress page, `reef-update`/`/reef:doctor`,
+  triage command, cost in the record, drills for the unproven paths).
 - `reef-queue.py footnote "<text>" [--row ID]`, `add-row --item … [--depends …] [--source planned|found] [--batch N]
   [--admitted …]`, `set-depends ID "<ids>"`: the orchestrator's queue edits as one command each (next footnote number
   across queue and archive, dated; a found row lands in the next batch unless admitted; the shape kept). First full

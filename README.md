@@ -39,7 +39,7 @@ mechanism ships with a test that shows it going red on the defect it exists to c
 | To install and run it on a project | [Quick start](#quick-start), then [How it works](#how-it-works) |
 | To know what is code and what is only prose | [The honesty ledger](#what-is-enforced-and-how-the-honesty-ledger) |
 | The numbers behind every claim | [Measured](#measured) and [`docs/perf/`](docs/perf/) |
-| The design reasoning | [`docs/design/graph-and-setup.md`](docs/design/graph-and-setup.md) · [`docs/design/plan-cost.md`](docs/design/plan-cost.md) · [what the page shows, where and why](docs/design/site-information-architecture.md) |
+| The design reasoning | [`docs/design/graph-and-setup.md`](docs/design/graph-and-setup.md) · [`docs/design/plan-cost.md`](docs/design/plan-cost.md) · [the usability and autopilot plan after first contact](docs/design/usability-autopilot-plan.md) · [what the page shows, where and why](docs/design/site-information-architecture.md) |
 | The Arabic manual | [`docs/manual/ar/index.html`](docs/manual/ar/index.html) · [on the site](https://mahmoudmoe.github.io/reef/manual/ar/) |
 
 <details>
