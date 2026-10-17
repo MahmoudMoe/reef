@@ -1,0 +1,40 @@
+name: pages
+# The site is docs/: three hand-written files (index.html, assets/site.css, assets/site.js) and the Arabic manual.
+# The README and the CHANGELOG are copied beside the page so the ledger and the settings table are read from the
+# README at page load (one home per fact; see docs/design/site-information-architecture.md).
+on:
+  push:
+    branches: [main]
+    paths: [docs/**, README.md, CHANGELOG.md, .github/workflows/pages.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: stage the site
+        run: |
+          mkdir -p _site
+          cp -R docs/. _site/
+          cp README.md CHANGELOG.md LICENSE _site/
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true   # creates the Pages site on first run; if this step fails, set Settings → Pages → Source = GitHub Actions once
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

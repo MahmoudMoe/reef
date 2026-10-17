@@ -31,7 +31,33 @@ mechanism ships with a test that shows it going red on the defect it exists to c
   only prose. When Reef ran on itself and hit its own worst bug, it restored the repository, refused to patch a
   protected file outside its plan, and stopped with a question for the human.
 
-Arabic manual: [`docs/manual/ar/index.html`](docs/manual/ar/index.html) · Design: [`docs/design/graph-and-setup.md`](docs/design/graph-and-setup.md) · The 0.7 dogfood run: [`docs/perf/dogfood-2026-10-16.md`](docs/perf/dogfood-2026-10-16.md)
+## Start here
+
+| If you want | Go to |
+|---|---|
+| The page: the pipeline explorer, the ledger with a search box, the measured numbers | **[mahmoudmoe.github.io/reef](https://mahmoudmoe.github.io/reef/)** |
+| To install and run it on a project | [Quick start](#quick-start), then [How it works](#how-it-works) |
+| To know what is code and what is only prose | [The honesty ledger](#what-is-enforced-and-how-the-honesty-ledger) |
+| The numbers behind every claim | [Measured](#measured) and [`docs/perf/`](docs/perf/) |
+| The design reasoning | [`docs/design/graph-and-setup.md`](docs/design/graph-and-setup.md) · [`docs/design/plan-cost.md`](docs/design/plan-cost.md) · [what the page shows, where and why](docs/design/site-information-architecture.md) |
+| The Arabic manual | [`docs/manual/ar/index.html`](docs/manual/ar/index.html) · [on the site](https://mahmoudmoe.github.io/reef/manual/ar/) |
+
+<details>
+<summary><strong>Contents</strong></summary>
+
+- [Quick start](#quick-start)
+- [How it works](#how-it-works)
+- [What is enforced, and how (the honesty ledger)](#what-is-enforced-and-how-the-honesty-ledger)
+- [Who runs what (tiers and routing)](#who-runs-what-tiers-and-routing)
+- [The adversarial stage](#the-adversarial-stage)
+- [Settings](#settings-reefconfigjson--the-one-home-for-every-number)
+- [Measured](#measured)
+- [Layout](#layout)
+- [Selftests](#selftests)
+- [Status and what is next](#status-and-what-is-next)
+- [Acknowledgments](#acknowledgments)
+
+</details>
 
 ## Quick start
 
@@ -103,31 +129,31 @@ carries `# CLASS:` in its header and `tests/test_contracts.py` ties each row bel
 | Review verdicts are RECORDS bound to the forge head; `gh pr merge` only against a GREEN record (clean base merge or claims-only commits are the only carry-overs; rebase, code push, slow or failed gh deny) — `merge.by: loop` only | `scripts/reef-record` (`gh pr view`, `gh api …/git/commits`); `reef-guard.py` on `gh pr merge` / `gh api …/merge` under its own gh deadline | **code** (presence) |
 | Judges are read-only: verifier, loophole-hunter, plan-reviewer, Explore get no mutating git, no Bash write, no CI wait; a typeless sub-agent is locked while `.reef/verifying/<id>` exists; no sub-agent waits on CI or sleeps a minute | `reef-guard.py` reads `agent_type`/`agent_id` from the payload (verified live, 0.0); the snapshot hash is the backstop | **code** + **tripwire** (the write detection is a token match) |
 | A hung guard denies; no python3 denies a dispatch | `signal.alarm` deadline inside the guard; `timeout` + `onFailure: block` on every PreToolUse matcher (`scripts/reef-guard-profile.py` sets them at ≥ 5 × p95) | **code** |
-| The guard's own files and the `roles|caps|gates|tiers` keys change only under a `critical` task in flight or inside Reef's own repository | `reef-guard.py` Edit/Write/MultiEdit matcher (JSON diff of the protected keys) and Bash write detection; `reef-init --accept` stays allowed | **code** for the keys, **tripwire** for the Bash shapes |
+| The guard's own files and the `roles\|caps\|gates\|tiers` keys change only under a `critical` task in flight or inside Reef's own repository | `reef-guard.py` Edit/Write/MultiEdit matcher (JSON diff of the protected keys) and Bash write detection; `reef-init --accept` stays allowed | **code** for the keys, **tripwire** for the Bash shapes |
 | Plan edited after approval → re-review; the stamp covers the WHOLE feature folder (spec, child specs, ADRs, tasks) | `reef-plan-check.py --verify-stamp`, per feature, re-checked by the guard at every dispatch against the task file's own worktree | **code** |
 | A feature folder is well-formed: a descriptive slug, `SPEC.md` with `Row:` and layered `FR-n` keys, child specs with `Parent:`, ACs citing keys of their own folder, ≤ `plan.max_tasks` tasks, nothing else inside | `reef-plan-check.py` (`--rules` prints every rule with the project's numbers); `reef-queue.py check` (structure, slug); `reef-structure --check` | **code** |
 | Criterion and proof split (new shape): one declarative sentence ≤ `writing.criterion_words`, its proof in the `## Proof` row; old shape stays valid; sentences ≤ `writing.sentence_words` | `reef-plan-check.py` (fails under 0.6, warns older); the claimed-twice check reads Proof rows | **code** |
 | Every Proof row holds on the branch before acceptance (`missing` / `contradicts` under the one cap) | `scripts/reef-converge <feature>` | **code** when run (reef-review prose) |
 | A tier only gets heavier: path classes (`tiers.design.paths`, `tiers.critical.paths`) and `touches:` (pii/money/auth → critical, migration → design + `Rollback:`) | `scripts/reef-tier.py` from the diff; `reef-plan-check.py` on the declaration; `reef-init` lists older tasks the rails would move | **code** when run |
 | Adversarial pass on the PLAN before code and on the finished GUARD before close (`design` and `critical`) | `scripts/reef-adversarial` records a PASS bound to the plan's content (`BLOCKER: none` is no blocker; a bold one is); the guard refuses a dispatch without it; the pre-commit refuses a design/critical task entering `done/` without `adversarial-guard:` | **code** |
-| A critical `touches: auth|pii|money` task needs a threat model at least as new as the architecture | `reef-plan-check.py`; `scripts/reef-threat.py lint|fresh` (every boundary crossing has a mitigated or accepted STRIDE row) | **code** |
-| The architecture model is generated from code with a proof per element; drift is element-level, once per release | `scripts/reef-c4.py generate|lint|--diff` as `gates.release.c4`; `reef-ci-local.sh --release` | **code** |
+| A critical `touches: auth\|pii\|money` task needs a threat model at least as new as the architecture | `reef-plan-check.py`; `scripts/reef-threat.py lint\|fresh` (every boundary crossing has a mitigated or accepted STRIDE row) | **code** |
+| The architecture model is generated from code with a proof per element; drift is element-level, once per release | `scripts/reef-c4.py generate\|lint\|--diff` as `gates.release.c4`; `reef-ci-local.sh --release` | **code** |
 | Hand-backs ≤ `writing.handback_words` with a claims list; verifier reports carry `RUN:`, one `RULE AC<n>` per criterion citing its Proof row, evidence per AC; hunter reports carry `DEFECT`, cited `BLOCKER`s, `VERDICT`; every report ≤ `writing.report_words`; a fix round's claims point inside its own diff; after GREEN only claims-only commits | `scripts/reef-claims.py check --handback` / `report` / `check <range>` / `claims-only` | **code** when run (reef-task prose) |
 | One cap per item after GREEN (acceptance + diff + CI share it); one rollup per feature | `reef-attempt` and the guard refuse a second rollup | **code** |
 | Draft ADRs in parallel branches, numbered at merge in ONE global sequence across `reef/architecture/adr/` and every feature `adr/`; path citations stay files | `reef-queue.py adr-number`; `reef-plan-check.py` exempts `draft-*.md` | **code** |
 | The tick never advertises a task whose plan lacks the human's approval at the current digest or a fresh review stamp: it is `awaiting: <feature> (approval \| re-approval \| plan review)` | `scripts/reef-loop.py tick` runs `reef-plan-check.py --verify-stamp --feature` per ready feature | **code** |
-| Queue status has one home (the task files, a folder's `SPEC.md Row:` links slug to row); `reef/features/README.md` is generated | `reef-queue.py status|ready|check|index` | **code** |
+| Queue status has one home (the task files, a folder's `SPEC.md Row:` links slug to row); `reef/features/README.md` is generated | `reef-queue.py status\|ready\|check\|index` | **code** |
 | Context ceiling: a dispatch over `caps.context_tokens` is denied and the guard itself renders `HANDOFF.md` from measured state first ("/clear now"); from `caps.context_warn` the hook warns the model | `reef-guard.py` on Task/Agent via `scripts/reef-cost.py --live` on the payload's `transcript_path` (tail only), then `scripts/reef-handoff --write` | **code** (defaults set from the measured rows; 0 = off on a migrated project) |
 | What happened while nobody was in the room: the tick, tasks by status and attempts, journal rows since a date, found rows, stops, sessions with per-feature growth, rejected judge reports — one screen, no model | `scripts/reef-watch [--since] [--json]` | **code** (a report, not a gate) |
 | `/reef-assess` writes data, not an essay: the observed sections present, every claim `Observed — path:line` or `Inferred`, the harnessability table's five dimensions summing to its heading | `scripts/reef-claims.py assess` (fixture: the real ledger report) | **code** |
-| The queue has one home — `paths.queue` on `branches.base` in the main checkout; a feature branch whose queue differs from its fork point fails the plan check | `reef-plan-check.py` queue-home check; `tests/test_feature_spec.py::QueueHasOneHome` |
+| The queue has one home — `paths.queue` on `branches.base` in the main checkout; a feature branch whose queue differs from its fork point fails the plan check | `reef-plan-check.py` queue-home check; `tests/test_feature_spec.py::QueueHasOneHome` | **code** |
 | No-progress parking (`loop.no_progress_ticks` identical ticks, nothing in flight) and token budgets (`caps.feature_tokens`, `caps.batch_tokens`) | `scripts/reef-loop.py tick` | **code** |
 | Reports, never raw material: the exit code plus the failing block (`context.failure_lines`), the whole log on disk | `reef-gate.sh --failures`, `reef-ci-local.sh` (truncation inside the gate keeps the exit code) | **code** |
 | Session start under `writing.session_start_tokens`: the handoff head + the tick + the next command, nothing else read | `hooks.json` SessionStart → `reef-loop.py tick --session-start --hook`; `AGENTS.md` ≤ 80 lines and the skills' re-entry sections (contracts) | **code** for the cap, **prose** for what the model then reads |
 | Commit gate tests the index, outside git's hook environment (`GIT_DIR`, `GIT_INDEX_FILE`, `GIT_WORK_TREE`, `GIT_PREFIX`, `GIT_CONFIG_PARAMETERS` unset, so a suite's own git fixtures never touch the real repository) | `.githooks/pre-commit` (+ `pre-merge-commit`) | **code** |
 | Local CI = CI, every exit code read; a skip is exit 2, not success; `gates.release` run on release-branch PRs only | `scripts/reef-ci-local.sh [--ci] [--release]` | **code** |
 | Repository protection (release branch protected, push protection, CODEOWNERS), idempotent | `scripts/reef-repo` | **code** when run |
-| Documents live in the layout; recalibration archives, never deletes, in one revertable commit with links rewritten | `scripts/reef-recalibrate plan|--apply|history`; `scripts/reef-structure --check` (both layouts) | **code** |
+| Documents live in the layout; recalibration archives, never deletes, in one revertable commit with links rewritten | `scripts/reef-recalibrate plan\|--apply\|history`; `scripts/reef-structure --check` (both layouts) | **code** |
 | Migrations are versioned and idempotent; a gap refuses | `scripts/reef-migrate` + `migrations/<from>-to-<to>.py` | **code** |
 | `git stash`; a gate piped into `tail`/`grep`; bypass spellings (`--no-verify`, `-n`, hooksPath, env smuggling, `rm .githooks`) | `reef-guard.py` (tokenizing) | **tripwire** — CI is the wall |
 | Push gate | none by design — a worktree gate at push time only false-rejects | **CI is the wall** |
@@ -144,7 +170,7 @@ guard on mismatch — `tiers.<tier>` in `.reef/config.json`, every key overridab
 
 | Tier | Meaning | planner / plan_reviewer / adversary / verifier / reviewer / security | author | effort | verify |
 |---|---|---|---|---|---|
-| `critical` | first-time analysis, architecture, constitution, threat model, `touches: money|pii|auth`, the guard paths | opus | opus (set a heavier model per project) | high | judge; adversary on plan and on guard |
+| `critical` | first-time analysis, architecture, constitution, threat model, `touches: money\|pii\|auth`, the guard paths | opus | opus (set a heavier model per project) | high | judge; adversary on plan and on guard |
 | `design` | two people would build it differently; a mechanism that failed twice | opus / opus / opus / opus / opus / opus | opus | high | judge; adversary twice |
 | `full` | the default | opus / opus / opus / opus / opus / opus | opus | medium | judge |
 | `light` | allowlisted paths, no risk path, under the line ceiling | plan_reviewer **none** (the deterministic check alone stamps) | opus (**sonnet not shipped**: unproven by the eval) | low | gate + golden test, no judge |
