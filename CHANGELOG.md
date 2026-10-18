@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Fix**: `reef-update --commit` committed the scripts and never `.reef/init-manifest.json` (2026-10-18: three pulls on
+  the trial; the first `git status --porcelain` line lost its status column to the output strip, and the manifest sorts
+  first), nor the `.gitignore` lines `reef-init` appends. Both are Reef's own files and ride in the `reef: scripts` commit.
 - **Records written in the 0.6 digest form migrate, they are never re-asked** (2026-10-18, measured on the trial right
   after the change below: the three live features' approval and review records, and their stamps, read as STALE — a
   re-review and a re-approval of plans nobody had edited). `--verify-stamp` names a stamp, an approval or a review

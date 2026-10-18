@@ -9,7 +9,7 @@ Usage: reef-update.py [--repo DIR] [--plugin DIR] [--commit] [--push] [--dry-run
 2. `reef-init.py --root <project> --plugin <plugin>` refreshes the project's copies (scripts/reef-*, the rendered
    files); its summary line is printed. Proposals (files you edited) are listed with their accept/keep commands,
    never applied.
-3. --commit stages ONLY Reef's own paths (scripts/reef-*, .reef/init-manifest.json, .reef/version, .githooks/*, the
+3. --commit stages ONLY Reef's own paths (scripts/reef-*, .reef/init-manifest.json, .reef/version, .githooks/*, .gitignore, the
    rendered map) and commits `reef: scripts <version> (<plugin sha>)`; --push pushes the current branch.
 4. Prints the two Claude Code commands that reload the plugin.
 Exit 0 ok · 1 a step failed (its line says which) · 2 usage.
@@ -95,12 +95,16 @@ def main(argv):
     except Exception:
         version = "?"
     _, sha = run(["git", "rev-parse", "--short=12", "HEAD"], plugin)
-    paths = ["scripts", ".reef/init-manifest.json", ".reef/version", ".githooks"]
+    paths = ["scripts", ".reef/init-manifest.json", ".reef/version", ".githooks", ".gitignore"]
     for cand in ("reef/README.md", "docs/REEF.md"):
         if os.path.isfile(os.path.join(root, cand)):
             paths.append(cand)
-    _, changed = run(["git", "status", "--porcelain", "--"] + paths, root)
-    changed_files = [l[3:] for l in changed.splitlines() if l[3:].startswith(("scripts/reef-", ".reef/", ".githooks/", "reef/README.md", "docs/REEF.md"))]
+    # the porcelain lines are read RAW: run() strips the output, and the first line's status column starts with a
+    # space — `.reef/init-manifest.json` sorts first, so three pulls on the trial committed the scripts and never the
+    # manifest (2026-10-18). `.gitignore` carries the lines reef-init appends (status.html, cost/, graph/).
+    st = subprocess.run(["git", "status", "--porcelain", "--"] + paths, cwd=root, capture_output=True, text=True)
+    changed_files = [l[3:] for l in st.stdout.splitlines()
+                     if len(l) > 3 and l[3:].startswith(("scripts/reef-", ".reef/", ".githooks/", ".gitignore", "reef/README.md", "docs/REEF.md"))]
     if not changed_files:
         print("project: nothing changed")
     elif "--commit" in argv and not dry:
