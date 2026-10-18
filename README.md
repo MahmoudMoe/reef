@@ -340,7 +340,7 @@ Every claim above has a number behind it, and the numbers live in `docs/perf/`:
 
 ### Selftests
 
-`sh tests/run.sh` — 510 sabotage and contract tests (420 Python + 90 shell, as the suite runs them). Every mechanism in
+`sh tests/run.sh` — 512 sabotage and contract tests (421 Python + 91 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
 script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials

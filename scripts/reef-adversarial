@@ -93,8 +93,18 @@ def config_near(path):
 def guard_pass_mode(path):
     """hunter.guard_pass: `task` (default; the hunter's guard pass per design/critical task, the pre-commit requires it to
     close) or `feature` (one pass on the feature's merged diff before the GREEN record — 2026-10-18: two judges cost
-    96k on a 20-line task; the hunter's floor is paid once per feature instead)."""
-    _, cfg = config_near(path)
+    96k on a 20-line task; the hunter's floor is paid once per feature instead). Loop policy has ONE home: the MAIN
+    checkout's config (a worktree's copy predates the owner's edit until its next merge of the base)."""
+    root, cfg = config_near(path)
+    if root:
+        try:
+            r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=10)
+            main = next((l[len("worktree "):].strip() for l in r.stdout.splitlines() if l.startswith("worktree ")), "")
+            if main and os.path.abspath(main) != os.path.abspath(root):
+                with open(os.path.join(main, ".reef", "config.json"), encoding="utf-8") as f:
+                    cfg = json.load(f)
+        except Exception:
+            pass
     return str((cfg.get("hunter") or {}).get("guard_pass", "task") or "task").strip().lower()
 
 

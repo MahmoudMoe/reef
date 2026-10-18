@@ -235,6 +235,18 @@ git mv tasks/009-c.md tasks/done/009-c.md
 git commit -qm close >/dev/null 2>&1
 t "guard_pass feature: a critical task closes WITHOUT adversarial-guard (the pass is recorded per feature, GREEN refuses without it)" 0
 
+# the mode is the MAIN checkout's: a feature worktree whose config predates the owner's edit closes under feature mode too
+# (2026-10-18: the fix round of 202 dispatched a hunter per task because the worktree's config lacked the key)
+mkrepo "$TMP/r6g" "true"
+mkdir -p tasks/done
+printf -- '---\nid: 9\nfeature: f\nstatus: pending\ncomplexity: design\ntier: critical\nverify: judge\nattempts: 0\nadversarial-plan: abc\n---\n# 9\n' > tasks/009-c.md
+git add -A && git commit -qm plan >/dev/null 2>&1
+git worktree add -q -b feat/x "$TMP/r6g-wt" >/dev/null 2>&1
+printf '{"gates": {"test": "true"}, "hunter": {"guard_pass": "feature"}}\n' > .reef/config.json   # the owner's edit on the base, uncommitted
+cd "$TMP/r6g-wt" && mkdir -p tasks/done && git mv tasks/009-c.md tasks/done/009-c.md && git commit -qm close >/dev/null 2>&1
+t "guard_pass feature on the MAIN checkout: a task closes in a worktree whose own config lacks the key" 0
+cd "$TMP/r6g"
+
 # ---------- 0.5.0: a tier: design task closes only with the guard pass recorded ----------
 mkrepo "$TMP/r12" "true"
 mkdir -p tasks/done

@@ -234,6 +234,25 @@ class Attempt(unittest.TestCase):
         open(os.path.join(self.dir, ".reef", "config.json"), "w").write('{"hunter": {"guard_pass": "task"}}')
         self.assertRegex(run(p).stdout, r"(?m)^adversary: model=", "the default is the 0.6 behaviour")
 
+    def test_guard_pass_is_read_from_the_main_checkout_not_the_worktree(self):
+        # 2026-10-18: the owner set hunter.guard_pass feature on develop; the feature worktree's config predated it and
+        # the fix round's reef-attempt printed `adversary:` — a hunter per task again. Loop policy has one home.
+        main = tempfile.mkdtemp(prefix="reef-attempt-main.")
+        g = ["git", "-C", main, "-c", "user.email=t@t", "-c", "user.name=t"]
+        subprocess.run(["git", "init", "-q", "-b", "develop", main], check=True)
+        os.makedirs(os.path.join(main, ".reef"))
+        open(os.path.join(main, ".reef", "config.json"), "w").write('{"hunter": {"plan_rounds": 2}}')
+        subprocess.run(g + ["add", "-A"], check=True, capture_output=True)
+        subprocess.run(g + ["commit", "-qm", "config without the key"], check=True, capture_output=True)
+        wt = os.path.join(main, ".reef", "worktrees", "feat")
+        subprocess.run(g + ["worktree", "add", "-q", "-b", "feat/x", wt], check=True, capture_output=True)
+        open(os.path.join(main, ".reef", "config.json"), "w").write('{"hunter": {"plan_rounds": 2, "guard_pass": "feature"}}')   # the owner's edit, on develop
+        p = make_task(wt, fm="id: 7\nstatus: pending\neffort: medium\nverify: judge\ntier: critical\nattempts: 0\n")
+        r = run(p)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("guard-pass: feature", r.stdout, "the worktree's stale copy of the config must not decide")
+        self.assertNotRegex(r.stdout, r"(?m)^adversary:")
+
     def test_verifier_model_defaults_to_agent_default(self):
         p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: medium\nverify: judge\nattempts: 0\n")
         self.assertIn("verifier: model=opus", run(p).stdout)
