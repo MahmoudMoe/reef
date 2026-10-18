@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- reef-review names where the feature's files are (`<paths.features>/<slug>/` in its worktree) so the review starts by
+  reading, not by `find`; the task skill runs `worktree.setup` in the feature worktree after merging a task that changed
+  `package.json`, the lockfile or `prisma/schema.prisma` (2026-10-18: 202's merge failed 28 tests on a Prisma client
+  older than its migration until `npm ci`).
 - **Round ≥2 judges what the round changed** (2026-10-18: 202's one-test fix round re-verified all 23 criteria, 31 turns,
   71k): `reef-attempt` logs the failure's words under `## Log` and, on the next dispatch, prints `rejudge: AC-n, …` —
   the criteria the failure named plus every criterion whose Proof is not a test; the verifier judges those in full and
