@@ -247,6 +247,11 @@ class SecurityPass(_Repo, unittest.TestCase):
             with self.subTest(cmd=cmd):
                 r = self.create(cmd)
                 self.assertEqual(r.returncode, 0, r.stderr)
+        # no --base: gh targets the forge's default branch, the release branch on a base/release project
+        r = self.create("gh pr create --head main --title r --body b")
+        self.assertEqual(r.returncode, 2, "a release PR with no --base slipped past the security pass")
+        self.assertIn("--base release", r.stderr)
+        self.assertEqual(self.create("gh pr create --head feat --fill").returncode, 0, "a feature PR with no --base is not the release PR")
         # the base moved after the pass: a new release, audited again
         git(self.d, "checkout", "-q", "main")
         with open(os.path.join(self.d, "late.py"), "w") as f:

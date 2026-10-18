@@ -465,13 +465,22 @@ def check_release_pr(seg, ctx):
     cfg = next((read_config(r) for r in roots if os.path.isfile(os.path.join(r, ".reef", "config.json"))), {})
     br = cfg.get("branches") or {}
     release, base = str(br.get("release", "main") or "main"), str(br.get("base", "main") or "main")
-    if release == base or _flag(rest, ("--base",), ("-B",)) != release:
+    pr_base = _flag(rest, ("--base",), ("-B",))
+    if release == base or (pr_base is not None and pr_base != release):
         return
     cwd = ctx.get("cwd") or os.getcwd()
     head_ref = _flag(rest, ("--head",), ("-H",))
     ref = f"refs/heads/{head_ref.split(':')[-1]}" if head_ref else "HEAD"
     r = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], cwd=cwd, capture_output=True, text=True)
     head = r.stdout.strip()
+    if pr_base is None:
+        # no --base: gh targets the forge's default branch, which on a base/release project is the release branch.
+        # The only PR that comes from branches.base is the release PR — name the base, or it is treated as one.
+        b = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{base}^{{commit}}"], cwd=cwd, capture_output=True, text=True)
+        if not head or b.stdout.strip() != head:
+            return
+        deny(f"gh pr create from {base} with no --base: the forge's default branch is likely {release}, so this is the release PR — "
+             f"pass --base {release} (the security pass is then required) or the branch you mean")
     if r.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", head):
         deny(f"release PR into {release}: cannot resolve its head {head_ref or 'HEAD'} here — run from the main checkout")
     for root in roots:
