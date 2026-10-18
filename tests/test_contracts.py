@@ -41,9 +41,28 @@ class ConfigTemplate(unittest.TestCase):
     def test_model_per_role_defaults_match_agent_frontmatter(self):
         roles = self.cfg["roles"]
         for role, agent in (("author", "implementer"), ("verifier", "verifier"),
-                            ("plan_reviewer", "plan-reviewer"), ("mechanic", "mechanic")):
+                            ("plan_reviewer", "plan-reviewer"), ("mechanic", "mechanic"), ("security", "security")):
             front = re.search(r"^model:\s*(\S+)", read("agents", f"{agent}.md"), re.M).group(1)
             self.assertEqual(roles[role], front, f"roles.{role} default must equal the agent's frontmatter")
+
+
+class SecurityPassIsReefs(unittest.TestCase):
+    """0.7 (2026-10-19): the release's security pass named `code-security`, an agent that lived in the author's own
+    ~/.claude/agents and nowhere in Reef; for anyone else the step did nothing and nothing recorded that it ran."""
+
+    def test_the_agent_ships_read_only_with_the_terse_rule_and_the_loop_records_it(self):
+        text = read("agents", "security.md")
+        tools = re.search(r"^tools:\s*(.+)$", text, re.M).group(1)
+        self.assertNotRegex(tools, r"\b(Edit|Write|MultiEdit|NotebookEdit)\b", "the auditor is read-only")
+        self.assertIn("**Terse (0.7, the owner's rule).**", text)
+        self.assertIn("VERDICT: PASS | FAIL", text)
+        loop = read("skills", "reef-loop", "SKILL.md")
+        self.assertIn("reef:security", loop)
+        self.assertIn("scripts/reef-record security", loop)
+        self.assertNotIn("code-security", loop, "the release step names Reef's own agent, not one from a personal folder")
+        guard = read("scripts", "reef-guard.py")
+        self.assertRegex(guard, r'"security":\s*"security"', "ROLE_OF routes reef:security to roles.security")
+        self.assertRegex(guard, r'LOCKED_TYPES = \([^)]*"security"', "the judge lock covers it")
 
 
 class ReviewSkill(unittest.TestCase):

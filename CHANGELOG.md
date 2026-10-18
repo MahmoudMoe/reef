@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The release's security pass is Reef's own, and recorded** (2026-10-19, the owner: "Reef is meant for others, the security
+  pass should be solid"): the step named `code-security`, an agent in the author's personal `~/.claude/agents/`; for
+  anyone else it did nothing, and nothing recorded that it ran. Now `agents/security.md` (`reef:security`, read-only,
+  `roles.security`, the judge lock) audits `git diff <release>...<base>` against the threat model and the constitution —
+  every threat row's mitigation and proving test, isolation, fail-closed authority, secrets and personal data — then argues
+  untrusted input, the authenticated attacker and the deployment surface; the scanners stay in `gates.release`.
+  `reef-record security <PASS|FAIL> --report` binds the agent's own VERDICT (a PASS with a BLOCKER line is refused) to
+  the head of `branches.base`, stored as `head` so it can never stand in for a feature's GREEN; the guard refuses
+  `gh pr create` into `branches.release` without a PASS at that exact head.
 - **Fixes from the trial's second graph-mode task** (2026-10-18, qassimha 1103, queue rows 57 and 58): (57) `reef-graph-run settle`
   counts a red gate as the attempt — the pipeline skips the judges on a red gate, settle added "no verifier verdict" and
   that text suppressed `reef-attempt`, so the orchestrator counted by hand; the gate's failing block (300 chars) is the

@@ -220,6 +220,14 @@ class RoleModel(unittest.TestCase):
         self.assertEqual(r.returncode, 2, "the agent file's default is not the configured model")
         self.assertIn("pass model='opus'", r.stderr)
 
+    def test_the_security_auditor_runs_on_roles_security(self):
+        write_config(self.dir, {"gates": {"test": "true"}, "roles": {"security": "opus"}})
+        r = dispatch(self.dir, "Audit git diff main...develop", subagent="reef:security", model="sonnet")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("roles.security", r.stderr)
+        self.assertEqual(dispatch(self.dir, "Audit git diff main...develop", subagent="reef:security", model="opus").returncode, 0,
+                         "no REEF-TASK line is needed: the release audit is not a task's judge")
+
     def test_implementer_on_configured_model_allowed(self):
         r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement", model="opus")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -489,6 +497,12 @@ class JudgeScratch(unittest.TestCase):
                 r = self.judge(cmd, who="reef:verifier")
                 self.assertEqual(r.returncode, 2, f"NOT DENIED: {cmd!r}")
                 self.assertIn("read-only", r.stderr)
+        # 0.7: the release's security auditor is a judge too
+        for cmd in ("cp /tmp/x src/y.ts", "sed -i s/a/b/ src/auth.ts"):
+            with self.subTest(who="reef:security", cmd=cmd):
+                r = self.judge(cmd, who="reef:security")
+                self.assertEqual(r.returncode, 2, f"NOT DENIED for reef:security: {cmd!r}")
+        self.assertEqual(self.judge("git diff main...develop -- src", who="reef:security").returncode, 0)
 
 
 class WorktreeStamp(unittest.TestCase):
