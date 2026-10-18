@@ -41,6 +41,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import tempfile
 
 DEFAULT_CAP = 3
@@ -315,7 +316,7 @@ def run(cap_flag, path, failure):
             # the failure's words go to ## Log (outside every digest): the next dispatch reads which criteria failed
             # and prints `rejudge:` — round ≥2 judges those, not all 23 again (2026-10-18: 202's one-test fix round
             # re-verified 23 criteria, 31 turns, 71k)
-            task.append_log(f"- attempt {attempts} FAIL: {' '.join(failure.split())[:300]}")
+            task.append_log(f"- attempt {attempts} FAIL: {' '.join(failure.split())[:300]} · at {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}")
             if attempts >= cap or repeated:
                 task.set("status", "blocked")
                 task.write()

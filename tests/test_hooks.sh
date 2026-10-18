@@ -319,6 +319,29 @@ mkdir -p .reef/ci-local; : > ".reef/ci-local/gate-fast-$(sh scripts/reef-snapsho
 git commit -qm planted >/dev/null 2>&1
 t "gate cache: the pre-commit ignores a planted marker and runs the (red) gate" 1
 
+# ---------- 0.7: a hung gate ends (2026-10-18: a leaked dev server held vitest 21 min and the workflow 3 h) ----------
+cd "$TMP"; mkdir -p g3; cd g3; git init -q -b main; git config user.email t@t; git config user.name t
+mkdir -p .reef scripts; cp "$ROOT/scripts/reef-gate.sh" scripts/
+printf '{"gates": {"test": "echo $$ > gate.pid; sleep 30; echo never", "timeout_s": 1}}\n' > .reef/config.json
+START_T=$(date +%s); sh scripts/reef-gate.sh >/dev/null 2>&1; RC=$?; END_T=$(date +%s)
+[ "$RC" -eq 124 ] && [ $((END_T - START_T)) -lt 10 ]
+t "gate timeout: a gate past gates.timeout_s exits 124 within seconds, not when the hang ends" 0
+sleep 1; kill -0 "$(cat gate.pid)" 2>/dev/null
+t "gate timeout: the gate's process group is killed (its shell is gone, no orphan)" 1
+# a real hung suite prints hundreds of lines after its first FAIL marker: the verdict must stand outside the capped block
+printf '{"gates": {"test": "echo FAIL first; i=0; while [ $i -lt 200 ]; do echo noise $i; i=$((i+1)); done; sleep 30", "timeout_s": 1}}\n' > .reef/config.json
+OUT=$(sh scripts/reef-gate.sh --failures 2>/dev/null); RC=$?
+[ "$RC" -eq 124 ] && printf '%s' "$OUT" | grep -q 'exit 124' && printf '%s' "$OUT" | grep -q 'TIMEOUT after 1s' && [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" -lt 70 ]
+t "gate timeout: --failures prints exit 124 and the TIMEOUT verdict outside a block capped at failure_lines" 0
+OUT=$(sh scripts/reef-gate.sh 2>/dev/null); RC=$?
+[ "$RC" -eq 124 ] && printf '%s' "$OUT" | grep -q 'TIMEOUT after 1s'
+t "gate timeout: the plain mode prints the TIMEOUT verdict too" 0
+[ -z "$(ls .reef/ci-local/gate-full-*.ok 2>/dev/null)" ]   # GNU ls exits 2 on no match, BSD ls 1: test the listing, not the code
+t "gate timeout: no green marker is written" 0
+printf '{"gates": {"test": "true", "timeout_s": 0}}\n' > .reef/config.json
+sh scripts/reef-gate.sh >/dev/null 2>&1
+t "gate timeout: timeout_s 0 = none, a green gate passes" 0
+
 # ---------- reef-snapshot.sh ----------
 mkrepo "$TMP/r7" "true"
 cp "$ROOT/scripts/reef-snapshot.sh" scripts/; chmod +x scripts/reef-snapshot.sh
