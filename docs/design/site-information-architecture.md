@@ -58,9 +58,9 @@ form and not another.
 |---|---|---|---|---|
 | 0 | Header | Where am I, where can I go | Sticky bar, section links with scroll-spy, theme toggle, GitHub link | The page is long; the reader needs to know their position and jump without scrolling back |
 | 1 | Hero | What is Reef, what does it do to my project, how do I install it | One claim sentence, a lead written as what happens to the reader's row, three fact chips, the two-line install with a copy button, four buttons into the page | An evaluator decides in one screen; the chips are the three facts an owner most wants settled before installing anything |
-| 2 | Start here | Which command for my situation | Five tabs (new project, existing project, a feature, a queue, a fresh clone), each a command and "what happens" | The README's quick-start table is right but a five-row table of long cells is read by nobody; tabs show one situation at a time, and the reader has exactly one |
+| 2 | Start here | Which command for my situation | Five tabs (new project, existing project, a feature, a queue, keeping it running: the doctor, graph mode, the updater, a fresh clone), each a command and "what happens" | The README's quick-start table is right but a five-row table of long cells is read by nobody; tabs show one situation at a time, and the reader has exactly one |
 | 3 | How it works | What happens between a queue row and a merge | A seven-stage pipeline; clicking a stage reveals what it writes, what lets it through, and what the user's part is | The pipeline is the mental model everything else hangs on; a static ASCII diagram (the README's) is accurate but dense, and detail-on-demand lets the eye hold the shape while the text explains one stage. The "enforced by" column of script names was cut: a user meets the gate, not the script |
-| 4 | Who does what | Which agent runs, read-only or not, on which model | Six role cards with a read-only or writes badge and the model it runs on | Operators debug denials by role ("the verifier may not run that"); cards group the facts a denial message refers to |
+| 4 | Who does what | Which agent runs, read-only or not, on which model | Seven role cards (the planner included) with a read-only or writes badge and the model it runs on | Operators debug denials by role ("the verifier may not run that"); cards group the facts a denial message refers to |
 | 5 | Tiers | Which model and judge my task gets | A four-row table with a short gloss per tier | Four rows fit a table; the gloss turns the tier names into the question an owner asks ("would two people build it differently?") |
 | 6 | In practice | What does it need, what will it never do, what does this stop mean | Three cards (needs, never does, what you accept) and a three-column table: you see, it means, you do | An operator meets Reef through its stops and denials; a lookup table keyed on the message they see answers them faster than any narrative, and the three cards are the facts an adopter decides on before installing |
 | 7 | Settings | Which key, what default, what effect | The README's settings table, parsed and searchable | Owners look a key up by name; search is the right interaction for a reference table |
@@ -92,12 +92,13 @@ form and not another.
 |---|---|
 | A release | the version in `README.md` badges, `.claude-plugin/plugin.json`, and the hero chip in `docs/index.html` (`data-version`) |
 | A new report in `docs/perf` | a card in the docs section of `docs/index.html` |
-| A new stop message or guard denial | a row in the "When it stops" table of `docs/index.html` |
+| A new stop message or guard denial | a row in the "When it stops" table of `docs/index.html`, the README and the Arabic manual (the three carry the same rows, keyed on the exact text the tick prints) |
+| A change in the pipeline's order (where the owner's gate sits, what runs in parallel) | the stage panels in `docs/index.html`, the README's steps and Mermaid diagram, the manual's section 3 and its figure caption |
 | A settings row | nothing: the site reads the README |
 | A ledger row | nothing: the site links the ledger and does not show it |
 | A new command or skill | the situation chooser and the pipeline detail in `docs/index.html` |
 | A README heading rename ("Settings") | the matching heading text in `site.js` (`TABLE_HEADINGS`) |
-| The Arabic manual | `docs/manual/ar/index.html` mirrors the README's quick start, layout and settings and the site's stops table at 0.6.0; a new command, path or stop message is a row or a sentence there too |
+| The Arabic manual | kept at the same workflow as the README and the site (0.6 tree, the 0.7 gate-last flow, graph mode, the doctor, the updater); it names 0.6.0 as the release and says it also describes 0.7 in progress |
 
 ## 6. Deployment
 

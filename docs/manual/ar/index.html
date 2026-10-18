@@ -121,16 +121,16 @@
     <text x="450" y="160" text-anchor="middle" stroke="none" font-size="12">الصف التالي من الطابور</text>
   </g>
 </svg>
-<figcaption>الحلقة الخارجية: صف من <code>reef/queue.md</code> → تخطيط (سؤال الموافقة الوحيد) → رسم مهام ينفَّذ بالتوازي → مراجعة → دمج إلى فرع التكامل → إغلاق. الإصدار إلى <code>main</code> وحده بيدك.</figcaption>
+<figcaption>الحلقة الخارجية: صف من <code>reef/queue.md</code> → تخطيط (استجواب، مسودة، مراجعة الآلات، ثم سؤال الموافقة الوحيد <strong>أخيرًا</strong>) → رسم مهام ينفَّذ بالتوازي → مراجعة → دمج إلى فرع التكامل → إغلاق. الإصدار إلى <code>main</code> وحده بيدك.</figcaption>
 </figure>
 
 <h2 id="learn">2. كيف تذاكره</h2>
 <p>بالترتيب، وكل مرحلة تبني على ما قبلها:</p>
 <ol class="steps">
   <li><strong>المفاهيم</strong> (هذا القسم والمسرد أدناه): مهمة، مجلد ميزة، بوابة، حارس، رسم بياني، worktree، طبقة (tier)، سقف الجولات، سجل الموافقة.</li>
-  <li><strong>التشغيل الأول</strong> (القسم 3): مشروع صغير، <code>/reef-init</code>، ثم صف واحد في الطابور عبر الأوامر الأربعة حتى الدمج. اقرأ ما كتبه كل أمر.</li>
+  <li><strong>التشغيل الأول</strong> (القسم 3): مشروع صغير، <code>/reef-init</code>، ثم صف واحد في الطابور عبر الأوامر الثلاثة حتى الدمج. اقرأ ما كتبه كل أمر.</li>
   <li><strong>الاستخدام اليومي</strong> (القسم 5): <code>/reef-loop</code> يدير كل شيء؛ أنت تجيب عن أسئلتك فقط، مجمَّعة، وتعرف ماذا يعني كل توقف.</li>
-  <li><strong>المتقدم</strong> (القسمان 6 و7): طبقتا design وcritical والمرحلة العدائية، الموارد المشتركة، ضبط النماذج والحدود في <code>.reef/config.json</code>.</li>
+  <li><strong>المتقدم</strong> (القسمان 6 و7): طبقتا design وcritical والمرحلة العدائية، وضع الرسم (<code>/reef-graph</code>)، الموارد المشتركة، ضبط النماذج والحدود في <code>.reef/config.json</code>.</li>
 </ol>
 <h3>المسرد</h3>
 <dl>
@@ -142,10 +142,12 @@
   <dt>Worktree</dt><dd>نسخة عمل git منفصلة لكل مهمة في <code>.reef/worktrees/&lt;id&gt;</code> بفرعها الخاص واعتمادياتها الخاصة.</dd>
   <dt>Tier (الطبقة)</dt><dd>أربع طبقات: <code>light</code> (مسارات مسموحة فقط، تحت سقف الأسطر، بلا قاضٍ) / <code>full</code> (الافتراضي) / <code>design</code> (شخصان يبنيانها بشكلين مختلفين، أو آلية فشلت مرتين، أو مسارات auth وcrypto والأسرار والترحيل) / <code>critical</code> (التحليل الأول، المعمارية، الدستور، نموذج التهديد، ما يلمس <code>pii</code> أو <code>money</code> أو <code>auth</code>، ومسارات الحارس نفسه). الطبقة تحدد نموذج الكاتب ونموذج القاضي والجهد، ولا تخف أبدًا: المسارات التي تلمسها المهمة ترفعها فقط.</dd>
   <dt>Cap (السقف)</dt><dd>عدد جولات الإصلاح لكل مهمة ولكل بند (<code>caps.attempts</code>). بعده يتوقف العمل ويُسجَّل العائق، ولا جولة رابعة.</dd>
-  <dt>Approval record (سجل الموافقة)</dt><dd>جوابك على سؤال <code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code> يكتبه خطاف في <code>.reef/approvals/</code> مربوطًا ببصمة الخطة. أي تعديل على المجلد بعدها يُبطل الموافقة فيرفض الحارس الإرسال حتى تُسأل من جديد. لا أحد يكتب هذا السجل باليد، ولا الوكيل.</dd>
-  <dt>Plan stamp (ختم الخطة)</dt><dd>بصمة محتوى مجلد الميزة كله بعد مراجعة الخطة؛ أي تعديل بعد المراجعة يُبطل الختم فيرفض الحارس الإرسال حتى تُراجَع من جديد.</dd>
+  <dt>Approval record (سجل الموافقة)</dt><dd>جوابك على سؤال <code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code> يكتبه خطاف في <code>.reef/approvals/</code> مربوطًا ببصمة الخطة، ولا يكتبه إلا والفحص الحتمي أخضر. يُسأل <strong>أخيرًا</strong>، بعد أن تراجع الآلات الخطة، فلا شيء بعده يُبطل موافقتك: ملاحظات المراجع وسطر حالة الـADR خارج البصمة، ولا يعدّل خطة موافَقًا عليها إلا حكمك في HALT أو قرارك أنت. لا أحد يكتب هذا السجل باليد، ولا الوكيل.</dd>
+  <dt>Plan stamp (ختم الخطة)</dt><dd>بصمة محتوى مجلد الميزة كله بعد مراجعة الآلات (الصيّاد ومراجع الخطة معًا، قبل أن تراها أنت)؛ تعديل في المواصفة أو المهام أو القرارات بعدها يُبطل الختم فيرفض الحارس الإرسال حتى تُراجَع من جديد.</dd>
+  <dt>Planner (المخطِّط)</dt><dd>وكيل خفيف السياق يكتب مسودة مجلد الميزة أو يعدّلها في worktree الميزة من إجابات الاستجواب وحواشيك، ولا يعود إلا والفحص الحتمي أخضر. لا يوافق ولا يراجع ولا يكتب كودًا.</dd>
+  <dt>Graph mode (وضع الرسم)</dt><dd>رسم المهام الجاهزة كـworkflow واحد في الخلفية (<code>/reef-graph</code>): منفّذ ثم بوابة ثم مُحقّق لكل مهمة، في سياقات جديدة، وملخص واحد يعود. مشروط بفحص (probe) يثبت على جهازك أن الحارس يصل إلى وكلاء الـworkflow؛ النبضة تقرر الوضع لكل مهمة (<code>graph.mode: auto</code>). الدمج يبقى بيد المنسّق.</dd>
   <dt>Review record (سجل المراجعة)</dt><dd>حكم المراجعة (GREEN) مربوط برأس pull request بالضبط. تحت <code>merge.by: loop</code> لا يُدمَج إلا على سجل أخضر لهذا الرأس؛ دفعة كود بعده تُعيد المراجعة من أولها.</dd>
-  <dt>Tick (النبضة)</dt><dd><code>python3 scripts/reef-loop.py tick</code>: قراءة واحدة للعالم (الطابور، ملفات المهام، النسخ، ما في الطريق، الـPRs المفتوحة) في بضعة أسطر. المنسّق يقرأ النبضة لا المشروع كله.</dd>
+  <dt>Tick (النبضة)</dt><dd><code>python3 scripts/reef-loop.py tick</code>: قراءة واحدة للعالم (الطابور، ملفات المهام، النسخ، ما في الطريق، الـPRs المفتوحة) في بضعة أسطر، مع الأمر التالي والملفات وراء كل معرّف تذكره. المنسّق يقرأ النبضة لا المشروع كله. الصورة نفسها صفحةً في <code>.reef/status.html</code> تتجدد كل نبضة، وخريطة الشجرة في <code>reef/README.md</code>.</dd>
   <dt>ADR</dt><dd>سجل قرار معماري: ما قُرّر، لماذا، ما رُفض، وما تكلفته. قرار المشروع كله في <code>reef/architecture/adr/</code>، وقرار الميزة في <code>adr/</code> داخل مجلدها. يُكتب مسودة بلا رقم على الفرع، ويُرقَّم عند الدمج في تسلسل عالمي واحد.</dd>
 </dl>
 
@@ -162,7 +164,7 @@
       <tr><td><code>reef/constitution.md</code></td><td>مواد لا تنكسر، كل مادة تقول ما تمنعه. تغييرها يحتاج ADR ورفع رقم الإصدار.</td></tr>
       <tr><td><code>reef/queue.md</code></td><td>صف لكل وحدة عمل (Id · Item · Depends · Source · Batch · Admitted) بلا عمود حالة: الحالة تُقرأ من ملفات المهام. الصف الأول هو <strong>الهيكل الماشي</strong>: أرفع شريحة من مشروعك من طرف إلى طرف. قراراتك حواشٍ بكلماتك. الصف المغلق ينتقل كاملًا إلى <code>reef/queue-archive.md</code>.</td></tr>
       <tr><td><code>reef/architecture/</code></td><td><code>architecture.md</code> (القصد وC4 على مستويين بكلماتك من الاستجواب) ومسودات ADR للشكل والاستضافة والمخزن والمصادقة في <code>adr/</code>، ولاحقًا نموذج Structurizr ونموذج التهديد من <code>/reef-c4</code> و<code>/reef-threat</code>.</td></tr>
-      <tr><td><code>reef/features/</code></td><td>مجلد لكل ميزة يكتبه <code>/reef-plan</code>، وفهرس <code>README.md</code> مولَّد لا يُحرَّر باليد.</td></tr>
+      <tr><td><code>reef/README.md</code> و<code>reef/features/</code></td><td>خريطة الشجرة يكتبها <code>/reef-init</code>؛ ومجلد لكل ميزة يكتبه <code>/reef-plan</code>، وفهرس <code>README.md</code> مولَّد لا يُحرَّر باليد.</td></tr>
       <tr><td><code>reef/journal.md</code> و<code>reef/glossary.md</code> و<code>reef/day-zero.md</code></td><td>سجل لكل دمج (الجولات، حالة كل معيار، وما لم يتحقق)، مسرد المشروع، وقائمة اليوم صفر.</td></tr>
       <tr><td><code>.github/workflows/ci.yml</code> و<code>dependabot.yml</code></td><td>CI على pull requests إلى فرع الإصدار فقط، يشغّل نفس سكربت البوابات المحلي. Dependabot يستهدف فرع التكامل أسبوعيًا مجمَّعًا.</td></tr>
       <tr><td><code>scripts/reef-*</code> و<code>.githooks/</code></td><td>كل آليات Reef نسخة في مشروعك، وخطّاف الـcommit الذي يختبر الـindex.</td></tr>
@@ -170,8 +172,8 @@
     ثم يثبّت الخطافات (<code>git config core.hooksPath .githooks</code>) ويعمل commit واحدًا. الخطافات إعداد git محلي لا ينجو من الاستنساخ، فبعد كل استنساخ جديد شغّل <code>make setup</code>. التشغيل الثاني بلا تغيير لا يكتب شيئًا.</li>
   <li><strong>أكمل اليوم صفر</strong>: افتح <code>reef/day-zero.md</code>. الأهم: أمر الاختبار إن لم يُكتشف (<code>gates.full</code> فارغ يعني أن البوابة <span class="bad">تفشل بصوت عالٍ</span> حتى تضبطها، لا بوابة وهمية)، وقائمة المسارات المسموحة للطبقة الخفيفة <code>tiers.light.allow</code>، ومواد الدستور مقصوصة على مشروعك.</li>
   <li><strong>املأ الطابور</strong> بصفوف الدفعة الأولى (<code>Source: planned</code>) قبل أي كود. الطابور يعيش في مكان واحد: على فرع التكامل في النسخة الرئيسية، فكل جلسة ترى نفس القائمة.</li>
-  <li><strong>ميزة واحدة، أربعة أوامر</strong>: <code>/reef-plan &lt;row&gt;</code> يستجوبك عن الميزة ثم يكتب مجلدها (المواصفة بمفاتيحها، قرار بمخطط، مهام صغيرة كل معيار فيها يسمّي دليله) ويسألك السؤال الوحيد: <code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code>. ثم <code>/reef-plan-review</code>: فحص حتمي ومراجعة معنوية في سياق جديد، وختم على المجلد كله. ثم <code>/reef-task &lt;slug&gt;</code>: كل مهمة جاهزة تبدأ معًا، كل واحدة في worktree، ويحكم عليها قاضٍ جديد. ثم <code>/reef-review &lt;slug&gt;</code>: الدفع، الـPR، القبول مقابل <code>SPEC.md</code>، مراجعة الفرق، الدمج، والإغلاق.</li>
-  <li><strong>أو الحلقة</strong>: <code>/reef-loop</code> يأخذ كل صف جاهز عبر الأوامر الأربعة نفسها، بالتوازي حيث لا تتصادم الصفوف، ولا يتوقف إلا لقرارك، أو لبيانات اعتماد ناقصة، أو لمواصفة خطأ، أو عند السقف.</li>
+  <li><strong>ميزة واحدة، ثلاثة أوامر</strong>: <code>/reef-plan &lt;row&gt;</code> يستجوبك عن الميزة مرة واحدة، ثم يكتب <strong>مخطِّط</strong> خفيف مجلدها في worktree الميزة (المواصفة بمفاتيحها، قرار بمخطط، مهام صغيرة لا تتجاوز <code>plan.max_acs</code> معيارًا، كل معيار يسمّي دليله)، ثم يقرأ الصيّاد ومراجع الخطة المسودة <strong>معًا وقبلك</strong> في سياقين جديدين (جولتان للصيّاد على الأكثر وجولة إصلاح واحدة للمخطِّط)، وفي الآخر يسألك السؤال الوحيد: <code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code>. لا شيء بعد موافقتك يُبطلها. ثم <code>/reef-task &lt;slug&gt;</code>: كل مهمة جاهزة تبدأ معًا، كل واحدة في worktree، ويحكم عليها قاضٍ جديد (وإن كانت عدة مهام جاهزة وأثبت الفحص أن الحارس يصل إلى وكلاء الـworkflow على جهازك سمّت النبضة <code>/reef-graph</code> بدلًا منه). ثم <code>/reef-review &lt;slug&gt;</code>: الدفع، الـPR، إعادة تنفيذ الأدلة، مرور الصيّاد مرة على فرق الميزة كله، القبول مقابل <code>SPEC.md</code>، الدمج، والإغلاق.</li>
+  <li><strong>أو الحلقة</strong>: <code>/reef-loop</code> يأخذ كل صف جاهز عبر الأوامر الثلاثة نفسها، بالتوازي حيث لا تتصادم الصفوف، ولا يتوقف إلا لقرارك، أو لبيانات اعتماد ناقصة، أو لمواصفة خطأ، أو عند السقف.</li>
   <li><strong>الإصدار</strong>: عندما تكتمل الدفعة، يفتح الحلقة pull request من فرع التكامل إلى فرع الإصدار، تعمل <code>gates.release</code> هناك مرة واحدة، <strong>وأنت تدمجه</strong>. لا بوابة على الدفع عمدًا: CI هو الجدار، ودمج الإصدار دائمًا بيدك.</li>
 </ol>
 
@@ -215,6 +217,12 @@
 <figcaption>المهمتان 2 و3 جاهزتان معًا بعد اكتمال 1 فتُرسَلان في الرسالة نفسها، كل واحدة في worktree خاص بها ومواردها معلنة. المهمة 4 تنتظر. الحارس يرفض إرسال 4 الآن، وأي مهمة ثانية تطلب <code>db</code> وهو محجوز.</figcaption>
 </figure>
 <p>أمر واحد يدير اليوم: <code>/reef-loop</code>. يقرأ الصفوف الجاهزة (الدفعة الحالية، المخطط قبل المكتشف)، ويشغّل كل صف لا يتصادم مع غيره بالتوازي، حتى <code>graph.parallel</code> وكيلًا. وداخل كل صف يشغّل <code>/reef-task</code> كل مهمة جاهزة فورًا. المنسّق لا يقرأ المشروع كله: يقرأ <strong>النبضة</strong> (<code>python3 scripts/reef-loop.py tick</code>) وهي تقول ما يُرسَل الآن، وما في الطريق، وما ينتظر. النبضة لا تعرض أبدًا مهمة خطتها بلا موافقتك عند بصمتها الحالية؛ تقول <code>awaiting</code> وتسمّي الميزة. وإن انتهى الدور وهناك عمل جاهز لم يُرسَل، يرفض خطاف الإيقاف إنهاءه ويقول ذلك.</p>
+<h3>وضع الرسم، والطبيب، والتحديث</h3>
+<ul>
+  <li><strong><code>/reef-graph</code></strong>: حين تكون عدة مهام جاهزة، تشغّل النبضة الرسم كله كـworkflow واحد في الخلفية (منفّذ ← بوابة ← مُحقّق لكل مهمة، في سياقات جديدة) ويعود ملخص واحد بدل نتيجة وكيل في كل دور. مشروط: أول مرة على جهازك يشغّل <code>python3 scripts/reef-graph-run.py probe</code> ليثبت أن الحارس يرفض كتابة ممنوعة من وكيل workflow؛ بلا هذا الإثبات يبقى الوضع المحادثة (<code>/reef-task</code>). جولة الإصلاح والمهمة المسلَّمة بلا حكم تبقيان في المحادثة. الدمج بيد المنسّق.</li>
+  <li><strong><code>/reef-doctor</code></strong>: شاشة واحدة بما هو خطأ في Reef مشروعك والأمر الذي يصلحه: فرع نسخة الإضافة وحداثتها، سكربتات متأخرة عن الإضافة، مكان الطابور، الـworktrees، حالة الحلقة، <code>gh</code> وDocker، المقترحات المنتظرة.</li>
+  <li><strong>Reef جديد</strong>: <code>python3 &lt;plugin&gt;/scripts/reef-update.py --commit</code> يسحب نسخة الإضافة، يحدّث نسخ مشروعك، يعمل commit لملفات Reef وحدها، ويطبع أمرَي إعادة التحميل.</li>
+</ul>
 <h3>كيف يعمل الوكلاء المتوازون</h3>
 <ul>
   <li>كل وكيل تنفيذ في worktree خاص بفرعه <code>task/&lt;id&gt;-&lt;slug&gt;</code>، ويشغّل <code>worktree.setup</code> (مثل <code>npm ci</code>) لنسخته الخاصة من الاعتماديات والكود المولَّد. لا أحد يلمس النسخة المشتركة.</li>
@@ -225,7 +233,7 @@
 </ul>
 <h3>متى يسألك ومتى لا</h3>
 <table><thead><tr><th>يسألك</th><th>لا يسألك</th></tr></thead><tbody>
-<tr><td>الموافقة على الخطة: <code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code> مع قرارات طبقة design، <strong>في سؤال واحد مجمَّع</strong>، كل بند 2–4 خيارات، الموصى به أولًا بعلامة (Recommended) وسطر مقايضة.</td><td>لا يسأل سؤالًا تلو سؤال. ما لم تجب عنه يأخذ الافتراضي، إلا البيانات الشخصية والادعاءات والتغيير المرئي في منتجك.</td></tr>
+<tr><td>الموافقة على الخطة، <strong>أخيرًا</strong> بعد مراجعة الآلات: <code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code> مع قرارات طبقة design وأي ثغرة تركها الصيّاد مفتوحة بعد جولته الثانية، <strong>في سؤال واحد مجمَّع</strong>، كل بند 2–4 خيارات، الموصى به أولًا بعلامة (Recommended) وسطر مقايضة.</td><td>لا يسأل سؤالًا تلو سؤال. ما لم تجب عنه يأخذ الافتراضي، إلا البيانات الشخصية والادعاءات والتغيير المرئي في منتجك.</td></tr>
 <tr><td>بيانات شخصية تخرج من النظام؛ ادعاء تجاري؛ شكل منتجك؛ مال؛ تغيير قاعدة.</td><td>كل ما عدا ذلك يقرره ويسجله (في ADR أو حاشية).</td></tr>
 <tr><td>مستندان من مستنداتك يتناقضان: مراجع الخطة يتوقف ويترك لك الاختيار بدل أن يرجّح.</td><td>داخل البند لا ينتظر موافقة: يتوقف فقط لقرارك، أو بيانات اعتماد ناقصة، أو مواصفة خطأ (يعدّلها ويكمل)، أو السقف.</td></tr>
 <tr><td>دمج الإصدار، دائمًا. ودمج PR الميزة إن كان <code>merge.by: human</code> (الافتراضي).</td><td>دمج PR الميزة إن ضبطت <code>merge.by: loop</code>: يدمجه على السجل الأخضر.</td></tr>
@@ -233,9 +241,9 @@
 
 <h2 id="quality">6. الجودة</h2>
 <div class="cards">
-  <div class="card"><h4>مراجعة الخطة</h4><p><code>scripts/reef-plan-check.py</code> فحوص حتمية (الاسم، المفاتيح، كل معيار يستشهد بمفتاح من مجلده، لا أكثر من <code>plan.max_tasks</code> مهمة، الجمل والمعايير تحت سقف كلماتها، الطبقة تطابق المسارات؛ <code>--rules</code> يطبعها كلها بأرقام مشروعك) ثم، لما يثقل عن <code>light</code>، وكيل <code>plan-reviewer</code> في سياق جديد يقرأ التناقض بين المواصفة والقرارات والمهام. النجاح يكتب ختم الخطة وسجل المراجعة عند بصمتها.</p></div>
-  <div class="card"><h4>المُحقّق (verifier)</h4><p>سياق جديد يكتب <code>RULE AC&lt;n&gt;</code> لكل معيار <strong>قبل</strong> قراءة الكود، يعيد تشغيل البوابة بنفسه، ويقدم دليلًا لكل معيار. في إعادة التحقق يهاجم إصلاح الجولة السابقة أولًا. أربعة أنواع فقط تُفشل: ارتداد، تجاوز، خطأ صحة، معيار فاشل؛ وما عداها ملاحظة. إن لم يستطع فتح تطبيقك في متصفح كتب <code>Not verified in a browser:</code> بدل أن يدّعي. الحارس يمنعه من الكتابة، وأي تعديل منه على الشجرة = فشل تلقائي.</p></div>
-  <div class="card"><h4>المرحلة العدائية</h4><p><code>loophole-hunter</code> يسأل: «كيف يكون كل شيء أخضر والعيب يحدث؟». إلزامي مرتين في طبقتي design وcritical: على الخطة قبل الكود (الحارس يرفض الإرسال بدون سجلها) وعلى الحارس المكتمل قبل الإغلاق (الـcommit يرفض بدونه). ومرة كل إصدار على النظام كله مقابل نموذج التهديد. BLOCKER يُفشل الجولة، والاكتشاف الأصغر يصير صفًا جديدًا في الطابور.</p></div>
+  <div class="card"><h4>مراجعة الخطة، قبلك</h4><p><code>scripts/reef-plan-check.py</code> فحوص حتمية (الاسم، المفاتيح، كل معيار يستشهد بمفتاح من مجلده، لا أكثر من <code>plan.max_tasks</code> مهمة ولا أكثر من <code>plan.max_acs</code> معيارًا للمهمة، الطبقة تطابق المسارات؛ <code>--rules</code> يطبعها كلها بأرقام مشروعك) يجب أن تكون خضراء قبل أن يعود المخطِّط. ثم، لما يثقل عن <code>light</code>، يقرأ <code>plan-reviewer</code> في سياق جديد التناقض بين المواصفة والقرارات والمهام، <strong>بالتوازي مع الصيّاد</strong> وقبل أن تُسأل أنت: جولة إصلاح واحدة للمخطِّط، والملاحظات العادية تُحفظ خارج البصمة فلا تُبطل موافقة. النجاح يكتب ختم الخطة وسجل المراجعة عند بصمتها. ما يصلك قبل البوابة شيء واحد: HALT، مستندان من مستنداتك يتناقضان.</p></div>
+  <div class="card"><h4>المُحقّق (verifier)</h4><p>سياق جديد يكتب <code>RULE AC&lt;n&gt;</code> لكل معيار <strong>قبل</strong> قراءة الكود، يعيد تشغيل البوابة بنفسه، ويقدم دليلًا لكل معيار. في إعادة التحقق يهاجم إصلاح الجولة السابقة أولًا، ومن الجولة الثانية يحكم على ما غيّرته الجولة فقط. أربعة أنواع فقط تُفشل: ارتداد، تجاوز، خطأ صحة، معيار فاشل؛ وما عداها ملاحظة. إن لم يستطع فتح تطبيقك في متصفح كتب <code>Not verified in a browser:</code> بدل أن يدّعي. الحارس يمنعه من الكتابة، وأي تعديل منه على الشجرة = فشل تلقائي.</p></div>
+  <div class="card"><h4>المرحلة العدائية</h4><p><code>loophole-hunter</code> يسأل: «كيف يكون كل شيء أخضر والعيب يحدث؟». على الخطة قبل الكود في طبقة <code>critical</code> (<code>hunter.plan_pass</code>؛ اضبطها <code>design</code> لتشمل خطط design)، جولتان على الأكثر يفرضهما المسجِّل (<code>hunter.plan_rounds</code>): ثغرة ما زالت مفتوحة بعدهما قرارك أنت عند البوابة. ثم مرة واحدة لكل ميزة على فرقها المكتمل قبل الحكم الأخضر (<code>hunter.guard_pass: feature</code>؛ <code>task</code> لمرور على كل مهمة)، والسجل الأخضر يُرفض بدونه. ومرة كل إصدار على النظام كله مقابل نموذج التهديد. BLOCKER يُفشل الجولة، والاكتشاف الأصغر يصير صفًا جديدًا في الطابور.</p></div>
   <div class="card"><h4>القبول والسقف</h4><p>قبل القبول يُنفَّذ جدول <code>Proof</code> كله على الفرع (<code>scripts/reef-converge</code>): دليل ناقص أو متناقض يدخل تحت السقف نفسه. <code>caps.attempts</code> جولات لكل مهمة، وسقف واحد للبند كله عبر القبول والمراجعة وCI (ملف rollup واحد). بعد حكم GREEN: commit ادعاءات فقط أو BLOCKER أو صف جديد. لا جولة رابعة. والحكم سجل مربوط برأس الـPR، فدفعة كود بعده تُعيده من أوله.</p></div>
 </div>
 <h3>لماذا يجب أن تُرى البوابة حمراء</h3>
@@ -245,9 +253,9 @@
 <h3>النموذج حسب الطبقة</h3>
 <p>الطبقة تحدد من يكتب ومن يحكم وبأي جهد. تعلنها على المهمة، والمسارات التي تلمسها لا تحركها إلا إلى أعلى.</p>
 <table><thead><tr><th>الطبقة</th><th>متى</th><th>القضاة</th><th>الكاتب</th><th>الجهد</th><th>كيف تُفحص</th></tr></thead><tbody>
-<tr><td><code>critical</code></td><td>التحليل الأول، المعمارية، الدستور، نموذج التهديد، ما يلمس <code>money</code> أو <code>pii</code> أو <code>auth</code>، مسارات الحارس نفسه. إن أخطأت هنا أخطأ المشروع.</td><td>opus</td><td>opus (اضبط نموذجًا أثقل لمشروعك)</td><td>high</td><td>قاضٍ؛ الصيّاد على الخطة وعلى الحارس</td></tr>
-<tr><td><code>design</code></td><td>شخصان يبنيانها بشكلين مختلفين؛ آلية فشلت مرتين؛ مسارات auth وcrypto والأسرار والترحيل. الشكل قرار.</td><td>opus</td><td>opus</td><td>high</td><td>قاضٍ؛ الصيّاد مرتين</td></tr>
-<tr><td><code>full</code></td><td>الافتراضي. عمل الميزات العادي.</td><td>opus</td><td>opus</td><td>medium</td><td>قاضٍ</td></tr>
+<tr><td><code>critical</code></td><td>التحليل الأول، المعمارية، الدستور، نموذج التهديد، ما يلمس <code>money</code> أو <code>pii</code> أو <code>auth</code>، مسارات الحارس نفسه. إن أخطأت هنا أخطأ المشروع.</td><td>opus</td><td>opus (اضبط نموذجًا أثقل لمشروعك)</td><td>high</td><td>قاضٍ؛ الصيّاد على الخطة (جولتان) وعلى فرق الميزة</td></tr>
+<tr><td><code>design</code></td><td>شخصان يبنيانها بشكلين مختلفين؛ آلية فشلت مرتين؛ مسارات auth وcrypto والأسرار والترحيل. الشكل قرار.</td><td>opus</td><td>opus</td><td>high</td><td>قاضٍ؛ الصيّاد على فرق الميزة (<code>hunter.plan_pass: design</code> يضيف الخطة)</td></tr>
+<tr><td><code>full</code></td><td>الافتراضي. عمل الميزات العادي.</td><td>opus</td><td>opus</td><td>medium</td><td>قاضٍ؛ الصيّاد على فرق الميزة</td></tr>
 <tr><td><code>light</code></td><td>مسارات مسموحة (<code>tiers.light.allow</code>)، لا مسار خطر، تحت سقف الأسطر. آلة تفحصها كاملة.</td><td>لا أحد (الفحص الحتمي وحده يختم)</td><td>opus</td><td>low</td><td>بوابة واختبار ذهبي، بلا قاضٍ</td></tr>
 </tbody></table>
 <p>غيّر النموذج لكل دور وطبقة في <code>.reef/config.json</code> تحت <code>tiers.&lt;tier&gt;.roles</code>؛ و<code>roles.*</code> هو الاحتياطي حين لا تسمّي الطبقة الدور (opus لكل الأدوار، و<strong>sonnet</strong> للميكانيكي الذي يعمل الـrebase ويشغّل البوابات ويعيد القياسات ولا يكتب ادعاءً نثريًا). الحارس يرفض نموذجًا غير نموذج الطبقة عند الإرسال.</p>
@@ -256,15 +264,16 @@
 <tr><td>سقف للسياق: عند <code>caps.context_warn</code> يحذّرك، وعند <code>caps.context_tokens</code> (أو حين لا يبقى <code>caps.dispatch_reserve</code> لبدء مهمة جديدة) يكتب <code>HANDOFF.md</code> من الحالة المقيسة أولًا ثم يرفض الإرسال ويطلب <code>/clear</code>. القضاة والميكانيكي يكملون المهمة التي في اليد حتى السقف.</td><td>اقبل الـ<code>/clear</code> حين يُطلب؛ الحالة على القرص والجلسة التالية تكمل من مكانها.</td></tr>
 <tr><td>تقارير لا مادة خام: البوابة تطبع exit code والكتلة الفاشلة (<code>context.failure_lines</code>) والسجل كله على القرص في <code>.reef/ci-local/</code>.</td><td>لا تلصق سجلات كاملة في المحادثة؛ اقرأ الكتلة ثم الملف إن احتجت.</td></tr>
 <tr><td>CI على pull requests إلى فرع الإصدار فقط، مرة واحدة، مع <code>cancel-in-progress</code>. البوابة المحلية <code>scripts/reef-ci-local.sh</code> تشغّل نفس القائمة وتقرأ كل exit code (2 = شيء تخطّى وليس نجاحًا)، و<code>--release</code> يضيف بوابات الإصدار.</td><td>لا تدفع إلى فرع التكامل أثناء CI للإصدار. اجعل <code>gates.fast</code> أقل من دقيقة.</td></tr>
-<tr><td>الكتابة أقل: حدود كلمات للمهمة والتسليم والتقرير والـprompt (<code>writing.*</code>)، قائمة ادعاءات بدل سرد، مكان واحد لكل حقيقة.</td><td>اكتب قراراتك في الحواشي بكلماتك، ولا تنسخ رقمًا في مكانين.</td></tr>
+<tr><td>الكتابة أقل: قائمة ادعاءات بدل سرد، مكان واحد لكل حقيقة. حدود الكلمات (<code>writing.*</code>) مطفأة افتراضيًا (صفر) منذ 0.7 لأنها رفضت تسليمات وتقارير صادقة إلى جولات إعادة كتابة؛ اضبط رقمًا لتفعيلها.</td><td>اكتب قراراتك في الحواشي بكلماتك، ولا تنسخ رقمًا في مكانين.</td></tr>
+<tr><td>وضع الرسم (<code>graph.mode: auto</code>): المهمة الجديدة تعمل كـworkflow في الخلفية حين يكون فحص الجهاز مسجَّلًا، وفي المحادثة غير ذلك؛ وتكلفة كل مهمة على سياق المنسّق تُسجَّل في <code>.reef/cost/</code> وتُسمّى في النبضة إن تجاوزت <code>caps.task_growth</code>.</td><td>شغّل الفحص مرة على كل جهاز (<code>reef-graph-run.py probe</code>)، واضبط <code>caps.task_growth</code> من وسيط عشر مهام مقيسة × 2 لا من تخمين.</td></tr>
 <tr><td>ميزانيات اختيارية: <code>caps.feature_tokens</code> و<code>caps.batch_tokens</code> تفحصها النبضة، وعند تجاوزها تُركَن الميزة أو الدفعة.</td><td>اضبطها إن أردت سقفًا على صف أو دفعة؛ الافتراضي مطفأ.</td></tr>
-<tr><td>light بلا وكيل تحقق (بوابة + اختبار ذهبي)؛ المرحلة العدائية في design وcritical فقط.</td><td>لا تطلب «مراجعة إضافية» على light؛ ارفع الطبقة إن كان الخطر يستحق.</td></tr>
+<tr><td>light بلا وكيل تحقق (بوابة + اختبار ذهبي)؛ الصيّاد على خطط critical فقط افتراضيًا، ومرة لكل ميزة على فرقها؛ صف found إصلاحه ملف واحد بلا مسار خطر = مهمة light واحدة بلا صيّاد ولا مراجعة معنوية.</td><td>لا تطلب «مراجعة إضافية» على light؛ ارفع الطبقة إن كان الخطر يستحق.</td></tr>
 </tbody></table>
 
 <h2 id="mistakes">8. الأخطاء الشائعة وكيف تتجنبها</h2>
 <p>هذا القسم لك أنت، صاحب المشروع: ما قد تفعله بحسن نية فيعطّل الحلقة أو يرفضه الحارس، ولماذا، وماذا تفعل بدله. أخطاء الوكلاء ليست شأنك؛ الحارس والبوابات تمنعها، والقسم 9 يشرح رسائلها.</p>
 <table><thead><tr><th>ما قد تفعله</th><th>لماذا يضر</th><th>افعل بدله</th></tr></thead><tbody>
-<tr><td>تعديل الخطة (المواصفة أو المهام أو القرارات) بعد الموافقة أو بعد المراجعة</td><td>الموافقة والختم مربوطان ببصمة المجلد كله، فيرفض الحارس الإرسال</td><td>عدّل، ثم أجب عن سؤال الموافقة من جديد وشغّل <code>/reef-plan-review</code></td></tr>
+<tr><td>تعديل الخطة (المواصفة أو المهام أو القرارات) بعد الموافقة</td><td>الموافقة والختم مربوطان ببصمة المجلد، فيرفض الحارس الإرسال. الملاحظات وسطر حالة الـADR خارج البصمة ولا يضرّان</td><td>لا تعدّل خطة موافَقًا عليها إلا بحكم HALT أو قرارك المدوَّن في حاشية؛ وإن عدّلت فشغّل <code>/reef-plan &lt;slug&gt;</code> من جديد: تعيد الآلات المراجعة ثم تُسأل</td></tr>
 <tr><td>تعديل <code>blocked-by</code> لتمرير مهمة تنتظر</td><td>تهدم الترتيب الذي لأجله الخطة، وتُبطل الختم</td><td>انتظر اكتمال الاعتمادية؛ وإن كانت الحافة وهمية فعدّلها وأعد المراجعة</td></tr>
 <tr><td>كتابة ملف موافقة أو سجل مراجعة باليد، أو الطلب من الوكيل أن يفعل</td><td>الحارس يرفض أي كتابة تحت <code>.reef/approvals/</code> و<code>.reef/review/</code>؛ السجل يكتبه الخطاف من جوابك أنت</td><td>أجب عن السؤال في المحادثة</td></tr>
 <tr><td><code>git stash</code> وبجانبك worktrees متوازية</td><td>قد يطبّق pop عمل وكيل على نسخة وكيل آخر؛ الحارس يرفضه</td><td>commit على فرع المهمة، أو worktree آخر</td></tr>
@@ -287,25 +296,34 @@
 <h3>عندما يتوقف، ماذا يعني</h3>
 <table><thead><tr><th>ما تراه</th><th>ما يعنيه</th><th>ما تفعله</th></tr></thead><tbody>
 <tr><td><code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code></td><td>السؤال البشري الوحيد في الميزة. الموافقة سجل مربوط بهذه البصمة؛ تعديل بعدها لا يوافق على شيء.</td><td>أجب <em>Approve</em>، أو قل ما تريد تغييره فتُعاد الخطة ويُعاد السؤال.</td></tr>
-<tr><td><code>awaiting: &lt;feature&gt; (approval | re-approval | plan review)</code> في النبضة</td><td>الخطة بلا موافقة عند بصمتها الحالية، أو عُدِّلت بعد موافقة، أو بلا سجل <code>PASS</code> من مراجعة الخطة.</td><td>وافق عليها، أو شغّل <code>/reef-plan-review &lt;slug&gt;</code>. النبضة لن تعرض مهامها قبل ذلك.</td></tr>
+<tr><td><code>awaiting: &lt;feature&gt; (machine review (hunter ‖ plan reviewer) before the gate)</code> في النبضة</td><td>المسودة بلا سجل مراجعة أو بلا مرور للصيّاد عند بصمتها الحالية.</td><td>شغّل <code>/reef-plan &lt;slug&gt;</code>؛ يلتقط الميزة عند المراجعة. النبضة لن تعرض مهامها قبل ذلك.</td></tr>
+<tr><td><code>awaiting: &lt;feature&gt; (hunter plan pass stale on &lt;task&gt;: …)</code></td><td>تعديل في جولة المراجعة حرّك البصمة بعد مرور الصيّاد.</td><td>إعادة فحص ضمن <code>hunter.plan_rounds</code>، أو احكم أنت على الثغرة المفتوحة بأمر <code>--decided</code> الذي يطبعه السطر.</td></tr>
+<tr><td><code>awaiting: &lt;feature&gt; (records in the 0.6 digest form: …)</code></td><td>سجلات الخطة كُتبت قبل أن تتغير صيغة البصمة. لا يُعاد سؤالك شيئًا.</td><td>شغّل أمر <code>--migrate-records</code> الوحيد الذي يطبعه السطر، في نسخة الخطة.</td></tr>
+<tr><td><code>HALT</code> من مراجع الخطة</td><td>مستندان من مستنداتك يتناقضان. المراجع لا يرجّح.</td><td>قرّر أيهما الصحيح؛ يعدّل المخطِّط وتعيد الآلات الفحص.</td></tr>
+<tr><td><code>dispatch (graph): 101, 102 — python3 scripts/reef-graph-run.py generate</code></td><td>عدة مهام جاهزة وفحص جهازك سجّل <code>GATE OK</code>.</td><td>شغّل <code>/reef-graph</code>؛ workflow واحد يبنيها ويحكم عليها في الخلفية ويسوّي النتائج.</td></tr>
+<tr><td><code>verify now: &lt;id&gt; (handed back, uncommitted — gate + verifier, no implementer)</code></td><td>منفّذ سلّم المهمة ولم يحكم عليها أحد بعد.</td><td>شغّل <code>/reef-task</code>؛ يبدأ تلك المهمة عند البوابة.</td></tr>
+<tr><td><code>BROKEN: graph.mode is graph but this machine has no GATE OK</code></td><td>طلبت وضع الرسم ولم يثبت الفحص على هذا الجهاز أن الحارس يصل إلى وكلاء الـworkflow.</td><td><code>python3 scripts/reef-graph-run.py probe</code> مرة، ثم فحص النتيجة الذي يطبعه؛ وضع المحادثة يعمل في الأثناء.</td></tr>
+<tr><td><code>GROWTH over caps.task_growth: &lt;ids&gt; — say why in the journal</code></td><td>مهمة كلّفت سياق المنسّق أكثر من السقف الذي ضبطته.</td><td>اذكر السبب في سطر السجل، أو قسّم المهمة في المرة القادمة.</td></tr>
 <tr><td><code>USER ACTION REQUIRED</code> مع قائمة أوامر</td><td>لا remote، أو <code>gh</code> غير مسجَّل الدخول، أو مهمة عند السقف، أو نبضات متطابقة بلا تقدم. Reef لا يخمّن.</td><td>نفّذ الأوامر المذكورة بنفسك (دفع، PR، سجلات، دمج) أو اقرأ الفشل وقرر، ثم شغّل الأمر التالي الذي يسمّيه التسليم.</td></tr>
 <tr><td><code>/clear now</code> و<code>HANDOFF.md</code> جديد</td><td>سياق الجلسة بلغ السقف، أو لم يبقَ فيه مكان لمهمة جديدة. الحالة على القرص.</td><td>شغّل <code>/clear</code>. الجلسة التالية تقرأ رأس التسليم والنبضة وتكمل كل صف من آخر خطوة اكتملت.</td></tr>
-<tr><td>الحارس رفض إرسالًا</td><td>خارج المجموعة الجاهزة، أو فوق سقف الجولات، أو نموذج غير نموذج الطبقة، أو لا موافقة أو سجل مراجعة. الرسالة تسمّي أيها.</td><td>أصلح السبب المسمّى. لم يُرسَل شيء ولم تُكتب علامة.</td></tr>
+<tr><td>الحارس رفض إرسالًا</td><td>خارج المجموعة الجاهزة، أو فوق سقف الجولات، أو نموذج غير نموذج الطبقة، أو لا موافقة أو سجل مراجعة، أو تسليم أو تقرير كتبه المنسّق بنفسه. الرسالة تسمّي أيها.</td><td>أصلح السبب المسمّى. لم يُرسَل شيء ولم تُكتب علامة.</td></tr>
 <tr><td>الحارس رفض أمرًا</td><td>تجاوز بوابة (<code>--no-verify</code>، <code>hooksPath</code>، stash، بوابة مضخوخة في <code>tail</code>)، أو موافقة أو سجل مكتوب باليد، أو ملف محمي خارج مهمة critical.</td><td>افعلها بالطريقة المحكومة. وإن كانت القاعدة نفسها خطأ فهذه مهمة <code>critical</code> لا تعديل.</td></tr>
+<tr><td>بوابة خرجت بـ<code>124</code></td><td>تجاوزت <code>gates.timeout_s</code> فقُتلت مع مجموعة عملياتها؛ السبب المعتاد خادم تطوير مسرَّب يمسك المنفذ.</td><td>اعثر على ما يمسك المنفذ، أو ارفع المهلة لتلك البوابة.</td></tr>
 <tr><td>الحلقة رَكَنت (parked)</td><td>نبضات متطابقة بلا شيء في الطريق (<code>loop.no_progress_ticks</code>)، أو ميزانية tokens لميزة أو دفعة بلغت حدها.</td><td><code>scripts/reef-watch</code> يعرض ما حدث ولا أحد في الغرفة. غيّر الطابور أو السقف أو الميزانية.</td></tr>
+<tr><td>النبضة تسمّي صفوف <code>found</code> قديمة</td><td>صفوف مكتشفة منذ دفعتين لم يُدخلها أحد.</td><td><code>python3 scripts/reef-queue.py triage</code>: سؤال واحد لكل وحدة، أدخِل أو أسقِط مع سبب.</td></tr>
 <tr><td>فحص يحذّر بدل أن يفشل</td><td>محتوى خُطط تحت 0.5 قابل قاعدة جديدة في 0.6.</td><td>لا شيء. القاعدة تفشل فقط على محتوى خُطط تحت 0.6.</td></tr>
 <tr><td><code>Not verified in a browser:</code> في تقرير المُحقّق</td><td>القاضي لم يستطع فتح التطبيق؛ قالها بدل أن يدّعي.</td><td>افحص هذا الجزء بنفسك، أو أعطِ المهمة صف دليل في المتصفح.</td></tr>
 </tbody></table>
-<p>كل توقف يترك سببه على القرص: النبضة، التسليم، وتقرير القاضي محفوظًا حرفيًا بجانب المهمة.</p>
+<p>كل توقف يترك سببه على القرص: النبضة، التسليم، وتقرير القاضي محفوظًا حرفيًا بجانب المهمة. وحين يبدو شيء خطأ ولا تعرف ما هو: <code>/reef-doctor</code>، شاشة واحدة وكل ملاحظة مع الأمر الذي يصلحها.</p>
 <h3>رسائل بعينها</h3>
 <dl>
   <dt><code>reef-guard DENY: … is not in the ready set — blocked-by not done</code></dt><dd>اعتمادية لم تكتمل. <code>scripts/reef-graph.py status</code> يريك ما ينتظر ماذا. لا تعدّل <code>blocked-by</code> لتمريرها إلا إن كانت الحافة وهمية، وعندها ستحتاج مراجعة خطة من جديد.</dd>
   <dt><code>resource 'db' held by task(s) 4</code> أو <code>parallel cap … reached</code></dt><dd>انتظر اكتمال الحامل، أو ارفع <code>resources.db.slots</code> / <code>graph.parallel</code> في الإعدادات إن كان الجهاز يحتمل.</dd>
-  <dt><code>plan stamp is stale or missing</code></dt><dd>مجلد الميزة تغير بعد مراجعته (أو لم يُراجَع). شغّل <code>/reef-plan-review</code>. تذكّر أن <code>status</code> و<code>attempts</code> و<code>worktree</code> لا تُبطل الختم، أما المواصفة والمهام والقرارات فتُبطله.</dd>
+  <dt><code>plan stamp is stale or missing</code></dt><dd>مجلد الميزة تغير بعد مراجعته (أو لم يُراجَع). شغّل <code>/reef-plan &lt;slug&gt;</code> فيعيد مراجعة الآلات. تذكّر أن <code>status</code> و<code>attempts</code> و<code>worktree</code> لا تُبطل الختم، أما المواصفة والمهام والقرارات فتُبطله.</dd>
   <dt><code>is at the retry cap</code> / <code>task is blocked</code></dt><dd>السقف. اقرأ الفشل المسجل (<code>last_failure_sig</code> والسجل)، قرر: أعد التخطيط أو افتح صفًا جديدًا. فك الحظر يدوي وثلاثة حقول: <code>attempts: 0</code>، <code>status: pending</code>، <code>last_failure_sig: ""</code>.</dd>
   <dt>رفض بسبب النموذج (<code>must run on …</code>)</dt><dd>الإرسال لم يحمل نموذج الطبقة. مرّر <code>model=</code> كما طبعه <code>scripts/reef-attempt</code> (يحلّه من <code>tiers.&lt;tier&gt;.roles</code>)، أو غيّر النموذج في الإعدادات إن كان القرار قرارك.</dd>
-  <dt><code>tier: design with no adversarial-plan record</code></dt><dd>شغّل <code>loophole-hunter</code> على الخطة وسجّل نجاحه: <code>scripts/reef-adversarial &lt;task&gt; plan &lt;report&gt;</code>. تقرير فيه BLOCKER لا يُسجَّل حتى يُصلَح. ينطبق على critical أيضًا.</dd>
-  <dt>الـcommit مرفوض: <code>closing without adversarial-guard</code></dt><dd>مهمة design أو critical تُغلق بلا مرور الهجوم الثاني على الحارس المكتمل. شغّله وسجّل: <code>… guard &lt;report&gt;</code>.</dd>
+  <dt><code>no adversarial-plan record</code> على مهمة critical</dt><dd>الصيّاد لم يمر على الخطة (افتراضيًا على خطط <code>critical</code>؛ <code>hunter.plan_pass: design</code> يضيف design). يجري داخل <code>/reef-plan</code> قبل البوابة؛ وإن سجّلته يدويًا: <code>scripts/reef-adversarial &lt;task&gt; plan &lt;report&gt;</code>. تقرير فيه BLOCKER لا يُسجَّل حتى يُصلَح، ولا يُسجَّل مرور بعد الجولة الثانية.</dd>
+  <dt>السجل الأخضر مرفوض بلا مرور الصيّاد على الميزة</dt><dd><code>hunter.guard_pass: feature</code>: مرور واحد للصيّاد على فرق الميزة كله قبل الحكم الأخضر، يجري داخل <code>/reef-review</code> ويُسجَّل بـ<code>scripts/reef-adversarial --feature &lt;slug&gt; guard &lt;report&gt;</code>. <code>task</code> يجعله مرورًا على كل مهمة بدل الميزة.</dd>
   <dt><code>gate … piped into another command</code> / <code>git stash</code></dt><dd>اقرأ exit code مباشرة (<code>&gt; out.txt; echo $?</code> أو <code>set -o pipefail</code>). بدل stash: commit على فرع المهمة (البوابة يجب أن تمر) أو worktree آخر.</dd>
   <dt>CI أحمر على pull request الإصدار</dt><dd>اقرأ الكتلة الفاشلة لا اسم الاختبار. سجّل الفشل على rollup الميزة بـ<code>scripts/reef-attempt</code> (نفس السقف)، أصلح، وتحقق محليًا بـ<code>sh scripts/reef-ci-local.sh --ci --release</code> قبل الدفع. إن فشل شيء على فرع الإصدار ولم يفشل محليًا فالقائمة تختلف: أضفه إلى <code>gates.extra</code>.</dd>
   <dt><code>reef-ci-local: exit 2</code></dt><dd>بوابة تخطّت (exit 77). ليست نجاحًا. سمّها بـ<code>--require &lt;name&gt;</code> حتى يصير التخطي فشلًا، أو وفّر ما تحتاجه (قاعدة بيانات محلية، أو أداة التدقيق المفقودة).</dd>
@@ -317,9 +335,11 @@
 <table><thead><tr><th>الأمر</th><th>ماذا يفعل</th></tr></thead><tbody>
 <tr><td><code>/reef-init</code></td><td>الإعداد الكامل (جديد أو موجود) بعد استجواب المعمارية، لا يستبدل ملفك أبدًا؛ <code>python3 scripts/reef-init.py --accept &lt;path&gt;</code> لتطبيق مقترح</td></tr>
 <tr><td><code>/reef-assess</code></td><td>اليوم صفر لمشروع موجود: كيف يعمل وكُتب ودُفع (Observed/Inferred)، ثم إعادة معايرة مستنداته إلى الشجرة تحت موافقة واحدة؛ أرشفة لا حذف</td></tr>
-<tr><td><code>/reef-loop</code></td><td>الحلقة الخارجية: الصفوف الجاهزة → تخطيط → مراجعة الخطة → رسم → مراجعة → دمج → إغلاق، بالتوازي</td></tr>
-<tr><td><code>/reef-plan &lt;row&gt;</code></td><td>استجواب، مجلد الميزة (<code>SPEC.md</code>، ADR، مهام بـ<code>blocked-by</code>/<code>resources</code>/<code>tier</code>)، وسؤال الموافقة الواحد عند البصمة</td></tr>
-<tr><td><code>/reef-plan-review</code></td><td>فحوص حتمية + مراجعة معنوية (+ الصيّاد لـdesign وcritical)؛ يكتب ختم الخطة وسجل المراجعة</td></tr>
+<tr><td><code>/reef-loop</code></td><td>الحلقة الخارجية: الصفوف الجاهزة → تخطيط (بمراجعة الآلات ثم بوابتك) → رسم (محادثةً أو workflow) → مراجعة → دمج → إغلاق، بالتوازي</td></tr>
+<tr><td><code>/reef-plan &lt;row&gt;</code></td><td>استجواب، مسودة المخطِّط في worktree الميزة (<code>SPEC.md</code>، ADR، مهام بـ<code>blocked-by</code>/<code>resources</code>/<code>tier</code>)، الصيّاد ومراجع الخطة معًا، ثم سؤال الموافقة الواحد عند البصمة، أخيرًا</td></tr>
+<tr><td><code>/reef-graph</code></td><td>رسم المهام الجاهزة كـworkflow واحد في الخلفية (منفّذ → بوابة → مُحقّق لكل مهمة)؛ مشروط بفحص الحارس على الجهاز (<code>reef-graph-run.py probe</code>)؛ النبضة تسمّيه حين يلزم</td></tr>
+<tr><td><code>/reef-doctor</code></td><td>شاشة واحدة بما هو خطأ والأمر الذي يصلحه: نسخة الإضافة، السكربتات المتأخرة، مكان الطابور، الـworktrees، حالة الحلقة، <code>gh</code> وDocker، المقترحات</td></tr>
+<tr><td><code>python3 &lt;plugin&gt;/scripts/reef-update.py --commit</code></td><td>Reef جديد في أمر واحد: سحب الإضافة، تحديث نسخ المشروع، commit لملفات Reef، وأمرا إعادة التحميل</td></tr>
 <tr><td><code>/reef-task &lt;slug&gt;</code></td><td>رسم المهام: كل مهمة جاهزة الآن، worktree لكل واحدة، تنفيذ → تحقق → دمج في فرع الميزة</td></tr>
 <tr><td><code>/reef-review &lt;slug&gt;</code></td><td>دفع، PR، تنفيذ جدول Proof، قبول مقابل <code>SPEC.md</code>، مراجعة الفرق، البوابة المحلية أو CI، rollup واحد بسقف واحد، سجل أخضر، دمج إن <code>merge.by: loop</code>، إغلاق</td></tr>
 <tr><td><code>/reef-verify</code></td><td>مرور تحقق عدائي مستقل على مهمة أو فرق</td></tr>
@@ -328,9 +348,9 @@
 <tr><td><code>/reef</code></td><td>حالة المشروع: الرسم، البوابات، آخر السجل، الأمر التالي</td></tr>
 <tr><td><code>python3 scripts/reef-loop.py tick</code> · <code>scripts/reef-watch</code></td><td>النبضة: ما يُرسَل الآن وما ينتظر؛ وما حدث منذ تاريخ في شاشة واحدة</td></tr>
 <tr><td><code>scripts/reef-graph.py ready|status|check|worktree|lock</code></td><td>المجموعة الجاهزة، حالة كل مهمة، سؤال الحارس، إنشاء worktree، قفل مورد بفتحات</td></tr>
-<tr><td><code>scripts/reef-queue.py status|ready|check|adr-number|index</code></td><td>حالة الصفوف المشتقة، الصفوف الجاهزة، الاتساق والبنية، ترقيم مسودات ADR عند الدمج، فهرس الميزات</td></tr>
+<tr><td><code>scripts/reef-queue.py status|ready|check|adr-number|index|add-row|footnote|set-depends|triage|set-batch|drop-row</code></td><td>حالة الصفوف المشتقة، الصفوف الجاهزة، الاتساق والبنية، ترقيم مسودات ADR عند الدمج، فهرس الميزات؛ وتحرير الطابور بالأوامر: صف جديد، حاشية، اعتماديات، فرز الصفوف المكتشفة القديمة، دفعة، إسقاط بسبب</td></tr>
 <tr><td><code>scripts/reef-attempt &lt;task&gt; [failure]</code></td><td>تسجيل فشل ورفع العداد؛ يطبع نموذج الكاتب والقاضي والجهد من الطبقة لإرسال التالي</td></tr>
-<tr><td><code>scripts/reef-adversarial &lt;task&gt; plan|guard &lt;report&gt;</code></td><td>تسجيل نجاح المرور العدائي (PASS بلا BLOCKER فقط)</td></tr>
+<tr><td><code>scripts/reef-adversarial &lt;task&gt; plan|guard &lt;report&gt;</code> · <code>--feature &lt;slug&gt; guard</code> · <code>--decided &lt;mark&gt;</code></td><td>تسجيل نجاح المرور العدائي (PASS بلا BLOCKER فقط، وضمن <code>hunter.plan_rounds</code>)؛ مرور الميزة؛ حكمك على ثغرة مفتوحة</td></tr>
 <tr><td><code>scripts/reef-converge &lt;feature&gt;</code> · <code>scripts/reef-record</code></td><td>تنفيذ جدول Proof على الفرع؛ كتابة سجل المراجعة المربوط برأس الـPR</td></tr>
 <tr><td><code>scripts/reef-claims.py check|claims-only</code></td><td>الادعاءات مربوطة بسطور الجولة؛ لا كود بعد GREEN</td></tr>
 <tr><td><code>scripts/reef-tier.py &lt;task&gt; [--write]</code></td><td>حساب الطبقة من الفرق والمسارات؛ تثقل فقط</td></tr>
@@ -343,6 +363,8 @@
 <table><thead><tr><th>المفتاح</th><th>الأثر</th></tr></thead><tbody>
 <tr><td><code>gates.fast</code> / <code>gates.full</code> / <code>gates.extra</code> / <code>gates.release</code></td><td>بوابة الـcommit / التحقق والمراجعة وCI / بوابات أخرى يشغّلها <code>reef-ci-local.sh</code> / بوابات فرع الإصدار (انحراف C4، فحص الأسرار، تدقيق المكدس؛ أداة ناقصة = تخطٍّ = exit 2)</td></tr>
 <tr><td><code>caps.attempts</code></td><td>جولات الإصلاح لكل مهمة، وللبند على rollup</td></tr>
+<tr><td><code>gates.timeout_s</code></td><td>بوابة تتجاوز هذه الثواني (1200) تُقتل مع مجموعة عملياتها وتخرج بـ124؛ صفر = بلا مهلة</td></tr>
+<tr><td><code>caps.task_growth</code></td><td>سقف نمو سياق المنسّق للمهمة الواحدة عبر الجلسات (من <code>.reef/cost/</code>)؛ النبضة تسمّي ما تجاوزه؛ صفر = مطفأ</td></tr>
 <tr><td><code>caps.context_tokens</code> / <code>caps.context_warn</code> / <code>caps.dispatch_reserve</code></td><td>سقف سياق الجلسة المرسِلة، والتحذير قبله، والمساحة الواجب بقاؤها لبدء مهمة جديدة؛ صفر = مطفأ (الافتراضي في مشروع مرحَّل من 0.5)</td></tr>
 <tr><td><code>caps.feature_tokens</code> / <code>caps.batch_tokens</code></td><td>ميزانيات tokens لميزة أو دفعة؛ صفر = مطفأ</td></tr>
 <tr><td><code>merge.by</code></td><td><code>human</code> (الافتراضي): أنت تدمج PR الميزة؛ <code>loop</code>: الحلقة تدمجه على سجل أخضر لرأس الـPR. الإصدار دائمًا بيدك</td></tr>
@@ -353,11 +375,15 @@
 <tr><td><code>roles.*</code></td><td>الاحتياطي حين لا تسمّي الطبقة الدور</td></tr>
 <tr><td><code>graph.parallel</code> · <code>resources.&lt;name&gt;.slots</code> · <code>worktree.dir</code> / <code>worktree.setup</code></td><td>المهام في التنفيذ معًا · حاملو المورد معًا · مكان الـworktrees وأمر تهيئة كل واحد</td></tr>
 <tr><td><code>paths.features</code> · <code>paths.queue</code> · <code>paths.*</code></td><td>أين تعيش الأشياء: <code>reef/features</code> و<code>reef/queue.md</code> في مشروع 0.6، ومواضع 0.5 في مشروع لم يُنقَل بعد</td></tr>
-<tr><td><code>plan.max_tasks</code> · <code>writing.*</code></td><td>فوق هذا العدد تُقسَم الميزة؛ حدود الكتابة للمهمة والتسليم والتقرير والجملة والمعيار</td></tr>
+<tr><td><code>plan.max_tasks</code> · <code>plan.max_acs</code></td><td>فوق هذا العدد تُقسَم الميزة؛ وفوق هذا العدد من المعايير تُقسَم المهمة (صفر = تحذير فوق 8؛ اضبط 8 عند حدود دفعة)</td></tr>
+<tr><td><code>hunter.plan_rounds</code> / <code>hunter.plan_pass</code> / <code>hunter.guard_pass</code></td><td>جولات الصيّاد على الخطة (2؛ صفر = بلا سقف) / أي الطبقات يمر على خططها (<code>critical</code>، أو <code>design</code> للاثنتين) / مروره على الكود مرة لكل <code>feature</code> قبل الأخضر أو لكل <code>task</code></td></tr>
+<tr><td><code>review.diff_review</code></td><td>مراجعة الفرق لكل ميزة: <code>off</code> افتراضيًا منذ 0.7 (القبول مقابل المواصفة والصيّاد يكفيان)؛ <code>on</code> لتشغيلها</td></tr>
+<tr><td><code>graph.mode</code></td><td><code>auto</code> (الافتراضي): مهمة جديدة تعمل كـworkflow حين يكون فحص الجهاز مسجَّلًا وفي المحادثة غير ذلك؛ <code>chat</code>: أبدًا؛ <code>graph</code>: كـauto وغياب الفحص يُسمّى BROKEN</td></tr>
+<tr><td><code>writing.*</code></td><td>حدود الكتابة للمهمة والتسليم والتقرير والجملة والمعيار؛ صفر (الافتراضي منذ 0.7) = مطفأة</td></tr>
 <tr><td><code>loop.inflight_stale_minutes</code> / <code>loop.no_progress_ticks</code></td><td>متى تُعاد مهمة علامتها قديمة؛ كم نبضة متطابقة قبل أن تركن الحلقة</td></tr>
 </tbody></table>
 
-<footer>Reef 0.6.0 · <a href="https://github.com/MahmoudMoe/reef">github.com/MahmoudMoe/reef</a> · <a href="../../index.html">الصفحة</a> · التصميم: <code>docs/design/graph-and-setup.md</code> · كل ادعاء في هذا الدليل له اختبار في <code>tests/</code> يُظهره أحمر قبل الإصلاح.</footer>
+<footer>Reef 0.6.0 (الإصدار المنشور؛ الدليل يصف أيضًا ما وصل في 0.7 قيد الإعداد) · <a href="https://github.com/MahmoudMoe/reef">github.com/MahmoudMoe/reef</a> · <a href="../../index.html">الصفحة</a> · التصميم: <code>docs/design/graph-and-setup.md</code> · كل ادعاء في هذا الدليل له اختبار في <code>tests/</code> يُظهره أحمر قبل الإصلاح.</footer>
 </main>
 </body>
 </html>
