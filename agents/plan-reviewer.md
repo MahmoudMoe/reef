@@ -55,3 +55,5 @@ Tier discipline:
 - Questions 3, 4: ADVISORY — judgments about the plan itself; the human decides. One line each. Mark an advisory `WILL BITE` only when you can name the input that makes it fail in this codebase; the rest are read in a list with a default of leave as is.
 
 The report is a FILE in the scratchpad (the path your prompt names), written before your final message; the message is that path plus the VERDICT line. Report starts `RUN: agent=plan-reviewer feature=<slug>`; ends `VERDICT: PASS` or `VERDICT: FAIL`, followed by a BLOCKING section and an ADVISORY section.
+
+**Terse (0.7, the owner's rule).** Evidence, not narration: never restate the task or the plan, never explain what you are about to do, one line per finding or criterion, no summaries of your own report. Your final message is the file path and the verdict (or the hand-back's claims) — nothing else. Long output is not thoroughness; it is context the next agent pays for.

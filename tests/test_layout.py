@@ -141,7 +141,7 @@ class Migrations(unittest.TestCase):
         self.assertEqual(cfg["caps"]["context_tokens"], 0)
         self.assertIn("critical", cfg["tiers"])
         self.assertEqual(cfg["tiers"]["light"]["roles"], {"plan_reviewer": "none"}, "no sonnet author shipped by default")
-        self.assertEqual(cfg["writing"]["sentence_words"], 25)
+        self.assertEqual(cfg["writing"]["sentence_words"], 0, "0.7: budgets ship off; the key still arrives")
         self.assertEqual(cfg["loop"]["no_progress_ticks"], 3)
         self.assertEqual(cfg["paths"]["queue"], "docs/queue.md", "a 0.5 project keeps the 0.5 locations")
         self.assertNotIn("features", cfg["paths"], "the one tree is offered, not imposed")

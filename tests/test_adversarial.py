@@ -17,7 +17,7 @@ CLAIMS = os.path.join(ROOT, "scripts", "reef-claims.py")
 REPORT_PASS = "RUN: agent=loophole-hunter task=1 pass={p}\nDEFECT: x\nNONE: tried y\nVERDICT: PASS\n"
 
 
-def task(d, tier="design", complexity="design", extra=""):
+def task(d, tier="critical", complexity="design", extra=""):   # 0.7: the plan pass is critical's by default (hunter.plan_pass)
     p = os.path.join(d, "tasks", "001-t.md")
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, "w") as f:
@@ -124,7 +124,16 @@ class GuardRequiresPlanPass(unittest.TestCase):
 
     def test_design_tier_without_pass_denied(self):
         r = dispatch(self.d, self.t)
-        self.assertEqual(r.returncode, 2, "a tier: design task reached an implementer with no adversarial pass")
+        self.assertEqual(r.returncode, 2, "a tier: critical task reached an implementer with no adversarial pass")
+        self.assertIn("adversarial-plan", r.stderr)
+
+    def test_plan_pass_is_critical_only_by_default_and_design_on_request(self):
+        # 0.7 (2026-10-17/18): the plan hunter's rounds were the planning sessions' cost; a design task gets the plan reviewer
+        t = task(self.d, tier="design")
+        self.assertEqual(dispatch(self.d, t).returncode, 0, "a design task needs no hunter plan pass by default")
+        write(self.d, ".reef/config.json", '{"gates": {"test": "true"}, "hunter": {"plan_pass": "design"}}')
+        r = dispatch(self.d, t)
+        self.assertEqual(r.returncode, 2, "hunter.plan_pass design: the 0.6 behaviour")
         self.assertIn("adversarial-plan", r.stderr)
 
     def test_fresh_pass_allows_edited_plan_denies(self):

@@ -108,6 +108,24 @@ def guard_pass_mode(path):
     return str((cfg.get("hunter") or {}).get("guard_pass", "task") or "task").strip().lower()
 
 
+def plan_pass_tiers(path):
+    """The tiers whose plan needs the hunter's pass before code: hunter.plan_pass `critical` (default, 0.7 — a design
+    task gets the plan reviewer; measured 2026-10-17/18, the plan hunter's rounds were the planning sessions' cost) or
+    `design` (design and critical, the 0.6 behaviour). Read from the MAIN checkout like guard_pass."""
+    root, cfg = config_near(path)
+    if root:
+        try:
+            r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=10)
+            main = next((l[len("worktree "):].strip() for l in r.stdout.splitlines() if l.startswith("worktree ")), "")
+            if main and os.path.abspath(main) != os.path.abspath(root):
+                with open(os.path.join(main, ".reef", "config.json"), encoding="utf-8") as f:
+                    cfg = json.load(f)
+        except Exception:
+            pass
+    mode = str((cfg.get("hunter") or {}).get("plan_pass", "critical") or "critical").strip().lower()
+    return ("design", "critical") if mode == "design" else ("critical",)
+
+
 def feature_tasks(root, cfg, slug):
     """Every task file of a feature: the 0.6 folder (paths.features/<slug>/tasks/*.md and tasks/done/*.md) or, in the
     flat layout, the tasks/ files whose frontmatter names the feature."""

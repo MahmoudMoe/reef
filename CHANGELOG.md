@@ -1,6 +1,18 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Fix**: `reef-snapshot.sh` re-hashes every entry's content (the scratch index is dated 1980, so git's racy check
+  covers all of it) — a file rewritten within the second at the same size read as unchanged by stat alone, and the
+  snapshot did not move (2026-10-18, CI: the gate-cache test; the same gap would let a judge's same-second edit pass).
+- **Defaults sized like the field, the records kept** (owner's call, 2026-10-18, after a 4-task feature ran ~25 agent
+  runs): the word budgets ship as `0` = off (`writing.task_words`, `handback_words`, `prompt_words`, `report_words`,
+  `sentence_words`, `criterion_words`; set a number to enforce) — the only ceiling left is `caps.context_tokens`
+  150k with its `dispatch_reserve`; `hunter.plan_pass: critical` (the plan hunter runs on critical plans only; design
+  gets the plan reviewer; `design` restores 0.6), `hunter.guard_pass: feature`, `review.diff_review: off`
+  (`review.split_lines` 4000 when on); a verifier RULE that does not cite its Proof row is a note, not a rewrite.
+  Unchanged: the verifier per task with evidence per criterion, the gate, the hunter on the feature's code, the records,
+  the guard, the snapshots. Every agent definition ends with the owner's terse rule: evidence not narration, one line
+  per finding, the final message is the file path and the verdict.
 - reef-review names where the feature's files are (`<paths.features>/<slug>/` in its worktree) so the review starts by
   reading, not by `find`; the task skill runs `worktree.setup` in the feature worktree after merging a task that changed
   `package.json`, the lockfile or `prisma/schema.prisma` (2026-10-18: 202's merge failed 28 tests on a Prisma client

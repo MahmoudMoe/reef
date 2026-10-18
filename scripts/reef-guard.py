@@ -670,9 +670,9 @@ def check_adversarial_plan(path, fm, text):
     """tier: design — the loophole-hunter's pass on the PLAN is recorded (scripts/reef-adversarial)
     as adversarial-plan: <hash of the plan content>; an edited plan voids it. A mech/light task
     never needs one (the stage never runs on mech)."""
-    if fm.get("tier") not in ("design", "critical"):
-        return
     adv = load_plugin_module("reef-adversarial", "reef_adversarial")
+    if fm.get("tier") not in adv.plan_pass_tiers(path):   # hunter.plan_pass: critical (default) or design
+        return
     want = adv.plan_hash(text)
     got = (fm.get("adversarial-plan") or "").strip()
     if not got:

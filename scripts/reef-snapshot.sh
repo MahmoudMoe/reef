@@ -14,6 +14,10 @@ GITDIR=$(git rev-parse --git-dir)
 TMPIDX=$(mktemp "${TMPDIR:-/tmp}/reef-snap.XXXXXX")
 trap 'rm -f "$TMPIDX"' EXIT
 if [ -f "$GITDIR/index" ]; then cp "$GITDIR/index" "$TMPIDX"; else : >"$TMPIDX"; fi
+# racy git: an entry whose file was rewritten in the same second as the index, at the same size, reads as unchanged by
+# stat alone. Dating the scratch index to the epoch makes git re-hash every entry's CONTENT (2026-10-18, CI: a gate
+# cache test edited a file within the second and the snapshot did not move)
+touch -t 198001010000 "$TMPIDX"   # not the epoch: a zero index timestamp switches git's racy check OFF
 set -- .
 while IFS= read -r wt; do
   [ -n "$wt" ] || continue
