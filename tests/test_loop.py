@@ -407,6 +407,23 @@ class VerifyNow(unittest.TestCase):
         st = json.loads(loop(d, "tick", "--json").stdout)
         self.assertEqual(st["verify_now"], [])
         self.assertIn("101", st["dispatch_now"], "judged: the tick is back to the graph's word (the task closes or re-dispatches)")
+        # 2026-10-18 (qassimha 1103): a red gate counted as attempt 1 after the hand-back, no report was written, and the
+        # tick still said `verify now` — the gate would have run red again and graph mode could not re-dispatch
+        os.remove(os.path.join(d, ".reef", "ci-local", "report-101.md"))
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["verify_now"], ["101"])
+        time.sleep(1.1)   # the Log line carries whole seconds
+        t = read_file(os.path.join(d, "tasks", "101-a.md")).replace("attempts: 0", "attempts: 1").replace('last_failure_sig: ""', "last_failure_sig: 0def2b367520")
+        write(d, "tasks/101-a.md", t.rstrip("\n") + "\n- attempt 1 FAIL: gate exit 1: FAIL decode.test.ts hook timed out · at " + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + "\n")
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["verify_now"], [], "a failure recorded after the hand-back: the work was judged")
+        self.assertIn("101", st["dispatch_now"], "back to the implementer (a fix round, chat mode)")
+        self.assertEqual(st["dispatch_mode"].get("101"), "chat")
+        # a failure OLDER than the hand-back (round 1's) does not flip a round-2 hand-back back to dispatch
+        time.sleep(1.1)
+        write(d, ".reef/ci-local/handback-101.md", "RUN: agent=implementer task=101\nround 2\n")
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["verify_now"], ["101"])
 
 
 class StopHook(unittest.TestCase):

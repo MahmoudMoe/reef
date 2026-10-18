@@ -329,10 +329,13 @@ def cmd_settle(root, results_path):
         if not os.path.isfile(task_file):
             why.append("task file missing")
         if gate.get("gate_exit") != 0:
-            why.append(f"gate exit {gate.get('gate_exit')}" + (f": {str(gate.get('notes'))[:120]}" if gate.get("notes") else ""))
+            why.append(f"gate exit {gate.get('gate_exit')}" + (f": {str(gate.get('notes'))[:300]}" if gate.get("notes") else ""))
         if not str(gate.get("handback_check", "")).lower().startswith("ok"):
             why.append(f"hand-back: {str(gate.get('handback_check'))[:100] or 'not checked'}")
-        if r.get("judge"):
+        # a red gate or a rejected hand-back ends the pipeline before the judges (the script skips them), so their
+        # absence is the task's failure, not a missing verdict (2026-10-18, qassimha 1103: settle said "no verifier
+        # verdict" on a red gate, that text suppressed reef-attempt, and the orchestrator counted the attempt by hand)
+        if r.get("judge") and not why:
             judges = {j.get("role"): j for j in (r.get("judges") or []) if isinstance(j, dict)}
             if "verifier" not in judges:
                 why.append("no verifier verdict")
@@ -363,8 +366,10 @@ def cmd_settle(root, results_path):
             failed += 1
             reason = "; ".join(why)
             print(f"FAIL {tid}: {reason}")
-            if os.path.isfile(task_file) and not any(w.startswith(("task file", "no verifier", "no hunter")) for w in why):
-                run([sys.executable, script(root, "reef-attempt"), task_file, reason[:300]], os.path.dirname(task_file))
+            if os.path.isfile(task_file) and not any(w.startswith(("no verifier", "no hunter")) for w in why):
+                rc_a, out_a, err_a = run([sys.executable, script(root, "reef-attempt"), task_file, reason[:300]], os.path.dirname(task_file))
+                att = re.search(r"attempt=(\d+)/(\d+)", out_a or "")
+                print(f"  attempt counted: {att.group(0) if att else (err_a or out_a).strip().splitlines()[-1][:120] if (err_a or out_a).strip() else rc_a}")
         else:
             print(f"READY TO MERGE {tid} ({wt}) — /reef-task step 4: commit in the worktree, merge --no-ff into the feature branch, status done, journal row")
     return 1 if failed else 0

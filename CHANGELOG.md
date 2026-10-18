@@ -1,6 +1,18 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Fixes from the trial's second graph-mode task** (2026-10-18, qassimha 1103, queue rows 57 and 58): (57) `reef-graph-run settle`
+  counts a red gate as the attempt — the pipeline skips the judges on a red gate, settle added "no verifier verdict" and
+  that text suppressed `reef-attempt`, so the orchestrator counted by hand; the gate's failing block (300 chars) is the
+  recorded failure and settle prints `attempt counted: attempt=N/cap`; a rejected hand-back on a judged task counts the
+  same way now (it ended the pipeline before the judges; before, only a gate-only task's did). (58) `reef-attempt`'s `## Log` line carries the
+  time (`· at <UTC>`), and the tick lists a hand-back under `verify now` only when no failure was recorded after it —
+  a hand-back whose gate or judge failed goes back to `dispatch now` (a chat-mode fix round), in graph mode too.
+- **A hung gate ends** (`reef-gate.sh`, `gates.timeout_s` 1200, 0 = none; 2026-10-18: a test waiting on a port it had
+  leaked held vitest 21 minutes and the graph-mode workflow three hours — chat mode's Bash would have stopped at ten):
+  the gate runs in its own process group under python3 and, past the limit, the group is killed, exit 124, and one
+  line names the limit outside the capped failing block (a hung suite's log is hundreds of lines past its first FAIL);
+  no green marker. A server a test spawned detached is outside that group and may still hold its port.
 - **Fix** (`reef-c4`, 2026-10-18, qassimha task 1102): every compose service running a third-party image is a container of
   the model, proven by the compose file — the generator admitted only a fixed list of names, so the Mailpit mail catcher
   was hand-added to `workspace.dsl` and `--diff` then contradicted it; a service built from the repository or on a bare

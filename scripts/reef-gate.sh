@@ -44,6 +44,32 @@ else
   [ -n "$CMD" ] || { echo "reef-gate: USER ACTION REQUIRED — no test command found; run /reef-init or set gates.full in .reef/config.json" >&2; exit 1; }
 fi
 echo "reef-gate ($MODE): $CMD" >&2
+# 0.7: a hung gate ends — gates.timeout_s (default 1200, 0 = none) kills the gate's whole process group and exits 124
+# with a line that says so (2026-10-18, qassimha 1103: a test waiting on a port it had leaked held vitest for 21 minutes
+# and the graph-mode workflow for three hours; chat mode's Bash would have stopped at ten). Without python3 the gate
+# runs unguarded, as before.
+TIMEOUT=1200
+if [ -f .reef/config.json ]; then
+  TIMEOUT=$(python3 -c "import json;g=json.load(open('.reef/config.json')).get('gates',{});print(int(g.get('timeout_s',1200) or 0))" 2>/dev/null || echo 1200)
+fi
+run_gate() {   # run_gate <command line>: the exit code of the gate, or 124 on a hang past gates.timeout_s
+  if [ "$TIMEOUT" -le 0 ] || ! command -v python3 >/dev/null 2>&1; then sh -c "$1"; return $?; fi
+  python3 - "$1" "$TIMEOUT" <<'PY'
+import os, signal, subprocess, sys
+cmd, limit = sys.argv[1], int(sys.argv[2])
+p = subprocess.Popen(["sh", "-c", cmd], start_new_session=True)
+try:
+    sys.exit(p.wait(timeout=limit))
+except subprocess.TimeoutExpired:
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    p.wait()
+    print(f"reef-gate: TIMEOUT after {limit}s — the gate hung (a test waiting on a port, a server left running); its process group was killed. gates.timeout_s sets the limit, 0 = none", file=sys.stderr)
+    sys.exit(124)
+PY
+}
 # 0.7: the gate is deterministic on a tree, so one green run per snapshot is enough (2026-10-18: the same tree ran the
 # full gate five times in one task — implementer, orchestrator, verifier, pre-commit twice). The marker is written only
 # by a green run here and read only when REEF_GATE_NO_CACHE is unset; the pre-commit sets it and always runs the gate.
@@ -61,12 +87,15 @@ if [ "$FAILURES" -eq 1 ]; then
   LOG=.reef/ci-local/gate-$MODE.log
   MAXL=$(python3 -c "import json;print(int(json.load(open('.reef/config.json')).get('context',{}).get('failure_lines',60) or 60))" 2>/dev/null || echo 60)
   RC=0
-  sh -c "$CMD" >"$LOG" 2>&1 || RC=$?    # set -e must not end the script before the block is printed
+  run_gate "$CMD" >"$LOG" 2>&1 || RC=$?    # set -e must not end the script before the block is printed
   [ "$RC" -eq 0 ] && mark_green
   echo "reef-gate ($MODE): exit $RC — full log: $LOG ($(wc -l <"$LOG" | tr -d ' ') lines)"
+  # the verdict stands outside the block: a hung suite's log has hundreds of lines after its first FAIL marker, and
+  # the TIMEOUT line python prints last would be cut by context.failure_lines
+  [ "$RC" -eq 124 ] && echo "reef-gate ($MODE): TIMEOUT after ${TIMEOUT}s — the gate hung and its process group was killed (gates.timeout_s; a server a test spawned detached may still hold its port)"
   if [ "$RC" -ne 0 ]; then
     # the failing block: from the first failure marker to the end, capped — the exit code above is the verdict
-    START=$(grep -n -m1 -E 'FAIL|Error|error\[|FAILED|panicked|not ok|AssertionError|Traceback' "$LOG" | cut -d: -f1)
+    START=$(grep -n -m1 -E 'FAIL|Error|error\[|FAILED|panicked|not ok|AssertionError|Traceback|TIMEOUT' "$LOG" | cut -d: -f1)
     TOTAL_LINES=$(wc -l <"$LOG" | tr -d ' ')
     [ -n "$START" ] || START=$(( TOTAL_LINES - MAXL + 1 ))
     [ "$START" -lt 1 ] && START=1
@@ -79,6 +108,7 @@ fi
 # the gate is a shell command line, not an argv list — parse it as the human wrote it
 # (unquoted `exec $CMD` would word-split and glob, mangling quoted args and operators).
 RC=0
-sh -c "$CMD" || RC=$?
+run_gate "$CMD" || RC=$?
 [ "$RC" -eq 0 ] && mark_green
+[ "$RC" -eq 124 ] && echo "reef-gate ($MODE): TIMEOUT after ${TIMEOUT}s — the gate hung and its process group was killed (gates.timeout_s; a server a test spawned detached may still hold its port)"
 exit $RC

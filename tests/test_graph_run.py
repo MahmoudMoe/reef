@@ -149,6 +149,31 @@ class Settle(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("hand-back: REJECTED", r.stdout)
 
+    def test_a_red_gate_on_a_judged_task_counts_the_attempt_and_names_the_gate_not_a_missing_verdict(self):
+        """2026-10-18, qassimha 1103: the pipeline skips the judges on a red gate, settle added "no verifier verdict",
+        and that text suppressed reef-attempt — the task kept attempts: 0 and the next dispatch never saw the failure."""
+        d = graph_project()
+        pass_gate(d)
+        g(d, "generate")
+        p = self.results(d, gate_exit=1, notes="FAIL src/lib/decode.test.ts: Hook timed out in 10000ms (beforeAll at decode.test.ts:30)")
+        res = json.load(open(p))
+        res["tasks"][0]["judge"] = True      # a judged task whose judges never ran
+        json.dump(res, open(p, "w"))
+        r = g(d, "settle", p)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("FAIL 101: gate exit 1: FAIL src/lib/decode.test.ts", r.stdout)
+        self.assertNotIn("no verifier verdict", r.stdout, "the judges were skipped by design; the gate is the failure")
+        self.assertIn("attempt counted: attempt=2/3", r.stdout)
+        task = open(os.path.join(d, "tasks", "101-a.md")).read()
+        self.assertIn("attempts: 1", task)
+        self.assertIn("- attempt 1 FAIL: gate exit 1: FAIL src/lib/decode.test.ts", task, "the failure's words reach the next dispatch")
+        # a green gate with no verdict is still a pipeline defect, not an attempt
+        p = self.results(d)
+        res = json.load(open(p)); res["tasks"][0]["judge"] = True; json.dump(res, open(p, "w"))
+        r = g(d, "settle", p)
+        self.assertIn("no verifier verdict", r.stdout)
+        self.assertIn("attempts: 1", open(os.path.join(d, "tasks", "101-a.md")).read(), "not counted twice")
+
 
 if __name__ == "__main__":
     unittest.main()

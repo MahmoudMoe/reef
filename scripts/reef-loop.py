@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+import calendar
 import time
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
@@ -245,14 +246,24 @@ def tick(root):
     # a ready task whose implementer already handed back (handback-<id>.md in any checkout's .reef/ci-local, with no
     # report newer than it) is not to DISPATCH but to VERIFY: first contact (2026-10-17) the fresh session's tick said
     # "dispatch now: 103" over an uncommitted, handed-back worktree — a second implementer would have burnt a dispatch
+    # … unless a failure was recorded AFTER that hand-back (reef-attempt's `- attempt N FAIL: … · at <UTC>` line under
+    # ## Log, written by settle on a red gate or by the orchestrator on a verdict): the work was judged and failed, the
+    # next step is the implementer, not the judges again (2026-10-18, qassimha 1103: a red gate counted as attempt 1
+    # and the tick still said `verify now`, so graph mode could not re-dispatch and the gate would have run red again)
     verify_now = []
     by_id = {str(t["id"]): t for t in dispatch_now}
     for t in list(dispatch_now):
         tid = str(t["id"])
+        failed_at = 0.0
+        try:
+            for m in re.finditer(r"^\s*-\s*attempt \d+ FAIL:.*· at (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)\s*$", read(str(t.get("path") or "")), re.M):
+                failed_at = max(failed_at, calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%SZ")))
+        except (OSError, ValueError):
+            failed_at = 0.0
         for d_ in [root] + worktrees:
             hb = os.path.join(d_, ".reef", "ci-local", f"handback-{tid}.md")
             rp = os.path.join(d_, ".reef", "ci-local", f"report-{tid}.md")
-            if os.path.isfile(hb) and (not os.path.isfile(rp) or os.path.getmtime(rp) < os.path.getmtime(hb)):
+            if os.path.isfile(hb) and (not os.path.isfile(rp) or os.path.getmtime(rp) < os.path.getmtime(hb)) and failed_at < os.path.getmtime(hb):
                 verify_now.append(tid)
                 dispatch_now.remove(t)
                 break
