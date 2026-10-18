@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Round ≥2 judges what the round changed** (2026-10-18: 202's one-test fix round re-verified all 23 criteria, 31 turns,
+  71k): `reef-attempt` logs the failure's words under `## Log` and, on the next dispatch, prints `rejudge: AC-n, …` —
+  the criteria the failure named plus every criterion whose Proof is not a test; the verifier judges those in full and
+  CARRIES the rest (its verdict line names round 1's test and the gate's exit 0 on the new snapshot); `reef-claims
+  report` rejects a carried verdict without its test name and a round ≥2 report without a `GATE: … exit 0` line.
+- **The gate runs once per snapshot** (2026-10-18: the same tree ran the full gate five times in one task): a green
+  `reef-gate.sh` run writes `.reef/ci-local/gate-<mode>-<snapshot>.ok`; a later run on the same snapshot prints `cached`
+  and exits 0; `REEF_GATE_NO_CACHE=1` forces a run, and the pre-commit always sets it (the hook trusts no marker).
 - **`hunter.guard_pass` is read from the MAIN checkout's config** by `reef-attempt`, `reef-adversarial`, `reef-record` and
   the pre-commit — loop policy has one home, like the queue (2026-10-18: the owner set `feature` on develop; the feature
   worktree's copy of the config predated it, and 202's fix round dispatched a hunter per task again).

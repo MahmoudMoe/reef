@@ -291,6 +291,34 @@ cd "$TMP"
 ( cd / && sh "$TMP/g1/scripts/reef-gate.sh" ) >/dev/null 2>&1
 t "gate: outside a git repo FAILS LOUDLY" 1
 
+# ---------- 0.7: the gate runs once per snapshot (2026-10-18: five runs on one tree in one task) ----------
+cd "$TMP"; mkdir -p g2; cd g2; git init -q -b main; git config user.email t@t; git config user.name t
+mkdir -p .reef scripts; cp "$ROOT/scripts/reef-gate.sh" "$ROOT/scripts/reef-snapshot.sh" scripts/; chmod +x scripts/*.sh
+RUNS="$TMP/g2-runs.txt"; : > "$RUNS"
+printf '{"gates": {"test": "echo run >> %s"}}\n' "$RUNS" > .reef/config.json
+printf '.reef/ci-local/\n' > .gitignore; echo v1 > f.txt; git add .; git commit -qm c1 >/dev/null 2>&1
+sh scripts/reef-gate.sh >/dev/null 2>&1 && [ "$(wc -l <"$RUNS" | tr -d ' ')" -eq 1 ]
+t "gate cache: the first run on a snapshot runs the gate" 0
+OUT=$(sh scripts/reef-gate.sh 2>/dev/null); [ "$(wc -l <"$RUNS" | tr -d ' ')" -eq 1 ] && printf '%s' "$OUT" | grep -q 'cached'
+t "gate cache: the second run on the same snapshot is cached (gate not run, exit 0, says so)" 0
+echo v2 > f.txt
+sh scripts/reef-gate.sh >/dev/null 2>&1 && [ "$(wc -l <"$RUNS" | tr -d ' ')" -eq 2 ]
+t "gate cache: an edited tree runs the gate again" 0
+REEF_GATE_NO_CACHE=1 sh scripts/reef-gate.sh >/dev/null 2>&1 && [ "$(wc -l <"$RUNS" | tr -d ' ')" -eq 3 ]
+t "gate cache: REEF_GATE_NO_CACHE=1 forces a run" 0
+printf '{"gates": {"test": "false"}}\n' > .reef/config.json
+sh scripts/reef-gate.sh >/dev/null 2>&1
+t "gate cache: a red gate writes no marker and fails" 1
+sh scripts/reef-gate.sh >/dev/null 2>&1
+t "gate cache: a red gate stays red on the same snapshot (nothing cached)" 1
+# the pre-commit never trusts a marker: plant one for the current snapshot over a red gate, the commit is still refused
+mkrepo "$TMP/r8c" "false"
+cp "$ROOT/scripts/reef-snapshot.sh" scripts/; chmod +x scripts/reef-snapshot.sh
+printf '.reef/ci-local/\n' > .gitignore; echo x > a.txt; git add .
+mkdir -p .reef/ci-local; : > ".reef/ci-local/gate-fast-$(sh scripts/reef-snapshot.sh).ok"
+git commit -qm planted >/dev/null 2>&1
+t "gate cache: the pre-commit ignores a planted marker and runs the (red) gate" 1
+
 # ---------- reef-snapshot.sh ----------
 mkrepo "$TMP/r7" "true"
 cp "$ROOT/scripts/reef-snapshot.sh" scripts/; chmod +x scripts/reef-snapshot.sh

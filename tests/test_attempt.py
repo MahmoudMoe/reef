@@ -253,6 +253,22 @@ class Attempt(unittest.TestCase):
         self.assertIn("guard-pass: feature", r.stdout, "the worktree's stale copy of the config must not decide")
         self.assertNotRegex(r.stdout, r"(?m)^adversary:")
 
+    def test_fix_round_prints_rejudge_from_the_logged_failure_and_non_test_proofs(self):
+        # 2026-10-18: 202's one-test fix round re-verified all 23 criteria (31 turns, 71k)
+        body = ("# demo\n\n## Acceptance Criteria\n- AC-1: a\n- AC-2: b\n- AC-3: c\n- AC-4: d\n\n## Proof\n| AC | Proof |\n|---|---|\n"
+                "| AC-1 | `test_a_holds` |\n| AC-2 | `it(\"b holds\")` |\n| AC-3 | `! git grep -n 'as Foo' -- src` |\n| AC-4 | `[mechanic] npm run build` |\n\n## Log\n")
+        p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: medium\nverify: judge\nattempts: 0\n", body=body)
+        self.assertNotIn("rejudge:", run(p).stdout, "round 1 judges everything")
+        r = run(p, "verifier FAIL: AC-2 the proof test does not exist; hunter BLOCKER on AC-2")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(p) as f:
+            t = f.read()
+        self.assertIn("- attempt 1 FAIL: verifier FAIL: AC-2 the proof test does not exist", t, "the failure's words live in ## Log")
+        self.assertIn("rejudge: AC-2, AC-3, AC-4 (round 2: the criteria the failure named plus the ones whose Proof is not a test: AC-3, AC-4;", r.stdout)
+        self.assertIn("CARRIED", r.stdout)
+        r = run(p, "the gate went red, no criterion named")
+        self.assertIn("rejudge: all (round 3: the recorded failure names no criterion)", r.stdout)
+
     def test_verifier_model_defaults_to_agent_default(self):
         p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: medium\nverify: judge\nattempts: 0\n")
         self.assertIn("verifier: model=opus", run(p).stdout)
