@@ -90,25 +90,31 @@ flowchart LR
     class P,T,V code
 ```
 
-1. **Plan.** `/reef-plan` grills you, then writes the feature folder: a spec with keyed requirements, one decision
-   record with a diagram, and small vertical-slice tasks whose criteria cite those keys and whose proof is a test name
-   or a command. Then the one question: `Approve plan <slug> at <digest16>?` Your answer is recorded against that exact
-   plan; an edit afterwards approves nothing and you are asked again.
-2. **Review the plan.** A deterministic check, then, for anything heavier than `light`, a reviewer in a fresh context.
-   A `design` or `critical` task also gets an adversary on the plan before any code, asking one question: *how can every
-   check be green while the defect happens?*
-3. **Build.** `/reef-task` starts every ready task at once, each in its own worktree on its tier's model. An
-   implementer builds it test-first and hands back; a verifier in a fresh context writes its pass or fail rule per
-   criterion *before* reading the diff; the adversary looks again at a finished guard; a hash of the tree proves the
-   judges changed nothing. Three fix rounds per task, then it stops and tells you.
-4. **Review and merge.** `/reef-review` pushes, opens the PR, checks every proof still holds, reviews the result
-   against the spec and the diff, drives CI green, and records a green verdict tied to the exact commit. A merge is
-   allowed only against that record. By default you merge the feature PR yourself.
-5. **Close.** Decision records get their final numbers, the row moves to the archive with your words, the journal gets
-   a line from what was measured, and `HANDOFF.md` is rewritten whole. A release PR runs the release gates once, and you
-   merge it.
-6. **Resume anywhere.** Everything is on disk. A new session, or one after `/clear`, reads the handoff head and one
-   status tick and continues every row from its last completed step.
+1. **Plan.** `/reef-plan` grills you, once, about the row. A lean planner then drafts the feature folder in the
+   feature's own worktree: a spec with keyed requirements, one decision record with a diagram, and small
+   vertical-slice tasks (at most `plan.max_acs` criteria each) whose criteria cite those keys and whose proof is a
+   test name or a command. The deterministic check must be green before the planner returns.
+2. **Machine review, before you.** The loophole-hunter and a plan reviewer read the draft in parallel, in fresh
+   contexts: at most `hunter.plan_rounds` hunter rounds (two) and one fix round by the planner. Only a HALT, two of
+   your own documents contradicting each other, reaches you before the gate.
+3. **The gate, last.** One question: `Approve plan <slug> at <digest16>?` Your answer is recorded against that exact
+   plan. Nothing after it voids your approval: reviewer notes and the ADR status line sit outside the digest, and
+   only a HALT ruling or your own decision edits an approved plan.
+4. **Build.** `/reef-task` starts every ready task at once, each in its own worktree on its tier's model; when several
+   are ready and this machine's probe has proved the guard reaches workflow agents, the tick names `/reef-graph`
+   and the same graph runs as one background workflow. Per task: an implementer builds it test-first and hands
+   back; a verifier in a fresh context writes its pass or fail rule per criterion *before* reading the diff; a second
+   round judges only what the round changed; a hash of the tree proves the judges changed nothing. Three fix rounds
+   per task, then it stops and tells you.
+5. **Review and merge.** `/reef-review` pushes, opens the PR, checks every proof still holds, runs the hunter once
+   on the feature's whole diff, reviews the result against the spec, drives CI green, and records a green verdict
+   tied to the exact commit. A merge is allowed only against that record. By default you merge the feature PR.
+6. **Close.** Decision records get their final numbers, the row moves to the archive with your words, the journal
+   gets a line with what was measured and what the row cost, and `HANDOFF.md` is rewritten whole. A release PR
+   runs the release gates once, and you merge it.
+7. **Resume anywhere.** Everything is on disk. A new session, or one after `/clear`, reads the handoff head and one
+   status tick, which names the next command and the files behind every id, and continues every row from its
+   last completed step. `.reef/status.html` is the same picture as a page; `reef/README.md` is the map of the tree.
 
 <p align="center"><img src="assets/divider-rain.svg" alt="" width="100%"></p>
 
@@ -131,7 +137,8 @@ flowchart LR
 
 **What you accept**
 
-- Two human gates and nothing between them: the plan approval and the release merge.
+- Two human gates and nothing between them: the plan approval, last, after the machines have reviewed the plan,
+  and the release merge. Nothing after your approval voids it except a HALT you rule on yourself.
 - A row costs real tokens: planning, review, the task graph and the close are separate sessions, each on its tier's
   model. On a subscription that is plan usage, not an invoice.
 - A forge is part of the loop: review verdicts are records tied to the PR head on GitHub. Without a remote, the loop
@@ -143,15 +150,25 @@ flowchart LR
 
 | You see | It means | You do |
 |---|---|---|
-| `Approve plan <slug> at <digest16>?` | The one question of a feature. The approval is recorded against that digest; an edit afterwards approves nothing. | Answer *Approve*, or say what to change and the plan is redone and asked again. |
-| `awaiting: <feature> (approval \| re-approval \| plan review)` in the tick | The plan has no approval at its current digest, was edited after one, or has no pass from the plan review. | Approve it, or run `/reef-plan-review <slug>`. The tick will not offer its tasks until then. |
+| `Approve plan <slug> at <digest16>?` | The one question of a feature, asked after the machine review. The approval is recorded against that digest; reviewer notes and the ADR status line sit outside it. | Answer *Approve*, or say what to change; the planner amends, the machines re-check, and you are asked again. |
+| `awaiting: <feature> (machine review (hunter ‖ plan reviewer) before the gate)` in the tick | The draft has no review pass or no hunter pass at its current digest. | Run `/reef-plan <slug>`; it picks the feature up at the review. The tick will not offer its tasks until then. |
+| `awaiting: <feature> (hunter plan pass stale on <task>: …)` | A review-round edit moved the digest after the hunter passed. | A re-check within `hunter.plan_rounds`, or rule on the open hole yourself with the `--decided` command the line prints. |
+| `awaiting: <feature> (records in the 0.6 digest form: …)` | The plan's records were written before the digest changed shape. Nothing is re-asked. | Run the one `--migrate-records` command the line prints, in the plan's checkout. |
+| `HALT` from the plan reviewer | Two of your own documents contradict each other. The reviewer does not pick a winner. | Decide which one is right; the planner amends and the machines re-check. |
+| `dispatch (graph): 101, 102 — python3 scripts/reef-graph-run.py generate` | Several tasks are ready and this machine's probe recorded `GATE OK`. | Run `/reef-graph`; one workflow builds and judges them in the background and settles the results. |
+| `verify now: <id> (handed back, uncommitted — gate + verifier, no implementer)` | An implementer handed the task back and nothing judged it yet. | Run `/reef-task`; it starts that task at the gate. |
+| `BROKEN: graph.mode is graph but this machine has no GATE OK` | You asked for graph mode and the probe has not proved the guard reaches workflow agents here. | `python3 scripts/reef-graph-run.py probe` once, then the probe-check it prints; chat mode runs meanwhile. |
+| `GROWTH over caps.task_growth: <ids> — say why in the journal` | A task cost the orchestrator more context than the cap you set. | Say why in the journal row, or split the task next time. |
 | `USER ACTION REQUIRED` with a list of commands | No remote, or no `gh` login. Reef does not guess at a forge. | Run the listed commands yourself, then the next command the handoff names. |
 | `/clear now` and a fresh `HANDOFF.md` | The session's context reached the ceiling, or has no room left for a new task. State is on disk. | Run `/clear`. The next session continues every row from its last completed step. |
-| The guard denied a dispatch | Outside the ready set, over the retry cap, the wrong model for the tier, or no approval or review record. The message names which. | Fix the named cause. Nothing was dispatched and no marker was written. |
+| The guard denied a dispatch | Outside the ready set, over the retry cap, the wrong model for the tier, no approval or review record, or a hand-back or report the orchestrator wrote itself. The message names which. | Fix the named cause. Nothing was dispatched and no marker was written. |
 | The guard denied a command | A gate bypass (`--no-verify`, `hooksPath`, a stash, a gate piped into `tail`), a hand-written approval or record, or a protected file outside a critical task. | Do it the gated way. If the rule itself is wrong, that is a `critical` task, not an edit. |
+| A gate exited `124` | It ran past `gates.timeout_s` and was killed with its process group; a leaked dev server is the usual cause. | Find what held the port, or raise the timeout for that gate. |
 | The loop parked | Identical ticks with nothing in flight, or a feature or batch token budget reached. | `scripts/reef-watch` shows what happened while nobody was in the room. Change the queue, the cap, or the budget. |
+| The tick names stale `found` rows | Rows filed two batches ago that nobody admitted. | `python3 scripts/reef-queue.py triage`: one question per module, admit or drop with a reason. |
 | A check warns instead of failing | Content planned under 0.5 meets a rule new in 0.6. | Nothing. The rule fails only for content planned under 0.6. |
 | `Not verified in a browser:` in a verifier report | The judge could not open the app; it says so instead of claiming. | Check that part yourself, or give the task a browser proof row. |
+| Something looks off and you cannot say what | Two `AGENTS.md`, scripts behind the plugin, a plan nobody can find, a stuck worktree. | `/reef-doctor`: one screen, each finding with the command that fixes it. |
 
 <p align="center"><img src="assets/divider-rain.svg" alt="" width="100%"></p>
 
@@ -159,11 +176,12 @@ flowchart LR
 
 | Role | May write? | Does | Runs on |
 |---|---|---|---|
-| Orchestrator | dispatches | Your main session: reads one tick, starts the ready work, never writes code itself. | your session |
-| Implementer | writes | Builds one task test-first in its own worktree; never commits, never judges its own work. | the tier's author model |
-| Verifier | read-only | Decides its pass or fail rule per criterion before reading the diff; reports evidence per criterion. | the tier's verifier model |
-| Loophole-hunter | read-only | The adversary for `design` and `critical` work: the plan before code, the finished guard after. | the tier's adversary model |
-| Plan-reviewer | read-only | Reads an approved plan for drift between spec, decisions, tasks and config; halts on a contradiction between two of your own documents. | the tier's reviewer model |
+| Orchestrator | dispatches | Your main session: reads one tick, starts the ready work, never writes code or evidence itself. In graph mode it supervises one workflow's summary instead of one agent result per turn. | your session |
+| Planner | writes plan files | Drafts or amends one feature's spec, tasks and draft ADR in the feature worktree, lean, and returns only when the deterministic check is green. Never approves, never reviews, never writes code. | the tier's planner model |
+| Implementer | writes code | Builds one task test-first in its own worktree; never commits, never judges its own work. | the tier's author model |
+| Verifier | read-only | Decides its pass or fail rule per criterion before reading the diff; reports evidence per criterion; from the second round judges only what the round changed. | the tier's verifier model |
+| Loophole-hunter | read-only | The adversary: on a `critical` plan before code (at most two rounds), and once per feature on the finished diff before the green record. | the tier's adversary model |
+| Plan-reviewer | read-only | Reads a drafted plan for drift between spec, decisions, tasks and config, before you see it; halts on a contradiction between two of your own documents. | the tier's reviewer model |
 | Mechanic | writes, no claims | Rebase, run the gates, re-take a measurement, archive edits. Exit codes and diffs, never prose. | the cheapest model |
 
 The tier decides which model does the work, which model judges it, and how hard they try. You declare it on a task;
@@ -171,9 +189,9 @@ the paths it touches can only move it up.
 
 | Tier | When a task is this tier | Judges | Author | Effort | How it is checked |
 |---|---|---|---|---|---|
-| `critical` | First-time analysis, architecture, the constitution, the threat model, `touches: money\|pii\|auth`, the guard's own paths. | opus | opus | high | judge; the adversary on the plan and on the guard |
-| `design` | Two people would build it differently; a mechanism that failed twice; auth, crypto, secrets, migrations. | opus | opus | high | judge; the adversary twice |
-| `full` | The default. | opus | opus | medium | judge |
+| `critical` | First-time analysis, architecture, the constitution, the threat model, `touches: money\|pii\|auth`, the guard's own paths. | opus | opus | high | judge; the hunter on the plan (two rounds) and on the feature's diff |
+| `design` | Two people would build it differently; a mechanism that failed twice; auth, crypto, secrets, migrations. | opus | opus | high | judge; the hunter on the feature's diff (`hunter.plan_pass: design` adds the plan) |
+| `full` | The default. | opus | opus | medium | judge; the hunter on the feature's diff |
 | `light` | Allowlisted paths (`docs/**`, `README.md`), no risk path, under the line ceiling. | none: the deterministic check alone stamps | opus | low | gate and golden test, no judge |
 
 Change the model per role and tier in `.reef/config.json` under `tiers.<tier>.roles`; a project with no tier table gets
@@ -221,8 +239,9 @@ One tree, grouped by feature; machine state in `.reef/`; three files at the root
 AGENTS.md  CLAUDE.md (pointer)  HANDOFF.md                 # root: the three files every agent meets first
 .reef/                                                      # config and machine state
   config.json  version                                      #   committed
-  loop.json  inflight/  verifying/  review/  approvals/  worktrees/  proposed/  ci-local/  .plan-review.json   # gitignored
+  loop.json  inflight/  verifying/  review/  approvals/  worktrees/  proposed/  ci-local/  hunt/  cost/  graph/  status.html   # gitignored
 reef/                                                       # every committed Reef artifact
+  README.md                                                 #   the map of the tree, rendered by reef-init
   constitution.md  queue.md  queue-archive.md  journal.md  glossary.md  day-zero.md  recalibration.md
   architecture/   architecture.md  conventions.md  workspace.dsl  context.md  container.md  threat-model.md
                   adr/NNNN-<slug>.md                        # project-wide decisions only (stack, hosting, boundaries)
@@ -310,8 +329,10 @@ carries `# CLASS:` in its header and `tests/test_contracts.py` ties each row bel
 
 ### The adversarial stage
 
-A `design` or `critical` task runs the `loophole-hunter` twice — on the plan before code, on the finished guard before
-close — with one question: *how can every check be green while the defect happens?*; once per release it runs
+The `loophole-hunter` runs on a `critical` plan before code (`hunter.plan_pass`; at most `hunter.plan_rounds` = 2
+rounds, enforced by the recorder: a hole still open after that is the owner's decision at the gate, `--decided`), and
+once per feature on the finished diff before the GREEN record (`hunter.guard_pass: feature`; `task` for one pass per
+task), with one question: *how can every check be green while the defect happens?*; once per release it runs
 `pass=system` against the threat model and a running worktree. Read-only by the guard, cites file:line, ranks holes by
 whether they will happen here and by their real cost, attacks the last round's fix first, and lets the task's Scope
 draw the line between a BLOCKER and a NEW-ROW. BLOCKER fails the pass under the cap; NEW-ROW becomes a queue row.
@@ -353,17 +374,18 @@ and never runs in CI; its fixture replay does.
 
 ### Status and what is next
 
-Reef 0.6.0 is released and has been run end to end on a fresh project and on itself (`docs/perf/dogfood-2026-10-16.md`).
-It is usable today for a project whose owner accepts three facts: the human gates are a plan approval and the release
-merge, nothing in between; a row costs real tokens (a two-task row ran about $16 at API list prices across five sessions,
-on a subscription that is plan usage, not an invoice); and a `gh`-authenticated forge is needed for the review, record
-and merge steps (without one, Reef stops with USER ACTION REQUIRED and says exactly what it would have run).
+Reef 0.6.0 is the released version. 0.7 is unreleased and in daily use on a trial project; every entry under "0.7
+(unreleased)" in `CHANGELOG.md` names the first contact that caused it, and `docs/perf/2026-10-18.md` holds the
+measurements. Shipped on the way to 0.7 (`docs/design/workflow-v2.md`): the owner's gate last, after the hunter and
+the plan reviewer run in parallel on the draft; a lean planner; tasks capped by criteria; graph mode (`/reef-graph`,
+gated by a probe of the guard); one command to update (`reef-update.py`), one screen to diagnose (`/reef-doctor`), a
+map of the tree and a status page; found-row triage; the cost of every task in the record; defaults sized like the
+field (word budgets off, the hunter's guard pass once per feature).
 
-Open for 0.7, in `CHANGELOG.md` under "0.7 (unreleased)" and the dogfood report: a live capture of the AskUserQuestion payload (needs an interactive
-session), a sonnet author for the `light` tier once an author eval exists, recalibrating a project that already runs Reef, and
-the found rows the Reef-on-itself run filed. Done this cycle: the planning cut (`docs/design/plan-cost.md`), `/reef-assess` as data,
-the guard's own checkpoint at the ceiling, `reef-watch`.
-
-MIT licensed. Built with Claude Code.
+Open: workflow v2 phase 4 (an external runner if the workflow is not enough, a release drill to `main`, the
+verifier-FAIL drill), a live capture of the AskUserQuestion payload, a sonnet author for the `light` tier once an
+author eval exists.
 
 The plan after first contact for ease of use and autopilot maturity: [`docs/design/usability-autopilot-plan.md`](docs/design/usability-autopilot-plan.md).
+
+MIT licensed. Built with Claude Code.

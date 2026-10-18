@@ -180,7 +180,7 @@
     for (const url of README_URLS) {
       try {
         const res = await fetch(url, { cache: 'no-cache' });
-        if (res.ok) { const text = await res.text(); if (text.includes('# Reef')) return text; }
+        if (res.ok) { const text = await res.text(); if (/badge\/version-\d/.test(text) && text.includes('## Settings')) return text; }
       } catch (e) { /* try the next */ }
     }
     return null;

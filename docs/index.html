@@ -94,24 +94,24 @@
     <div class="sec-head">
       <span class="eyebrow">Start here</span>
       <h2>Pick your situation. One command each.</h2>
-      <p>The same five rows as the README's quick start, one at a time. Every command below is a Claude Code slash command inside your project.</p>
+      <p>The same rows as the README's install table, one at a time. Every command below is a Claude Code slash command inside your project.</p>
     </div>
     <div class="tabs" role="tablist" aria-label="Your situation">
       <button class="tab" role="tab" aria-selected="true" aria-controls="sit-new" id="tab-new" type="button">A new project</button>
       <button class="tab" role="tab" aria-selected="false" aria-controls="sit-existing" id="tab-existing" type="button">An existing project</button>
       <button class="tab" role="tab" aria-selected="false" aria-controls="sit-feature" id="tab-feature" type="button">A feature to build</button>
       <button class="tab" role="tab" aria-selected="false" aria-controls="sit-queue" id="tab-queue" type="button">A queue of rows</button>
-      <button class="tab" role="tab" aria-selected="false" aria-controls="sit-clone" id="tab-clone" type="button">A fresh clone</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="sit-keep" id="tab-keep" type="button">Keeping it running</button>
     </div>
 
     <div class="panel" id="sit-new" role="tabpanel" aria-labelledby="tab-new">
       <div class="cmd">
         <h3>A new project</h3>
         <pre><code>/reef-init</code></pre>
-        <p class="what"><strong>One batched question set.</strong> The branches and the architecture grill: host, shape, scale, store, auth boundary, one-year non-goals.</p>
+        <p class="what"><strong>One batched question set.</strong> Your branches, and the architecture grill: host, shape, scale, store, auth boundary, one-year non-goals.</p>
       </div>
       <div class="what">
-        <p><strong>What happens.</strong> Reef renders one tree from templates adapted to your stack: <code>.reef/config.json</code> (every number, once), <code>AGENTS.md</code>, the constitution, the queue with batch 1 row 1 = <strong>the walking skeleton</strong>, <code>reef/architecture/architecture.md</code> (intent, C4 L1/L2) with draft ADRs for shape, host, store and auth, the journal, glossary, day-zero, a release-only CI, Dependabot, the git hooks, and every <code>scripts/reef-*</code>.</p>
+        <p><strong>What happens.</strong> Reef renders one tree adapted to your stack: <code>.reef/config.json</code> (every number, once), <code>AGENTS.md</code>, the constitution, the queue with row 1 = <strong>the walking skeleton</strong>, the architecture with draft decisions, the journal, glossary and day-zero list, a release-only CI, the git hooks, every <code>scripts/reef-*</code>, and <code>reef/README.md</code>, the map of the tree.</p>
         <p>Idempotent: a second run with nothing changed writes nothing.</p>
       </div>
     </div>
@@ -133,11 +133,11 @@
     <div class="panel" id="sit-feature" role="tabpanel" aria-labelledby="tab-feature" hidden>
       <div class="cmd">
         <h3>A feature to build</h3>
-        <div class="flow"><span>/reef-plan &lt;row&gt;</span><i>→</i><span>/reef-plan-review</span><i>→</i><span>/reef-task &lt;slug&gt;</span><i>→</i><span>/reef-review &lt;slug&gt;</span></div>
-        <p class="what">Four commands, one human question in the middle of the first: <code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code></p>
+        <div class="flow"><span>/reef-plan &lt;row&gt;</span><i>→</i><span>/reef-task &lt;slug&gt;</span><i>→</i><span>/reef-review &lt;slug&gt;</span></div>
+        <p class="what">Three commands and one question for you, asked <strong>last</strong>, after the machines have reviewed the plan: <code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code></p>
       </div>
       <div class="what">
-        <p><strong>What happens.</strong> The grill, the spec and the tasks. The deterministic check and the semantic review. The task graph: every ready task at once, each in its own worktree, verified by a fresh judge. Then the PR, the acceptance against <code>SPEC.md</code>, the diff review, the merge and the close.</p>
+        <p><strong>What happens.</strong> The grill; a lean planner drafts the spec and the tasks in the feature's worktree; the hunter and a fresh reviewer read the draft in parallel; then the gate. Nothing after your approval voids it. Every ready task at once, each in its own worktree, each verified by a fresh judge. The PR, the proofs re-run, the hunter once on the whole diff, the acceptance against the spec, the merge and the close.</p>
         <p>Each stage is explained in <a href="#how">How it works</a>.</p>
       </div>
     </div>
@@ -146,23 +146,27 @@
       <div class="cmd">
         <h3>A queue of rows</h3>
         <pre><code>/reef-loop</code></pre>
-        <p class="what">The outer graph: every ready row through the four feature commands, in parallel where rows do not collide.</p>
+        <p class="what">The outer graph: every ready row through the three feature commands, in parallel where rows do not collide.</p>
       </div>
       <div class="what">
-        <p><strong>What happens.</strong> The loop stops only for the owner's decisions, a missing credential, a wrong spec, or a cap. Its questions are batched. State lives on disk, so a new session reads the handoff head and one tick, about 300 tokens, and continues every row from its furthest completed step.</p>
+        <p><strong>What happens.</strong> The loop stops only for your decisions, a missing credential, a wrong spec, or a cap. Its questions are batched. State lives on disk, so a new session reads the handoff head and one tick and continues every row from its last completed step; the tick names the next command and the files behind every id.</p>
         <p>Without a <code>gh</code>-authenticated forge, Reef stops with <strong>USER ACTION REQUIRED</strong> and says exactly what it would have run.</p>
       </div>
     </div>
 
-    <div class="panel" id="sit-clone" role="tabpanel" aria-labelledby="tab-clone" hidden>
+    <div class="panel" id="sit-keep" role="tabpanel" aria-labelledby="tab-keep" hidden>
       <div class="cmd">
-        <h3>A fresh clone</h3>
-        <pre><code>make setup</code></pre>
-        <p class="what">Hooks are local git config and do not survive a clone.</p>
+        <h3>Keeping it running</h3>
+        <pre><code>/reef-doctor
+/reef-graph
+python3 &lt;plugin&gt;/scripts/reef-update.py --commit
+make setup</code></pre>
       </div>
       <div class="what">
-        <p><strong>Upgrading from 0.5.</strong> Re-run <code>/reef-init</code>. <code>scripts/reef-migrate</code> runs first and adds only keys, keeps <code>gates.test</code> as the alias it is, and writes <code>.reef/version</code>. Every check new in 0.6 warns on content planned under 0.5 and fails only on content planned under 0.6.</p>
-        <p>The flat <code>tasks/</code> and <code>docs/</code> layout keeps working; <code>python3 scripts/reef-migrate --layout</code> moves it in one reviewed commit when you want the tree.</p>
+        <p><strong>Something looks off:</strong> <code>/reef-doctor</code> is one screen: the plugin clone's branch and freshness, scripts behind the plugin, the queue's home, worktrees, the loop's state, <code>gh</code>, Docker, waiting proposals, each with the command that fixes it.</p>
+        <p><strong>Several tasks ready:</strong> <code>/reef-graph</code> runs the task graph as one background workflow, once a probe has proved the guard reaches workflow agents on this machine. The tick says when.</p>
+        <p><strong>A new Reef:</strong> <code>reef-update.py --commit</code> pulls the plugin, refreshes your project's copies, commits Reef's own files and prints the two reload commands.</p>
+        <p><strong>A fresh clone:</strong> <code>make setup</code>. Hooks are local git config and do not survive a clone.</p>
       </div>
     </div>
   </div>
@@ -174,65 +178,65 @@
     <div class="sec-head">
       <span class="eyebrow">How it works</span>
       <h2>From a queue row to a merge, seven stages. Click one.</h2>
-      <p>You decide twice in the whole run: you approve the plan and you merge the release. Everything between those two is decided by code on state the agent cannot write. A dark dot marks a stage where you decide.</p>
+      <p>You decide twice in the whole run: you approve the plan, after the machines have reviewed it, and you merge the release. Everything else is decided by code on state the agent cannot write. A dark dot marks a stage where you decide.</p>
     </div>
     <div class="pipe" role="tablist" aria-label="Pipeline stages">
       <button class="stage" role="tab" aria-selected="true" aria-controls="st-queue" id="stage-queue" type="button"><span class="k">01</span><span class="t">Queue row</span><span class="h" title="you write the rows"><span class="sr-only">you decide here</span></span></button>
-      <button class="stage" role="tab" aria-selected="false" aria-controls="st-plan" id="stage-plan" type="button"><span class="k">02</span><span class="t"><code>/reef-plan</code></span><span class="h" title="one question for you"><span class="sr-only">you decide here</span></span></button>
-      <button class="stage" role="tab" aria-selected="false" aria-controls="st-review" id="stage-review" type="button"><span class="k">03</span><span class="t"><code>/reef-plan-review</code></span></button>
-      <button class="stage" role="tab" aria-selected="false" aria-controls="st-task" id="stage-task" type="button"><span class="k">04</span><span class="t"><code>/reef-task</code></span></button>
+      <button class="stage" role="tab" aria-selected="false" aria-controls="st-plan" id="stage-plan" type="button"><span class="k">02</span><span class="t"><code>/reef-plan</code></span></button>
+      <button class="stage" role="tab" aria-selected="false" aria-controls="st-gate" id="stage-gate" type="button"><span class="k">03</span><span class="t">The gate</span><span class="h" title="one question for you, last"><span class="sr-only">you decide here</span></span></button>
+      <button class="stage" role="tab" aria-selected="false" aria-controls="st-task" id="stage-task" type="button"><span class="k">04</span><span class="t"><code>/reef-task</code> · <code>/reef-graph</code></span></button>
       <button class="stage" role="tab" aria-selected="false" aria-controls="st-pr" id="stage-pr" type="button"><span class="k">05</span><span class="t"><code>/reef-review</code></span></button>
       <button class="stage" role="tab" aria-selected="false" aria-controls="st-close" id="stage-close" type="button"><span class="k">06</span><span class="t">Merge &amp; close</span><span class="h" title="you merge the release"><span class="sr-only">you decide here</span></span></button>
       <button class="stage" role="tab" aria-selected="false" aria-controls="st-resume" id="stage-resume" type="button"><span class="k">07</span><span class="t">Resume anywhere</span></button>
     </div>
 
     <div class="detail three" id="st-queue" role="tabpanel" aria-labelledby="stage-queue">
-      <div class="full"><h3>01 · The queue row <span class="badge human">you write it</span></h3><p>Your backlog is <code>reef/queue.md</code>: one row per feature, with an id, what it depends on, and a batch number. The queue lives in one place, on your base branch in the main checkout, so every session sees the same list.</p></div>
+      <div class="full"><h3>01 · The queue row <span class="badge human">you write it</span></h3><p>Your backlog is <code>reef/queue.md</code>: one row per feature, with an id, what it depends on, a source (planned, or found along the way) and a batch number. The queue lives in one place, on your base branch in the main checkout, so every session sees the same list. Rows are edited by command: <code>add-row</code>, <code>footnote</code>, <code>set-depends</code>, and <code>triage</code> for found rows that went stale.</p></div>
       <div><h4>What you write</h4><p>A sentence and a batch number. <code>/reef-init</code> seeds row 1 with the walking skeleton, the thinnest end-to-end slice of your project.</p></div>
-      <div><h4>What lets it through</h4><p>The row is in the current batch and every row it depends on is closed.</p></div>
+      <div><h4>What lets it through</h4><p>The row is in the current batch and every row it depends on is closed. A found row whose fix is one file in no risk class gets one light task and no ceremony.</p></div>
       <div><h4>Your part</h4><p>Write the rows. Nothing starts until a row is ready.</p></div>
     </div>
 
     <div class="detail three" id="st-plan" role="tabpanel" aria-labelledby="stage-plan" hidden>
-      <div class="full"><h3>02 · <code>/reef-plan</code> <span class="badge human">decision 1 of 2</span></h3><p>Reef grills you about the feature, then writes its folder under <code>reef/features/&lt;slug&gt;/</code>: a spec with keyed requirements, one decision record with a diagram, and small vertical-slice tasks whose acceptance criteria cite those keys and whose proof is a test name or a command. Then it asks you the one question.</p></div>
-      <div><h4>What it writes</h4><ul><li><code>SPEC.md</code>, a draft ADR, the task files</li><li>the rows the grill produced, on your base branch</li></ul></div>
-      <div><h4>What lets it through</h4><p><code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code> Your answer is recorded against that exact plan. If anything in the folder changes afterwards, the approval no longer counts and you are asked again.</p></div>
-      <div><h4>Your part</h4><p>Answer the grill. Read the plan. Approve it, or say what to change.</p></div>
+      <div class="full"><h3>02 · <code>/reef-plan</code>: grill, draft, machine review</h3><p>Reef grills you once about the row. A lean planner then drafts the feature folder in the feature's own worktree: a spec with keyed requirements, one decision record with a diagram, and small vertical-slice tasks, each with at most <code>plan.max_acs</code> criteria, whose proof is a test name or a command. Then the loophole-hunter and a plan reviewer read the draft in parallel, in fresh contexts: at most two hunter rounds and one fix round by the planner, with plain advisories filed as notes outside the digest.</p></div>
+      <div><h4>What it writes</h4><ul><li><code>SPEC.md</code>, a draft ADR, the task files, in <code>reef/features/&lt;slug&gt;/</code></li><li>the row's queue edits on your base branch, before the branch exists</li><li>a review record and the hunter's pass record at the draft's digest</li></ul></div>
+      <div><h4>What lets it through</h4><p>The deterministic check green before the planner returns; a review pass and a hunter pass at the current digest. A hole still open after the second hunter round is yours to rule on at the gate.</p></div>
+      <div><h4>Your part</h4><p>Answer the grill. Only a HALT, two of your own documents contradicting each other, reaches you before the gate.</p></div>
     </div>
 
-    <div class="detail three" id="st-review" role="tabpanel" aria-labelledby="stage-review" hidden>
-      <div class="full"><h3>03 · <code>/reef-plan-review</code></h3><p>A deterministic check first: the slug, the keys, every criterion cites a key of its own folder, no more than <code>plan.max_tasks</code> tasks, criteria and sentences under their word caps. Then, for anything heavier than a <code>light</code> task, a reviewer in a fresh context reads the plan for contradictions between the spec, the decisions and the tasks. A <code>design</code> or <code>critical</code> task also gets an adversary asking one question: <em>how can every check be green while the defect happens?</em></p></div>
-      <div><h4>What it writes</h4><ul><li>a stamp over the whole feature folder</li><li>a pass record for the review, and one for the adversary where it ran</li></ul></div>
-      <div><h4>What lets it through</h4><p>A pass at the plan's current digest. A plan edited after a pass needs a new one; a plan with only <code>light</code> tasks needs the deterministic check alone.</p></div>
-      <div><h4>Your part</h4><p>None, unless the reviewer finds two of your own documents contradicting each other. That is a halt, and it is yours to resolve.</p></div>
+    <div class="detail three" id="st-gate" role="tabpanel" aria-labelledby="stage-gate" hidden>
+      <div class="full"><h3>03 · The gate, last <span class="badge human">decision 1 of 2</span></h3><p>One question: <code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code> Your answer is recorded against that exact plan by a hook, from your own words, and only while the deterministic check is green. Because the machines ran first, nothing after your approval voids it: reviewer notes and the ADR status line sit outside the digest, and only a HALT ruling or your own decision edits an approved plan.</p></div>
+      <div><h4>What it writes</h4><ul><li><code>.reef/approvals/&lt;slug&gt;.json</code>, bound to the digest</li></ul></div>
+      <div><h4>What lets it through</h4><p>Your <em>Approve</em>. Say what to change instead and the planner amends, the machines re-check, and you are asked again.</p></div>
+      <div><h4>Your part</h4><p>Read the plan. Approve it, or rule on the holes the hunter left open.</p></div>
     </div>
 
     <div class="detail three" id="st-task" role="tabpanel" aria-labelledby="stage-task" hidden>
-      <div class="full"><h3>04 · <code>/reef-task</code>, the task graph</h3><p>Every task whose dependencies are done starts at once, each in its own git worktree, on the model its tier names. For each task: an implementer builds it test-first and hands back; a verifier in a fresh context writes its pass or fail rule per criterion <em>before</em> reading the diff, then judges; the adversary looks again at a finished guard; the task merges into the feature branch. A hash of the tree before and after each judge proves it changed nothing.</p></div>
-      <div><h4>What it writes</h4><ul><li>code and tests, in <code>.reef/worktrees/&lt;id&gt;</code></li><li>the judge's report, saved verbatim beside the task</li><li>the task file moves to <code>tasks/done/</code> on merge</li></ul></div>
-      <div><h4>What lets it through</h4><p>The guard refuses a start outside the ready set, past the retry cap, on the wrong model for the tier, without your approval, or without the review's pass. Three fix rounds per task by default; then it stops and tells you.</p></div>
+      <div class="full"><h3>04 · The task graph: <code>/reef-task</code>, or <code>/reef-graph</code></h3><p>Every task whose dependencies are done starts at once, each in its own git worktree, on the model its tier names. For each task: an implementer builds it test-first and hands back; a verifier in a fresh context writes its pass or fail rule per criterion <em>before</em> reading the diff, and from the second round judges only what the round changed. A hash of the tree before and after each judge proves it changed nothing. When several tasks are ready and this machine's probe has proved the guard reaches workflow agents, the tick names <code>/reef-graph</code>: the same graph as one background workflow, one summary back, the merge still with the orchestrator.</p></div>
+      <div><h4>What it writes</h4><ul><li>code and tests, in <code>.reef/worktrees/&lt;id&gt;</code></li><li>the judge's report, saved verbatim beside the task; the task's cost in <code>.reef/cost/</code></li><li>the task file moves to <code>tasks/done/</code> on merge</li></ul></div>
+      <div><h4>What lets it through</h4><p>The guard refuses a start outside the ready set, past the retry cap, on the wrong model for the tier, without your approval or the review's pass, or with evidence the orchestrator wrote itself. Three fix rounds per task, then it stops and tells you. A gate past <code>gates.timeout_s</code> is killed.</p></div>
       <div><h4>Your part</h4><p>None. If you end the session while ready work is idle, Reef says so before the turn ends.</p></div>
     </div>
 
     <div class="detail three" id="st-pr" role="tabpanel" aria-labelledby="stage-pr" hidden>
-      <div class="full"><h3>05 · <code>/reef-review</code></h3><p>Pushes the feature branch and opens the pull request. Checks that every proof named in the plan still holds on the branch. Reviews the result against the spec and reviews the diff, with one round of fixes under one cap. Drives CI, or your local gate, green.</p></div>
+      <div class="full"><h3>05 · <code>/reef-review</code></h3><p>Pushes the feature branch and opens the pull request. Checks that every proof named in the plan still holds on the branch. Runs the loophole-hunter once on the feature's whole diff. Reviews the result against the spec, with one round of fixes under one cap, and drives CI, or your local gate, green. Findings that are not this feature's become found rows in your queue.</p></div>
       <div><h4>What it writes</h4><ul><li>the pull request</li><li>a green record tied to the exact commit it reviewed</li></ul></div>
-      <div><h4>What lets it through</h4><p>A merge is allowed only against a green record at the PR's current head. Push new code after the record and it has to be earned again.</p></div>
+      <div><h4>What lets it through</h4><p>A merge is allowed only against a green record at the PR's current head, and the record is refused without the hunter's pass. Push new code after the record and it has to be earned again.</p></div>
       <div><h4>Your part</h4><p>By default you merge the feature PR yourself (<code>merge.by: human</code>). Set <code>merge.by: loop</code> and Reef merges it against the green record.</p></div>
     </div>
 
     <div class="detail three" id="st-close" role="tabpanel" aria-labelledby="stage-close" hidden>
-      <div class="full"><h3>06 · Merge and close <span class="badge human">decision 2 of 2</span></h3><p>The feature lands on your base branch and the row closes in the same step: draft decision records get their final numbers in one sequence, the row moves to the archive with your own words, the journal gets a line written from what was actually measured, and the handoff file is rewritten whole. When a batch is done, a release PR goes from the base branch to the release branch, the release gates run once there, and you merge it.</p></div>
+      <div class="full"><h3>06 · Merge and close <span class="badge human">decision 2 of 2</span></h3><p>The feature lands on your base branch and the row closes in the same step: draft decision records get their final numbers in one sequence, the row moves to the archive with your own words, the journal gets a line with what was measured and what the row cost, and the handoff file is rewritten whole. When a batch is done, a release PR goes from the base branch to the release branch, the release gates run once there, and you merge it.</p></div>
       <div><h4>What it writes</h4><ul><li>numbered ADRs, <code>reef/queue-archive.md</code>, <code>reef/journal.md</code>, <code>HANDOFF.md</code></li></ul></div>
       <div><h4>What lets it through</h4><p>The release gates: architecture drift, the threat model, a secret scan, your stack's audit. A missing tool counts as a skip, and a skip is not a pass.</p></div>
       <div><h4>Your part</h4><p>Merge the release. There is no gate on push by design: CI is the wall, and the release merge is always yours.</p></div>
     </div>
 
     <div class="detail three" id="st-resume" role="tabpanel" aria-labelledby="stage-resume" hidden>
-      <div class="full"><h3>07 · Resume anywhere</h3><p>Everything Reef knows is on disk. A new session, or one after <code>/clear</code>, reads the head of <code>HANDOFF.md</code> and one status tick, a few hundred tokens, and continues every row from its last completed step. The tick never offers a task whose plan lacks your approval; it says <code>awaiting</code> and names the feature instead.</p></div>
-      <div><h4>What it writes</h4><ul><li><code>HANDOFF.md</code>, rewritten from measured state, including by the guard itself when the session's context runs out</li></ul></div>
+      <div class="full"><h3>07 · Resume anywhere</h3><p>Everything Reef knows is on disk. A new session, or one after <code>/clear</code>, reads the head of <code>HANDOFF.md</code> and one status tick, a few hundred tokens, which names the next command and the files behind every id it mentions, and continues every row from its last completed step. The tick never offers a task whose plan lacks your approval or its review; it says <code>awaiting</code> and names what is missing. <code>.reef/status.html</code> is the same picture as a page, refreshed every tick; <code>reef/README.md</code> is the map of the tree.</p></div>
+      <div><h4>What it writes</h4><ul><li><code>HANDOFF.md</code>, rewritten from measured state, including by the guard itself when the session's context runs out</li><li><code>.reef/status.html</code></li></ul></div>
       <div><h4>What lets it through</h4><p>A context ceiling and a reserve for starting new tasks. Over either, Reef writes the handoff first and then asks you to <code>/clear</code>.</p></div>
-      <div><h4>Your part</h4><p>Run <code>/clear</code> when told. <code>scripts/reef-watch</code> shows what happened while you were away.</p></div>
+      <div><h4>Your part</h4><p>Run <code>/clear</code> when told. <code>scripts/reef-watch</code> shows what happened while you were away; <code>/reef-doctor</code> says what is wrong and how to fix it.</p></div>
     </div>
     <div class="legend"><span><i style="background:var(--ink)"></i> you decide here</span><span><i style="background:var(--teal)"></i> decided by code on state the agent cannot write</span></div>
   </div>
@@ -243,15 +247,16 @@
   <div class="wrap">
     <div class="sec-head">
       <span class="eyebrow">Who does what</span>
-      <h2>Six roles. Three of them may not write.</h2>
+      <h2>Seven roles. Three of them may not write.</h2>
       <p>When Reef refuses something, the message names the role it refused. These cards say what each role is allowed to do, so the refusal reads as a rule and not as a bug.</p>
     </div>
     <div class="cards">
-      <div class="card"><h3>Orchestrator <span class="badge rw">dispatches</span></h3><p>Your main Claude Code session. It reads one status tick, starts the ready work, and never writes code itself. It has a context ceiling; before it hits one, it writes the handoff and asks you to <code>/clear</code>.</p></div>
+      <div class="card"><h3>Orchestrator <span class="badge rw">dispatches</span></h3><p>Your main Claude Code session. It reads one status tick, starts the ready work, and never writes code or evidence itself; in graph mode it supervises one workflow's summary. It has a context ceiling; before it hits one, it writes the handoff and asks you to <code>/clear</code>.</p></div>
+      <div class="card"><h3>Planner <span class="badge rw">writes plan files</span></h3><p>Drafts or amends one feature's spec, tasks and draft decision record in the feature worktree, from the grill's answers and your footnotes, and returns only when the deterministic check is green. Lean context. Never approves, never reviews, never writes code.</p><span class="meta">the tier's planner model</span></div>
       <div class="card"><h3>Implementer <span class="badge rw">writes code</span></h3><p>Builds one task, test-first, in its own worktree. It never commits and never judges its own work. It hands back a short note with a list of claims the verifier will check.</p><span class="meta">the tier's author model</span></div>
-      <div class="card"><h3>Verifier <span class="badge ro">read-only</span></h3><p>A fresh context that decides its pass or fail rule per criterion before it reads the diff, attacks the last round's fix first, and reports evidence per criterion. If it cannot open your app in a browser, it says so instead of guessing.</p><span class="meta">the tier's verifier model</span></div>
-      <div class="card"><h3>Loophole-hunter <span class="badge ro">read-only</span></h3><p>The adversary for <code>design</code> and <code>critical</code> work. It reads the plan before any code, and the finished guard after, looking for the way every check stays green while the defect happens. A blocker fails the round; a smaller finding becomes a new queue row for you.</p><span class="meta">the tier's adversary model</span></div>
-      <div class="card"><h3>Plan-reviewer <span class="badge ro">read-only</span></h3><p>Reads an approved plan for drift between the spec, the decisions, the tasks and the config, and cites what it finds. If two of your own documents contradict each other, it stops and hands the choice to you rather than picking a winner.</p><span class="meta">the tier's reviewer model</span></div>
+      <div class="card"><h3>Verifier <span class="badge ro">read-only</span></h3><p>A fresh context that decides its pass or fail rule per criterion before it reads the diff, and from the second round judges only what the round changed. If it cannot open your app in a browser, it says so instead of guessing.</p><span class="meta">the tier's verifier model</span></div>
+      <div class="card"><h3>Loophole-hunter <span class="badge ro">read-only</span></h3><p>The adversary. On a <code>critical</code> plan before any code, at most two rounds, looking for the way every check stays green while the defect happens; then once per feature on the finished diff before the green record. A blocker fails the round; a smaller finding becomes a found row for you.</p><span class="meta">the tier's adversary model</span></div>
+      <div class="card"><h3>Plan-reviewer <span class="badge ro">read-only</span></h3><p>Reads the drafted plan, before you see it, for drift between the spec, the decisions, the tasks and the config, and cites what it finds. If two of your own documents contradict each other, it stops and hands the choice to you rather than picking a winner.</p><span class="meta">the tier's reviewer model</span></div>
       <div class="card"><h3>Mechanic <span class="badge rw">writes, no claims</span></h3><p>The chores a machine can check: a rebase, running the gates, re-taking a measurement, archive edits. It reports exit codes and diffs, never prose.</p><span class="meta">the cheapest model, sonnet by default</span></div>
     </div>
   </div>
@@ -263,15 +268,15 @@
     <div class="sec-head">
       <span class="eyebrow">Who runs what</span>
       <h2>Four tiers. A tier only gets heavier.</h2>
-      <p>The tier decides which model does the work, which model judges it, and how hard they try. You declare a tier on a task; the paths it touches can only move it up: anything touching <code>pii</code>, <code>money</code> or <code>auth</code> is critical, a migration is at least design and needs a <code>Rollback:</code>.</p>
+      <p>The tier decides which model does the work, which model judges it, and how hard they try. You declare a tier on a task; the paths it touches can only move it up: anything touching <code>pii</code>, <code>money</code> or <code>auth</code> is critical, a migration is at least design and needs a <code>Rollback:</code>. A found row whose fix is one file in no risk class is light, with no hunter and no semantic review.</p>
     </div>
     <div class="tablebox"><div class="scroll">
       <table class="tier">
         <thead><tr><th>Tier</th><th>When a task is this tier</th><th>Judges</th><th>Author</th><th>Effort</th><th>How it is checked</th></tr></thead>
         <tbody>
-          <tr class="tier-row"><td><code>critical</code></td><td>First-time analysis, architecture, the constitution, the threat model, <code>touches: money|pii|auth</code>, the guard's own paths.<span class="gloss">If this is wrong, the project is wrong.</span></td><td>opus</td><td>opus <span class="gloss">set a heavier model per project</span></td><td>high</td><td>judge; the adversary on the plan and on the guard</td></tr>
-          <tr class="tier-row"><td><code>design</code></td><td>Two people would build it differently; a mechanism that failed twice; auth, crypto, secrets, migration paths.<span class="gloss">The shape is a decision.</span></td><td>opus</td><td>opus</td><td>high</td><td>judge; the adversary twice</td></tr>
-          <tr class="tier-row"><td><code>full</code></td><td>The default.<span class="gloss">Ordinary feature work.</span></td><td>opus</td><td>opus</td><td>medium</td><td>judge</td></tr>
+          <tr class="tier-row"><td><code>critical</code></td><td>First-time analysis, architecture, the constitution, the threat model, <code>touches: money|pii|auth</code>, the guard's own paths.<span class="gloss">If this is wrong, the project is wrong.</span></td><td>opus</td><td>opus <span class="gloss">set a heavier model per project</span></td><td>high</td><td>judge; the hunter on the plan (two rounds) and on the feature's diff</td></tr>
+          <tr class="tier-row"><td><code>design</code></td><td>Two people would build it differently; a mechanism that failed twice; auth, crypto, secrets, migration paths.<span class="gloss">The shape is a decision.</span></td><td>opus</td><td>opus</td><td>high</td><td>judge; the hunter on the feature's diff (<code>hunter.plan_pass: design</code> adds the plan)</td></tr>
+          <tr class="tier-row"><td><code>full</code></td><td>The default.<span class="gloss">Ordinary feature work.</span></td><td>opus</td><td>opus</td><td>medium</td><td>judge; the hunter on the feature's diff</td></tr>
           <tr class="tier-row"><td><code>light</code></td><td>Allowlisted paths (<code>docs/**</code>, <code>README.md</code>), no risk path, under the line ceiling (80).<span class="gloss">A machine can check it whole.</span></td><td>none <span class="gloss">the deterministic check alone stamps</span></td><td>opus</td><td>low</td><td>gate + golden test, no judge</td></tr>
         </tbody>
       </table>
@@ -300,12 +305,12 @@
         <h3>What it never does</h3>
         <p><strong>Overwrite a file you wrote.</strong> A differing rendering lands in <code>.reef/proposed/</code> with a diff; only <code>--accept</code> applies it.</p>
         <p><strong>Delete a document.</strong> Recalibration archives into <code>reef/archive/&lt;date&gt;/</code> in one commit that one <code>git revert</code> undoes.</p>
-        <p><strong>Let a judge write.</strong> The verifier, the hunter and the plan-reviewer are read-only by the guard, and a tree hash proves it.</p>
+        <p><strong>Let a judge write.</strong> The verifier, the hunter and the plan-reviewer are read-only by the guard, and a tree hash proves it. Evidence is the agent's: the guard refuses a hand-back or a report the orchestrator wrote itself.</p>
         <p><strong>Merge the release.</strong> The release PR is yours. There is no push gate by design; CI is the wall.</p>
       </div>
       <div class="card">
         <h3>What you accept</h3>
-        <p><strong>Two human gates, nothing between.</strong> You approve a plan at its digest and you merge the release. Everything else is decided by code on state the agent cannot author.</p>
+        <p><strong>Two human gates, nothing between.</strong> You approve a plan at its digest, after the machines have reviewed it, and you merge the release. Nothing after your approval voids it except a HALT you rule on yourself.</p>
         <p><strong>A row costs real tokens.</strong> Planning, review, the task graph and the close are separate sessions, each on the tier's model. On a subscription that is plan usage, not an invoice.</p>
         <p><strong>A forge is part of the loop.</strong> Review verdicts are records bound to the PR head on GitHub; without a remote the loop hands the merge to you.</p>
       </div>
@@ -316,15 +321,25 @@
       <table class="stack stops">
         <thead><tr><th>You see</th><th>It means</th><th>You do</th></tr></thead>
         <tbody>
-          <tr><td><code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code></td><td>The one human question of a feature. The approval is a record bound to that digest; an edit afterwards approves nothing.</td><td>Answer <em>Approve</em>, or say what to change and the plan is redone and asked again.</td></tr>
-          <tr><td><code>awaiting: &lt;feature&gt; (approval | re-approval | plan review)</code> in the tick</td><td>The plan has no approval at its current digest, was edited after one, or has no <code>PASS</code> record from the plan review.</td><td>Approve it, or run <code>/reef-plan-review &lt;slug&gt;</code>. The tick will not advertise its tasks until then.</td></tr>
-          <tr><td><code>USER ACTION REQUIRED</code> with a list of commands</td><td>No remote, or no <code>gh</code> login. Reef does not guess at a forge.</td><td>Run the listed commands yourself (push, PR, records, merge), then run the next command the handoff names.</td></tr>
-          <tr><td><code>/clear now</code> and a fresh <code>HANDOFF.md</code></td><td>The session's context reached the ceiling, or has no room left for a new task. State is on disk.</td><td>Run <code>/clear</code>. The next session reads the handoff head and the tick, and continues every row from its furthest completed step.</td></tr>
-          <tr><td>The guard denied a dispatch</td><td>Outside the ready set, over the retry cap, the wrong model for the tier, or no approval or review record. The message names which.</td><td>Fix the named cause. Nothing was dispatched and no marker was written.</td></tr>
+          <tr><td><code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code></td><td>The one question of a feature, asked after the machine review. The approval is recorded against that digest; reviewer notes and the ADR status line sit outside it.</td><td>Answer <em>Approve</em>, or say what to change; the planner amends, the machines re-check, and you are asked again.</td></tr>
+          <tr><td><code>awaiting: &lt;feature&gt; (machine review (hunter ‖ plan reviewer) before the gate)</code> in the tick</td><td>The draft has no review pass or no hunter pass at its current digest.</td><td>Run <code>/reef-plan &lt;slug&gt;</code>; it picks the feature up at the review. The tick will not offer its tasks until then.</td></tr>
+          <tr><td><code>awaiting: &lt;feature&gt; (hunter plan pass stale on &lt;task&gt;: …)</code></td><td>A review-round edit moved the digest after the hunter passed.</td><td>A re-check within <code>hunter.plan_rounds</code>, or rule on the open hole yourself with the <code>--decided</code> command the line prints.</td></tr>
+          <tr><td><code>awaiting: &lt;feature&gt; (records in the 0.6 digest form: …)</code></td><td>The plan's records were written before the digest changed shape. Nothing is re-asked.</td><td>Run the one <code>--migrate-records</code> command the line prints, in the plan's checkout.</td></tr>
+          <tr><td><code>HALT</code> from the plan reviewer</td><td>Two of your own documents contradict each other. The reviewer does not pick a winner.</td><td>Decide which one is right; the planner amends and the machines re-check.</td></tr>
+          <tr><td><code>dispatch (graph): 101, 102 — python3 scripts/reef-graph-run.py generate</code></td><td>Several tasks are ready and this machine's probe recorded <code>GATE OK</code>.</td><td>Run <code>/reef-graph</code>; one workflow builds and judges them in the background and settles the results.</td></tr>
+          <tr><td><code>verify now: &lt;id&gt; (handed back, uncommitted — gate + verifier, no implementer)</code></td><td>An implementer handed the task back and nothing judged it yet.</td><td>Run <code>/reef-task</code>; it starts that task at the gate.</td></tr>
+          <tr><td><code>BROKEN: graph.mode is graph but this machine has no GATE OK</code></td><td>You asked for graph mode and the probe has not proved the guard reaches workflow agents here.</td><td><code>python3 scripts/reef-graph-run.py probe</code> once, then the probe-check it prints; chat mode runs meanwhile.</td></tr>
+          <tr><td><code>GROWTH over caps.task_growth: &lt;ids&gt; — say why in the journal</code></td><td>A task cost the orchestrator more context than the cap you set.</td><td>Say why in the journal row, or split the task next time.</td></tr>
+          <tr><td><code>USER ACTION REQUIRED</code> with a list of commands</td><td>No remote, or no <code>gh</code> login. Reef does not guess at a forge.</td><td>Run the listed commands yourself (push, PR, records, merge), then the next command the handoff names.</td></tr>
+          <tr><td><code>/clear now</code> and a fresh <code>HANDOFF.md</code></td><td>The session's context reached the ceiling, or has no room left for a new task. State is on disk.</td><td>Run <code>/clear</code>. The next session continues every row from its last completed step.</td></tr>
+          <tr><td>The guard denied a dispatch</td><td>Outside the ready set, over the retry cap, the wrong model for the tier, no approval or review record, or a hand-back or report the orchestrator wrote itself. The message names which.</td><td>Fix the named cause. Nothing was dispatched and no marker was written.</td></tr>
           <tr><td>The guard denied a command</td><td>A gate bypass (<code>--no-verify</code>, <code>hooksPath</code>, a stash, a gate piped into <code>tail</code>), a hand-written approval or record, or a protected file outside a critical task.</td><td>Do it the gated way. If the rule itself is wrong, that is a <code>critical</code> task, not an edit.</td></tr>
+          <tr><td>A gate exited <code>124</code></td><td>It ran past <code>gates.timeout_s</code> and was killed with its process group; a leaked dev server is the usual cause.</td><td>Find what held the port, or raise the timeout for that gate.</td></tr>
           <tr><td>The loop parked</td><td>Identical ticks with nothing in flight (<code>loop.no_progress_ticks</code>), or a feature or batch token budget reached.</td><td><code>scripts/reef-watch</code> shows what happened while nobody was in the room. Change the queue, the cap, or the budget.</td></tr>
+          <tr><td>The tick names stale <code>found</code> rows</td><td>Rows filed two batches ago that nobody admitted.</td><td><code>python3 scripts/reef-queue.py triage</code>: one question per module, admit or drop with a reason.</td></tr>
           <tr><td>A check warns instead of failing</td><td>Content planned under 0.5 meets a rule new in 0.6.</td><td>Nothing. The rule fails only for content planned under 0.6.</td></tr>
           <tr><td><code>Not verified in a browser:</code> in a verifier report</td><td>The judge could not open the app; it says so instead of claiming.</td><td>Check that part yourself, or give the task a browser proof row.</td></tr>
+          <tr><td>Something looks off and you cannot say what</td><td>Two <code>AGENTS.md</code>, scripts behind the plugin, a plan nobody can find, a stuck worktree.</td><td><code>/reef-doctor</code>: one screen, each finding with the command that fixes it.</td></tr>
         </tbody>
       </table>
     </div></div>
@@ -370,12 +385,13 @@
           <ul>
             <li><div class="node"><span class="name">config.json</span><span class="why">every number, once</span></div></li>
             <li><div class="node"><span class="name">version</span><span class="why">written by reef-migrate</span></div></li>
-            <li><div class="node"><span class="name">loop.json · inflight/ · verifying/</span><span class="why">the loop's state and the in-flight markers</span><span class="tag">gitignored</span></div></li>
+            <li><div class="node"><span class="name">loop.json · inflight/ · verifying/ · status.html</span><span class="why">the loop's state, the in-flight markers, the live status page the tick refreshes</span><span class="tag">gitignored</span></div></li>
             <li><div class="node"><span class="name">approvals/ · review/</span><span class="why">records written by hooks and scripts only; the guard denies a hand write</span><span class="tag">gitignored</span></div></li>
-            <li><div class="node"><span class="name">worktrees/ · proposed/ · ci-local/</span><span class="why">task worktrees, init's proposed renderings, local CI logs</span><span class="tag">gitignored</span></div></li>
+            <li><div class="node"><span class="name">worktrees/ · proposed/ · ci-local/ · hunt/ · cost/ · graph/</span><span class="why">task worktrees, init's proposed renderings, local CI logs, the hunter's reports, each task's cost, the graph-mode probe and runs</span><span class="tag">gitignored</span></div></li>
           </ul></details></li>
         <li><details open><summary><span class="node"><span class="name dir">reef/</span><span class="why">every committed Reef artifact</span></span></summary>
           <ul>
+            <li><div class="node"><span class="name">README.md</span><span class="why">the map of the tree, rendered by <code>/reef-init</code></span></div></li>
             <li><div class="node"><span class="name">constitution.md · queue.md · queue-archive.md · journal.md · glossary.md · day-zero.md · recalibration.md</span><span class="why">the project's governing documents; the queue has one home</span></div></li>
             <li><details><summary><span class="node"><span class="name dir">architecture/</span><span class="why">generated from code, drift checked once per release</span></span></summary>
               <ul>
@@ -397,12 +413,12 @@
           </ul></details></li>
         <li><details><summary><span class="node"><span class="name dir">scripts/reef-*</span><span class="why">the mechanisms; each carries <code># CLASS:</code> and a test that shows it red</span></span></summary>
           <ul>
-            <li><div class="node"><span class="name">reef-guard.py · reef-approval.py · reef-record · reef-attempt</span><span class="why">the guard, the approval hook, the review records, the cap and the models</span></div></li>
+            <li><div class="node"><span class="name">reef-guard.py · reef-approval.py · reef-record · reef-attempt · reef-graph-run.py</span><span class="why">the guard, the approval hook, the review records, the cap and the models, graph mode's probe, generate and settle</span></div></li>
             <li><div class="node"><span class="name">reef-graph.py · reef-loop.py · reef-handoff · reef-queue.py</span><span class="why">the ready set, the tick, the handoff, the queue</span></div></li>
             <li><div class="node"><span class="name">reef-plan-check.py · reef-converge · reef-adversarial · reef-claims.py · reef-tier.py</span><span class="why">the plan checks, the proof rows, the adversarial record, the word caps, the tier rails</span></div></li>
             <li><div class="node"><span class="name">reef-gate.sh · reef-ci-local.sh · reef-snapshot.sh · reef-repo</span><span class="why">the gates, local CI = CI, the judge hash, repository protection</span></div></li>
             <li><div class="node"><span class="name">reef-init.py · reef-migrate · reef-structure · reef-recalibrate · reef-merge-base</span><span class="why">setup, versioned migrations, the layout check, recalibration, base-into-feature before a wave</span></div></li>
-            <li><div class="node"><span class="name">reef-c4.py · reef-threat.py · reef-cost.py · reef-watch · reef-eval · reef-guard-profile.py</span><span class="why">architecture and threat model from code, token accounting, the room report, the agent eval, hook timings</span></div></li>
+            <li><div class="node"><span class="name">reef-c4.py · reef-threat.py · reef-cost.py · reef-watch · reef-doctor.py · reef-update.py</span><span class="why">architecture and threat model from code, token accounting, the room report, one screen of what is wrong, one command to pull a new Reef</span></div></li>
           </ul></details></li>
         <li><div class="node"><span class="name dir">.githooks/</span><span class="why">pre-commit and pre-merge-commit test the index outside git's hook environment</span></div></li>
         <li><div class="node"><span class="name">.github/workflows/ci.yml</span><span class="why">release-only CI; <code>gates.release</code> run on release-branch PRs only</span></div></li>
@@ -421,9 +437,9 @@
     <div class="cards">
       <a class="card link" href="https://github.com/MahmoudMoe/reef#readme"><h3>README</h3><p>The full reference: quick start, every rule and how it is enforced, tiers, settings, layout, what is next.</p><span class="meta">README.md</span></a>
       <a class="card link" href="manual/ar/index.html" lang="ar" dir="rtl"><h3>الدليل العربي</h3><p>دليل المستخدم: ما هي Reef، كيف تبدأ مشروعًا جديدًا أو تعتمدها في مشروع موجود، الاستخدام اليومي، حل المشاكل.</p><span class="meta" dir="ltr">docs/manual/ar/index.html</span></a>
-      <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/CHANGELOG.md"><h3>Changelog</h3><p>What changed in each version and why. 0.6.0 is the current release; 0.7 is in progress.</p><span class="meta">CHANGELOG.md</span></a>
+      <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/CHANGELOG.md"><h3>Changelog</h3><p>What changed in each version and the first contact that caused it. 0.6.0 is the current release; 0.7 is unreleased and in daily use on a trial project.</p><span class="meta">CHANGELOG.md</span></a>
       <a class="card link" href="https://github.com/MahmoudMoe/reef#what-is-enforced-and-how-the-honesty-ledger"><h3>Which rules are code</h3><p>For the curious: the README's ledger says, rule by rule, whether it is enforced by code, by a tripwire on command text, or only by instructions to the model.</p><span class="meta">README · What is enforced, and how</span></a>
-      <a class="card link" href="https://github.com/MahmoudMoe/reef/tree/main/docs"><h3>For contributors</h3><p>Design notes, the measurements behind the defaults, and the plan behind this page, under <code>docs/design/</code> and <code>docs/perf/</code>.</p><span class="meta">docs/</span></a>
+      <a class="card link" href="https://github.com/MahmoudMoe/reef/tree/main/docs"><h3>For contributors</h3><p>Why the gate is last (<code>workflow-v2.md</code>), the measurements behind the defaults, and the plan behind this page, under <code>docs/design/</code> and <code>docs/perf/</code>.</p><span class="meta">docs/</span></a>
     </div>
   </div>
 </section>
