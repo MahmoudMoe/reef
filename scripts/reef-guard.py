@@ -69,7 +69,7 @@ import time
 
 DEADLINE = float(os.environ.get("REEF_GUARD_DEADLINE", "8"))
 TIER_ORDER = ["light", "full", "design", "critical"]
-LOCKED_TYPES = ("verifier", "loophole-hunter", "plan-reviewer", "Explore")
+LOCKED_TYPES = ("verifier", "loophole-hunter", "plan-reviewer", "Explore", "security")
 AGENT_TYPES = LOCKED_TYPES + ("implementer", "mechanic")
 MUTATING_GIT = {"commit", "add", "rm", "mv", "checkout", "switch", "restore", "reset", "merge", "rebase", "push",
                 "stash", "apply", "am", "cherry-pick", "revert", "clean", "worktree", "submodule", "init", "clone"}
@@ -388,6 +388,7 @@ def check_segment(seg, depth=0, next_op=";", pipefail=False):
     check_guard_files(seg, CTX)
     check_reviewer_lock(seg, CTX)
     check_forge_merge(seg, CTX)
+    check_release_pr(seg, CTX)
     if next_op in ("|", "|&") and not pipefail and is_gate(seg):
         deny(f"gate {' '.join(seg[:3])!r} piped into another command — the pipe reports the LAST "
              "command's exit code, so a red gate passes unnoticed; use `set -o pipefail`, or redirect "
@@ -433,6 +434,70 @@ def git_version_ok(cwd):
         v = f"{m.group(1)}.{m.group(2)}" if m else "0.0"
     major, minor = (int(x) for x in v.split(".")[:2])
     return (major, minor) >= (2, 38)
+
+
+def _flag(rest, longs, shorts):
+    """The value of `--base X`, `--base=X` or `-B X` in a gh argument list; None when absent."""
+    for j, a in enumerate(rest):
+        for name in longs:
+            if a == name and j + 1 < len(rest):
+                return rest[j + 1]
+            if a.startswith(name + "="):
+                return a[len(name) + 1:]
+        if a in shorts and j + 1 < len(rest):
+            return rest[j + 1]
+    return None
+
+
+def check_release_pr(seg, ctx):
+    """0.7: the release PR (`gh pr create` into branches.release) opens only on a PASS security record
+    (.reef/review/security-<sha12>.json, written by `reef-record security` from reef:security's report) whose
+    head is the commit the PR proposes. Strict: a base that moved since the pass is a new release, audited again.
+    No rule when branches.base == branches.release (no release step). A PR opened in the forge's web UI is
+    outside every hook — the ledger says so."""
+    i = 0
+    while i < len(seg) and (ENV_ASSIGN.match(seg[i]) or seg[i] in PREFIX_WORDS):
+        i += 1
+    if i >= len(seg) or os.path.basename(seg[i]) != "gh" or seg[i + 1:i + 3] != ["pr", "create"]:
+        return
+    rest = seg[i + 3:]
+    roots = sorted(ctx.get("roots") or [ctx.get("cwd") or os.getcwd()])
+    cfg = next((read_config(r) for r in roots if os.path.isfile(os.path.join(r, ".reef", "config.json"))), {})
+    br = cfg.get("branches") or {}
+    release, base = str(br.get("release", "main") or "main"), str(br.get("base", "main") or "main")
+    pr_base = _flag(rest, ("--base",), ("-B",))
+    if release == base or (pr_base is not None and pr_base != release):
+        return
+    cwd = ctx.get("cwd") or os.getcwd()
+    head_ref = _flag(rest, ("--head",), ("-H",))
+    ref = f"refs/heads/{head_ref.split(':')[-1]}" if head_ref else "HEAD"
+    r = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], cwd=cwd, capture_output=True, text=True)
+    head = r.stdout.strip()
+    if pr_base is None:
+        # no --base: gh targets the forge's default branch, which on a base/release project is the release branch.
+        # The only PR that comes from branches.base is the release PR — name the base, or it is treated as one.
+        b = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{base}^{{commit}}"], cwd=cwd, capture_output=True, text=True)
+        if not head or b.stdout.strip() != head:
+            return
+        deny(f"gh pr create from {base} with no --base: the forge's default branch is likely {release}, so this is the release PR — "
+             f"pass --base {release} (the security pass is then required) or the branch you mean")
+    if r.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", head):
+        deny(f"release PR into {release}: cannot resolve its head {head_ref or 'HEAD'} here — run from the main checkout")
+    for root in roots:
+        d = os.path.join(root, ".reef", "review")
+        for f in (sorted(os.listdir(d)) if os.path.isdir(d) else []):
+            if not f.startswith("security-"):
+                continue
+            try:
+                with open(os.path.join(d, f), encoding="utf-8") as fh:
+                    rec = json.load(fh)
+            except Exception:
+                continue
+            if rec.get("kind") == "security" and str(rec.get("verdict", "")).upper() == "PASS" and rec.get("head") == head:
+                return
+    deny(f"release PR into {release} at {head[:12]}: no PASS security record for that commit — dispatch reef:security on "
+         f"`git diff {release}...{base}`, then `scripts/reef-record security PASS --report <its report>` (a base that moved "
+         f"since the pass is audited again)")
 
 
 def check_forge_merge(seg, ctx):
@@ -782,7 +847,7 @@ def check_single_rollup(path, fm):
 # routing (2026-10-04, opus everywhere since 2026-10-17): opus plans, writes, attacks, verifies and reviews; sonnet does light
 # mechanical work. Each project overrides per role; an unset role is not checked.
 ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "plan_reviewer",
-           "loophole-hunter": "adversary", "mechanic": "mechanic", "Explore": "mechanic"}
+           "loophole-hunter": "adversary", "mechanic": "mechanic", "Explore": "mechanic", "security": "security"}
 
 
 def read_config(root):

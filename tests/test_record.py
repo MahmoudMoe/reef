@@ -45,7 +45,10 @@ def git(d, *a):
     return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True, text=True).stdout.strip()
 
 
-class ForgeMerge(unittest.TestCase):
+class _Repo:
+    """The fixture repository and the fake forge, shared by the merge and the security-pass suites (a mixin, so the
+    security suite does not re-run every merge test)."""
+
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="reef-record.")
         self.bin = os.path.join(self.tmp, "bin")
@@ -80,6 +83,9 @@ class ForgeMerge(unittest.TestCase):
         payload = {"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": cmd}}
         return subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True, env=self.env(**kw))
 
+
+
+class ForgeMerge(_Repo, unittest.TestCase):
     def test_record_written_from_the_forge_and_merge_allowed_on_that_head(self):
         r = self.record()
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -183,6 +189,90 @@ class ForgeMerge(unittest.TestCase):
         r = self.merge()
         self.assertEqual(r.returncode, 2)
 
+
+
+
+class SecurityPass(_Repo, unittest.TestCase):
+    """0.7 (the owner, 2026-10-19: "Reef is meant for others, the security pass should be solid"): the release's audit is
+    Reef's own agent (reef:security), its verdict a record bound to the head of branches.base, and the guard opens the
+    release PR only on a PASS at that exact head. A security record never stands in for a feature's GREEN."""
+
+    def report(self, text):
+        p = os.path.join(self.tmp, "security.md")
+        with open(p, "w") as f:
+            f.write(text)
+        return p
+
+    def sec(self, verdict, report):
+        args = [sys.executable, RECORD, "security", verdict] + (["--report", report] if report else []) + ["--root", self.d]
+        return subprocess.run(args, capture_output=True, text=True, env=self.env())
+
+    def create(self, cmd="gh pr create --base release --head main --title r --body b", **kw):
+        payload = {"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": cmd}}
+        return subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True, env=self.env(**kw))
+
+    GOOD = "RUN: agent=security range=release...main head=x\nSPINE: reef/architecture/threat-model.md\nHIGH src/a.ts:3 — x — y\nVERDICT: PASS\n"
+
+    def test_the_record_carries_the_agents_own_verdict_or_nothing(self):
+        for verdict, report, why in (("PASS", None, "--report"),
+                                     ("PASS", "VERDICT: PASS\n", "RUN: agent=security"),
+                                     ("PASS", "RUN: agent=security\nnothing\n", "VERDICT"),
+                                     ("PASS", "RUN: agent=security\nVERDICT: FAIL\n", "not PASS"),
+                                     ("PASS", "RUN: agent=security\nBLOCKER src/a.ts:1 — x — y\nVERDICT: PASS\n", "BLOCKER")):
+            with self.subTest(why=why):
+                r = self.sec(verdict, self.report(report) if report else None)
+                self.assertEqual(r.returncode, 2, r.stdout)
+                self.assertIn(why, r.stderr)
+        self.assertFalse(os.path.isdir(os.path.join(self.d, ".reef", "review")) and any(
+            f.startswith("security-") for f in os.listdir(os.path.join(self.d, ".reef", "review"))), "a refused record writes nothing")
+        r = self.sec("PASS", self.report(self.GOOD))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        head = git(self.d, "rev-parse", "main")
+        with open(os.path.join(self.d, ".reef", "review", f"security-{head[:12]}.json")) as f:
+            rec = json.load(f)
+        self.assertEqual((rec["kind"], rec["head"], rec["verdict"], rec["base"]), ("security", head, "PASS", "main"))
+        self.assertNotIn("sha", rec, "stored as `head`: the merge check's `sha` must never match a security record")
+        self.assertEqual(len(rec["report_sha256"]), 64)
+
+    def test_the_release_pr_opens_only_on_a_pass_at_its_exact_head(self):
+        r = self.create()
+        self.assertEqual(r.returncode, 2, "release PR opened with no security pass")
+        self.assertIn("no PASS security record", r.stderr)
+        self.assertIn("reef:security", r.stderr)
+        self.sec("FAIL", self.report("RUN: agent=security\nBLOCKER src/a.ts:1 — x — y\nVERDICT: FAIL\n"))
+        self.assertEqual(self.create().returncode, 2, "a FAIL record opens nothing")
+        self.sec("PASS", self.report(self.GOOD))
+        for cmd in ("gh pr create --base release --head main --title r --body b",
+                    "gh pr create -B release -H main -t r -b b", "gh pr create --base=release --head=main --fill"):
+            with self.subTest(cmd=cmd):
+                r = self.create(cmd)
+                self.assertEqual(r.returncode, 0, r.stderr)
+        # no --base: gh targets the forge's default branch, the release branch on a base/release project
+        r = self.create("gh pr create --head main --title r --body b")
+        self.assertEqual(r.returncode, 2, "a release PR with no --base slipped past the security pass")
+        self.assertIn("--base release", r.stderr)
+        self.assertEqual(self.create("gh pr create --head feat --fill").returncode, 0, "a feature PR with no --base is not the release PR")
+        # the base moved after the pass: a new release, audited again
+        git(self.d, "checkout", "-q", "main")
+        with open(os.path.join(self.d, "late.py"), "w") as f:
+            f.write("y = 1\n")
+        git(self.d, "add", "late.py")
+        git(self.d, "commit", "-qm", "late change")
+        r = self.create()
+        self.assertEqual(r.returncode, 2, "a commit after the pass reached the release PR")
+        # untouched: a feature PR into the base, and a project with no release step
+        self.assertEqual(self.create("gh pr create --base main --head feat --title f --body b").returncode, 0)
+        with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"full": "true"}, "merge": {"by": "loop"}, "branches": {"base": "main", "release": "main"}}, f)
+        self.assertEqual(self.create("gh pr create --base main --head feat --title f --body b").returncode, 0)
+
+    def test_a_security_record_never_opens_a_feature_merge(self):
+        git(self.d, "checkout", "-q", "feat")
+        git(self.d, "branch", "-f", "main", "feat")    # the worst case: the audited head IS the PR head
+        self.sec("PASS", self.report(self.GOOD))
+        r = self.merge()
+        self.assertEqual(r.returncode, 2, "a security PASS opened `gh pr merge` without the feature's GREEN")
+        self.assertIn("no PASS/GREEN review record", r.stderr)
 
 if __name__ == "__main__":
     unittest.main()

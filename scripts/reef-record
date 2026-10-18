@@ -3,6 +3,10 @@
 """Reef record — a review verdict bound to the FORGE-reported commit, or a plan review verdict bound to the plan's digest.
 Usage: reef-record <feature> <verdict> [--pr <number|url|branch>] [--root DIR]
        reef-record plan-review <feature> <PASS|FAIL> [--report FILE] [--root DIR]
+       reef-record security <PASS|FAIL> --report FILE [--root DIR]
+  security (0.7) writes .reef/review/security-<sha12>.json = {kind, head, base, verdict, report_sha256, recorded_at}: the
+  release's security pass (reef:security) bound to the head of branches.base; the guard refuses `gh pr create` into
+  branches.release without a PASS whose head is the PR's head.
   plan-review writes .reef/review/plan-<feature>.json = {digest16, verdict, report_sha256, recorded_at} in the MAIN
   checkout; the digest is computed where the plan is (--root, default cwd). `reef-plan-check.py --verify-stamp` requires
   a PASS at the current digest for any feature with a task above `light`, so the guard refuses the first dispatch of a
@@ -115,9 +119,66 @@ def feature_guard_pass_missing(cwd, feature):
     return [fm.get("id", os.path.basename(p_)) for p_, fm in adv.guarded_tasks(root, cfg, feature) if not (fm.get("adversarial-guard") or "").strip()]
 
 
+def cmd_security(argv):
+    """The release's security pass (reef:security), bound to the commit it audited: the head of branches.base in the
+    main checkout. Stored as `head`, never `sha`, so no security record can stand in for a feature's GREEN at
+    `gh pr merge`. A FAIL is recorded too (evidence); only a PASS at the head lets the guard open the release PR."""
+    import hashlib
+    report, root, pos = None, None, []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--report":
+            report = argv[i + 1]; i += 2
+        elif argv[i] == "--root":
+            root = argv[i + 1]; i += 2
+        else:
+            pos.append(argv[i]); i += 1
+    if len(pos) != 1 or pos[0].upper() not in ("PASS", "FAIL") or not report:
+        die("usage: reef-record security <PASS|FAIL> --report FILE [--root DIR]")
+    verdict = pos[0].upper()
+    root = main_checkout(os.path.abspath(root or os.getcwd()))
+    try:
+        with open(report, "rb") as f:
+            raw = f.read()
+    except OSError as e:
+        die(f"cannot read the report {report}: {e}")
+    text = raw.decode("utf-8", "replace")
+    if not re.search(r"^RUN:[ \t]*agent=security\b", text, re.M):
+        die(f"{report} is not a security report: its first line must be `RUN: agent=security …` (written by reef:security)")
+    m = re.search(r"^VERDICT:[ \t]*(PASS|FAIL)\b", text, re.M)
+    if not m:
+        die(f"{report} has no `VERDICT: PASS|FAIL` line")
+    if m.group(1) != verdict:
+        die(f"the report says VERDICT: {m.group(1)}, not {verdict} — the record carries the agent's verdict, never another")
+    if verdict == "PASS" and re.search(r"^BLOCKER\b", text, re.M):
+        die(f"{report} says PASS with a BLOCKER line — a BLOCKER fails the pass")
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = {}
+    base = str((cfg.get("branches") or {}).get("base", "main") or "main")
+    r = subprocess.run(["git", "-C", root, "rev-parse", "--verify", "--quiet", f"refs/heads/{base}^{{commit}}"], capture_output=True, text=True)
+    head = r.stdout.strip()
+    if r.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", head):
+        die(f"no local branch {base!r} (branches.base) in {root} — the pass is bound to its head")
+    rec = {"kind": "security", "head": head, "base": base, "verdict": verdict, "report_sha256": hashlib.sha256(raw).hexdigest(),
+           "report": os.path.abspath(report), "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    d = os.path.join(root, ".reef", "review")
+    os.makedirs(d, exist_ok=True)
+    out = os.path.join(d, f"security-{head[:12]}.json")
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(rec, f, indent=1)
+        f.write("\n")
+    print(f"recorded security pass: {verdict} at {base} {head[:12]} -> .reef/review/security-{head[:12]}.json")
+    return 0
+
+
 def main(argv):
     if argv and argv[0] == "plan-review":
         return cmd_plan_review(argv[1:])
+    if argv and argv[0] == "security":
+        return cmd_security(argv[1:])
     pr, root, pos = None, None, []
     i = 0
     while i < len(argv):
