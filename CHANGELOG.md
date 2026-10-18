@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- The session-start text's `next command:` is `/reef-loop` whenever the tick holds anything the loop acts on (a hand-back
+  to verify, a returned-unmerged task, a held feature), not only rows, dispatches and PRs (2026-10-18: with 204 handed
+  back it said `/reef-plan <row> or /reef-assess`, and the status line's `next:` echoed it after every reply).
+  `reef-doctor`'s stamp lines name their checkout, and a closed feature's records are not listed.
 - `reef-init` gitignores `.reef/hunt/` (the hunter's reports are evidence like `.reef/ci-local/`; the guard already
   treats them so) — the trial's `git status` carried twelve untracked hunt files since the first day.
 - **Fix**: `reef-update --commit` committed the scripts and never `.reef/init-manifest.json` (2026-10-18: three pulls on

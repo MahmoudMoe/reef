@@ -194,11 +194,12 @@ def main(argv):
         features = str((cfg.get("paths") or {}).get("features") or "reef/features")
         states = stamp_states(root, [root] + [w["path"] for w in wts[1:]], plugin, features)
         for co, rel, state in states:
+            where = os.path.relpath(co, root) or "."
             if state == "legacy":
-                say("WARN", f"stamp: {rel} carries a 0.6 adversarial-plan (the plan is unchanged)",
+                say("WARN", f"stamp: {rel} in {where} carries a 0.6 adversarial-plan (the plan is unchanged)",
                     f"cd {co} && python3 {os.path.join(plugin, 'scripts', 'reef-adversarial')} {rel} plan --migrate  (the plugin's copy: a worktree's scripts/ lags)")
             elif state == "stale":
-                say("WARN", f"stamp: {rel}: the plan changed since the hunter's pass",
+                say("WARN", f"stamp: {rel} in {where}: the plan changed since the hunter's pass",
                     "the hunter's re-check within hunter.plan_rounds, or `reef-adversarial <task> plan --decided <mark>` at the gate")
         if states and all(st == "current" for _, _, st in states):
             say("OK", f"stamps: {len(states)} design/critical task(s) current")
@@ -209,6 +210,8 @@ def main(argv):
         for co in [root] + [w["path"] for w in wts[1:]]:
             for spec in sorted(glob.glob(os.path.join(co, features, "*", "SPEC.md"))):
                 slug = os.path.basename(os.path.dirname(spec))
+                if not glob.glob(os.path.join(os.path.dirname(spec), "tasks", "*.md")):
+                    continue   # a closed feature (every task under done/): its records are history nothing reads (2026-10-18: five lines for row 1)
                 try:
                     r = subprocess.run([sys.executable, pc, co, "--verify-stamp", "--feature", slug], capture_output=True, text=True, timeout=60)
                 except Exception:
