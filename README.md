@@ -201,8 +201,8 @@ Every cap, model, branch name and path Reef uses is a key in this one file, writ
 | `merge.by` · `ci.feature_gate` · `branches.base` / `branches.release` | `human` · `ci` · `main` / `main` (init: `develop` / `main`) | as in 0.5; `ci.check_name` (`every gate, once`) names the required check for `reef-repo` |
 | **`paths.features`** · `paths.tasks` / `adr` / `glossary` / `runlog` / `queue` | `reef/features` (0.6 tree) · 0.5 locations for a 0.5 project, `reef/…` for a 0.6 one | where things live; the loaders accept either shape |
 | `plan.test_re` / `plan.max_words` / **`plan.max_tasks`** | `""` / `0` / `12` | test-name override / task word cap / split a feature above this |
-| **`hunter.plan_rounds`** / **`hunter.guard_pass`** / **`plan.external_api_re`** | `2` / `task` / `""` | hunter rounds on a plan (0 = no cap) / the guard pass per `task` or once per `feature` before GREEN / a task naming an external API without a doc or version in `resources:` is a WARN (pattern override) |
-| `writing.task_words.<tier>` · `handback_words` · `prompt_words` · **`report_words`** · `journal_words` / `queue_words` · **`sentence_words`** / **`criterion_words`** · **`session_start_tokens`** | 600/2500/2500/2500 · 150 · 120 · 900 (measured: real reports run 540–710 words for 6–7 criteria) · 40 000 / 35 000 · 25 / 50 · 8 000 | caps; `task_words`, the sentence and criterion rules fail only under 0.6 |
+| **`hunter.plan_rounds`** / **`hunter.plan_pass`** / **`hunter.guard_pass`** / **`review.diff_review`** / **`plan.external_api_re`** | `2` / `critical` / `feature` / `off` / `""` | hunter rounds on a plan (0 = no cap) / which tiers' plans the hunter passes before code (`critical`, or `design` for both) / the hunter's guard pass once per `feature` before GREEN (or per `task`) / the per-feature diff review (`on`/`off`; `review.split_lines` 4000) / a task naming an external API without a doc or version in `resources:` is a WARN |
+| `writing.task_words.<tier>` · `handback_words` · `prompt_words` · **`report_words`** · `journal_words` / `queue_words` · **`sentence_words`** / **`criterion_words`** · **`session_start_tokens`** | `0` everywhere (off; 0.7 — a budget rejected honest hand-backs and reports into rewrite rounds; set a number to enforce) · `40000` / `35000` · `8000` | caps; `task_words`, the sentence and criterion rules fail only under 0.6 |
 | **`loop.inflight_stale_minutes` / `loop.no_progress_ticks`** | `90` / `3` | an in-flight marker older than this is "returned"; identical ticks before the loop parks |
 | **`context.failure_lines` / `context.read_lines_max` / `context.explore_files`** | `60` / `300` / `40` | the failing block's cap; (the Read tripwire was cut — the key is reserved); an Explore agent's file budget |
 | **`converge.test_cmd`** | `""` | how `reef-converge` runs one named test (`{name}`); empty = the full gate once |
@@ -340,7 +340,7 @@ Every claim above has a number behind it, and the numbers live in `docs/perf/`:
 
 ### Selftests
 
-`sh tests/run.sh` — 521 sabotage and contract tests (423 Python + 98 shell, as the suite runs them). Every mechanism in
+`sh tests/run.sh` — 522 sabotage and contract tests (424 Python + 98 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
 script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials

@@ -33,8 +33,13 @@
     "release": "main"
   },
   "hunter": {
-    "plan_rounds": 2,
-    "guard_pass": "task"
+      "plan_rounds": 2,
+      "plan_pass": "critical",
+      "guard_pass": "feature"
+  },
+  "review": {
+      "diff_review": "off",
+      "split_lines": 4000
   },
   "plan": {
     "max_acs": 0,
@@ -130,20 +135,20 @@
     }
   },
   "writing": {
-    "task_words": {
-      "light": 600,
-      "full": 2500,
-      "design": 2500,
-      "critical": 2500
-    },
-    "handback_words": 150,
-    "prompt_words": 120,
-    "report_words": 900,
-    "journal_words": 40000,
-    "queue_words": 35000,
-    "sentence_words": 25,
-    "criterion_words": 50,
-    "session_start_tokens": 8000
+      "task_words": {
+          "light": 0,
+          "full": 0,
+          "design": 0,
+          "critical": 0
+      },
+      "handback_words": 0,
+      "prompt_words": 0,
+      "report_words": 0,
+      "journal_words": 40000,
+      "queue_words": 35000,
+      "sentence_words": 0,
+      "criterion_words": 0,
+      "session_start_tokens": 8000
   },
   "loop": {
     "inflight_stale_minutes": 90,

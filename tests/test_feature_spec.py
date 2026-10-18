@@ -419,13 +419,16 @@ class HandbackAndReport(unittest.TestCase):
         rp = write(self.d, "r3.md", good.replace("RULE AC2: PASS iff test_csv_two_decimals asserts 2 decimals; FAIL otherwise\n", ""))
         self.assertIn("no `RULE AC2:` line", self.claims("report", rp, "--task", self.task).stdout)
         rp = write(self.d, "r4.md", good.replace("RULE AC1: PASS iff test_csv_header_and_rows is green", "RULE AC1: PASS iff it works"))
-        self.assertIn("RULE AC1 does not cite its Proof row", self.claims("report", rp, "--task", self.task).stdout)
+        r = self.claims("report", rp, "--task", self.task)
+        self.assertEqual(r.returncode, 0, "0.7: a missing Proof citation is a note, never a rewrite round")
+        self.assertIn("note: RULE AC1 does not cite its Proof row", r.stdout)
 
     def test_report_words_cap_is_set_and_enforced(self):
-        # 0.7: four real reports measured 538-706 words for 6-7 criteria (docs/perf/dogfood-2026-10-16.md §E);
-        # the template's cap is 900 (30% above the largest) and a report over it is rejected, not warned about
+        # 0.7: four real reports measured 538-706 words for 6-7 criteria (docs/perf/dogfood-2026-10-16.md §E); the cap
+        # was 900 — and on 2026-10-18 the owner switched every word budget off (a rewrite round cost 9 minutes): the
+        # template ships 0, a project that sets a number gets it enforced, not warned about
         with open(os.path.join(ROOT, "templates", "config.json")) as f:
-            self.assertEqual(json.load(f)["writing"]["report_words"], 900)
+            self.assertEqual(json.load(f)["writing"]["report_words"], 0)
         write(self.d, ".reef/config.json", json.dumps({"gates": {"full": "true"}, "paths": {"features": "reef/features"},
                                                         "writing": {"report_words": 900}}))
         head = ("RUN: agent=verifier task=1201\nRULE AC1: PASS iff test_csv_header_and_rows is green; FAIL otherwise\n"

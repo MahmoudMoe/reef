@@ -140,7 +140,7 @@ class Tick(unittest.TestCase):
         self.assertIn("awaiting: 1 (approval (the gate: the machines passed))", text)
         # v2 order: a task above light needs the review; with it missing (and the approval stale) the tick asks for
         # the machines first, never the owner
-        write(d, "tasks/101-a.md", task(101, "1").replace("complexity: mech", "complexity: design").replace("tier: light", "tier: design")
+        write(d, "tasks/101-a.md", task(101, "1").replace("complexity: mech", "complexity: design").replace("tier: light", "tier: critical")
               .replace("verify: gate-only", "verify: judge").replace("## Scope\nx", "## Scope\nx\n\n## Decision\nhuman wrote this"))
         r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-plan-check.py"), d], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout)
@@ -213,7 +213,7 @@ class HunterStampBeforeTheGate(unittest.TestCase):
     staled; only the guard's denial, days later and past the round cap, said so. The tick names it with the command."""
 
     def design(self, d):
-        write(d, "tasks/101-a.md", task(101, "1").replace("complexity: mech", "complexity: design").replace("tier: light", "tier: design")
+        write(d, "tasks/101-a.md", task(101, "1").replace("complexity: mech", "complexity: design").replace("tier: light", "tier: critical")
               .replace("verify: gate-only", "verify: judge").replace("## Scope\nx", "## Scope\nx\n\n## Decision\nhuman wrote this"))
         write(d, "tasks/.plan-review.json", "")
         os.unlink(os.path.join(d, "tasks", ".plan-review.json"))

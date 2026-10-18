@@ -152,7 +152,7 @@ def read_cfg(repo):
 
 
 def cmd_handback(repo, path):
-    cap = int((read_cfg(repo).get("writing") or {}).get("handback_words", 150) or 150)
+    cap = int((read_cfg(repo).get("writing") or {}).get("handback_words", 150))   # 0 = no cap (0.7: budgets off by default)
     try:
         with open(path, encoding="utf-8") as f:
             text = f.read()
@@ -161,7 +161,7 @@ def cmd_handback(repo, path):
     words = len(re.findall(r"\S+", text))
     claims = [l for l in text.splitlines() if CLAIM.match(l.strip())]
     bad = []
-    if words > cap:
+    if cap and words > cap:
         bad.append(f"{words} words > writing.handback_words {cap} — shorten, evidence only")
     if not claims:
         bad.append("no claims list ('<sentence> — true at <path>:<line>' lines) — a fix round ends with its claims")
@@ -238,7 +238,9 @@ def cmd_report(repo, path, task_path):
         elif n in proof_rows:
             token = re.search(r"[A-Za-z_][\w./:-]*", proof_rows[n])
             if token and token.group(0) not in rules[n] and proof_rows[n] not in rules[n]:
-                bad.append(f"RULE AC{n} does not cite its Proof row ({proof_rows[n][:40]!r})")
+                # a note, not a rejection (0.7): the evidence per verdict is the guard; a rewrite round for a citation's
+                # wording cost 9 minutes on the trial (2026-10-18)
+                print(f"note: RULE AC{n} does not cite its Proof row ({proof_rows[n][:40]!r})")
         verdicts = [l for l in text.splitlines() if re.search(rf"\bAC-?{n}\b", l) and re.search(r"\b(PASS|FAIL)\b", l) and not l.lstrip().startswith("RULE")]
         if not verdicts:
             bad.append(f"no PASS/FAIL verdict line for AC{n}")

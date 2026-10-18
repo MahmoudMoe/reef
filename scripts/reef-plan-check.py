@@ -389,7 +389,7 @@ def hunter_hash(text, legacy=False):
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
 
 
-def hunter_state(task_paths):
+def hunter_state(task_paths, tiers=("critical",)):
     """One `hunter:` line for --verify-stamp: the loophole-hunter's plan pass on every design/critical task not yet
     done — OK, or MISSING / STALE / LEGACY with the ids and the one command (2026-10-18, qassimha: 202 and 203 reached
     the gate with stamps their review-round edits had staled; nothing named it until the guard denied the dispatch)."""
@@ -399,7 +399,7 @@ def hunter_state(task_paths):
             text = read(p)
         except (OSError, UnicodeDecodeError):
             continue
-        if fm_value(text, "tier") not in ("design", "critical") or fm_value(text, "status") == "done":
+        if fm_value(text, "tier") not in tiers or fm_value(text, "status") == "done":
             continue
         tid = fm_value(text, "id") or os.path.basename(p)
         got = fm_value(text, "adversarial-plan")
@@ -420,7 +420,7 @@ def hunter_state(task_paths):
         plugin = os.environ.get("CLAUDE_PLUGIN_ROOT") or "<plugin>"
         return (f"hunter: LEGACY {','.join(legacy)} — a 0.6 stamp, the plan unchanged: python3 {os.path.join(plugin, 'scripts', 'reef-adversarial')} "
                 "<task> plan --migrate (the plugin's copy)")
-    return f"hunter: OK ({ok} design/critical task(s))" if ok else "hunter: n/a (no design/critical task)"
+    return f"hunter: OK ({ok} {'/'.join(tiers)} task(s))" if ok else f"hunter: n/a (no {'/'.join(tiers)} task)"
 
 
 def fm_value(text, key):
@@ -681,7 +681,8 @@ def main():
                 rc = 1
             else:
                 print(f"warning: {rline} (feature planned before 0.6 — not enforced)")
-            print(hunter_state(by_feature.get(feat, [])))
+            pp = str((cfg.get("hunter") or {}).get("plan_pass", "critical") or "critical").lower() if isinstance(cfg.get("hunter"), dict) else "critical"
+            print(hunter_state(by_feature.get(feat, []), ("design", "critical") if pp == "design" else ("critical",)))
         sys.exit(rc)
 
     try:
@@ -973,7 +974,7 @@ def main():
         # 0.6 dual shape: with a ## Proof table the criterion is ONE declarative sentence and the proof
         # lives in its row; without it, the 0.5 shape (the criterion names its test inline) stays valid
         untested, automated, shape_errs, key_errs = [], 0, [], []
-        wmax = int((cfg.get("writing") or {}).get("criterion_words", 50) or 50)
+        wmax = int((cfg.get("writing") or {}).get("criterion_words", 50))   # 0 = off
         for c in crits:
             if c.startswith("HUMAN AC"):        # opt-out marker only counts at bullet start
                 if fm.get("verify") == "gate-only":
@@ -999,7 +1000,7 @@ def main():
                     automated += 1
                 for n in names:
                     test_owners.setdefault(n, set()).add(rel)
-            if len(c.split()) > wmax:
+            if wmax and len(c.split()) > wmax:
                 (fail if is06 else warn)(f"{rel}: criterion over writing.criterion_words {wmax}: {c[:50]!r}")
             if fdir:
                 keys = {f"{a}-{b}" for a, b in KEY_RE.findall(c)}
@@ -1018,8 +1019,8 @@ def main():
             fail(f"{rel}: every criterion is HUMAN AC — no failing test = no task")
         elif not shape_errs:
             ok(f"{rel}: every criterion names a test or is HUMAN AC" if proof is None else f"{rel}: every criterion has its Proof row")
-        smax = int((cfg.get("writing") or {}).get("sentence_words", 25) or 25)
-        long = [x for x in sentences(LOG_HEADING.split(text, maxsplit=1)[0]) if len(x.split()) > smax]
+        smax = int((cfg.get("writing") or {}).get("sentence_words", 25))   # 0 = off
+        long = [x for x in sentences(LOG_HEADING.split(text, maxsplit=1)[0]) if smax and len(x.split()) > smax]
         if long:
             (fail if is06 else warn)(f"{rel}: {len(long)} sentence(s) over writing.sentence_words {smax}: {long[0][:60]!r}")
     print_manual = f"manual criteria: {manual}"

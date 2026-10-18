@@ -18,3 +18,5 @@ Read `.reef/config.json`, `AGENTS.md`, `.specify/memory/constitution.md` if pres
 - Final message: the files you changed (one line each, what changed), the plan-check summary line, and the digest16 from `--digest --feature <slug>`. Under 150 words.
 
 A `WARN … names an external API/SDK` from `reef-plan-check.py` is yours to clear before you return: a task that calls an SDK or a hosted API carries its facts — the package and its version, the doc URL, the model id and limits it must respect — in `resources:` or in the task text, so the implementer builds instead of researching (2026-10-18: 35 of 54 implementer turns, 145k context, went to the Anthropic SDK's docs and source).
+
+**Terse (0.7, the owner's rule).** Evidence, not narration: never restate the task or the plan, never explain what you are about to do, one line per finding or criterion, no summaries of your own report. Your final message is the file path and the verdict (or the hand-back's claims) — nothing else. Long output is not thoroughness; it is context the next agent pays for.

@@ -432,7 +432,7 @@ class GuardPassRecordDoesNotStaleTheStamp(unittest.TestCase):
     def test_adversarial_guard_key_is_execution_state(self):
         # first contact (2026-10-16): the hunter's guard pass wrote `adversarial-guard:` into 101's frontmatter after the
         # merge; the stamp read it as a plan edit and the guard refused to dispatch 102
-        d = project({"gates": {"test": "true"}}, {"007-demo.md": task_text(7, "demo", "design", "design")})
+        d = project({"gates": {"test": "true"}}, {"007-demo.md": task_text(7, "demo", "critical", "design")})
         self.assertEqual(plan_check(d).returncode, 0)
         approve(d, "demo")
         self.assertEqual(plan_check(d, "--verify-stamp", "--feature", "demo").returncode, 0)

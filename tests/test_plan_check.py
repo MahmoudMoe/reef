@@ -511,7 +511,7 @@ def edit(path, old, new):
 
 
 ADV = os.path.join(ROOT, "scripts", "reef-adversarial")
-DESIGN_TASK = TASK.replace("complexity: mech", "complexity: design\ntier: design").replace("verify: gate-only", "verify: judge") \
+DESIGN_TASK = TASK.replace("complexity: mech", "complexity: design\ntier: critical").replace("verify: gate-only", "verify: judge") \
     .replace("## Scope\nx", "## Scope\nx\n\n## Decision\nhuman wrote this")
 
 
@@ -545,7 +545,7 @@ class HunterStampOutsideTheDigest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.digest(), before, "the hunter's plan pass is bound to the digest, not inside it")
         self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").stdout.count("stamp: MATCH"), 1)
-        self.assertIn("hunter: OK (1 design/critical task(s))", self.hunter_line())
+        self.assertIn("hunter: OK (1 critical task(s))", self.hunter_line())
         r = subprocess.run([sys.executable, ADV, self.p, "plan", "--decided", "³⁰"], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.digest(), before, "an owner ruling re-stamps without voiding the approval of the same text")
