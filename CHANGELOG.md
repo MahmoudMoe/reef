@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Fix** (`reef-converge`, row 2's review on the trial, 2026-10-18): a Proof cell whose vitest name starts with a runner
+  word (`env defaults to …`) is a test unless what follows reads like an argument; `\|` inside a cell is a literal pipe,
+  not a column break; a cell reading `superseded …` or struck through is skipped and listed, never run.
 - **Fix**: `reef-snapshot.sh` re-hashes every entry's content (the scratch index is dated 1980, so git's racy check
   covers all of it) — a file rewritten within the second at the same size read as unchanged by stat alone, and the
   snapshot did not move (2026-10-18, CI: the gate-cache test; the same gap would let a judge's same-second edit pass).

@@ -545,6 +545,24 @@ class Converge(unittest.TestCase):
         self.assertIn("contradicts", r.stdout)
         self.assertEqual(len([f for f in os.listdir(os.path.dirname(rollup)) if f.startswith("R")]), 1, "one rollup per feature, appended to")
 
+    def test_runner_word_names_escaped_pipes_and_superseded_rows(self):
+        # 2026-10-18, row 2's review (found row 50): a vitest name starting with `env` ran as a command, a grep with an
+        # escaped pipe split the table cell, and a row replaced by task 204's Proof had no way to be skipped
+        write(self.d, "tests/env.test.ts", 'import { it } from "vitest";\nit("env defaults to the test database when unset", () => {});\n')
+        task = TASK_NEW.replace("| AC-1 | `test_csv_header_and_rows` |", "| AC-1 | `env defaults to the test database when unset` |") \
+                       .replace("| AC-2 | `test_csv_two_decimals` |", "| AC-2 | `! git grep -nE 'as (Foo\\|Bar)' -- export.py` |")
+        write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
+        r = self.converge()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Converged", r.stdout)
+        self.assertNotIn("missing", r.stdout)
+        task = task.replace("| AC-2 | `! git grep -nE 'as (Foo\\|Bar)' -- export.py` |", "| AC-2 | superseded by 204 AC-5 (footnote 37) |")
+        write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
+        r = self.converge()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("1 superseded row(s) skipped", r.stdout)
+        self.assertIn("AC-2: superseded by 204 AC-5", r.stdout)
+
     def test_vitest_names_are_tests_mechanic_rows_are_skipped_and_the_template_is_found_from_a_project_copy(self):
         # first contact (2026-10-17): 26 vitest names in backticks ran as shell and came back "missing"; then the script
         # looked for <project>/templates/task.md and crashed before writing the rollup

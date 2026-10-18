@@ -51,14 +51,29 @@ The feature's Proof table executed on the integrated branch: every `missing` and
 """
 
 
+SUBCOMMANDS = {"run", "test", "exec", "install", "ci", "build", "audit", "view", "grep", "diff", "log", "status", "show", "add",
+               "commit", "rev-parse", "ls-files", "check", "lint", "x", "dlx", "tsc", "vitest", "jest", "pytest", "unittest"}
+
+
 def looks_like_command(s):
     s = s.strip()
     if not s:
         return False
     if SHELL_OPS.search(s):
         return True
-    head = s.split()[0]
-    return head in RUNNERS or head.startswith(("./", "/", "../", "~"))
+    toks = s.split()
+    head = toks[0]
+    if head.startswith(("./", "/", "../", "~")):
+        return True
+    if head not in RUNNERS:
+        return False
+    # a runner word up front is a command only when what follows reads like an argument: a flag, an assignment, a path,
+    # a file, a subcommand, or nothing — `env defaults to the test database when unset` is a vitest name (2026-10-18,
+    # row 2's review: three false "missing" lines)
+    if len(toks) <= 2:
+        return True
+    nxt = toks[1]
+    return nxt.startswith("-") or "=" in nxt or "/" in nxt or "." in nxt or nxt in SUBCOMMANDS
 
 
 def die(msg, code=2):
@@ -84,7 +99,8 @@ def proofs(text):
     rows = {}
     if table is not None:
         for l in table.splitlines():
-            cells = [c.strip() for c in l.strip().strip("|").split("|")]
+            # `\|` inside a cell is a literal pipe (a regex alternation in a grep), not a column break
+            cells = [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", l.strip().strip("|"))]
             m = re.match(r"^\**(AC-?\d+)\**$", cells[0]) if len(cells) >= 2 else None
             if m and not re.match(r"^-+$", cells[1]):
                 rows[re.sub(r"^AC-?", "AC-", m.group(1))] = cells[1]
@@ -98,7 +114,9 @@ def proofs(text):
             if p is None:
                 continue
             body = p.strip("`").strip()
-            if re.match(r"^\[mechanic\]", p):
+            if re.match(r"^(~~.*~~|superseded\b.*)$", p.strip(), re.I | re.S):
+                out.append((ac_id, p.strip().strip("~").strip(), "superseded"))   # replaced by a later task's row: never run
+            elif re.match(r"^\[mechanic\]", p):
                 out.append((ac_id, re.sub(r"^\[mechanic\]\s*", "", p).strip("`").strip(), "mechanic"))
             elif p.startswith("`") and p.endswith("`") and not TEST_RE.fullmatch(body) and looks_like_command(body):
                 out.append((ac_id, body, "cmd"))
@@ -155,10 +173,13 @@ def main(argv):
         die(f"no task files for feature {feature!r}", 2)
     test_cmd = str((cfg.get("converge") or {}).get("test_cmd", "") or "")
     gate = None
-    findings, mechanic_rows = [], []
+    findings, mechanic_rows, superseded = [], [], []
     for path, text in tasks:
         for ac_id, proof, kind in proofs(text):
             label = f"{os.path.basename(path)} {ac_id}"
+            if kind == "superseded":
+                superseded.append(f"{label}: {proof}")
+                continue
             if kind == "mechanic":
                 mechanic_rows.append(f"{label}: `{proof}`")   # writes files: the mechanic runs it, converge never does
                 continue
@@ -181,6 +202,10 @@ def main(argv):
                     gate = subprocess.run(["sh", os.path.join("scripts", "reef-gate.sh"), "full"], cwd=root, capture_output=True, text=True).returncode
                 if gate != 0:
                     findings.append(f"{label}: contradicts — {proof} exists but the full gate is red (exit {gate})")
+    if superseded:
+        print(f"{len(superseded)} superseded row(s) skipped (a later task's Proof replaces them):")
+        for m_ in superseded:
+            print(f"  - {m_}")
     if mechanic_rows:
         print(f"{len(mechanic_rows)} [mechanic] row(s) not run here (they write files — the mechanic runs them verbatim):")
         for m_ in mechanic_rows:
