@@ -323,6 +323,10 @@ t "gate cache: the pre-commit ignores a planted marker and runs the (red) gate" 
 mkrepo "$TMP/r7" "true"
 cp "$ROOT/scripts/reef-snapshot.sh" scripts/; chmod +x scripts/reef-snapshot.sh
 echo v1 > f.txt; git add .; git commit -qm c1 >/dev/null 2>&1
+# racy git (2026-10-18): a same-size rewrite within the second of the index write must still move the snapshot
+S1=$(sh scripts/reef-snapshot.sh); echo v2 > f.txt; S2=$(sh scripts/reef-snapshot.sh); [ -n "$S1" ] && [ "$S1" != "$S2" ]
+t "snapshot: a same-second, same-size edit moves the hash (content, not stat)" 0
+echo v1 > f.txt
 S1=$(sh scripts/reef-snapshot.sh); S2=$(sh scripts/reef-snapshot.sh)
 [ "$S1" = "$S2" ]
 t "snapshot: deterministic on an unchanged tree" 0
