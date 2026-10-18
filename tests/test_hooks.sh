@@ -225,6 +225,16 @@ t "Task dispatch hook with NO python3: denied (exit 2)" 2
 echo '{"tool_name":"Bash","tool_input":{"command":"ls"}}' | env -i PATH="$NOPY" CLAUDE_PLUGIN_ROOT="$ROOT" sh -c "$(python3 -c "import json;print([h for h in json.load(open('$ROOT/hooks/hooks.json'))['hooks']['PreToolUse'] if h['matcher']=='Bash'][0]['hooks'][0]['command'])")" >/dev/null 2>&1
 t "Bash hook with NO python3 on an innocent command: allowed (degraded)" 0
 
+# ---------- 0.7: hunter.guard_pass = feature — the pass is the feature's, a task closes without the key ----------
+mkrepo "$TMP/r6f" "true"
+printf '{"gates": {"test": "true"}, "hunter": {"guard_pass": "feature"}}\n' > .reef/config.json
+mkdir -p tasks/done
+printf -- '---\nid: 9\nfeature: f\nstatus: pending\ncomplexity: design\ntier: critical\nverify: judge\nattempts: 0\nadversarial-plan: abc\n---\n# 9\n' > tasks/009-c.md
+git add -A && git commit -qm plan >/dev/null 2>&1
+git mv tasks/009-c.md tasks/done/009-c.md
+git commit -qm close >/dev/null 2>&1
+t "guard_pass feature: a critical task closes WITHOUT adversarial-guard (the pass is recorded per feature, GREEN refuses without it)" 0
+
 # ---------- 0.5.0: a tier: design task closes only with the guard pass recorded ----------
 mkrepo "$TMP/r12" "true"
 mkdir -p tasks/done

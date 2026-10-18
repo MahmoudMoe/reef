@@ -35,7 +35,10 @@ run_gate() { ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_CONFIG_
 # A tier: design (or critical) task closes only after the loophole-hunter's SECOND pass, on the finished
 # guard (scripts/reef-adversarial <task> guard <report> writes adversarial-guard:). Checked on
 # the STAGED blob of every task file entering a done/ directory, before anything else runs.
-git diff --cached --name-only --diff-filter=AR -z | tr '\0' '\n' | grep -E '(^|/)done/[^/]+\.md$' \
+# hunter.guard_pass = feature (0.7): the pass runs ONCE on the feature's merged diff and reef-record refuses GREEN
+# without it (scripts/reef-adversarial --feature <slug> guard <report>); a task then closes without the key.
+GUARD_PASS=$(command -v python3 >/dev/null 2>&1 && python3 -c 'import json;print(str((json.load(open(".reef/config.json")).get("hunter") or {}).get("guard_pass","task")).lower())' 2>/dev/null || echo task)
+[ "$GUARD_PASS" = feature ] || git diff --cached --name-only --diff-filter=AR -z | tr '\0' '\n' | grep -E '(^|/)done/[^/]+\.md$' \
 | while IFS= read -r p; do
     blob=$(git show ":$p" 2>/dev/null) || continue
     if printf '%s\n' "$blob" | grep -qE '^tier: *(design|critical)' \

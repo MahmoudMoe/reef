@@ -326,6 +326,56 @@ class MigrateTheStamp(unittest.TestCase):
         self.assertEqual(adv(self.t, "plan", "--migrate").returncode, 2)
 
 
+class FeatureGuardPass(unittest.TestCase):
+    """0.7 hunter.guard_pass = feature (2026-10-18: two judges, 96k, 20 lines): ONE guard pass on the feature's diff,
+    recorded on every design/critical task of the feature, open and done; light tasks untouched; the plan pass first."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-adv-feature.")
+        os.makedirs(os.path.join(self.d, ".reef"))
+        write(self.d, ".reef/config.json", '{"gates": {"test": "true"}, "hunter": {"guard_pass": "feature"}, "paths": {"features": "reef/features"}}')
+        self.tasks = os.path.join(self.d, "reef", "features", "demo", "tasks")
+        os.makedirs(os.path.join(self.tasks, "done"))
+        def t(name, tier, cx, extra=""):
+            p = os.path.join(self.tasks, name)
+            tid = re.search(r"(\d+)-", os.path.basename(name)).group(1).lstrip("0")
+            with open(p, "w") as f:
+                f.write(f"---\nid: {tid}\nfeature: demo\nstatus: pending\ncomplexity: {cx}\neffort: medium\nblocked-by: []\n"
+                        f"resources: []\ntier: {tier}\nverify: judge\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n{extra}---\n# x\n\n## Scope\nx\n\n## Log\n")
+            return p
+        self.p1 = t("001-a.md", "critical", "design", "adversarial-plan: aaaaaaaaaaaa\n")
+        self.p2 = t("002-b.md", "light", "mech")
+        self.p3 = t("done/003-c.md", "design", "design", "adversarial-plan: bbbbbbbbbbbb\n")
+        self.report = write(self.d, "guard.md", "RUN: agent=loophole-hunter task=1 pass=guard\nDEFECT: x\nBLOCKER: none\nVERDICT: PASS\n")
+
+    def run_in(self, *args):
+        return subprocess.run([sys.executable, ADV, *args], capture_output=True, text=True, cwd=self.d)
+
+    def test_one_pass_stamps_every_design_or_critical_task_and_light_stays(self):
+        r = self.run_in("--feature", "demo", "guard", self.report)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("on 2 task(s) of demo: 1, 3", r.stdout)
+        v1 = re.search(r"^adversarial-guard: (\S+)", fm_of(self.p1), re.M).group(1)
+        self.assertEqual(v1, re.search(r"^adversarial-guard: (\S+)", fm_of(self.p3), re.M).group(1), "one record, one value")
+        self.assertNotIn("adversarial-guard", fm_of(self.p2))
+
+    def test_refuses_a_plan_report_an_unhunted_plan_and_a_feature_without_judged_tasks(self):
+        r = self.run_in("--feature", "demo", "guard", write(self.d, "p.md", REPORT_PASS.format(p="plan")))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("not 'guard'", r.stderr)
+        with open(self.p1) as f:
+            t = f.read()
+        with open(self.p1, "w") as f:
+            f.write(t.replace("adversarial-plan: aaaaaaaaaaaa\n", ""))
+        r = self.run_in("--feature", "demo", "guard", self.report)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("plan pass comes first", r.stderr)
+        self.assertNotIn("adversarial-guard", fm_of(self.p3), "nothing stamped when one task refuses")
+        r = self.run_in("--feature", "other", "guard", self.report)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no design/critical task", r.stderr)
+
+
 class PlanRoundCap(unittest.TestCase):
     """0.7 / v2: the plan pass is capped (hunter.plan_rounds, default 2). 2026-10-17: rows 2 and 13 reached round 6."""
 

@@ -16,3 +16,5 @@ Read `.reef/config.json`, `AGENTS.md`, `.specify/memory/constitution.md` if pres
 - Before returning: `python3 scripts/reef-plan-check.py --feature <slug> --quiet` in the worktree until `0 failed`; fix the FAIL lines yourself (sentence ceilings, missing sections, status lines). A plan handed back red costs the orchestrator a round.
 - Never touch `paths.queue`, `.reef/approvals/`, `.reef/review/`, code or tests. Never commit: the orchestrator commits and pushes the plan.
 - Final message: the files you changed (one line each, what changed), the plan-check summary line, and the digest16 from `--digest --feature <slug>`. Under 150 words.
+
+A `WARN … names an external API/SDK` from `reef-plan-check.py` is yours to clear before you return: a task that calls an SDK or a hosted API carries its facts — the package and its version, the doc URL, the model id and limits it must respect — in `resources:` or in the task text, so the implementer builds instead of researching (2026-10-18: 35 of 54 implementer turns, 145k context, went to the Anthropic SDK's docs and source).

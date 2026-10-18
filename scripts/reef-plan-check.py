@@ -369,6 +369,11 @@ def review_state(root, feat, digest, task_paths, legacy_digest=""):
     return True, f"review: OK for {feat!r} ({digest[:16]}, {rec.get('recorded_at', '?')})", True
 
 
+# 2026-10-18: the 203 implementer spent 35 of 54 turns (145k context) researching the Anthropic SDK — model id, image
+# limits, SDK version, structured outputs — because the task named the API and `resources: [heavy]` carried no fact.
+# Those are planning facts: a task that names an external API/SDK lists a doc URL or a version in resources: or its text.
+EXTERNAL_API_RE = re.compile(r"(@[\w.-]+/sdk\b|\b[\w-]+-sdk\b|\b(?:anthropic|openai|stripe|twilio|sendgrid|supabase|resend|postmark|sentry|vercel ai)\b|https?://api\.|\bfetch\(\s*[\"'`]https?://)", re.I)
+RESOURCE_FACT_RE = re.compile(r"https?://\S+|\bv?\d+\.\d+(?:\.\d+)?\b|@\d|\bdocs?\b", re.I)
 HUNTER_FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)   # reef-adversarial's fence: the inner text is group 1
 HUNTER_EXEC = r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-plan|adversarial-guard|adversarial-decided):.*(?:\r?\n|\Z)"
 
@@ -821,6 +826,21 @@ def main():
             fail(f"{rel}: schema — " + "; ".join(errs))
         else:
             ok(f"{rel}: schema")
+        api_re = EXTERNAL_API_RE
+        custom = str((cfg.get("plan") or {}).get("external_api_re", "") or "") if isinstance(cfg.get("plan"), dict) else ""
+        if custom:
+            try:
+                api_re = re.compile(custom, re.I)
+            except re.error:
+                fail(f".reef/config.json: plan.external_api_re is not a regular expression: {custom!r}")
+        plan_text = CUT_HEADING.split(text, maxsplit=1)[0]
+        body_only = plan_text[FM_RE.match(plan_text).end():] if FM_RE.match(plan_text) else plan_text
+        api = api_re.search(body_only)
+        facts = fm.get("resources", "[]") + "\n" + (section(text, "Resources") or "")
+        if api and not RESOURCE_FACT_RE.search(facts):
+            print(f"WARN {rel}: names an external API/SDK ({api.group(0)}) and resources: carry no doc URL or version — the implementer will "
+                  "research it (2026-10-18: 35 of 54 turns, 145k context, on the Anthropic SDK); pin the SDK version, the doc URL and the "
+                  "facts it needs (model id, limits) in resources: or the task text")
         if "id" in fm and re.fullmatch(r"R?\d+", fm.get("id", "")):
             raw_id = fm["id"]
             fname = TASK_NAME_RE.match(os.path.basename(path))

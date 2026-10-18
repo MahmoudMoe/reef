@@ -33,7 +33,8 @@
     "release": "main"
   },
   "hunter": {
-    "plan_rounds": 2
+    "plan_rounds": 2,
+    "guard_pass": "task"
   },
   "plan": {
     "max_acs": 0,

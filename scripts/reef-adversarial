@@ -6,6 +6,9 @@ Usage:
   reef-adversarial <task-file> plan  <report-file>    record the pass on the PLAN (before code)
   reef-adversarial <task-file> guard <report-file>    record the pass on the finished GUARD (after)
   reef-adversarial <task-file> plan-hash               print the plan hash the guard will compare
+  reef-adversarial --feature <slug> guard <report>     (0.7) hunter.guard_pass = feature: ONE guard pass on the feature's
+                                                       merged diff, recorded on every design/critical task of the feature
+                                                       (open and done); reef-record refuses GREEN without it
   reef-adversarial <task-file> plan --migrate          (0.7) re-stamp a record written before the cut moved to
                                                        `## Reviewer notes` — only when the 0.6-form hash of the file
                                                        still equals the stamp (the plan is unchanged); no hunter round
@@ -67,6 +70,59 @@ def plan_rounds_cap(task_path):
             break
         d = nd
     return 2
+
+
+def config_near(path):
+    """(root, config dict) for the nearest .reef/config.json at or above path (a file or a directory)."""
+    d = os.path.abspath(path if os.path.isdir(path) else os.path.dirname(path))
+    for _ in range(12):
+        cfg = os.path.join(d, ".reef", "config.json")
+        if os.path.isfile(cfg):
+            try:
+                with open(cfg, encoding="utf-8") as f:
+                    return d, json.load(f)
+            except Exception:
+                return d, {}
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    return None, {}
+
+
+def guard_pass_mode(path):
+    """hunter.guard_pass: `task` (default; the hunter's guard pass per design/critical task, the pre-commit requires it to
+    close) or `feature` (one pass on the feature's merged diff before the GREEN record — 2026-10-18: two judges cost
+    96k on a 20-line task; the hunter's floor is paid once per feature instead)."""
+    _, cfg = config_near(path)
+    return str((cfg.get("hunter") or {}).get("guard_pass", "task") or "task").strip().lower()
+
+
+def feature_tasks(root, cfg, slug):
+    """Every task file of a feature: the 0.6 folder (paths.features/<slug>/tasks/*.md and tasks/done/*.md) or, in the
+    flat layout, the tasks/ files whose frontmatter names the feature."""
+    import glob
+    features = str((cfg.get("paths") or {}).get("features") or "reef/features")
+    fdir = os.path.join(root, features, slug, "tasks")
+    if os.path.isdir(fdir):
+        return sorted(glob.glob(os.path.join(fdir, "*.md")) + glob.glob(os.path.join(fdir, "done", "*.md")))
+    tdir = os.path.join(root, str((cfg.get("paths") or {}).get("tasks") or "tasks"))
+    out = []
+    for p in sorted(glob.glob(os.path.join(tdir, "*.md")) + glob.glob(os.path.join(tdir, "done", "*.md"))):
+        fm = frontmatter(read(p)) or {}
+        if fm.get("feature") == slug:
+            out.append(p)
+    return out
+
+
+def guarded_tasks(root, cfg, slug):
+    """The feature's design/critical tasks (the ones the guard pass covers) as (path, frontmatter)."""
+    out = []
+    for p in feature_tasks(root, cfg, slug):
+        fm = frontmatter(read(p)) or {}
+        if fm.get("tier") in ("design", "critical"):
+            out.append((p, fm))
+    return out
 
 
 def report_round(report):
@@ -172,6 +228,25 @@ def head_of(path):
 
 
 def main(argv):
+    if len(argv) == 4 and argv[0] == "--feature" and argv[2] == "guard":
+        slug, report_path = argv[1].strip(), argv[3]
+        root, cfg = config_near(os.getcwd())
+        if not root:
+            die("no .reef/config.json at or above the current directory — run in the checkout that holds the feature")
+        if not os.path.isfile(report_path):
+            die(f"file not found: {report_path}")
+        tasks = guarded_tasks(root, cfg, slug)
+        if not tasks:
+            die(f"feature {slug!r} has no design/critical task here — nothing for a guard pass to record")
+        for p, fm in tasks:
+            if "adversarial-plan" not in fm:
+                die(f"{os.path.relpath(p, root)}: no adversarial-plan record — the plan pass comes first")
+        check_report(read(report_path), "guard")
+        value = hashlib.sha1(read(report_path).encode("utf-8")).hexdigest()[:12] + "@" + head_of(tasks[0][0])
+        for p, _ in tasks:
+            set_key(p, read(p), "adversarial-guard", value)
+        print(f"adversarial-guard: {value} on {len(tasks)} task(s) of {slug}: " + ", ".join(fm.get("id", "?") for _, fm in tasks))
+        return 0
     if len(argv) == 2 and argv[1] == "plan-hash":
         print(plan_hash(read(argv[0])))
         return 0
@@ -210,7 +285,7 @@ def main(argv):
         print(f"adversarial-plan: {value} (owner decision {mark}, no hunter round)")
         return 0
     if len(argv) != 3 or argv[1] not in PASSES:
-        die("usage: reef-adversarial <task-file> plan|guard <report-file>  |  <task-file> plan --decided <mark>  |  <task-file> plan --migrate  |  <task-file> plan-hash")
+        die("usage: reef-adversarial <task-file> plan|guard <report-file>  |  --feature <slug> guard <report-file>  |  <task-file> plan --decided <mark>  |  <task-file> plan --migrate  |  <task-file> plan-hash")
     task_path, which, report_path = argv
     for p in (task_path, report_path):
         if not os.path.isfile(p):

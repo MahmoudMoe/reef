@@ -1,6 +1,18 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`hunter.guard_pass: feature`** (2026-10-18: task 204's verifier and hunter cost 96k on 20 lines of code; the hunter's
+  floor is ~40k per task whatever the diff): the loophole-hunter's guard pass runs ONCE on the feature's merged diff in
+  `/reef-review`, before the GREEN record, instead of once per design/critical task. `reef-attempt` prints `guard-pass:
+  feature` instead of the `adversary:` line (the task skill and graph-run dispatch no hunter), the pre-commit lets such a
+  task close without `adversarial-guard`, `reef-adversarial --feature <slug> guard <report>` records the pass on every
+  design/critical task of the feature, and `reef-record <feature> GREEN` refuses while one lacks it. Template default
+  `task` (the 0.6 behaviour); set `feature` per project.
+- **A task that names an external API/SDK carries its facts** (2026-10-18: the 203 implementer spent 35 of 54 turns and
+  145k context on the Anthropic SDK's docs and source — model id, image limits, SDK version, structured outputs —
+  because `resources: [heavy]` said nothing): `reef-plan-check` prints a WARN for a task whose text names an SDK
+  package, a vendor or an `https://api.` URL while `resources:` (or `## Resources`) carries no doc URL or version;
+  `plan.external_api_re` overrides the pattern; the planner clears it before returning.
 - `reef-cost` keeps the standing context (the system prompt, the skill list, the environment: paid on every turn,
   recorded a few times in the transcript, never growth) out of the share table and names it on one line per item
   (2026-10-18: two prompt snapshots and three skill listings read as 55% of "the context", and the orchestrator

@@ -219,6 +219,21 @@ class Attempt(unittest.TestCase):
                       body="# small\n\n## Acceptance Criteria\n- AC-1: holds.\n\n## Log\n")
         self.assertIn("report: budget=900 words, RULE lines free (1 criteria)", run(p).stdout)
 
+    def test_guard_pass_feature_prints_no_adversary_line(self):
+        # 0.7 hunter.guard_pass = feature (2026-10-18: two judges, 96k, 20 lines): graph-run and the task skill read the
+        # `adversary:` line as "dispatch a hunter"; under feature mode the line is replaced, never printed
+        os.makedirs(os.path.join(self.dir, ".reef"), exist_ok=True)
+        open(os.path.join(self.dir, ".reef", "config.json"), "w").write('{"hunter": {"guard_pass": "feature"}}')
+        p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: medium\nverify: judge\ntier: critical\nattempts: 0\n")
+        r = run(p)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotRegex(r.stdout, r"(?m)^adversary:", "an adversary: line would dispatch a hunter per task")
+        self.assertNotIn("hunter-report:", r.stdout)
+        self.assertIn("guard-pass: feature", r.stdout)
+        self.assertIn("verifier: model=", r.stdout, "the verifier stays per task")
+        open(os.path.join(self.dir, ".reef", "config.json"), "w").write('{"hunter": {"guard_pass": "task"}}')
+        self.assertRegex(run(p).stdout, r"(?m)^adversary: model=", "the default is the 0.6 behaviour")
+
     def test_verifier_model_defaults_to_agent_default(self):
         p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: medium\nverify: judge\nattempts: 0\n")
         self.assertIn("verifier: model=opus", run(p).stdout)
