@@ -162,6 +162,38 @@ class Update(unittest.TestCase):
         self.assertIn("dry run: no pull", r.stdout)
         self.assertIn("/reload-plugins", r.stdout)
 
+    def test_a_pull_that_changes_reef_update_runs_the_new_copy(self):
+        # 2026-10-18: the fix to reef-update's commit filter (#55) ran old on the trial's next pull — the process is
+        # the copy loaded before the pull. The pull changed the file → the new copy runs, once.
+        import shutil
+        d = project()
+        with open(os.path.join(d, "package.json"), "w") as f:
+            json.dump({"name": "demo", "scripts": {"test": "true"}}, f)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "pkg")
+        clone = tempfile.mkdtemp(prefix="reef-plugin-main.")
+        subprocess.run(["git", "init", "-q", "-b", "main", clone], check=True)
+        for sub in ("scripts", "templates", ".claude-plugin"):
+            shutil.copytree(os.path.join(ROOT, sub), os.path.join(clone, sub), ignore=shutil.ignore_patterns("__pycache__"))
+        git(clone, "add", "-A"); git(clone, "commit", "-qm", "plugin")
+        bare = tempfile.mkdtemp(prefix="reef-plugin-origin.")
+        subprocess.run(["git", "clone", "-q", "--bare", clone, bare], check=True)
+        git(clone, "remote", "add", "origin", bare); git(clone, "fetch", "-q", "origin"); git(clone, "branch", "-q", "-u", "origin/main")
+        # the origin moves: a newer reef-update that announces itself
+        work = tempfile.mkdtemp(prefix="reef-plugin-work.")
+        subprocess.run(["git", "clone", "-q", bare, work], check=True)
+        up = os.path.join(work, "scripts", "reef-update.py")
+        with open(up) as f:
+            src = f.read()
+        with open(up, "w") as f:
+            f.write(src.replace("def main(argv):\n", "def main(argv):\n    print('NEW COPY RUNNING')\n", 1))
+        git(work, "commit", "-qam", "newer reef-update"); git(work, "push", "-q", "origin", "main")
+        r = subprocess.run([sys.executable, os.path.join(clone, "scripts", "reef-update.py"), "--repo", d, "--plugin", clone, "--commit"],
+                           capture_output=True, text=True, env=dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("running the new copy", r.stdout)
+        self.assertEqual(r.stdout.count("NEW COPY RUNNING"), 1, "the new copy runs once, never a loop")
+        self.assertIn("project: committed", r.stdout, "the new copy finishes the update")
+
     def test_commit_takes_the_manifest_and_the_gitignore_lines_too(self):
         # 2026-10-18 (qassimha): three pulls with --commit committed the scripts and never .reef/init-manifest.json
         # (the first porcelain line lost its status column to run()'s strip) nor the .gitignore lines reef-init appends
