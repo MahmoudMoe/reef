@@ -336,8 +336,8 @@ t "gate timeout: --failures prints exit 124 and the TIMEOUT verdict outside a bl
 OUT=$(sh scripts/reef-gate.sh 2>/dev/null); RC=$?
 [ "$RC" -eq 124 ] && printf '%s' "$OUT" | grep -q 'TIMEOUT after 1s'
 t "gate timeout: the plain mode prints the TIMEOUT verdict too" 0
-[ ! -f .reef/ci-local/gate-full-*.ok ] 2>/dev/null; ls .reef/ci-local/gate-full-*.ok >/dev/null 2>&1
-t "gate timeout: no green marker is written" 1
+[ -z "$(ls .reef/ci-local/gate-full-*.ok 2>/dev/null)" ]   # GNU ls exits 2 on no match, BSD ls 1: test the listing, not the code
+t "gate timeout: no green marker is written" 0
 printf '{"gates": {"test": "true", "timeout_s": 0}}\n' > .reef/config.json
 sh scripts/reef-gate.sh >/dev/null 2>&1
 t "gate timeout: timeout_s 0 = none, a green gate passes" 0
