@@ -223,6 +223,7 @@ def tick(root):
     # report newer than it) is not to DISPATCH but to VERIFY: first contact (2026-10-17) the fresh session's tick said
     # "dispatch now: 103" over an uncommitted, handed-back worktree — a second implementer would have burnt a dispatch
     verify_now = []
+    by_id = {str(t["id"]): t for t in dispatch_now}
     for t in list(dispatch_now):
         tid = str(t["id"])
         for d_ in [root] + worktrees:
@@ -232,6 +233,24 @@ def tick(root):
                 verify_now.append(tid)
                 dispatch_now.remove(t)
                 break
+    # the files behind the ids, for the session-start text: 2026-10-18, after every /clear the fresh orchestrator ran
+    # `find . -name "202*"` over the repository and listed .reef/hunt to locate what the tick had just named
+    files = {}
+    for tid in [str(t["id"]) for t in dispatch_now] + verify_now:
+        t = by_id.get(tid) or {}
+        tpath = str(t.get("path") or "")
+        rec = {"task": os.path.relpath(tpath, root) if tpath else "?", "worktree": "", "evidence": []}
+        try:
+            m = re.search(r"^worktree:[ \t]*(\S+)", read(tpath)[:4000], re.M) if tpath else None
+            rec["worktree"] = m.group(1) if m else ""
+        except OSError:
+            pass
+        for d_ in [root] + worktrees:
+            for name in (f"handback-{tid}.md", f"report-{tid}.md", f"report-{tid}-hunter.md"):
+                fp = os.path.join(d_, ".reef", "ci-local", name)
+                if os.path.isfile(fp):
+                    rec["evidence"].append(os.path.relpath(fp, root))
+        files[tid] = rec
     parked = [l.split("\t")[0] for l in q_status.splitlines()] and []   # rows park through their tasks: status blocked
     rc_gs, g_status = run([py, os.path.join(scripts, "reef-graph.py"), "status", "--root", root], root)
     blocked = [l.split("\t")[0] for l in g_status.splitlines() if "\tblocked\t" in l]
@@ -272,7 +291,7 @@ def tick(root):
         except (OSError, ValueError):
             pass
     state = {
-        "rows_to_plan": [r[0] for r in to_plan], "dispatch_now": [t["id"] for t in dispatch_now], "verify_now": verify_now, "awaiting": awaiting,
+        "rows_to_plan": [r[0] for r in to_plan], "dispatch_now": [t["id"] for t in dispatch_now], "verify_now": verify_now, "awaiting": awaiting, "files": files,
         "prs_to_review": [f"#{p['number']} {p['headRefName']}" for p in prs], "other_prs": len(other_prs),
         "rows_to_close": [r[0] for r in to_close],
         "in_flight": sorted(inflight_ids) + [f"verifying:{m['id']}" for m in verifying if not m["stale"]],
@@ -398,7 +417,10 @@ def session_start(root, state, cfg):
     behind = scripts_behind_plugin(root)
     note = (f"reef: {len(behind)} project script(s) behind the plugin ({', '.join(behind[:4])}{'…' if len(behind) > 4 else ''})"
             f" — run /reef-init and accept scripts/* before dispatching\n") if behind else ""
-    text = (head + "\n\n" if head else "") + note + render(state) + f"\nnext command: {next_command(state)}\n"
+    files = state.get("files") or {}
+    flines = "".join(f"  {tid}: {r['task']}" + (f" · worktree {r['worktree']}" if r.get("worktree") else "") +
+                     (f" · evidence {', '.join(r['evidence'])}" if r.get("evidence") else "") + "\n" for tid, r in sorted(files.items()))
+    text = (head + "\n\n" if head else "") + note + render(state) + (f"files (read these, search for nothing):\n{flines}" if flines else "") + f"\nnext command: {next_command(state)}\n"
     if len(text) // 4 > cap:
         text = text[: cap * 4] + f"\n[truncated: writing.session_start_tokens {cap}]\n"
     return text

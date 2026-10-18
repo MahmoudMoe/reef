@@ -349,7 +349,10 @@ class VerifyNow(unittest.TestCase):
         self.assertIn("next: verify: 101", text)
         # 2026-10-18: the session-start text said `/reef-plan <row> or /reef-assess` with 204 handed back, and the
         # status line's `next:` echoed it after every reply
-        self.assertIn("next command: /reef-loop", loop(d, "tick", "--session-start").stdout)
+        ss = loop(d, "tick", "--session-start").stdout
+        self.assertIn("next command: /reef-loop", ss)
+        # 2026-10-18: after every /clear the fresh orchestrator searched the repository for the task the tick had just named
+        self.assertRegex(ss, r"files \(read these, search for nothing\):\n  101: tasks/101-a\.md · evidence \.reef/ci-local/handback-101\.md")
         time.sleep(0.05)
         write(d, ".reef/ci-local/report-101.md", "RUN: agent=verifier task=101\nVERDICT: PASS\n")   # a report newer than the hand-back
         st = json.loads(loop(d, "tick", "--json").stdout)
