@@ -93,6 +93,28 @@ def cmd_plan_review(argv):
     return 0
 
 
+def feature_guard_pass_missing(cwd, feature):
+    """Under hunter.guard_pass = feature: the ids of the feature's design/critical tasks (open and done) without an
+    adversarial-guard record; [] under the task mode (the pre-commit enforced it per task) or with every task stamped."""
+    import importlib.machinery
+    import importlib.util
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-adversarial")
+    if not os.path.isfile(p):
+        return []
+    spec = importlib.util.spec_from_loader("reef_adversarial", importlib.machinery.SourceFileLoader("reef_adversarial", p))
+    adv = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(adv)
+    except Exception:
+        return []
+    if adv.guard_pass_mode(cwd) != "feature":
+        return []
+    root, cfg = adv.config_near(cwd)
+    if not root:
+        return []
+    return [fm.get("id", os.path.basename(p_)) for p_, fm in adv.guarded_tasks(root, cfg, feature) if not (fm.get("adversarial-guard") or "").strip()]
+
+
 def main(argv):
     if argv and argv[0] == "plan-review":
         return cmd_plan_review(argv[1:])
@@ -109,6 +131,12 @@ def main(argv):
         die("usage: reef-record <feature> <verdict> [--pr N] [--root DIR]")
     feature, verdict = pos
     cwd = root or os.getcwd()
+    if verdict.upper() in ("GREEN", "PASS"):
+        missing = feature_guard_pass_missing(cwd, feature)
+        if missing:
+            die(f"{feature}: hunter.guard_pass is `feature` and the guard pass is not recorded on task(s) {', '.join(missing)} — dispatch the "
+                f"loophole-hunter ONCE on the feature's diff (`git diff <base>...HEAD`, pass=guard) and record it with "
+                f"`scripts/reef-adversarial --feature {feature} guard <report>` before a GREEN record")
     view = json.loads(gh("pr", "view", *([pr] if pr else []), "--json", "headRefOid,baseRefName,url,number", cwd=cwd))
     sha, base, url = view.get("headRefOid", ""), view.get("baseRefName", ""), view.get("url", "")
     m = re.search(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)", url)

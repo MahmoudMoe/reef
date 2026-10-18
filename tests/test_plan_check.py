@@ -667,6 +667,37 @@ class RecordsMigrateFromTheLegacyDigest(unittest.TestCase):
         self.assertIn("differs from this script", m.stdout)
 
 
+class ExternalApiFacts(unittest.TestCase):
+    """2026-10-18: the 203 implementer spent 35 of 54 turns on the Anthropic SDK because the task named the API and
+    resources: [heavy] carried no fact. A task naming an SDK/API without a doc URL or a version in resources: is a WARN."""
+
+    def warns(self, scope, resources="[]", extra_cfg=None):
+        tmp = tempfile.mkdtemp(prefix="reef-pc-api.")
+        repo(tmp, extra_cfg=extra_cfg)
+        p = os.path.join(tmp, "tasks", "001-demo.md")
+        with open(p) as f:
+            t = f.read()
+        with open(p, "w") as f:
+            f.write(t.replace("## Scope\nx", f"## Scope\n{scope}").replace("blocked-by: []\n", f"blocked-by: []\nresources: {resources}\n"))
+        r = run(tmp)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        return [l for l in r.stdout.splitlines() if l.startswith("WARN") and "external API" in l]
+
+    def test_an_sdk_without_facts_warns_and_a_doc_or_version_clears_it(self):
+        w = self.warns("Decode the receipt with @anthropic-ai/sdk (vision).")
+        self.assertEqual(len(w), 1, w)
+        self.assertIn("@anthropic-ai/sdk", w[0])
+        self.assertIn("resources:", w[0])
+        self.assertEqual(self.warns("Decode the receipt with @anthropic-ai/sdk (vision).", "[\"@anthropic-ai/sdk 0.135.0\", heavy]"), [])
+        self.assertEqual(self.warns("Call the Stripe API for the refund.", "[\"https://docs.stripe.com/api/refunds\"]"), [])
+        self.assertEqual(self.warns("Call the Stripe API for the refund."), self.warns("Call the Stripe API for the refund.") and self.warns("Call the Stripe API for the refund."))
+        self.assertEqual(len(self.warns("POST to https://api.example.com/v2/items with fetch.")), 1)
+
+    def test_a_local_api_route_is_not_an_external_api_and_the_pattern_is_configurable(self):
+        self.assertEqual(self.warns("Add the /api/bills route and its handler."), [], "a Next.js API route is the project's own")
+        self.assertEqual(len(self.warns("Talk to the Acme billing service.", extra_cfg={"plan": {"external_api_re": "acme billing"}})), 1)
+
+
 class FeatureStamp(unittest.TestCase):
     """0.4.0: the stamp hashes only the tasks of ONE feature plus the ADRs, so merging the
     integration branch (other features' tasks, the brief, the glossary) stales nothing."""

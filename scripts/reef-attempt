@@ -279,9 +279,14 @@ def run(cap_flag, path, failure):
             if rw:  # the judge is told its budget before it writes (first contact: 1693 words, unknown cap, a rewrite round)
                 print(f"report: budget={rw + 40 * max(0, n_ac - 8)} words, RULE lines free ({n_ac} criteria)")
         if tier in ("design", "critical"):
-            print(f"adversary: model={adversary}")
-            if rw:
-                print(f"hunter-report: budget={rw} words")
+            # hunter.guard_pass = feature (0.7): no hunter per task — graph-run and the task skill read the absence of the
+            # `adversary:` line; the one pass runs on the feature's diff in /reef-review (2026-10-18: two judges, 96k, 20 lines)
+            if str((cfg.get("hunter") or {}).get("guard_pass", "task") or "task").lower() == "feature":
+                print("guard-pass: feature (no hunter on this task; ONE loophole-hunter pass on the feature's diff before the GREEN record)")
+            else:
+                print(f"adversary: model={adversary}")
+                if rw:
+                    print(f"hunter-report: budget={rw} words")
         # absolute: the guard resolves this against the SESSION cwd, which need not
         # be the cwd this script happened to run from
         print(f"REEF-TASK: {os.path.abspath(path)}")

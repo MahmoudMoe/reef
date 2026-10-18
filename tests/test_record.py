@@ -91,6 +91,31 @@ class ForgeMerge(unittest.TestCase):
         self.assertEqual(self.merge().returncode, 0, self.merge().stderr)
         self.assertEqual(self.merge("gh api -X PUT repos/o/r/pulls/7/merge -f merge_method=squash").returncode, 0)
 
+    def test_green_needs_the_feature_guard_pass_under_feature_mode(self):
+        # 0.7 hunter.guard_pass = feature: the merge's GREEN record is the enforcement point (the pre-commit no longer is)
+        with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"full": "true"}, "merge": {"by": "loop"}, "branches": {"base": "main", "release": "release"},
+                       "hunter": {"guard_pass": "feature"}, "paths": {"features": "reef/features"}}, f)
+        tasks = os.path.join(self.d, "reef", "features", "demo", "tasks", "done")
+        os.makedirs(tasks)
+        tp = os.path.join(tasks, "001-a.md")
+        with open(tp, "w") as f:
+            f.write("---\nid: 1\nfeature: demo\nstatus: done\ncomplexity: design\ntier: critical\nverify: judge\nattempts: 0\n"
+                    "adversarial-plan: aaaaaaaaaaaa\n---\n# 1\n\n## Log\n")
+        r = self.record()
+        self.assertNotEqual(r.returncode, 0, "GREEN recorded without the feature's guard pass")
+        self.assertIn("--feature demo guard", r.stderr)
+        self.assertIn("task(s) 1", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "review", "demo.json")))
+        with open(os.path.join(self.d, "guard.md"), "w") as f:
+            f.write("RUN: agent=loophole-hunter task=1 pass=guard\nBLOCKER: none\nVERDICT: PASS\n")
+        a = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-adversarial"), "--feature", "demo", "guard", os.path.join(self.d, "guard.md")],
+                           capture_output=True, text=True, cwd=self.d)
+        self.assertEqual(a.returncode, 0, a.stderr)
+        r = self.record()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.record("FAIL").returncode, 0, "a FAIL record never needs the pass")
+
     def test_no_record_denied(self):
         r = self.merge()
         self.assertEqual(r.returncode, 2)

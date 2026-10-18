@@ -47,6 +47,9 @@ Fresh-context, diff-only against the PR's base (`git diff <branches.base>...HEAD
 - `ci.feature_gate` = `local` and the PR targets `branches.base` (≠ `branches.release`): run `scripts/reef-gate.sh full` in the feature's worktree as this step; do not wait on CI.
 Red → record it on the feature's rollup with `scripts/reef-attempt <rollup> "<failing output>"`, `/reef-task` it, push, re-check. Same rollup, same cap as steps 2–3.
 
+## 4b. The feature's guard pass (`hunter.guard_pass: feature`)
+When `.reef/config.json` sets `hunter.guard_pass` to `feature` and the feature has a `design`/`critical` task, the loophole-hunter's guard pass ran on NO task; it runs ONCE here, before the GREEN record: a fresh `loophole-hunter` (model from the heaviest task's tier table), prompt starting with `REEF-TASK: <that task's file>` and `REEF-FEATURE: <slug>`, `pass=guard` on the whole feature diff (`git diff <branches.base>...HEAD` in the feature worktree, read-only, snapshot-checked). Record its PASS with `scripts/reef-adversarial --feature <slug> guard <report>` (every design/critical task of the feature takes the record; `scripts/reef-record <feature> GREEN` refuses while one lacks it). A BLOCKER → the feature's rollup → `/reef-task` → re-run. Measured 2026-10-18: two judges cost 96k on a 20-line task; the hunter's floor is paid once per feature instead.
+
 ## 5. Hand off — or merge
 Report: PR URL (or local branch), acceptance verdict, blockers fixed, NITs left, CI/gate state. Append the runlog row. When the feature added dependencies, run `worktree.setup` in the MAIN checkout right after the merge, before the close-out commit — its pre-commit gate runs there (first contact: `pg` missing on develop, the close commit failed until `npm ci`).
 - `merge.by` = `human` (default): the HUMAN merges — never merge yourself.
