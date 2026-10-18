@@ -82,6 +82,8 @@ class Generate(unittest.TestCase):
                         "the task's REEF-TASK: line (macOS: /var/folders resolves to /private/var/folders)")
         self.assertIn("agentType: 'reef:implementer'", js)
         self.assertIn("agentType: 'reef:mechanic'", js)
+        self.assertIn("sh scripts/reef-gate.sh full --failures", js, "the judges read a tree the FULL gate passed, as in chat mode (cached when the implementer ran it on the same snapshot)")
+        self.assertNotIn("reef-gate.sh fast", js)
         self.assertIn("pipeline(TASKS", js)
         self.assertIn('"judge": false', js, "a gate-only task has no judge stage")
         self.assertNotIn("Date.now", js)

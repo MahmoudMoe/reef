@@ -360,8 +360,9 @@ def render(state):
     dm = state.get("dispatch_mode") or {}
     g_ids = [i for i in state["dispatch_now"] if dm.get(i) == "graph"]
     c_ids = [i for i in state["dispatch_now"] if dm.get(i) != "graph"]
+    why = "" if state.get("graph_mode") == "chat" else (" (fix round)" if state.get("graph_gate") else " (no GATE OK — reef-graph-run.py probe)")
     disp = " · ".join(([f"dispatch (graph): {', '.join(g_ids)} — python3 scripts/reef-graph-run.py generate"] if g_ids else [])
-                      + ([f"dispatch (chat): {', '.join(c_ids)} — /reef-task" + (" (fix round)" if g_ids or state.get("graph_gate") else "")] if c_ids else []))
+                      + ([f"dispatch (chat): {', '.join(c_ids)} — /reef-task{why}"] if c_ids else []))
     nxt = ("verify: " + ", ".join(state["verify_now"])) if state.get("verify_now") else \
           disp if state["dispatch_now"] else \
           ("review: " + state["prs_to_review"][0]) if state["prs_to_review"] else \

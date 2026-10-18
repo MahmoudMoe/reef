@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Fix** (`reef-graph-run`, 2026-10-18, the trial's first graph-mode task): the pipeline's mechanic ran `reef-gate.sh fast`
+  before the judges where chat mode runs `full`; it runs `full` now (cached when the implementer ran it on the same snapshot).
 - **`graph.mode: auto`** (workflow v2 phase 4; 2026-10-18, after the trial's first graph-mode task): the tick decides the
   mode per `dispatch now` task — `dispatch (graph): <ids> — reef-graph-run.py generate` for a fresh task when this
   machine's probe recorded GATE OK (`.reef/graph/gate.json`, fail closed), `dispatch (chat): <ids> — /reef-task` for a

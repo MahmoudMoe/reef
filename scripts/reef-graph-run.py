@@ -155,13 +155,14 @@ def ready_tasks(root, only):
     if state.get("graph_mode") == "chat":
         die("graph.mode is `chat` in the main checkout's config: /reef-task dispatches these; set `auto` or `graph` to use the graph", 1)
     for i in chat_ids:
-        print(f"skipped {i}: chat mode (a fix round — attempts > 0 — is judged in chat until round 2 is designed inside the graph): /reef-task")
-    ids = [i for i in ids if i not in chat_ids]
+        if not only or i in only:
+            print(f"skipped {i}: chat mode (a fix round — attempts > 0 — is judged in chat until round 2 is designed inside the graph): /reef-task")
     if only:
-        ids = [i for i in ids if i in only]
         missing = [i for i in only if i not in ids]
         if missing:
             print(f"skipped (not in the tick's dispatch now — blocked, in flight, or awaiting): {', '.join(missing)}")
+        ids = [i for i in ids if i in only]
+    ids = [i for i in ids if i not in chat_ids]
     paths = {}
     rc, out, _ = run([sys.executable, script(root, "reef-graph.py"), "ready", "--json", "--root", root], root)
     for t in (json.loads(out) if rc == 0 and out.strip() else []):
@@ -252,7 +253,7 @@ def cmd_generate(root, only):
                                 f"Write your hand-back FILE to {worktree}/.reef/ci-local/handback-{tid}.md before your final message (writing.handback_words; evidence only); "
                                 f"return that path and the RUN line only.",
             "gate_prompt": f"{reef_task}\nMechanic, in {worktree}: (1) python3 scripts/reef-claims.py check --handback .reef/ci-local/handback-{tid}.md — put its first line in handback_check; "
-                           f"(2) sh scripts/reef-gate.sh fast --failures — put its exit code in gate_exit and, if it failed, the failing block (under 60 lines) in notes; "
+                           f"(2) sh scripts/reef-gate.sh full --failures — put its exit code in gate_exit and, if it failed, the failing block (under 60 lines) in notes; "
                            f"(3) sh scripts/reef-snapshot.sh — put the hash it prints in snapshot. Change no file. Return the JSON only.",
             "verifier_prompt": f"{reef_task}\n{get('report') or ''}\nVerify the task's work in the worktree {worktree} (read-only). Write your report FILE to "
                                f"{report_dir}/report-{tid}-verifier.md before your final message; return verdict and report_path.",

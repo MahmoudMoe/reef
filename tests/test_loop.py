@@ -341,7 +341,7 @@ class VerifyNow(unittest.TestCase):
         d = project()
         t = lambda *a: subprocess.run([sys.executable, LOOP, "tick", *a, "--repo", d], capture_output=True, text=True)
         out = t().stdout
-        self.assertIn("dispatch (chat): 101 — /reef-task", out, "auto without a gate: chat, quietly")
+        self.assertIn("dispatch (chat): 101 — /reef-task (no GATE OK — reef-graph-run.py probe)", out, "auto without a gate: chat, with the reason")
         self.assertNotIn("BROKEN", out)
         write(d, ".reef/graph/gate.json", json.dumps({"ok": True, "denied": True, "file_existed": False}))
         out = t().stdout
@@ -358,14 +358,16 @@ class VerifyNow(unittest.TestCase):
         cfg["graph"] = {"mode": "chat"}
         write(d, ".reef/config.json", json.dumps(cfg))
         out = t().stdout
-        self.assertIn("dispatch (chat): 101", out)
+        self.assertIn("dispatch (chat): 101 — /reef-task\n", out, "mode chat: no reason to give")
+        self.assertNotIn("(fix round)", out)
         self.assertNotIn("dispatch (graph)", out)
         cfg["graph"] = {"mode": "graph"}
         write(d, ".reef/config.json", json.dumps(cfg))
         os.remove(os.path.join(d, ".reef", "graph", "gate.json"))
         out = t().stdout
         self.assertIn("BROKEN: graph.mode is `graph` but this machine has no GATE OK", out)
-        self.assertIn("dispatch (chat): 101", out, "fail closed: no gate, no graph")
+        self.assertIn("dispatch (chat): 101 — /reef-task (no GATE OK", out, "fail closed: no gate, no graph")
+        self.assertNotIn("(fix round)", out)
         # one home: the main checkout says chat; a worktree whose copy says auto with a gate does not decide
         cfg["graph"] = {"mode": "chat"}
         write(d, ".reef/config.json", json.dumps(cfg))
@@ -378,7 +380,7 @@ class VerifyNow(unittest.TestCase):
         write(d, ".reef/graph/gate.json", json.dumps({"ok": True}))
         approve(w, "1")   # the stamp and the approval are per checkout (gitignored); the worktree's own say dispatchable
         out = subprocess.run([sys.executable, LOOP, "tick", "--repo", w], capture_output=True, text=True).stdout
-        self.assertIn("dispatch (chat): 101", out, "the main checkout's `chat` wins over the worktree's `auto`")
+        self.assertIn("dispatch (chat): 101 — /reef-task\n", out, "the main checkout's `chat` wins over the worktree's `auto`")
         self.assertNotIn("dispatch (graph)", out)
 
     def test_a_handed_back_task_is_to_verify_not_to_dispatch(self):
