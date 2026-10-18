@@ -58,6 +58,7 @@ Then, inside your project:
 | **A feature to build** | `/reef-plan <row>` → `/reef-task <slug>` → `/reef-review <slug>` | The grill; the spec and the tasks drafted in the feature worktree; the hunter and a fresh reviewer in parallel; then the one question for you, last — nothing after it voids your approval. Every ready task at once, each in its own worktree, each verified by a fresh judge. The PR, the acceptance against the spec, the diff review, the merge and the close. |
 | **A queue of rows** | `/reef-loop` | Every ready row through the four commands above, in parallel where rows do not collide. It stops only for your decisions, a missing credential, a wrong spec, or a cap, and batches its questions. |
 | **Several tasks ready** | `/reef-graph` | The task graph as one Claude Code workflow: implementer, gate, verifier and hunter per task, in the background, one summary back. Gated by a probe that proves the guard reaches workflow agents on this machine; the merge stays with the orchestrator. |
+| **The running app attacked** | `/reef-pentest <url>` | One adversary attacks every threat-model row against a live copy of the app, the way a user or a logged-in attacker could; each hole becomes a found queue row. On demand, at any point; needs `/reef-threat` first; only a target you own, never production unless you say so. |
 | **Something looks off** | `/reef-doctor` | One screen: the plugin clone's branch and freshness, scripts behind the plugin, the queue's home, worktrees, the loop's state, gh, Docker, waiting proposals — each with its fix. `reef/README.md` is the map of the tree; `.reef/status.html` the live page. |
 | **A new Reef** | `python3 <plugin>/scripts/reef-update.py --commit` | Pulls the plugin clone, refreshes the project, commits Reef's own files, prints the two Claude Code commands. |
 | **A fresh clone** | `make setup` | Hooks are local git config and do not survive a clone. |
@@ -334,8 +335,8 @@ carries `# CLASS:` in its header and `tests/test_contracts.py` ties each row bel
 The `loophole-hunter` runs on a `critical` plan before code (`hunter.plan_pass`; at most `hunter.plan_rounds` = 2
 rounds, enforced by the recorder: a hole still open after that is the owner's decision at the gate, `--decided`), and
 once per feature on the finished diff before the GREEN record (`hunter.guard_pass: feature`; `task` for one pass per
-task), with one question: *how can every check be green while the defect happens?*; once per release it runs
-`pass=system` against the threat model and a running worktree. Read-only by the guard, cites file:line, ranks holes by
+task), with one question: *how can every check be green while the defect happens?*; on demand, `/reef-pentest` runs
+it as `pass=system` against the threat model and the running app. Read-only by the guard, cites file:line, ranks holes by
 whether they will happen here and by their real cost, attacks the last round's fix first, and lets the task's Scope
 draw the line between a BLOCKER and a NEW-ROW. BLOCKER fails the pass under the cap; NEW-ROW becomes a queue row.
 `scripts/reef-adversarial` records only a PASS without a blocker. Never on `mech`.
@@ -368,7 +369,7 @@ Every claim above has a number behind it, and the numbers live in `docs/perf/`:
 
 ### Selftests
 
-`sh tests/run.sh` — 539 sabotage and contract tests (434 Python + 105 shell, as the suite runs them). Every mechanism in
+`sh tests/run.sh` — 541 sabotage and contract tests (436 Python + 105 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
 script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials

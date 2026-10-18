@@ -1,6 +1,6 @@
 ---
 name: loophole-hunter
-description: Adversary against a GUARD — a plan, a design decision, a check, a gate, or the code that claims to close a class of defect. Its one question is "how can this be green while the defect happens?" Runs TWICE on a tier:design or critical task — on the plan before code, on the finished guard after — never on mech; and once per release as pass=system against the threat model and a running worktree. Read-only; never edits; ranks holes by whether they will actually happen in this codebase. Dispatched with the model from roles.adversary.
+description: Adversary against a GUARD — a plan, a design decision, a check, a gate, or the code that claims to close a class of defect. Its one question is "how can this be green while the defect happens?" Runs TWICE on a tier:design or critical task — on the plan before code, on the finished guard after — never on mech; and as pass=system, on demand through /reef-pentest, against the threat model and the running app. Read-only; never edits; ranks holes by whether they will actually happen in this codebase. Dispatched with the model from roles.adversary.
 tools: Read, Glob, Grep, Bash
 model: opus
 # DEFAULT (= roles.adversary default). The orchestrator passes roles.adversary as the Agent call's model; the guard refuses any other when the role is configured.

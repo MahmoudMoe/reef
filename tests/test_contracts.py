@@ -65,6 +65,20 @@ class SecurityPassIsReefs(unittest.TestCase):
         self.assertRegex(guard, r'LOCKED_TYPES = \([^)]*"security"', "the judge lock covers it")
 
 
+class PentestOnDemand(unittest.TestCase):
+    """0.7 (the owner, 2026-10-19): the hunter's pass=system — the live attack — was described in its own definition and
+    the README as "once per release", and no step dispatched it. It is now a standalone command the owner runs at will."""
+
+    def test_the_skill_drives_the_live_attack_from_the_threat_model_inside_the_owners_target(self):
+        text = read("skills", "reef-pentest", "SKILL.md")
+        for needle in ("pass=system", "reef/architecture/threat-model.md", "reef-threat.py lint", "roles.adversary",
+                       "the owner named", "production", "--source found", ".reef/hunt/pentest-"):
+            self.assertIn(needle, text, needle)
+        self.assertNotIn("REEF-TASK: <", text, "the live attack is not a task's judge")
+        self.assertIn("reef-pentest", read("commands", "pentest.md"))
+        self.assertNotIn("once per release", read("agents", "loophole-hunter.md"), "no step runs it per release")
+
+
 class ReviewSkill(unittest.TestCase):
     def setUp(self):
         self.text = read("skills", "reef-review", "SKILL.md")

@@ -240,6 +240,17 @@ def write_targets(seg):
     for j, t in enumerate(seg):
         if t in REDIRECTS and j + 1 < len(seg) and seg[j + 1] not in DEVNULL:
             out.append(seg[j + 1])
+    # a download's output file (0.7, /reef-pentest: the hunter attacks a running app with curl; `-o <file>` into the
+    # project is a write, `-o /dev/null` is not)
+    for j, t in enumerate(seg):
+        head = os.path.basename(t)
+        if head in ("curl", "wget"):
+            flags = ("-o", "--output") if head == "curl" else ("-O", "--output-document")
+            for k, a in enumerate(seg[j + 1:], start=j + 1):
+                if a in flags and k + 1 < len(seg) and seg[k + 1] not in DEVNULL:
+                    out.append(seg[k + 1])
+                elif any(a.startswith(f + "=") for f in flags if f.startswith("--")) and a.split("=", 1)[1] not in DEVNULL:
+                    out.append(a.split("=", 1)[1])
     for j, t in enumerate(seg):
         head = os.path.basename(t)
         if head in WRITE_HEADS or (head in ("sed", "perl") and any(re.match(r"^-[a-zA-Z]*i", a) for a in seg[j + 1:])):
