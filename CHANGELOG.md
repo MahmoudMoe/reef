@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`/reef-pentest <url>` — the running app attacked, on demand** (2026-10-19, the owner: "the pen test as a standalone, on
+  demand, at any point"): the hunter's `pass=system` was described as "once per release" and no step dispatched it. The
+  new skill needs the threat model (`reef-threat.py lint` ok), starts the app if given its command, dispatches one
+  `loophole-hunter` (no task line, `roles.adversary`) at the URL with the safety rules verbatim — only a target the owner
+  named and owns, never production unless the owner says so for this run, never a third party's service, nothing
+  destructive — keeps the report as `.reef/hunt/pentest-<date>.md` and files each hole as a `found` queue row. No
+  record, no gate, not in the release step. An agent, not a scanner (scanners stay in `gates.release`). The guard's write
+  detection now reads a download's output file (`curl -o/--output`, `wget -O/--output-document`) as a write, so the
+  attacking judge can `curl -s` the app but not save a response into the project.
 - **The release's security pass is Reef's own, and recorded** (2026-10-19, the owner: "Reef is meant for others, the security
   pass should be solid"): the step named `code-security`, an agent in the author's personal `~/.claude/agents/`; for
   anyone else it did nothing, and nothing recorded that it ran. Now `agents/security.md` (`reef:security`, read-only,

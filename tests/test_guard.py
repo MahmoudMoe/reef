@@ -228,6 +228,14 @@ class RoleModel(unittest.TestCase):
         self.assertEqual(dispatch(self.dir, "Audit git diff main...develop", subagent="reef:security", model="opus").returncode, 0,
                          "no REEF-TASK line is needed: the release audit is not a task's judge")
 
+    def test_the_pentest_hunter_needs_no_task_line_but_runs_on_roles_adversary(self):
+        write_config(self.dir, {"gates": {"test": "true"}, "roles": {"adversary": "opus"}})
+        prompt = "pass=system\nreef/architecture/threat-model.md\nhttp://127.0.0.1:3000"
+        self.assertEqual(dispatch(self.dir, prompt, subagent="reef:loophole-hunter", model="opus").returncode, 0)
+        r = dispatch(self.dir, prompt, subagent="reef:loophole-hunter", model="sonnet")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("roles.adversary", r.stderr)
+
     def test_implementer_on_configured_model_allowed(self):
         r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement", model="opus")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -503,6 +511,14 @@ class JudgeScratch(unittest.TestCase):
                 r = self.judge(cmd, who="reef:security")
                 self.assertEqual(r.returncode, 2, f"NOT DENIED for reef:security: {cmd!r}")
         self.assertEqual(self.judge("git diff main...develop -- src", who="reef:security").returncode, 0)
+        # /reef-pentest: the hunter attacks a running app over HTTP — a read; saving a response into the project is a write
+        for cmd in ("curl -s http://127.0.0.1:3000/api/bills/1", "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.judge(cmd).returncode, 0, f"FALSE POSITIVE: {cmd!r}")
+        for cmd in ("curl -s -o src/dump.json http://127.0.0.1:3000/api/x", "curl -s --output=src/d.json http://x", "wget -O src/d.json http://x"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.judge(cmd).returncode, 2, f"a download into the project is a write: {cmd!r}")
+        self.assertEqual(self.judge("curl -s -o /private/tmp/claude-501/x/scratchpad/r.json http://x").returncode, 0, "into the scratchpad: fine")
 
 
 class WorktreeStamp(unittest.TestCase):
