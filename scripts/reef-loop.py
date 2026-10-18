@@ -295,6 +295,14 @@ def tick(root):
     return state, st
 
 
+def next_command(state):
+    """The one command the owner runs next. 2026-10-18: with 204 handed back (`verify now: 204`) the session-start text
+    said `/reef-plan <row> or /reef-assess` — it looked only at rows to plan, dispatches and PRs — and the orchestrator
+    echoed it as the status line's `next:` after every reply."""
+    busy = any(state.get(k) for k in ("rows_to_plan", "dispatch_now", "verify_now", "prs_to_review", "rows_to_close", "returned_unmerged", "awaiting"))
+    return "/reef-loop" if busy else "/reef-plan <row> or /reef-assess"
+
+
 def render(state):
     nxt = ("verify: " + ", ".join(state["verify_now"])) if state.get("verify_now") else \
           ("dispatch: " + ", ".join(state["dispatch_now"])) if state["dispatch_now"] else \
@@ -390,7 +398,7 @@ def session_start(root, state, cfg):
     behind = scripts_behind_plugin(root)
     note = (f"reef: {len(behind)} project script(s) behind the plugin ({', '.join(behind[:4])}{'…' if len(behind) > 4 else ''})"
             f" — run /reef-init and accept scripts/* before dispatching\n") if behind else ""
-    text = (head + "\n\n" if head else "") + note + render(state) + f"\nnext command: {'/reef-loop' if state['rows_to_plan'] or state['dispatch_now'] or state['prs_to_review'] else '/reef-plan <row> or /reef-assess'}\n"
+    text = (head + "\n\n" if head else "") + note + render(state) + f"\nnext command: {next_command(state)}\n"
     if len(text) // 4 > cap:
         text = text[: cap * 4] + f"\n[truncated: writing.session_start_tokens {cap}]\n"
     return text

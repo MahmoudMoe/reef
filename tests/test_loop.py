@@ -347,6 +347,9 @@ class VerifyNow(unittest.TestCase):
         text = loop(d, "tick").stdout
         self.assertIn("verify now: 101 (handed back, uncommitted", text)
         self.assertIn("next: verify: 101", text)
+        # 2026-10-18: the session-start text said `/reef-plan <row> or /reef-assess` with 204 handed back, and the
+        # status line's `next:` echoed it after every reply
+        self.assertIn("next command: /reef-loop", loop(d, "tick", "--session-start").stdout)
         time.sleep(0.05)
         write(d, ".reef/ci-local/report-101.md", "RUN: agent=verifier task=101\nVERDICT: PASS\n")   # a report newer than the hand-back
         st = json.loads(loop(d, "tick", "--json").stdout)

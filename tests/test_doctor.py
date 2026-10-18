@@ -68,7 +68,7 @@ class StampCheck(unittest.TestCase):
         r = doctor(d)
         line = [l for l in r.stdout.splitlines() if l.startswith("WARN") and "stamp:" in l]
         self.assertEqual(len(line), 1, r.stdout)
-        self.assertIn("0.6 adversarial-plan", line[0])
+        self.assertIn("001-t.md in . carries a 0.6 adversarial-plan", line[0], "the line names its checkout: a task worktree holds the same file")
         self.assertIn(f"python3 {os.path.join(ROOT, 'scripts', 'reef-adversarial')} reef/features/demo/tasks/001-t.md plan --migrate", line[0],
                       "the plugin's copy, not the checkout's (a worktree's scripts/ lags the base)")
         m = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-adversarial"), p, "plan", "--migrate"], capture_output=True, text=True)
@@ -100,6 +100,11 @@ class LegacyRecords(unittest.TestCase):
         self.assertTrue(line[0].startswith("WARN"), line[0])
         self.assertIn("demo in . carry the 0.6 digest form", line[0])
         self.assertIn(f"python3 {pc} . --migrate-records --feature demo", line[0])
+        # a closed feature (every task under done/) is history nothing reads: 2026-10-18 row 1 was listed in five checkouts
+        os.makedirs(os.path.join(d, "reef", "features", "demo", "tasks", "done"))
+        os.rename(p, os.path.join(d, "reef", "features", "demo", "tasks", "done", "001-t.md"))
+        r = doctor(d)
+        self.assertNotIn("WARN records:", r.stdout, r.stdout)
 
 
 class Doctor(unittest.TestCase):
