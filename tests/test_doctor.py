@@ -222,6 +222,53 @@ class Update(unittest.TestCase):
         self.assertIn(".reef/init-manifest.json", last)
         self.assertIn(".gitignore", last)
 
+    def plugin_clone(self):
+        import shutil
+        clone = tempfile.mkdtemp(prefix="reef-plugin-main.")
+        subprocess.run(["git", "init", "-q", "-b", "main", clone], check=True)
+        for sub in ("scripts", "templates", ".claude-plugin"):
+            shutil.copytree(os.path.join(ROOT, sub), os.path.join(clone, sub), ignore=shutil.ignore_patterns("__pycache__"))
+        git(clone, "add", "-A"); git(clone, "commit", "-qm", "plugin")
+        bare = tempfile.mkdtemp(prefix="reef-plugin-origin.")
+        subprocess.run(["git", "clone", "-q", "--bare", clone, bare], check=True)
+        git(clone, "remote", "add", "origin", bare); git(clone, "fetch", "-q", "origin"); git(clone, "branch", "-q", "-u", "origin/main")
+        return clone
+
+    def test_config_keys_reef_init_adds_are_committed_and_owner_edits_never_are(self):
+        # 2026-10-18 (qassimha): after a pull, `graph.mode` and `gates.timeout_s` sat uncommitted in .reef/config.json
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        clone = self.plugin_clone()
+        d = project()
+        with open(os.path.join(d, "package.json"), "w") as f:
+            json.dump({"name": "demo", "scripts": {"test": "true"}}, f)
+        cfg_p = os.path.join(d, ".reef", "config.json")
+        with open(cfg_p) as f:
+            cfg = json.load(f)
+        cfg.setdefault("caps", {})["attempts"] = 5          # the owner's own value
+        cfg.pop("graph", None)                              # a key a newer Reef ships
+        with open(cfg_p, "w") as f:
+            json.dump(cfg, f)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "owner config")
+        r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--commit"], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("config: reef-init added new keys", r.stdout)
+        self.assertEqual(git(d, "status", "--porcelain", "--", ".reef/config.json").stdout.strip(), "", "the added keys were left uncommitted")
+        committed = json.loads(git(d, "show", "HEAD:.reef/config.json").stdout)
+        self.assertEqual(committed["caps"]["attempts"], 5, "the owner's value survives")
+        self.assertEqual(committed["graph"]["mode"], "auto")
+        # an owner's uncommitted edit is never committed by the update, even when keys are added beside it
+        with open(cfg_p) as f:
+            cfg = json.load(f)
+        cfg["caps"]["attempts"] = 4
+        cfg["graph"].pop("mode")
+        with open(cfg_p, "w") as f:
+            json.dump(cfg, f)
+        r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--commit"], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("config: reef-init added new keys", r.stdout)
+        self.assertIn(".reef/config.json", git(d, "status", "--porcelain").stdout, "the owner's edit stays theirs to commit")
+        self.assertEqual(json.loads(git(d, "show", "HEAD:.reef/config.json").stdout)["caps"]["attempts"], 5)
+
 
 if __name__ == "__main__":
     unittest.main()
