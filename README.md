@@ -323,6 +323,9 @@ seven NEW-ROWs. Its eval: catch-rate 1.00, precision 1.00, false-FAIL 0.17 at k=
 
 Every claim above has a number behind it, and the numbers live in `docs/perf/`:
 
+- **`2026-10-18.md`** — batch 2 on the trial project: four critical tasks by task and by agent run (≈ 25 runs, the
+  hunter's ~40k floor, 145k implementers, an orchestrator as expensive as its implementer), the verifier-FAIL drill
+  as it happened (202: hunter BLOCKER → one-test round → PASS), the first graph-mode task, the 0.7 targets.
 - **`dogfood-2026-10-16.md`** — Reef run end to end, headless, on a fresh Python project (six stages: init 11k, plan
   66k, plan review 25k, task graph 63k, review 54k, close 39k of orchestrator context growth; the CLI it built works) and
   on a clone of itself (one critical-tier row, 111k). Seven defects in Reef found by the run, each fixed with a test

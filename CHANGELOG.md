@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- `docs/perf/2026-10-18.md` — batch 2 on the trial measured from the transcripts (unique API turns, never an agent's
+  own report): row 2 by task and by agent run (≈ 25 agent runs, 34 with the review; the hunter's ~40k floor per run;
+  the two 145k implementers; the orchestrator's cached reads per session equal to one implementer's), the verifier-FAIL
+  drill B4a as 202 ran it on its own (hunter BLOCKER → `attempts: 1` → one-test round → PASS, the fix round re-entered
+  across a `/clear`), task 1102's first graph-mode run with its orchestrator turns beside chat mode's, and the targets the
+  0.7 defaults are judged by (≈ 11 runs per 4-task feature, a task under 80k, round 2's verifier under 40k).
 - **Fix** (`reef-converge`, row 2's review on the trial, 2026-10-18): a Proof cell whose vitest name starts with a runner
   word (`env defaults to …`) is a test unless what follows reads like an argument; `\|` inside a cell is a literal pipe,
   not a column break; a cell reading `superseded …` or struck through is skipped and listed, never run.
