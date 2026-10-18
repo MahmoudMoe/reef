@@ -123,6 +123,44 @@ def main_checkout(root):
     return root
 
 
+def proof_is_test(cell):
+    """A Proof cell is a test name unless it reads like a command ([mechanic], shell operators, a runner, a path) —
+    the same reading scripts/reef-converge gives it."""
+    body = cell.strip().strip("`").strip()
+    if re.match(r"^\[mechanic\]", body):
+        return False
+    if re.search(r"(?<![A-Za-z0-9_])test_[a-z0-9_]+|(?:\bit|\btest|\bdescribe)\(", body):
+        return True
+    if re.search(r"&&|\|\||[|;<>]|\$\(|\$\{|\s--?[a-zA-Z]|=|^!", body):
+        return False
+    head = body.split()[0] if body.split() else ""
+    runners = {"sh", "bash", "zsh", "env", "npm", "npx", "pnpm", "yarn", "bun", "node", "deno", "python", "python3", "pytest", "uv", "pip",
+               "cargo", "go", "make", "git", "grep", "curl", "docker", "tsc", "eslint", "prettier", "vitest", "jest"}
+    return not (head in runners or head.startswith(("./", "/", "../", "~")))
+
+
+def rejudge_line(text, rnd):
+    """Round ≥2: the criteria the verifier re-judges — those the last FAIL named, plus every criterion whose Proof is
+    not a test (a command or a [mechanic] row the gate does not run). The others are carried: round 1's test name plus
+    the gate's exit 0 on the new snapshot is their evidence. No criterion named in the failure → all of them."""
+    log = re.search(r"^##\s+Log\s*$(.*)\Z", text, re.M | re.S)
+    fails = [l for l in (log.group(1) if log else "").splitlines() if re.match(r"^\s*-\s*attempt \d+ FAIL:", l)]
+    named = sorted({int(x) for x in re.findall(r"\bAC-?(\d+)\b", fails[-1])}, key=int) if fails else []
+    if not named:
+        return f"rejudge: all (round {rnd}: the recorded failure names no criterion)"
+    proof = re.search(r"^##\s+Proof\s*$(.*?)(?=^##\s|\Z)", text, re.M | re.S)
+    non_test = []
+    for l in (proof.group(1) if proof else "").splitlines():
+        cells = [c.strip() for c in l.strip().strip("|").split("|")]
+        m = re.match(r"^\**AC-?(\d+)\**$", cells[0]) if len(cells) >= 2 else None
+        if m and not re.match(r"^-+$", cells[1]) and not proof_is_test(cells[1]):
+            non_test.append(int(m.group(1)))
+    ids = sorted(set(named) | set(non_test))
+    return (f"rejudge: {', '.join(f'AC-{i}' for i in ids)} (round {rnd}: the criteria the failure named"
+            + (f" plus the ones whose Proof is not a test: {', '.join(f'AC-{i}' for i in sorted(set(non_test) - set(named)))}" if set(non_test) - set(named) else "")
+            + "; every other criterion is CARRIED — its verdict line cites round 1's test name and the gate's exit 0 on this snapshot, no re-verification)")
+
+
 def read_config(root):
     try:
         with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
@@ -169,6 +207,14 @@ class TaskFile:
             fm = fm + f"{key}: {value}\n"
         self.text = self.text[:self._fm_span[0]] + fm + self.text[self._fm_span[1]:]
         self._fm_span = (self._fm_span[0], self._fm_span[0] + len(fm))
+
+    def append_log(self, line):
+        """One line at the end of ## Log (the last section; outside every digest). No ## Log → one is added."""
+        nl = "\r\n" if "\r\n" in self.text else "\n"
+        if re.search(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", self.text, re.M):
+            self.text = self.text.rstrip("\r\n") + nl + line + nl
+        else:
+            self.text = self.text.rstrip("\r\n") + nl + nl + "## Log" + nl + line + nl
 
     def get_int(self, key, default=0):
         raw = self.get(key, str(default)) or str(default)
@@ -266,6 +312,10 @@ def run(cap_flag, path, failure):
             repeated = attempts > 1 and prev_sig != "" and sig == prev_sig
             task.set("attempts", str(attempts))
             task.set("last_failure_sig", sig)
+            # the failure's words go to ## Log (outside every digest): the next dispatch reads which criteria failed
+            # and prints `rejudge:` — round ≥2 judges those, not all 23 again (2026-10-18: 202's one-test fix round
+            # re-verified 23 criteria, 31 turns, 71k)
+            task.append_log(f"- attempt {attempts} FAIL: {' '.join(failure.split())[:300]}")
             if attempts >= cap or repeated:
                 task.set("status", "blocked")
                 task.write()
@@ -294,6 +344,8 @@ def run(cap_flag, path, failure):
             print(f"verifier: model={verifier}")
             if rw:  # the judge is told its budget before it writes (first contact: 1693 words, unknown cap, a rewrite round)
                 print(f"report: budget={rw + 40 * max(0, n_ac - 8)} words, RULE lines free ({n_ac} criteria)")
+            if attempts > 0:
+                print(rejudge_line(task.text, attempts + 1))
         if tier in ("design", "critical"):
             # hunter.guard_pass = feature (0.7): no hunter per task — graph-run and the task skill read the absence of the
             # `adversary:` line; the one pass runs on the feature's diff in /reef-review (2026-10-18: two judges, 96k, 20 lines)

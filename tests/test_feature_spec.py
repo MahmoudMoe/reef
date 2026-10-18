@@ -384,6 +384,27 @@ class HandbackAndReport(unittest.TestCase):
         with open(self.task) as f:
             self.assertIn("attempts: 0", f.read(), "a rejected hand-back consumes no attempt")
 
+    def test_round_two_report_carries_unnamed_criteria_under_the_gate(self):
+        # 0.7: a fix round judges the criteria the failure named; the rest are carried with round 1's test and the gate
+        head = ("RUN: agent=verifier task=1201 round=2\nREJUDGE: AC-2\n"
+                "RULE AC1: PASS iff test_csv_header_and_rows is green; FAIL otherwise\n"
+                "RULE AC2: PASS iff test_csv_two_decimals asserts 2 decimals; FAIL otherwise\n")
+        good = head + "GATE: scripts/reef-gate.sh full exit 0 on snapshot 0a4d78e9\nAC1 PASS (carried: round 1, `test_csv_header_and_rows`; gate exit 0)\nAC2 PASS — tests/test_export.py:40 asserts 2 decimals, test_csv_two_decimals\nVERDICT: PASS\n"
+        r = self.claims("report", write(self.d, "r2.md", good), "--task", self.task)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("1 carried from round 1 under the gate", r.stdout)
+        no_gate = good.replace("GATE: scripts/reef-gate.sh full exit 0 on snapshot 0a4d78e9\n", "")
+        r = self.claims("report", write(self.d, "r3.md", no_gate), "--task", self.task)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("carried verdicts need a `GATE:", r.stdout)
+        no_test = good.replace("AC1 PASS (carried: round 1, `test_csv_header_and_rows`; gate exit 0)", "AC1 PASS (carried from round 1)")
+        r = self.claims("report", write(self.d, "r4.md", no_test), "--task", self.task)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("AC1 is not in REJUDGE: its verdict must read `carried` and name round 1's test", r.stdout)
+        round1 = good.replace("round=2", "round=1")
+        r = self.claims("report", write(self.d, "r5.md", round1), "--task", self.task)
+        self.assertNotIn("carried from round 1", r.stdout, "round 1 carries nothing: REJUDGE is read on round >= 2 only")
+
     def test_report_needs_rules_citing_proof_rows_and_evidence(self):
         good = ("RUN: agent=verifier task=1201\nRULE AC1: PASS iff test_csv_header_and_rows is green; FAIL otherwise\n"
                 "RULE AC2: PASS iff test_csv_two_decimals asserts 2 decimals; FAIL otherwise\n"

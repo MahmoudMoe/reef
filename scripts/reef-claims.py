@@ -218,6 +218,19 @@ def cmd_report(repo, path, task_path):
             if not re.search(r"[\w/.-]+\.[a-z]+:\d+|`[^`]+`", l):
                 bad.append("a BLOCKER without a citation (a path:line or a command in backticks)")
                 break
+    # round ≥2 with a REJUDGE: line (0.7): the named criteria are judged in full; every other one is CARRIED — its
+    # verdict line must say so, name round 1's test in backticks (or test_x) and the report must carry `GATE: exit 0`
+    # (2026-10-18: a one-test fix round re-verified 23 criteria, 31 turns, 71k)
+    rnd = re.search(r"^RUN:.*\bround[= ](\d+)\b", text, re.M)
+    rejudge = re.search(r"^REJUDGE:\s*(.+)$", text, re.M)
+    carried = set()
+    if rnd and int(rnd.group(1)) >= 2 and rejudge and not hunter:
+        named = {m for m in re.findall(r"\bAC-?(\d+)\b", rejudge.group(1))}
+        if rejudge.group(1).strip().lower().startswith("all"):
+            named = set(ids)
+        carried = {n for n in ids if n not in named}
+        if carried and not re.search(r"^GATE:.*\bexit 0\b", text, re.M):
+            bad.append("carried verdicts need a `GATE: … exit 0` line — the gate on this snapshot is their evidence")
     rules = {m.group(1): m.group(2) for m in re.finditer(r"^RULE\s+AC-?(\d+)\s*:(.*)$", text, re.M)}
     for n in ids:
         if n not in rules:
@@ -229,6 +242,9 @@ def cmd_report(repo, path, task_path):
         verdicts = [l for l in text.splitlines() if re.search(rf"\bAC-?{n}\b", l) and re.search(r"\b(PASS|FAIL)\b", l) and not l.lstrip().startswith("RULE")]
         if not verdicts:
             bad.append(f"no PASS/FAIL verdict line for AC{n}")
+        elif n in carried:
+            if not any(re.search(r"\bcarried\b", v, re.I) and re.search(r"\btest_[a-z0-9_]+|`[^`]+`", v) for v in verdicts):
+                bad.append(f"AC{n} is not in REJUDGE: its verdict must read `carried` and name round 1's test (in backticks)")
         elif not any(re.search(r"[\w/.-]+\.[a-z]+:\d+|\btest_[a-z0-9_]+|`[^`]+`|exit\s+\d|Ran \d+|\d+ passed", v) for v in verdicts):
             bad.append(f"AC{n} verdict carries no evidence (a path:line, a test name, a command or its output)")
     if not re.search(r"^VERDICT:\s*(PASS|FAIL)\b", text, re.M):
@@ -249,7 +265,7 @@ def cmd_report(repo, path, task_path):
         for b in bad:
             print(f"  - {b}")
         return 1
-    print(f"ok: report covers {len(ids)} criteria with rules and evidence")
+    print(f"ok: report covers {len(ids)} criteria with rules and evidence" + (f" ({len(carried)} carried from round 1 under the gate)" if carried else ""))
     return 0
 
 

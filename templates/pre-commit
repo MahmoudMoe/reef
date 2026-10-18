@@ -30,7 +30,9 @@ fail_gate() { echo "pre-commit: gate failed — commit rejected." >&2; exit 1; }
 # Reef's own suite re-initialised the repo as bare and moved the branch 17 commits). The gate runs clean.
 # GIT_CONFIG_PARAMETERS carries a committer's `git -c k=v` into every git the gate runs (a hooksPath given that
 # way made the suite's temp repositories run THIS hook); the gate's git sees the repository's config only.
-run_gate() { ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_CONFIG_PARAMETERS; sh scripts/reef-gate.sh fast ); }
+# REEF_GATE_NO_CACHE: the commit gate always RUNS (0.7: reef-gate skips a snapshot it already ran green; the hook is the
+# defence that never trusts a marker)
+run_gate() { ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_CONFIG_PARAMETERS; REEF_GATE_NO_CACHE=1 sh scripts/reef-gate.sh fast ); }
 
 # A tier: design (or critical) task closes only after the loophole-hunter's SECOND pass, on the finished
 # guard (scripts/reef-adversarial <task> guard <report> writes adversarial-guard:). Checked on

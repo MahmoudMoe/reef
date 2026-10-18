@@ -44,12 +44,25 @@ else
   [ -n "$CMD" ] || { echo "reef-gate: USER ACTION REQUIRED — no test command found; run /reef-init or set gates.full in .reef/config.json" >&2; exit 1; }
 fi
 echo "reef-gate ($MODE): $CMD" >&2
+# 0.7: the gate is deterministic on a tree, so one green run per snapshot is enough (2026-10-18: the same tree ran the
+# full gate five times in one task — implementer, orchestrator, verifier, pre-commit twice). The marker is written only
+# by a green run here and read only when REEF_GATE_NO_CACHE is unset; the pre-commit sets it and always runs the gate.
+SNAP=''
+if [ -z "${REEF_GATE_NO_CACHE:-}" ] && [ -x scripts/reef-snapshot.sh ] || { [ -z "${REEF_GATE_NO_CACHE:-}" ] && [ -f scripts/reef-snapshot.sh ]; }; then
+  SNAP=$(sh scripts/reef-snapshot.sh 2>/dev/null) || SNAP=''
+fi
+if [ -n "$SNAP" ] && [ -f ".reef/ci-local/gate-$MODE-$SNAP.ok" ]; then
+  echo "reef-gate ($MODE): cached — exit 0 on this snapshot ($(printf %s "$SNAP" | cut -c1-12)); the tree is unchanged since that run (REEF_GATE_NO_CACHE=1 forces a run)"
+  exit 0
+fi
+mark_green() { [ -n "$SNAP" ] || return 0; mkdir -p .reef/ci-local; rm -f .reef/ci-local/gate-"$MODE"-*.ok; : > ".reef/ci-local/gate-$MODE-$SNAP.ok"; }
 if [ "$FAILURES" -eq 1 ]; then
   mkdir -p .reef/ci-local
   LOG=.reef/ci-local/gate-$MODE.log
   MAXL=$(python3 -c "import json;print(int(json.load(open('.reef/config.json')).get('context',{}).get('failure_lines',60) or 60))" 2>/dev/null || echo 60)
   RC=0
   sh -c "$CMD" >"$LOG" 2>&1 || RC=$?    # set -e must not end the script before the block is printed
+  [ "$RC" -eq 0 ] && mark_green
   echo "reef-gate ($MODE): exit $RC — full log: $LOG ($(wc -l <"$LOG" | tr -d ' ') lines)"
   if [ "$RC" -ne 0 ]; then
     # the failing block: from the first failure marker to the end, capped — the exit code above is the verdict
@@ -65,4 +78,7 @@ if [ "$FAILURES" -eq 1 ]; then
 fi
 # the gate is a shell command line, not an argv list — parse it as the human wrote it
 # (unquoted `exec $CMD` would word-split and glob, mangling quoted args and operators).
-exec sh -c "$CMD"
+RC=0
+sh -c "$CMD" || RC=$?
+[ "$RC" -eq 0 ] && mark_green
+exit $RC
