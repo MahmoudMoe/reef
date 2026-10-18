@@ -157,6 +157,34 @@ class Update(unittest.TestCase):
         self.assertIn("dry run: no pull", r.stdout)
         self.assertIn("/reload-plugins", r.stdout)
 
+    def test_commit_takes_the_manifest_and_the_gitignore_lines_too(self):
+        # 2026-10-18 (qassimha): three pulls with --commit committed the scripts and never .reef/init-manifest.json
+        # (the first porcelain line lost its status column to run()'s strip) nor the .gitignore lines reef-init appends
+        import shutil
+        d = project()
+        with open(os.path.join(d, "package.json"), "w") as f:
+            json.dump({"name": "demo", "scripts": {"test": "true"}}, f)
+        with open(os.path.join(d, ".reef", "init-manifest.json"), "w") as f:
+            f.write("{}\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "manifest")
+        clone = tempfile.mkdtemp(prefix="reef-plugin-main.")
+        subprocess.run(["git", "init", "-q", "-b", "main", clone], check=True)
+        for sub in ("scripts", "templates", ".claude-plugin"):
+            shutil.copytree(os.path.join(ROOT, sub), os.path.join(clone, sub), ignore=shutil.ignore_patterns("__pycache__"))
+        git(clone, "add", "-A"); git(clone, "commit", "-qm", "plugin")
+        bare = tempfile.mkdtemp(prefix="reef-plugin-origin.")
+        subprocess.run(["git", "clone", "-q", "--bare", clone, bare], check=True)
+        git(clone, "remote", "add", "origin", bare); git(clone, "fetch", "-q", "origin"); git(clone, "branch", "-q", "-u", "origin/main")
+        r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--commit"], capture_output=True, text=True,
+                           env=dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("project: committed", r.stdout)
+        left = git(d, "status", "--porcelain", "--", ".reef/init-manifest.json", ".gitignore", "scripts").stdout
+        self.assertEqual(left.strip(), "", f"Reef's own files left uncommitted:\n{left}")
+        last = git(d, "show", "--stat", "--format=", "HEAD").stdout
+        self.assertIn(".reef/init-manifest.json", last)
+        self.assertIn(".gitignore", last)
+
 
 if __name__ == "__main__":
     unittest.main()
