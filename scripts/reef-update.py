@@ -90,6 +90,16 @@ def main(argv):
             print("reef-update: the pull changed this script — running the new copy")
             sys.stdout.flush()
             os.execv(sys.executable, [sys.executable, me] + list(argv) + ["--no-reexec"])
+    # .reef/config.json is the owner's file; reef-init only ADDS keys a new Reef ships (2026-10-18, qassimha: `graph.mode`
+    # and `gates.timeout_s` sat uncommitted after a pull, so feature branches cut from the base lacked them). Committed
+    # here only when it was clean before reef-init ran and every value it held is unchanged after: additions only.
+    cfg_path = os.path.join(root, ".reef", "config.json")
+    cfg_clean = subprocess.run(["git", "diff", "--quiet", "HEAD", "--", ".reef/config.json"], cwd=root).returncode == 0
+    try:
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg_before = json.load(f)
+    except Exception:
+        cfg_before = None
     init = os.path.join(plugin, "scripts", "reef-init.py")
     args = [sys.executable, init, "--root", root, "--plugin", plugin] + (["--dry-run"] if dry else [])
     rc, out = run(args, root, timeout=600)
@@ -122,6 +132,20 @@ def main(argv):
     st = subprocess.run(["git", "status", "--porcelain", "--"] + paths, cwd=root, capture_output=True, text=True)
     changed_files = [l[3:] for l in st.stdout.splitlines()
                      if len(l) > 3 and l[3:].startswith(("scripts/reef-", ".reef/", ".githooks/", ".gitignore", "reef/README.md", "docs/REEF.md"))]
+    def only_added(old, new):
+        if isinstance(old, dict) and isinstance(new, dict):
+            return all(k in new and only_added(v, new[k]) for k, v in old.items())
+        return old == new
+    try:
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg_after = json.load(f)
+    except Exception:
+        cfg_after = None
+    if cfg_clean and cfg_before is not None and cfg_after is not None and cfg_after != cfg_before and only_added(cfg_before, cfg_after):
+        changed_files.append(".reef/config.json")
+        print("config: reef-init added new keys, every value you set is unchanged — committed with Reef's files")
+    elif cfg_after != cfg_before and cfg_before is not None:
+        print("config: .reef/config.json changed beyond new keys (your uncommitted edits, or a value reef-init filled) — review it, then commit it")
     if not changed_files:
         print("project: nothing changed")
     elif "--commit" in argv and not dry:

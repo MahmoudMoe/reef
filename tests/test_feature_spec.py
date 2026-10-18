@@ -523,6 +523,21 @@ class Converge(unittest.TestCase):
     def converge(self):
         return subprocess.run([sys.executable, CONVERGE, "csv-export-for-orders", "--repo", self.d], capture_output=True, text=True)
 
+    def test_a_rollup_id_is_unique_across_feature_folders(self):
+        # 2026-10-18 (qassimha row 11): its first rollup took R1 because its own folder had none; row 2's R1 was already
+        # on develop under another feature's folder, and the tick printed BROKEN (a duplicate id in the one graph)
+        write(self.d, "reef/features/receipt-decode/tasks/done/R01-receipt-decode.md", "---\nid: R1\nfeature: receipt-decode\nstatus: done\n---\n# R1\n")
+        write(self.d, "reef/features/receipt-decode/tasks/done/R03-receipt-decode.md", "---\nid: R3\nfeature: receipt-decode\nstatus: done\n---\n# R3\n")
+        with open(os.path.join(self.d, "tests", "test_export.py")) as f:
+            t = f.read()
+        write(self.d, "tests/test_export.py", t.replace("    def test_csv_two_decimals(self):\n        self.assertIn('2.00', export_csv([{'id': 1, 'amount': 2}]))\n", ""))
+        self.assertEqual(self.converge().returncode, 1)
+        tdir = os.path.join(self.d, "reef/features/csv-export-for-orders/tasks")
+        made = [f for f in os.listdir(tdir) if f.startswith("R")]
+        self.assertEqual(made, ["R04-csv-export-for-orders.md"], "the next id after every rollup in every feature folder")
+        with open(os.path.join(tdir, made[0])) as f:
+            self.assertIn("id: R4", f.read())
+
     def test_converged_then_missing_then_contradicts(self):
         r = self.converge()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -538,6 +553,7 @@ class Converge(unittest.TestCase):
         self.assertTrue(os.path.isfile(rollup), os.listdir(os.path.dirname(rollup)))
         with open(rollup) as f:
             self.assertIn("## Converge", f.read())
+
         write(self.d, "tests/test_export.py", t)
         write(self.d, "export.py", "def export_csv(rows):\n    return 'id,amount\\n' + ''.join(f\"{r['id']},{r['amount']}\\n\" for r in rows)\n")
         r = self.converge()

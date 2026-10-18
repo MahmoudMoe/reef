@@ -7,6 +7,7 @@ A bare test name runs through converge.test_cmd ({name}) when set, else the full
 """
 import datetime
 import json
+import glob
 import os
 import re
 import subprocess
@@ -231,7 +232,12 @@ def main(argv):
                 break
         if tpl is None:
             tpl = TPL_FALLBACK
-        n = 1 + len([f for d in (tdir, os.path.join(tdir, "done")) for f in (os.listdir(d) if os.path.isdir(d) else []) if f.startswith("R")])
+        # a rollup id is a task id, and the graph is ONE across every feature folder (2026-10-18, qassimha row 11: its first
+        # rollup took R1 because its own folder had none, row 2's R1 was already on develop, and the tick printed BROKEN)
+        feats = os.path.dirname(os.path.dirname(os.path.abspath(tdir)))
+        taken = [int(m.group(1)) for d in glob.glob(os.path.join(feats, "*", "tasks")) + glob.glob(os.path.join(feats, "*", "tasks", "done"))
+                 for f in os.listdir(d) for m in [re.match(r"^R(\d+)-", f)] if m]
+        n = 1 + max(taken, default=0)
         rollup = os.path.join(tdir, f"R{n:02d}-{feature}.md")
         text = tpl.replace("id: NNNnn", f"id: R{n}").replace("feature: <feature-slug>", f"feature: {feature}").replace("# NNNnn — <title>", f"# R{n} — {feature} rollup")
         text = text.replace("complexity: mech|design", "complexity: design").replace("effort: low|medium|high", "effort: medium").replace("tier: light|full|design|critical", "tier: full").replace("verify: judge|gate-only", "verify: judge")

@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Fixes from the trial's row 11 close** (2026-10-19, queue row 67, the owner's yes to both): `reef-converge` numbers a new
+  rollup after the highest `R<n>` in EVERY feature folder (it counted its own folder, so row 11 took `R1` beside row 2's and
+  the tick printed BROKEN; the orchestrator renamed it by hand). `reef-update --commit` commits `.reef/config.json` with
+  Reef's files when it was clean before `reef-init` ran and every value it held is unchanged after — keys added only;
+  an owner's uncommitted edit, or a value `reef-init` filled, is named and left for the owner (2026-10-18: `graph.mode`
+  and `gates.timeout_s` sat uncommitted after a pull, so feature branches cut from the base lacked them).
 - **`/reef-pentest <url>` — the running app attacked, on demand** (2026-10-19, the owner: "the pen test as a standalone, on
   demand, at any point"): the hunter's `pass=system` was described as "once per release" and no step dispatched it. The
   new skill needs the threat model (`reef-threat.py lint` ok), starts the app if given its command, dispatches one
