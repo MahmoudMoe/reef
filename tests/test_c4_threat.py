@@ -68,6 +68,25 @@ class C4Model(unittest.TestCase):
         r = c4(d, "--diff")
         self.assertEqual(r.returncode, 0, r.stdout)
 
+    def test_every_third_party_compose_service_is_a_container_the_app_itself_is_not(self):
+        """2026-10-18, the trial: a Mailpit service added to compose.yaml was invisible to the generator (fixed name list),
+        so its DSL line was hand-added and --diff then contradicted it. A service with a third-party image is a
+        container proven by the compose file; one built from the repo or on a bare runtime image is the app itself."""
+        d = fixture()
+        write(d, "docker-compose.yml", "services:\n  web:\n    image: node:22\n  app:\n    build: .\n    image: shop/app\n"
+                                       "  db:\n    image: postgres:16\n  mailpit:\n    image: axllent/mailpit:v1.31.6\n    ports:\n      - \"127.0.0.1:1025:1025\"\n")
+        r = c4(d, "generate", "--write")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        dsl = open(os.path.join(d, "reef", "architecture", "workspace.dsl")).read()
+        self.assertIn('mailpit = container "mailpit" "compose service"', dsl)
+        self.assertIn("# proof: docker-compose.yml", dsl)
+        self.assertNotIn('app = container "app"', dsl, "built from this repository: the app itself")
+        self.assertEqual(dsl.count('container "shop web"'), 1, "`web: image: node` is the app's runtime, not a second web container")
+        self.assertIn('db = container "db" "compose service" { tags "Database" }', dsl, "as before: a db service is a store")
+        git(d, "add", "-A")
+        git(d, "commit", "-qm", "model")
+        self.assertEqual(c4(d, "--diff").returncode, 0, "the generated model has nothing hand-added, so --diff is clean")
+
     def test_deleting_a_container_contradicts_and_a_new_one_is_missing(self):
         d = fixture()
         c4(d, "generate", "--write")

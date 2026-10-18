@@ -106,10 +106,24 @@ def detect(root):
         p = os.path.join(root, infra)
         if os.path.isfile(p):
             if infra.startswith(("docker-compose", "compose")):
-                for m in re.finditer(r"^\s{2}([a-zA-Z0-9_-]+):\s*$", read(p), re.M):
+                # every compose service running a third-party IMAGE is a container of this system, proven by the file
+                # (2026-10-18, the trial: a Mailpit mail catcher was added to compose.yaml and the generator did not
+                # see it — the service name was not in a fixed list — so the line was hand-added and --diff flagged it).
+                # Skipped: a service built from this repository (`build:`) and one whose image is a bare language
+                # runtime (the app itself, modelled from its code); a name already detected is not listed twice.
+                text = read(p)
+                blocks = list(re.finditer(r"^\s{2}([a-zA-Z0-9_-]+):\s*$", text, re.M))
+                for i, m in enumerate(blocks):
                     svc = m.group(1)
-                    if svc in ("db", "postgres", "redis", "mysql", "mongo", "rabbitmq", "kafka", "nats") and not any(e["name"].lower().startswith(svc[:4]) for e in els):
-                        els.append({"id": re.sub(r"[^a-z0-9]", "_", svc), "kind": "store" if svc in ("db", "postgres", "mysql", "mongo") else "container", "name": svc, "desc": "compose service", "proof": infra, "inferred": False})
+                    body = text[m.end():blocks[i + 1].start() if i + 1 < len(blocks) else len(text)]
+                    img = re.search(r"^\s+image:\s*[\"']?([^\s\"']+)", body, re.M)
+                    runtime = bool(img) and re.match(r"^(node|python|ruby|golang|go|openjdk|eclipse-temurin|php|dotnet|rust|elixir|deno|bun)(:|$)", img.group(1)) is not None
+                    if not img or runtime or re.search(r"^\s+build:", body, re.M):
+                        continue
+                    if any(e["name"].lower().startswith(svc[:4]) for e in els):
+                        continue
+                    els.append({"id": re.sub(r"[^a-z0-9]", "_", svc), "kind": "store" if svc in ("db", "postgres", "mysql", "mongo") or re.match(r"^(postgres|mysql|mariadb|mongo|redis|sqlite)", img.group(1)) else "container",
+                                "name": svc, "desc": "compose service", "proof": infra, "inferred": False})
             elif label in ("Fly.io", "Vercel"):
                 els.append({"id": re.sub(r"[^a-z0-9]", "_", label.lower()), "kind": "external", "name": label, "desc": "deployment target", "proof": infra, "inferred": False})
     seen, uniq = set(), []
