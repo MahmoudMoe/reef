@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- `reef-update` runs the new copy of itself when the pull changed it (2026-10-18: the process is the copy loaded
+  before the pull, so the commit-filter fix ran old on the trial's next pull and left `.githooks/pre-commit` and
+  `.gitignore` uncommitted once more); once, never a loop.
 - **`hunter.guard_pass: feature`** (2026-10-18: task 204's verifier and hunter cost 96k on 20 lines of code; the hunter's
   floor is ~40k per task whatever the diff): the loophole-hunter's guard pass runs ONCE on the feature's merged diff in
   `/reef-review`, before the GREEN record, instead of once per design/critical task. `reef-attempt` prints `guard-pass:

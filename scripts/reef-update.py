@@ -58,6 +58,12 @@ def main(argv):
         print(f"reef-update FAILED: the plugin clone {plugin} has local changes — it is not a working tree; stash or commit them elsewhere")
         return 1
     _, old = run(["git", "rev-parse", "--short=12", "HEAD"], plugin)
+    me = os.path.abspath(__file__)
+    try:
+        with open(me, "rb") as f:
+            me_before = f.read()
+    except OSError:
+        me_before = None
     if dry:
         print(f"plugin: {plugin} at {old} (dry run: no pull)")
     else:
@@ -73,6 +79,17 @@ def main(argv):
             print(f"plugin: {old}..{new} ({len(log.splitlines())} commit(s))")
             for l in log.splitlines()[:8]:
                 print(f"  {l[:110]}")
+        # this process is the copy loaded BEFORE the pull: a fix to reef-update itself would apply one pull late
+        # (2026-10-18: the commit-filter fix of #55 ran old twice on the trial). The pull changed this file → run the new copy.
+        try:
+            with open(me, "rb") as f:
+                me_after = f.read()
+        except OSError:
+            me_after = me_before
+        if me_before is not None and me_after != me_before and "--no-reexec" not in argv:
+            print("reef-update: the pull changed this script — running the new copy")
+            sys.stdout.flush()
+            os.execv(sys.executable, [sys.executable, me] + list(argv) + ["--no-reexec"])
     init = os.path.join(plugin, "scripts", "reef-init.py")
     args = [sys.executable, init, "--root", root, "--plugin", plugin] + (["--dry-run"] if dry else [])
     rc, out = run(args, root, timeout=600)
