@@ -82,6 +82,8 @@ class Generate(unittest.TestCase):
                         "the task's REEF-TASK: line (macOS: /var/folders resolves to /private/var/folders)")
         self.assertIn("agentType: 'reef:implementer'", js)
         self.assertIn("agentType: 'reef:mechanic'", js)
+        self.assertIn("sh scripts/reef-gate.sh full --failures", js, "the judges read a tree the FULL gate passed, as in chat mode (cached when the implementer ran it on the same snapshot)")
+        self.assertNotIn("reef-gate.sh fast", js)
         self.assertIn("pipeline(TASKS", js)
         self.assertIn('"judge": false', js, "a gate-only task has no judge stage")
         self.assertNotIn("Date.now", js)
@@ -97,6 +99,25 @@ class Generate(unittest.TestCase):
         r = g(d, "generate")
         self.assertEqual(r.returncode, 1)
         self.assertIn("nothing to dispatch", r.stdout)
+
+
+    def test_generate_leaves_a_fix_round_to_chat_and_refuses_under_mode_chat(self):
+        d = graph_project()
+        pass_gate(d)
+        T.write(d, "tasks/101-a.md", T.task(101, "1").replace("attempts: 0", "attempts: 1"))
+        r = g(d, "generate")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("skipped 101: chat mode (a fix round", r.stdout)
+        self.assertIn("nothing to dispatch", r.stdout)
+        self.assertEqual(glob.glob(os.path.join(d, ".reef", "graph", "run-*.js")), [])
+        self.assertIn("attempts: 1\ndispatches: 0", open(os.path.join(d, "tasks", "101-a.md")).read(), "nothing was bookkept")
+        T.write(d, "tasks/101-a.md", T.task(101, "1"))
+        cfg = json.load(open(os.path.join(d, ".reef", "config.json")))
+        cfg["graph"] = {"mode": "chat"}
+        T.write(d, ".reef/config.json", json.dumps(cfg))
+        r = g(d, "generate")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("graph.mode is `chat`", r.stderr)
 
 
 class Settle(unittest.TestCase):

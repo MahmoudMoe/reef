@@ -334,6 +334,55 @@ class GrowthCap(unittest.TestCase):
 
 
 class VerifyNow(unittest.TestCase):
+    def test_graph_mode_is_the_main_checkouts_policy_gated_by_the_probe_and_never_a_fix_round(self):
+        """0.7 phase 4: `graph.mode: auto` sends a fresh `dispatch now` task to the graph only when this machine's probe
+        recorded GATE OK; a fix round (attempts > 0) stays in chat; `chat` never; `graph` names a missing gate as BROKEN;
+        the setting is read from the main checkout (a worktree's lagging copy does not decide)."""
+        d = project()
+        t = lambda *a: subprocess.run([sys.executable, LOOP, "tick", *a, "--repo", d], capture_output=True, text=True)
+        out = t().stdout
+        self.assertIn("dispatch (chat): 101 — /reef-task (no GATE OK — reef-graph-run.py probe)", out, "auto without a gate: chat, with the reason")
+        self.assertNotIn("BROKEN", out)
+        write(d, ".reef/graph/gate.json", json.dumps({"ok": True, "denied": True, "file_existed": False}))
+        out = t().stdout
+        self.assertIn("dispatch (graph): 101 — python3 scripts/reef-graph-run.py generate", out)
+        st = json.loads(t("--json").stdout)
+        self.assertEqual(st["dispatch_mode"], {"101": "graph"})
+        self.assertEqual(st["graph_mode"], "auto")
+        write(d, "tasks/101-a.md", task(101, "1").replace("attempts: 0", "attempts: 1"))
+        out = t().stdout
+        self.assertIn("dispatch (chat): 101 — /reef-task (fix round)", out, "round 2 is judged in chat")
+        self.assertNotIn("dispatch (graph)", out)
+        write(d, "tasks/101-a.md", task(101, "1"))
+        cfg = json.loads(read_file(os.path.join(d, ".reef", "config.json")))
+        cfg["graph"] = {"mode": "chat"}
+        write(d, ".reef/config.json", json.dumps(cfg))
+        out = t().stdout
+        self.assertIn("dispatch (chat): 101 — /reef-task\n", out, "mode chat: no reason to give")
+        self.assertNotIn("(fix round)", out)
+        self.assertNotIn("dispatch (graph)", out)
+        cfg["graph"] = {"mode": "graph"}
+        write(d, ".reef/config.json", json.dumps(cfg))
+        os.remove(os.path.join(d, ".reef", "graph", "gate.json"))
+        out = t().stdout
+        self.assertIn("BROKEN: graph.mode is `graph` but this machine has no GATE OK", out)
+        self.assertIn("dispatch (chat): 101 — /reef-task (no GATE OK", out, "fail closed: no gate, no graph")
+        self.assertNotIn("(fix round)", out)
+        # one home: the main checkout says chat; a worktree whose copy says auto with a gate does not decide
+        cfg["graph"] = {"mode": "chat"}
+        write(d, ".reef/config.json", json.dumps(cfg))
+        subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "policy"], check=True, capture_output=True)
+        w = os.path.join(d, ".reef", "worktrees", "f")
+        subprocess.run(["git", "-C", d, "worktree", "add", "-q", "-b", "feat/f", w], check=True, capture_output=True)
+        wcfg = dict(cfg); wcfg["graph"] = {"mode": "auto"}
+        write(w, ".reef/config.json", json.dumps(wcfg))
+        write(w, ".reef/graph/gate.json", json.dumps({"ok": True}))
+        write(d, ".reef/graph/gate.json", json.dumps({"ok": True}))
+        approve(w, "1")   # the stamp and the approval are per checkout (gitignored); the worktree's own say dispatchable
+        out = subprocess.run([sys.executable, LOOP, "tick", "--repo", w], capture_output=True, text=True).stdout
+        self.assertIn("dispatch (chat): 101 — /reef-task\n", out, "the main checkout's `chat` wins over the worktree's `auto`")
+        self.assertNotIn("dispatch (graph)", out)
+
     def test_a_handed_back_task_is_to_verify_not_to_dispatch(self):
         # first contact (2026-10-17): the fresh session's tick said "dispatch now: 103" while 103's implementer had
         # handed back and its work sat uncommitted in the worktree; a second implementer would have been wrong

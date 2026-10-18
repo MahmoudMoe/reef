@@ -55,7 +55,8 @@
   },
   "invariants": [],
   "graph": {
-    "parallel": 10
+    "parallel": 10,
+    "mode": "auto"
   },
   "resources": {
     "heavy": {

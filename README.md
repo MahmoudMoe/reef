@@ -197,6 +197,7 @@ Every cap, model, branch name and path Reef uses is a key in this one file, writ
 | **`tiers.<tier>.roles` / `.effort` / `.paths`** | the table above; design paths auth/crypto/secrets/migrations; critical paths `.githooks/**`, `scripts/reef-*`, `hooks/**`, `.reef/config.json` | model per role, effort, path classes that force the tier |
 | `tiers.light.allow` / `max_lines` / `migrations` | `docs/**, README.md` / `80` / migration dirs | what may be light |
 | `graph.parallel` · `resources.<name>.slots` · `worktree.dir` / `worktree.setup` | `10` · `1` (`heavy` 2) · `.reef/worktrees` / stack install | as in 0.5 |
+| **`graph.mode`** | `auto` | `auto`: a fresh `dispatch now` task runs as a workflow (`/reef-graph`) when this machine's probe recorded GATE OK, in chat (`/reef-task`) otherwise; `chat`: never; `graph`: as auto, a missing gate is BROKEN. A fix round and a `verify now` stay in chat. Read from the main checkout, like `hunter.*`. |
 | `roles.*` | author opus · verifier opus · plan_reviewer opus · planner opus · adversary opus · reviewer opus · security opus · mechanic sonnet | the fallback when the tier table does not name the role |
 | `merge.by` · `ci.feature_gate` · `branches.base` / `branches.release` | `human` · `ci` · `main` / `main` (init: `develop` / `main`) | as in 0.5; `ci.check_name` (`every gate, once`) names the required check for `reef-repo` |
 | **`paths.features`** · `paths.tasks` / `adr` / `glossary` / `runlog` / `queue` | `reef/features` (0.6 tree) · 0.5 locations for a 0.5 project, `reef/…` for a 0.6 one | where things live; the loaders accept either shape |
@@ -343,7 +344,7 @@ Every claim above has a number behind it, and the numbers live in `docs/perf/`:
 
 ### Selftests
 
-`sh tests/run.sh` — 524 sabotage and contract tests (425 Python + 99 shell, as the suite runs them). Every mechanism in
+`sh tests/run.sh` — 526 sabotage and contract tests (427 Python + 99 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
 script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials

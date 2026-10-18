@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Fix** (`reef-graph-run`, 2026-10-18, the trial's first graph-mode task): the pipeline's mechanic ran `reef-gate.sh fast`
+  before the judges where chat mode runs `full`; it runs `full` now (cached when the implementer ran it on the same snapshot).
+- **`graph.mode: auto`** (workflow v2 phase 4; 2026-10-18, after the trial's first graph-mode task): the tick decides the
+  mode per `dispatch now` task — `dispatch (graph): <ids> — reef-graph-run.py generate` for a fresh task when this
+  machine's probe recorded GATE OK (`.reef/graph/gate.json`, fail closed), `dispatch (chat): <ids> — /reef-task` for a
+  fix round (`attempts` > 0; round 2 inside the graph is not designed yet), a `verify now`, or no gate; `graph.mode`
+  is read from the MAIN checkout like `hunter.*` (`chat` = never, `graph` = as auto with a missing gate named BROKEN);
+  `tick --json` carries `dispatch_mode`; `generate` skips a chat-mode task and refuses under `chat`.
 - `docs/perf/2026-10-18.md` — batch 2 on the trial measured from the transcripts (unique API turns, never an agent's
   own report): row 2 by task and by agent run (≈ 25 agent runs, 34 with the review; the hunter's ~40k floor per run;
   the two 145k implementers; the orchestrator's cached reads per session equal to one implementer's), the verifier-FAIL
