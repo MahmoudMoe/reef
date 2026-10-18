@@ -43,11 +43,16 @@ def est_tokens(obj):
     return 0
 
 
+# attachments that are standing context (the harness's system prompt and what rides with it), never growth
+STANDING = {"prompt_snapshot", "skill_listing", "environment", "deferred_tools_record", "session_context", "instructions", "advisor_tool"}
+
+
 def analyse(path):
     """One transcript -> dict. Turns are keyed by requestId (every content block of one API call
     repeats the same usage), so a 3-block reply is ONE turn."""
     turns, seen, tool_names, cats = [], {}, {}, {}
     boundaries = summaries = 0
+    standing = {}
     first_turn = None
     agent_type = None
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -101,8 +106,16 @@ def analyse(path):
                 # by type: a `file` diff view, a `queued_command` notification, a `skill_listing`, … — the real planning
                 # session (2026-10-16) had 54% of its context under one undifferentiated "attachment" bucket
                 akind = str((d.get("attachment") or {}).get("type") or "?") if isinstance(d.get("attachment"), dict) else "?"
+                n = est_tokens(d.get("rendered") or d.get("attachment"))
+                if akind in STANDING:
+                    # the system prompt, the skill list, the environment: paid on EVERY turn, recorded a few times in the
+                    # transcript, and no growth at all (2026-10-18: two prompt snapshots read as "37% of the context")
+                    st = standing.setdefault(akind, {"items": 0, "per_item": 0})
+                    st["items"] += 1
+                    st["per_item"] = max(st["per_item"], n)
+                    continue
                 k = f"attachment:{akind}"
-                cats[k] = cats.get(k, 0) + est_tokens(d.get("rendered") or d.get("attachment"))
+                cats[k] = cats.get(k, 0) + n
             elif t == "system" and d.get("subtype") == "compact_boundary":
                 boundaries += 1
     ctxs = sorted(x["ctx"] for x in turns)
@@ -116,6 +129,7 @@ def analyse(path):
         "cache": {"writes": sum(x["write"] for x in turns), "reads": sum(x["read"] for x in turns),
                   "uncached_input": sum(x["fresh"] for x in turns), "output": sum(x["out"] for x in turns)},
         "categories": dict(sorted(cats.items(), key=lambda kv: -kv[1])),
+        "standing": standing,
         "models": sorted({x["model"] for x in turns if x["model"]}),
     }
 
@@ -353,6 +367,11 @@ def render_md(rep, subs, rounds, rows=()):
     total = sum(rep["categories"].values()) or 1
     for name, n in list(rep["categories"].items())[:12]:
         out.append(f"| {name} | {n:,} | {100 * n // total}% |")
+    if rep.get("standing"):
+        names = {"prompt_snapshot": "system prompt", "skill_listing": "skill list", "environment": "environment"}
+        out += ["", "standing context, paid on every turn and never growth: " + " · ".join(
+            f"{names.get(k, k)} ~{v['per_item']:,}" + (f" (recorded {v['items']}×)" if v["items"] > 1 else "")
+            for k, v in sorted(rep["standing"].items(), key=lambda kv: -kv[1]["per_item"]))]
     if subs:
         out += ["", "## Sub-agents", "", "| agent | type | turns | first-turn ctx | max ctx | output |", "|---|---|---|---|---|---|"]
         for s in subs:

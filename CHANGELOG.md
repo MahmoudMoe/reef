@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- `reef-cost` keeps the standing context (the system prompt, the skill list, the environment: paid on every turn,
+  recorded a few times in the transcript, never growth) out of the share table and names it on one line per item
+  (2026-10-18: two prompt snapshots and three skill listings read as 55% of "the context", and the orchestrator
+  reported its standing 109k as task 204's cost; the task's growth was 11.5k).
 - The session-start text's `next command:` is `/reef-loop` whenever the tick holds anything the loop acts on (a hand-back
   to verify, a returned-unmerged task, a held feature), not only rows, dispatches and PRs (2026-10-18: with 204 handed
   back it said `/reef-plan <row> or /reef-assess`, and the status line's `next:` echoed it after every reply).

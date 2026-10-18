@@ -108,6 +108,24 @@ class KnownCounts(unittest.TestCase):
         self.assertIn("| tool_result:Read |", r.stdout)
         self.assertEqual(cost(os.path.join(self.d, "nope.jsonl")).returncode, 2)
 
+    def test_standing_context_is_apart_from_growth(self):
+        # 2026-10-18 (qassimha): two prompt snapshots and three skill listings read as 55% of "the context", and the
+        # orchestrator reported its standing 109k as the task's cost
+        recs = FIXTURE + [{"type": "attachment", "attachment": {"type": "prompt_snapshot", "systemPrompt": ["p" * 4000]}},
+                          {"type": "attachment", "attachment": {"type": "prompt_snapshot", "systemPrompt": ["p" * 4000]}},
+                          {"type": "attachment", "attachment": {"type": "skill_listing", "content": "s" * 800}}]
+        t = write_transcript(self.d, "standing.jsonl", recs)
+        rep = json.loads(cost(t, "--format", "json").stdout)["session"]
+        self.assertNotIn("attachment:prompt_snapshot", rep["categories"])
+        self.assertNotIn("attachment:skill_listing", rep["categories"])
+        self.assertIn("attachment:file", rep["categories"], "a file view is growth")
+        self.assertEqual(rep["standing"]["prompt_snapshot"]["items"], 2)
+        self.assertGreater(rep["standing"]["prompt_snapshot"]["per_item"], 900)
+        self.assertLess(rep["standing"]["prompt_snapshot"]["per_item"], 1200, "per item, never the sum of the recordings")
+        md = cost(t, "--format", "md").stdout
+        self.assertNotIn("| attachment:prompt_snapshot |", md)
+        self.assertRegex(md, r"standing context, paid on every turn and never growth: system prompt ~1,\d{3} \(recorded 2×\) · skill list ~2\d\d")
+
     def test_fix_rounds_from_done_tasks(self):
         os.makedirs(os.path.join(self.d, "tasks", "done"))
         with open(os.path.join(self.d, "tasks", "done", "101-a.md"), "w") as f:
