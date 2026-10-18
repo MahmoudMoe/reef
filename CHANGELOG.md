@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Fix** (`reef-c4`, 2026-10-18, qassimha task 1102): every compose service running a third-party image is a container of
+  the model, proven by the compose file — the generator admitted only a fixed list of names, so the Mailpit mail catcher
+  was hand-added to `workspace.dsl` and `--diff` then contradicted it; a service built from the repository or on a bare
+  runtime image (the app itself) is still skipped, and a name already detected from the code is not listed twice.
 - **Fix** (`reef-graph-run`, 2026-10-18, the trial's first graph-mode task): the pipeline's mechanic ran `reef-gate.sh fast`
   before the judges where chat mode runs `full`; it runs `full` now (cached when the implementer ran it on the same snapshot).
 - **`graph.mode: auto`** (workflow v2 phase 4; 2026-10-18, after the trial's first graph-mode task): the tick decides the
