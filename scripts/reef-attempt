@@ -39,6 +39,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 
@@ -108,6 +109,18 @@ def repo_root(path):
         if parent == probe:
             return d   # no marker found: the task file's own directory — NEVER the caller's cwd
         probe = parent
+
+
+def main_checkout(root):
+    """The main checkout of the repository root belongs to (the first `git worktree list` entry), or root itself."""
+    try:
+        r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=10)
+        for line in r.stdout.splitlines():
+            if line.startswith("worktree "):
+                return line[len("worktree "):].strip()
+    except Exception:
+        pass
+    return root
 
 
 def read_config(root):
@@ -215,6 +228,9 @@ def run(cap_flag, path, failure):
         die(f"task file not found: {path}")
     root = repo_root(path)
     cfg = read_config(root)
+    # loop policy has ONE home, the main checkout — like the queue (2026-10-18: `hunter.guard_pass: feature` was set on
+    # develop; the feature worktree's copy of the config predated it and the fix round dispatched a hunter)
+    policy = read_config(main_checkout(root)) or cfg
     cap = cap_flag or int(cfg.get("caps", {}).get("attempts", DEFAULT_CAP) or DEFAULT_CAP)
     roles = cfg.get("roles", {}) if isinstance(cfg.get("roles", {}), dict) else {}
 
@@ -281,7 +297,7 @@ def run(cap_flag, path, failure):
         if tier in ("design", "critical"):
             # hunter.guard_pass = feature (0.7): no hunter per task — graph-run and the task skill read the absence of the
             # `adversary:` line; the one pass runs on the feature's diff in /reef-review (2026-10-18: two judges, 96k, 20 lines)
-            if str((cfg.get("hunter") or {}).get("guard_pass", "task") or "task").lower() == "feature":
+            if str((policy.get("hunter") or {}).get("guard_pass", "task") or "task").lower() == "feature":
                 print("guard-pass: feature (no hunter on this task; ONE loophole-hunter pass on the feature's diff before the GREEN record)")
             else:
                 print(f"adversary: model={adversary}")

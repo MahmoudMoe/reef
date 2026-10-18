@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`hunter.guard_pass` is read from the MAIN checkout's config** by `reef-attempt`, `reef-adversarial`, `reef-record` and
+  the pre-commit — loop policy has one home, like the queue (2026-10-18: the owner set `feature` on develop; the feature
+  worktree's copy of the config predated it, and 202's fix round dispatched a hunter per task again).
 - The session-start text lists the files behind the tick's ids — each `dispatch now` / `verify now` task's file, its
   worktree and the hand-back and report files found in any checkout — so the fresh orchestrator reads them instead of
   searching (2026-10-18: after every `/clear` the first turn ran `find .` over the repository for the task the tick had
