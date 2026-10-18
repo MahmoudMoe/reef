@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- `reef-init` gitignores `.reef/hunt/` (the hunter's reports are evidence like `.reef/ci-local/`; the guard already
+  treats them so) — the trial's `git status` carried twelve untracked hunt files since the first day.
 - **Fix**: `reef-update --commit` committed the scripts and never `.reef/init-manifest.json` (2026-10-18: three pulls on
   the trial; the first `git status --porcelain` line lost its status column to the output strip, and the manifest sorts
   first), nor the `.gitignore` lines `reef-init` appends. Both are Reef's own files and ride in the `reef: scripts` commit.
