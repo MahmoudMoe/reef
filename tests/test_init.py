@@ -139,6 +139,8 @@ class Idempotent(unittest.TestCase):
         gi = read(self.d, ".gitignore")
         self.assertTrue(gi.startswith("node_modules/\n"))
         self.assertIn(".reef/worktrees/", gi)
+        for evidence in (".reef/ci-local/", ".reef/hunt/"):   # 2026-10-18: twelve untracked hunt reports in the trial's status
+            self.assertIn(evidence + "\n", gi, f"{evidence} is evidence the guard protects; it is never committed")
         mk = read(self.d, "Makefile")
         self.assertTrue(mk.startswith("build:\n"))
         self.assertIn("\nsetup:", mk)
