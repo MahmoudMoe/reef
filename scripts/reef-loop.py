@@ -71,6 +71,29 @@ def all_roots(root):
     return [root] + [o for o in others if os.path.realpath(o) != os.path.realpath(root)]
 
 
+def graph_mode(root, cfg):
+    """0.7 (workflow v2, phase 4): which mode a fresh `dispatch now` task runs in. `graph.mode` is read from the MAIN
+    checkout's config (loop policy has one home, like `hunter.*`): `auto` (template) = graph when this machine's probe
+    recorded `GATE OK` (`.reef/graph/gate.json`, fail closed), chat otherwise; `chat` = never; `graph` = as auto, and a
+    missing gate is named as BROKEN instead of falling back quietly. A fix round (`attempts` > 0) and a `verify now`
+    task stay in chat mode whatever the setting: round 2 inside the graph is not designed yet. Measured 2026-10-18 on
+    the trial's first graph-mode task (docs/perf/2026-10-18.md §C): the orchestrator paid one Workflow call where chat
+    mode paid one turn per agent result."""
+    _, wt = run(["git", "worktree", "list", "--porcelain"], root)
+    first = next((l[len("worktree "):].strip() for l in wt.splitlines() if l.startswith("worktree ")), root)
+    policy = config(first) if os.path.isfile(os.path.join(first, ".reef", "config.json")) else cfg
+    mode = str(((policy.get("graph") or {}) if isinstance(policy.get("graph"), dict) else {}).get("mode", "auto") or "auto").strip().lower()
+    if mode not in ("auto", "chat", "graph"):
+        mode = "auto"
+    ok = False
+    try:
+        with open(os.path.join(first, ".reef", "graph", "gate.json"), encoding="utf-8") as f:
+            ok = bool(json.load(f).get("ok"))
+    except (OSError, ValueError):
+        ok = False
+    return mode, ok
+
+
 def markers(root, kind, stale_minutes=None):
     roots = root if isinstance(root, list) else [root]
     out, seen = [], set()
@@ -233,6 +256,15 @@ def tick(root):
                 verify_now.append(tid)
                 dispatch_now.remove(t)
                 break
+    # 0.7: fresh tasks run in the graph when the mode and the gate say so; fix rounds stay in chat
+    mode, gate = graph_mode(root, cfg)
+    dispatch_mode = {}
+    for t in dispatch_now:
+        try:
+            att = int((re.search(r"^attempts:[ \t]*(\d+)", read(str(t.get("path") or ""))[:4000], re.M) or [None, "0"])[1])
+        except (OSError, ValueError):
+            att = 0
+        dispatch_mode[str(t["id"])] = "graph" if (mode != "chat" and gate and att == 0) else "chat"
     # the files behind the ids, for the session-start text: 2026-10-18, after every /clear the fresh orchestrator ran
     # `find . -name "202*"` over the repository and listed .reef/hunt to locate what the tick had just named
     files = {}
@@ -297,7 +329,9 @@ def tick(root):
         "in_flight": sorted(inflight_ids) + [f"verifying:{m['id']}" for m in verifying if not m["stale"]],
         "returned_unmerged": [m["id"] for m in returned], "parked": blocked, "building": [r[0] for r in building],
         "worktrees": len(worktrees), "wait": st.get("wait"), "active": bool(st.get("active")), "stop": stop, "over_growth": over, "triage": triage_line,
-        "broken": [] if rc_g == 0 else ["task graph broken or unreadable (reef-graph ready failed)"],
+        "broken": ([] if rc_g == 0 else ["task graph broken or unreadable (reef-graph ready failed)"])
+                  + (["graph.mode is `graph` but this machine has no GATE OK — python3 scripts/reef-graph-run.py probe (chat mode meanwhile)"] if (mode == "graph" and not gate and dispatch_now) else []),
+        "graph_mode": mode, "graph_gate": gate, "dispatch_mode": dispatch_mode,
     }
     h = hashlib.sha1(json.dumps({k: state[k] for k in ("rows_to_plan", "dispatch_now", "verify_now", "awaiting", "prs_to_review", "rows_to_close", "in_flight", "returned_unmerged", "parked", "building")}, sort_keys=True).encode()).hexdigest()[:12]
     state["hash"] = h
@@ -323,8 +357,13 @@ def next_command(state):
 
 
 def render(state):
+    dm = state.get("dispatch_mode") or {}
+    g_ids = [i for i in state["dispatch_now"] if dm.get(i) == "graph"]
+    c_ids = [i for i in state["dispatch_now"] if dm.get(i) != "graph"]
+    disp = " · ".join(([f"dispatch (graph): {', '.join(g_ids)} — python3 scripts/reef-graph-run.py generate"] if g_ids else [])
+                      + ([f"dispatch (chat): {', '.join(c_ids)} — /reef-task" + (" (fix round)" if g_ids or state.get("graph_gate") else "")] if c_ids else []))
     nxt = ("verify: " + ", ".join(state["verify_now"])) if state.get("verify_now") else \
-          ("dispatch: " + ", ".join(state["dispatch_now"])) if state["dispatch_now"] else \
+          disp if state["dispatch_now"] else \
           ("review: " + state["prs_to_review"][0]) if state["prs_to_review"] else \
           ("close: " + ", ".join(state["rows_to_close"])) if state["rows_to_close"] else \
           ("plan: " + ", ".join(state["rows_to_plan"])) if state["rows_to_plan"] else \

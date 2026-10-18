@@ -149,6 +149,14 @@ def ready_tasks(root, only):
         die(f"tick failed: {err.strip() or out.strip()}", 1)
     state = json.loads(out)
     ids = [str(x) for x in state.get("dispatch_now", [])]
+    # 0.7: the tick decides the mode per task (graph.mode from the main checkout, the gate, a fix round stays in chat)
+    dm = state.get("dispatch_mode") or {}
+    chat_ids = [i for i in ids if dm.get(i, "graph") == "chat"]
+    if state.get("graph_mode") == "chat":
+        die("graph.mode is `chat` in the main checkout's config: /reef-task dispatches these; set `auto` or `graph` to use the graph", 1)
+    for i in chat_ids:
+        print(f"skipped {i}: chat mode (a fix round — attempts > 0 — is judged in chat until round 2 is designed inside the graph): /reef-task")
+    ids = [i for i in ids if i not in chat_ids]
     if only:
         ids = [i for i in ids if i in only]
         missing = [i for i in only if i not in ids]

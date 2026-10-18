@@ -99,6 +99,25 @@ class Generate(unittest.TestCase):
         self.assertIn("nothing to dispatch", r.stdout)
 
 
+    def test_generate_leaves_a_fix_round_to_chat_and_refuses_under_mode_chat(self):
+        d = graph_project()
+        pass_gate(d)
+        T.write(d, "tasks/101-a.md", T.task(101, "1").replace("attempts: 0", "attempts: 1"))
+        r = g(d, "generate")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("skipped 101: chat mode (a fix round", r.stdout)
+        self.assertIn("nothing to dispatch", r.stdout)
+        self.assertEqual(glob.glob(os.path.join(d, ".reef", "graph", "run-*.js")), [])
+        self.assertIn("attempts: 1\ndispatches: 0", open(os.path.join(d, "tasks", "101-a.md")).read(), "nothing was bookkept")
+        T.write(d, "tasks/101-a.md", T.task(101, "1"))
+        cfg = json.load(open(os.path.join(d, ".reef", "config.json")))
+        cfg["graph"] = {"mode": "chat"}
+        T.write(d, ".reef/config.json", json.dumps(cfg))
+        r = g(d, "generate")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("graph.mode is `chat`", r.stderr)
+
+
 class Settle(unittest.TestCase):
     def results(self, d, **gate):
         wt = os.path.join(d, ".reef", "worktrees", "101")
