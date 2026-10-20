@@ -60,6 +60,7 @@ Then, inside your project:
 | **To build without the loop, or to check a new machine** | `/reef-graph` | The same build step `/reef-loop` already uses for every fresh task (graph mode, chosen automatically): implementer, gate and verifier per task as one background workflow, one summary back. Run it yourself only to build a feature without the queue and loop, or once on a new machine to run the probe that proves the guard reaches workflow agents. Never next to a running loop: one orchestrator per project. |
 | **The running app attacked** | `/reef-pentest <url>` | One adversary attacks every threat-model row against a live copy of the app, the way a user or a logged-in attacker could; each hole becomes a found queue row. On demand, at any point; needs `/reef-threat` first; only a target you own, never production unless you say so. |
 | **Something looks off** | `/reef-doctor` | One screen: the plugin clone's branch and freshness, scripts behind the plugin, the queue's home, worktrees, the loop's state, gh, Docker, waiting proposals — each with its fix. `reef/README.md` is the map of the tree; `.reef/status.html` the live page. |
+| **A batch without restarting sessions** | `python3 scripts/reef-run.py probe` once, then `python3 scripts/reef-run.py` | Runs `/reef-loop` in fresh headless sessions one after another: at the context ceiling the next session takes over from the handoff. It stops when the loop needs you (your questions land in `.reef/questions.md`; the next interactive `/reef-loop` asks them as one set), stops, parks, leaves work in flight, or hits `--max-iterations` (10). The probe proves the guard denies a headless session's forbidden write first, or it refuses to run. One runner per checkout — the lock does not stop an interactive `/reef-loop` beside it, so run one orchestrator at a time. |
 | **A new Reef** | `python3 <plugin>/scripts/reef-update.py --commit` | Pulls the plugin clone, refreshes the project, commits Reef's own files, prints the two Claude Code commands. |
 | **A fresh clone** | `make setup` | Hooks are local git config and do not survive a clone. |
 
@@ -372,7 +373,7 @@ Every claim above has a number behind it, and the numbers live in `docs/perf/`:
 
 ### Selftests
 
-`sh tests/run.sh` — 557 sabotage and contract tests (452 Python + 105 shell, as the suite runs them). Every mechanism in
+`sh tests/run.sh` — 561 sabotage and contract tests (456 Python + 105 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
 script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials

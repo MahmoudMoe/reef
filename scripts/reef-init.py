@@ -53,7 +53,7 @@ SCRIPTS = ["reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.
            "reef-converge", "reef-record", "reef-structure", "reef-recalibrate", "reef-c4.py", "reef-threat.py",
            "reef-repo", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-migrate", "reef-merge-base",
            # 0.7 (2026-10-18: /reef-graph on the trial found no scripts/reef-graph-run.py — it was never in this list)
-           "reef-graph-run.py"]
+           "reef-graph-run.py", "reef-run.py"]
 # 4.5 security gates per stack: the auditor is installed by the CI template's setup steps; locally a missing tool is
 # exit 77 (skipped — reef-ci-local reports a skip as exit 2, never success). They are RELEASE gates (decision 8):
 # a feature PR never pays for a history secret scan or an audit.
@@ -89,7 +89,7 @@ EXISTING_CONSTITUTIONS = (".specify/constitution.md", ".specify/memory/constitut
 STACK_OPINIONS = {"node": "node.md", "python": "python.md", "rust": "rust.md", "go": "go.md"}
 GITIGNORE_LINES = [".reef/worktrees/", ".reef/proposed/", ".reef/ci-local/", ".reef/approvals/", ".reef/review/",
                    ".reef/verifying/", ".reef/inflight/", ".reef/loop.json", ".reef/status.html", ".reef/cost/", ".reef/graph/", "tasks/.plan-review.json", ".env",
-                   ".reef/hunt/"]   # the hunter's own reports: evidence like .reef/ci-local/ (2026-10-18: 12 untracked files in the trial's status)
+                   ".reef/hunt/", ".reef/run/", ".reef/questions.md"]   # .reef/run/: reef-run's gate, log and lock; questions.md: the owner's open questions (the handoff reads it). .reef/hunt/: the hunter's own reports: evidence like .reef/ci-local/ (2026-10-18: 12 untracked files in the trial's status)
 VERSION = "0.6.0"   # written to .reef/version; absent = a 0.5 project (every 0.6 check warns instead of failing)
 MAKEFILE_TARGET = "\nsetup: ## git hooks (once per clone) — reef\n\tgit config core.hooksPath .githooks\n\tchmod +x .githooks/*\n"
 
