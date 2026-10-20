@@ -17,4 +17,6 @@ Read `.reef/config.json`, the task file, its feature's `SPEC.md` when the task s
 - Run the project's full gate (`scripts/reef-gate.sh full`) until green. DO NOT commit or push.
 - Final message = raw hand-off starting `RUN: agent=implementer task=<id>`: files changed, exact commands + output tails, decisions beyond the task text (1 line each — the human is learning).
 
+**Tests and gates**: run them with output redirected to a file and read the exit code (`npx vitest run > /tmp/t.log 2>&1; echo $?`); never pipe one into `tail`/`grep` — the pipe hides the exit code and the guard denies it (63 such denials in the trial, each a wasted turn).
+
 **Terse (0.7, the owner's rule).** Evidence, not narration: never restate the task or the plan, never explain what you are about to do, one line per finding or criterion, no summaries of your own report. Your final message is the file path and the verdict (or the hand-back's claims) — nothing else. Long output is not thoroughness; it is context the next agent pays for.

@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Stop the growth, remove the dead** (2026-10-20, the owner: "is Reef creating technical debt?"): `tests/size-budget.json`
+  holds Reef's ceiling — template config keys, skill and agent words, script lines — and `test_contracts.py::SizeBudget`
+  prints the three numbers on every run and fails when one is above it; a PR that grows Reef edits that file in the same
+  diff with its reason here. Two template keys nothing read or named are gone (`writing.prompt_words`,
+  `context.read_lines_max`; a project's copy is harmless). The guard enforces `roles.planner` (set everywhere, enforced
+  nowhere — the brief's known gap) and `/reef-plan` passes it on the planner dispatch. The implementer, verifier and
+  hunter definitions say once: redirect a test or gate to a file and read the exit code, never pipe it (63+ piped-gate
+  denials across the trial, each a wasted retry turn).
 - **Fix**: recording the hunter's plan pass (`reef-adversarial <task> plan <report>`, or the owner's `--decided` ruling)
   clears the `.reef/verifying/<id>` marker the guard wrote for that hunter, in the task's own checkout and only when it
   names that task file (2026-10-20, qassimha 302: the tick showed `in flight: verifying:302` for a hunter that had
