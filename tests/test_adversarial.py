@@ -65,6 +65,26 @@ class Record(unittest.TestCase):
         h = adv(self.t, "plan-hash").stdout.strip()
         self.assertIn(f"adversarial-plan: {h}", fm_of(self.t))
 
+    def test_a_recorded_plan_pass_clears_its_hunters_verifying_marker(self):
+        # 2026-10-20 (qassimha 302): the guard writes .reef/verifying/<id> on the hunter's dispatch; after a PLAN pass
+        # nothing removed it, and the tick showed `in flight: verifying:302` for a hunter that had long returned
+        import json as _json
+        os.makedirs(os.path.join(self.d, ".reef", "verifying"), exist_ok=True)
+        mk = lambda tid, path: write(self.d, f".reef/verifying/{tid}", _json.dumps({"id": tid, "task": os.path.abspath(path), "tier": "critical"}))
+        mine, other = mk("1", self.t), mk("9", os.path.join(self.d, "tasks", "009-other.md"))
+        r = adv(self.t, "plan", self.ok)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("verifying marker cleared", r.stdout)
+        self.assertFalse(os.path.exists(mine), "the plan pass is over once recorded")
+        self.assertTrue(os.path.exists(other), "another task's marker is not this record's")
+        # the code pass keeps the orchestrator's rm: the verifier shares that marker and may still be reading
+        mine = mk("1", self.t)
+        adv(self.t, "guard", write(self.d, "g.txt", REPORT_PASS.format(p="guard")))
+        self.assertTrue(os.path.exists(mine), "a guard-pass record leaves the shared marker alone")
+        # the owner's ruling at the gate ends the plan pass too
+        self.assertEqual(adv(self.t, "plan", "--decided", "⁵⁰").returncode, 0)
+        self.assertFalse(os.path.exists(mine))
+
     def test_refuses_mech_and_light(self):
         t = task(self.d, tier="light", complexity="mech")
         r = adv(t, "plan", self.ok)

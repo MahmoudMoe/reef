@@ -311,6 +311,7 @@ def main(argv):
         set_key(task_path, text, "adversarial-plan", value)
         set_key(task_path, read(task_path), "adversarial-decided", mark)
         print(f"adversarial-plan: {value} (owner decision {mark}, no hunter round)")
+        clear_plan_marker(task_path, fm.get("id", ""))
         return 0
     if len(argv) != 3 or argv[1] not in PASSES:
         die("usage: reef-adversarial <task-file> plan|guard <report-file>  |  --feature <slug> guard <report-file>  |  <task-file> plan --decided <mark>  |  <task-file> plan --migrate  |  <task-file> plan-hash")
@@ -339,7 +340,32 @@ def main(argv):
         value = hashlib.sha1(read(report_path).encode("utf-8")).hexdigest()[:12] + "@" + head_of(task_path)
     set_key(task_path, text, f"adversarial-{which}", value)
     print(f"adversarial-{which}: {value}")
+    if which == "plan":
+        clear_plan_marker(task_path, fm.get("id", ""))
     return 0
+
+
+def clear_plan_marker(task_path, tid):
+    """The guard writes .reef/verifying/<id> when it allows a hunter dispatch, in the task file's checkout (the same
+    walk-up as reef-guard's task_root). On a PLAN pass nothing else removed it: the tick showed `in flight: verifying:<id>`
+    for a hunter that had returned, until the marker went stale (2026-10-20, qassimha 302). The pass is over once it is
+    recorded, so the record clears it — only a marker naming this task file. A code pass keeps the orchestrator's `rm`:
+    the verifier shares that marker and may still be reading."""
+    probe = os.path.dirname(os.path.abspath(task_path))
+    while not (os.path.isdir(os.path.join(probe, ".reef")) or os.path.exists(os.path.join(probe, ".git"))):
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            return
+        probe = parent
+    marker = os.path.join(probe, ".reef", "verifying", str(tid))
+    try:
+        with open(marker, encoding="utf-8") as f:
+            rec = json.load(f)
+        if os.path.abspath(str(rec.get("task", ""))) == os.path.abspath(task_path):
+            os.unlink(marker)
+            print(f"verifying marker cleared: .reef/verifying/{tid} (the plan pass is recorded)")
+    except (OSError, ValueError):
+        pass
 
 
 if __name__ == "__main__":

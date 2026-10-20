@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Fix**: recording the hunter's plan pass (`reef-adversarial <task> plan <report>`, or the owner's `--decided` ruling)
+  clears the `.reef/verifying/<id>` marker the guard wrote for that hunter, in the task's own checkout and only when it
+  names that task file (2026-10-20, qassimha 302: the tick showed `in flight: verifying:302` for a hunter that had
+  returned, until the marker went stale). A code pass keeps the orchestrator's `rm`: the verifier shares that marker.
 - **The plan gate says what you are approving** (2026-10-20, the owner: "Approve plan … at bd8cd330bfb50bfd?" told them
   nothing): `reef-plan-check.py --summary --feature <slug>` prints one line — tasks, criteria, draft ADRs, and the plan
   files changed since the last recorded approval — and `/reef-plan` puts it VERBATIM under the `Approve` option and above
