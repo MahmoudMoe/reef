@@ -550,29 +550,11 @@ class HunterStampOutsideTheDigest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.digest(), before, "an owner ruling re-stamps without voiding the approval of the same text")
 
-    def test_a_plan_edit_after_the_pass_is_named_stale_and_a_0_6_stamp_legacy(self):
+    def test_a_plan_edit_after_the_pass_is_named_stale(self):
         subprocess.run([sys.executable, ADV, self.p, "plan", self.report], capture_output=True, text=True)
         edit(self.p, "## Scope\nx", "## Scope\nx, widened in the review round")
         self.assertEqual(run(self.tmp).returncode, 0)   # the review round re-stamps the review; the hunter's record stays
         self.assertRegex(self.hunter_line(), r"^hunter: STALE 1 — .*--decided")
-        with open(self.p) as f:
-            t = f.read()
-        # the 0.6 form: notes inside the hash — compute it the old way, independent of the script
-        import hashlib
-        with_notes = t.replace("## Log\n", "## Reviewer notes\n- (A1) a note\n\n## Log\n")
-        cut = re.split(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", with_notes, maxsplit=1, flags=re.M)[0]
-        m = re.match(r"\A---\r?\n(.*?\r?\n)---\r?\n", cut, re.S)
-        fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-plan|adversarial-guard|adversarial-decided):.*(?:\r?\n|\Z)", "", m.group(1), flags=re.M)
-        legacy = hashlib.sha1((fm + cut[m.end(1):]).encode()).hexdigest()[:12]
-        with open(self.p, "w") as f:
-            f.write(re.sub(r"^adversarial-plan: .*$", f"adversarial-plan: {legacy}", with_notes, flags=re.M))
-        self.assertEqual(run(self.tmp).returncode, 0)
-        line = self.hunter_line()
-        self.assertRegex(line, r"^hunter: LEGACY 1 — ")
-        self.assertIn("scripts/reef-adversarial <task> plan --migrate (the plugin's copy)", line)
-        r = subprocess.run([sys.executable, ADV, self.p, "plan", "--migrate"], capture_output=True, text=True)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("hunter: OK", self.hunter_line(), "plan-check and reef-adversarial compute the same hash")
 
     def test_a_mech_task_and_a_done_task_need_no_hunter(self):
         with open(self.p, "w") as f:
@@ -580,91 +562,6 @@ class HunterStampOutsideTheDigest(unittest.TestCase):
         self.assertEqual(run(self.tmp).returncode, 0)
         self.assertIn("hunter: n/a", self.hunter_line())
 
-
-class RecordsMigrateFromTheLegacyDigest(unittest.TestCase):
-    """2026-10-18: the digest stopped carrying the hunter's stamp (#53); measured on the trial, the three live
-    features' approval and review records then read as STALE — a re-review and a re-approval of unchanged plans.
-    A record carrying the 0.6 digest of the CURRENT plan is LEGACY, named with the one command, and migrated by it."""
-
-    def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="reef-pc-records.")
-        repo(self.tmp)
-        with open(os.path.join(self.tmp, ".reef", "version"), "w") as f:
-            f.write("0.6.0\n")   # a 0.6 plan: the approval and the review are enforced, not warned
-        self.p = os.path.join(self.tmp, "tasks", "001-demo.md")
-        with open(self.p, "w") as f:
-            f.write(DESIGN_TASK.format(id=1, acs="- test_demo_works goes red then green"))
-        self.assertEqual(run(self.tmp).returncode, 0, run(self.tmp).stdout)
-        report = os.path.join(self.tmp, "hunt.md")
-        with open(report, "w") as f:
-            f.write("RUN: agent=loophole-hunter task=1 pass=plan round=1\nDEFECT: x\nBLOCKER: none\nVERDICT: PASS\n")
-        self.assertEqual(subprocess.run([sys.executable, ADV, self.p, "plan", report], capture_output=True, text=True).returncode, 0)
-        self.new = run(self.tmp, "--digest", "--feature", "demo").stdout.split()[-1]
-        self.old = run(self.tmp, "--legacy-digest", "--feature", "demo").stdout.split()[-1]
-        self.assertNotEqual(self.new, self.old, "with a hunter stamp present the two forms differ")
-        # the records as the hook and reef-record wrote them before #53: the 0.6 digest
-        for rel, rec in ((".reef/approvals/demo.json", {"digest16": self.old[:16], "approved_at": "2026-10-17T21:14:28Z"}),
-                         (".reef/review/plan-demo.json", {"digest16": self.old[:16], "verdict": "PASS", "recorded_at": "2026-10-17T20:00:00Z"})):
-            os.makedirs(os.path.dirname(os.path.join(self.tmp, rel)), exist_ok=True)
-            with open(os.path.join(self.tmp, rel), "w") as f:
-                json.dump(rec, f)
-        self.stamp = os.path.join(self.tmp, "tasks", ".plan-review.json")
-
-    def legacy_stamp(self):
-        with open(self.stamp) as f:
-            st = json.load(f)
-        st["features"]["demo"] = self.old
-        with open(self.stamp, "w") as f:
-            json.dump(st, f)
-
-    def test_legacy_records_are_named_with_the_command_and_migrated_by_it(self):
-        self.legacy_stamp()
-        r = run(self.tmp, "--verify-stamp", "--feature", "demo")
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("stamp: LEGACY", r.stdout)
-        self.assertIn("--migrate-records --feature demo", r.stdout)
-        self.assertEqual(run(self.tmp).returncode, 0)   # a plain run re-stamps the deterministic stamp; the records stay 0.6
-        r = run(self.tmp, "--verify-stamp", "--feature", "demo")
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("approval: LEGACY for 'demo'", r.stdout)
-        self.assertIn("review: LEGACY for 'demo'", r.stdout)
-        self.assertNotIn("STALE", r.stdout, "an unchanged plan is never called stale")
-        self.legacy_stamp()
-        m = run(self.tmp, "--migrate-records", "--feature", "demo")
-        self.assertEqual(m.returncode, 0, m.stdout)
-        self.assertIn(f"approval: 'demo' {self.old[:16]} → {self.new[:16]}", m.stdout)
-        self.assertIn(f"review: 'demo' {self.old[:16]} → {self.new[:16]}", m.stdout)
-        self.assertIn("stamp: 'demo' re-digested", m.stdout)
-        r = run(self.tmp, "--verify-stamp", "--feature", "demo")
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("approval: OK for 'demo'", r.stdout)
-        self.assertIn("2026-10-17T21:14:28Z", r.stdout, "the record keeps its date: the owner approved then")
-        with open(os.path.join(self.tmp, ".reef", "approvals", "demo.json")) as f:
-            self.assertEqual(json.load(f)["migrated_from_0_6"], self.old[:16])
-        m = run(self.tmp, "--migrate-records", "--feature", "demo")
-        self.assertEqual(m.returncode, 0)
-        self.assertIn("approval: 'demo' current", m.stdout)
-
-    def test_a_changed_plan_is_not_a_migration_and_a_behind_copy_refuses(self):
-        edit(self.p, "## Scope\nx", "## Scope\nx, edited after the approval")
-        self.assertEqual(run(self.tmp).returncode, 0)
-        r = run(self.tmp, "--verify-stamp", "--feature", "demo")
-        self.assertIn("approval: STALE", r.stdout)
-        self.assertNotIn("LEGACY", r.stdout)
-        with open(os.path.join(self.tmp, ".reef", "approvals", "demo.json")) as f:
-            before = f.read()
-        m = run(self.tmp, "--migrate-records", "--feature", "demo")
-        self.assertEqual(m.returncode, 1, m.stdout)
-        self.assertIn("not a migration, nothing written", m.stdout)
-        with open(os.path.join(self.tmp, ".reef", "approvals", "demo.json")) as f:
-            self.assertEqual(f.read(), before)
-        # the checkout's own copy of this script lags (a worktree before its merge): the guard there would read migrated records as stale
-        os.makedirs(os.path.join(self.tmp, "scripts"))
-        with open(os.path.join(self.tmp, "scripts", "reef-plan-check.py"), "w") as f:
-            f.write("# an older copy\n")
-        m = run(self.tmp, "--migrate-records", "--feature", "demo")
-        self.assertEqual(m.returncode, 1)
-        self.assertIn("differs from this script", m.stdout)
 
 
 class ExternalApiFacts(unittest.TestCase):

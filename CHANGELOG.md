@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The 0.6-fingerprint compatibility code is gone** (consolidation PR C; precondition the owner's `/reef-doctor`
+  on the trial, 2026-10-21: "every approval and review record in the current digest form"). Removed: `reef-plan-check.py
+  --legacy-digest` and `--migrate-records`, the LEGACY branches of `--verify-stamp` (stamp, approval, review, hunter),
+  `reef-adversarial <task> plan --migrate` and the 0.6 plan hash, the guard's 0.6-stamp denial, the doctor's LEGACY
+  stamp and record scans (a plan check per feature on every doctor run), the tick's LEGACY holds, their docs rows and
+  ten tests. A project still holding 0.6-form records re-approves its plan (no other project exists). The 0.5 layout
+  support stays. tests/size-budget.json lowered: `script_lines` 11,133 → 10,980.
 - **Super Reef: one delegated night under Mahmoud, the owner's proxy** (the owner's go and decisions, 2026-10-21;
   plan reviewed by the advisor). `/reef-night`: `reef:mahmoud` — chief design architect and product manager, twenty
   years, precise, concise, simple and robust — drafts the owner's profile (`reef/owner.md`, from their verbatim

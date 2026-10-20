@@ -60,52 +60,6 @@ def legacy_stamped_task(d):
     return p
 
 
-class StampCheck(unittest.TestCase):
-    def test_a_0_6_stamp_is_named_with_the_migrate_command_and_clears_after_it(self):
-        # 2026-10-18: task 204's stamp read as "the plan changed" after the pull; nothing on the screen said why
-        d = project()
-        p = legacy_stamped_task(d)
-        r = doctor(d)
-        line = [l for l in r.stdout.splitlines() if l.startswith("WARN") and "stamp:" in l]
-        self.assertEqual(len(line), 1, r.stdout)
-        self.assertIn("001-t.md in . carries a 0.6 adversarial-plan", line[0], "the line names its checkout: a task worktree holds the same file")
-        self.assertIn(f"python3 {os.path.join(ROOT, 'scripts', 'reef-adversarial')} reef/features/demo/tasks/001-t.md plan --migrate", line[0],
-                      "the plugin's copy, not the checkout's (a worktree's scripts/ lags the base)")
-        m = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-adversarial"), p, "plan", "--migrate"], capture_output=True, text=True)
-        self.assertEqual(m.returncode, 0, m.stderr)
-        r = doctor(d)
-        self.assertNotIn("stamp:", r.stdout)
-        self.assertIn("stamps: 1 design/critical task(s) current", r.stdout)
-
-
-class LegacyRecords(unittest.TestCase):
-    def test_a_0_6_form_record_is_named_with_the_migrate_command(self):
-        d = project()
-        p = legacy_stamped_task(d)
-        subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-adversarial"), p, "plan", "--migrate"], capture_output=True, text=True)
-        with open(os.path.join(d, "reef", "features", "demo", "SPEC.md"), "w") as f:
-            f.write("# demo\nRow: 1\n")
-        pc = os.path.join(ROOT, "scripts", "reef-plan-check.py")
-        old = subprocess.run([sys.executable, pc, d, "--legacy-digest", "--feature", "demo"], capture_output=True, text=True).stdout.split()[-1]
-        new = subprocess.run([sys.executable, pc, d, "--digest", "--feature", "demo"], capture_output=True, text=True).stdout.split()[-1]
-        os.makedirs(os.path.join(d, "tasks"), exist_ok=True)
-        with open(os.path.join(d, "tasks", ".plan-review.json"), "w") as f:
-            json.dump({"features": {"demo": new}, "checks": 1, "planned_under": {"demo": "0.6.0"}}, f)
-        os.makedirs(os.path.join(d, ".reef", "approvals"))
-        with open(os.path.join(d, ".reef", "approvals", "demo.json"), "w") as f:
-            json.dump({"digest16": old[:16], "approved_at": "2026-10-17T21:14:28Z"}, f)
-        r = doctor(d)
-        line = [l for l in r.stdout.splitlines() if "records:" in l]
-        self.assertEqual(len(line), 1, r.stdout)
-        self.assertTrue(line[0].startswith("WARN"), line[0])
-        self.assertIn("demo in . carry the 0.6 digest form", line[0])
-        self.assertIn(f"python3 {pc} . --migrate-records --feature demo", line[0])
-        # a closed feature (every task under done/) is history nothing reads: 2026-10-18 row 1 was listed in five checkouts
-        os.makedirs(os.path.join(d, "reef", "features", "demo", "tasks", "done"))
-        os.rename(p, os.path.join(d, "reef", "features", "demo", "tasks", "done", "001-t.md"))
-        r = doctor(d)
-        self.assertNotIn("WARN records:", r.stdout, r.stdout)
-
 
 class Doctor(unittest.TestCase):
     def test_names_scripts_behind_the_queue_home_and_the_fix(self):

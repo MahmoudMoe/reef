@@ -261,24 +261,6 @@ class HunterStampBeforeTheGate(unittest.TestCase):
         self.assertEqual(st["dispatch_now"], ["101"], "the owner's ruling re-stamps without a re-approval")
 
 
-class LegacyRecordsBeforeTheGate(unittest.TestCase):
-    def test_an_approval_in_the_0_6_digest_form_is_held_with_the_migrate_command(self):
-        # 2026-10-18: after #53 the trial's three live approvals would have read STALE — a re-approval of unchanged plans
-        d = project()
-        HunterStampBeforeTheGate.design(HunterStampBeforeTheGate("test_missing_stale_and_legacy_stamps_hold_the_task_with_the_command"), d)
-        write(d, "hunt.md", "RUN: agent=loophole-hunter task=101 pass=plan round=1\nBLOCKER: none\nVERDICT: PASS\n")
-        subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-adversarial"), os.path.join(d, "tasks", "101-a.md"), "plan", os.path.join(d, "hunt.md")], capture_output=True, text=True)
-        self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["dispatch_now"], ["101"])
-        pc = os.path.join(d, "scripts", "reef-plan-check.py")
-        old = subprocess.run([sys.executable, pc, d, "--legacy-digest", "--feature", "1"], capture_output=True, text=True).stdout.split()[-1]
-        write(d, ".reef/approvals/1.json", json.dumps({"digest16": old[:16], "approved_at": "2026-10-16T00:00:00Z"}))
-        st = json.loads(loop(d, "tick", "--json").stdout)
-        self.assertEqual(st["dispatch_now"], [])
-        self.assertEqual(st["awaiting"], ["1 (records in the 0.6 digest form: `reef-plan-check.py . --migrate-records --feature 1` (the plugin's copy, in the plan's checkout))"], st)
-        m = subprocess.run([sys.executable, pc, d, "--migrate-records", "--feature", "1"], capture_output=True, text=True)
-        self.assertEqual(m.returncode, 0, m.stdout)
-        self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["dispatch_now"], ["101"])
-
 
 class InFlightAcrossWorktrees(unittest.TestCase):
     def test_a_marker_in_a_feature_worktree_is_in_flight(self):

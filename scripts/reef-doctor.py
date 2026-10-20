@@ -11,7 +11,7 @@ Checks, each OK / WARN / FAIL with the fix on the same line:
   scripts  scripts/reef-* in the project (and in every feature worktree) identical to the plugin's
   queue    the queue has one home: no feature worktree carries queue edits the base lacks
   worktrees  each worktree, its branch, and whether it is a feature or a task checkout
-  stamp    a design/critical task's adversarial-plan is current, a 0.6 stamp (--migrate) or stale
+  stamp    a design/critical task's adversarial-plan is current or stale
   loop     .reef/loop.json: active, wait, stop; the status page
   tools    gh auth, docker (when a compose file exists)
   proposals  renderings waiting in .reef/proposed/ and the command that accepts or keeps them
@@ -79,7 +79,7 @@ def behind_scripts(tree, plugin):
 
 def stamp_states(root, checkouts, plugin, features):
     """Every design/critical task file in each checkout with an adversarial-plan stamp: (checkout, rel, state) where
-    state is current / legacy (the 0.6 form, before the cut moved to ## Reviewer notes) / stale (neither)."""
+    state is current or stale."""
     import glob
     import importlib.util
     spec = importlib.util.spec_from_loader("reef_adversarial", importlib.machinery.SourceFileLoader(
@@ -101,7 +101,7 @@ def stamp_states(root, checkouts, plugin, features):
             got = (fm.get("adversarial-plan") or "").strip()
             if fm.get("tier") not in ("design", "critical") or not got:
                 continue
-            state = "current" if got == adv.plan_hash(text) else ("legacy" if got == adv.legacy_plan_hash(text) else "stale")
+            state = "current" if got == adv.plan_hash(text) else "stale"
             out.append((co, os.path.relpath(p, co), state))
     return out
 
@@ -189,39 +189,17 @@ def main(argv):
         say("WARN" if note else "OK", f"worktree: {os.path.relpath(w['path'], root)} [{w['branch'] or 'detached'}] ({kind})", note)
     if len(wts) <= 1:
         say("OK", "worktrees: none (nothing building)")
-    # the hunter's plan stamps (2026-10-18: the cut moved and every earlier stamp read as "the plan changed")
+    # the hunter's plan stamps
     if plugin:
         features = str((cfg.get("paths") or {}).get("features") or "reef/features")
         states = stamp_states(root, [root] + [w["path"] for w in wts[1:]], plugin, features)
         for co, rel, state in states:
             where = os.path.relpath(co, root) or "."
-            if state == "legacy":
-                say("WARN", f"stamp: {rel} in {where} carries a 0.6 adversarial-plan (the plan is unchanged)",
-                    f"cd {co} && python3 {os.path.join(plugin, 'scripts', 'reef-adversarial')} {rel} plan --migrate  (the plugin's copy: a worktree's scripts/ lags)")
-            elif state == "stale":
+            if state == "stale":
                 say("WARN", f"stamp: {rel} in {where}: the plan changed since the hunter's pass",
                     "the hunter's re-check within hunter.plan_rounds, or `reef-adversarial <task> plan --decided <mark>` at the gate")
         if states and all(st == "current" for _, _, st in states):
             say("OK", f"stamps: {len(states)} design/critical task(s) current")
-        # records written before 2026-10-18 carry the 0.6 digest form (the hunter's stamp inside); the plugin's plan-check names them
-        import glob
-        pc = os.path.join(plugin, "scripts", "reef-plan-check.py")
-        legacy_recs = 0
-        for co in [root] + [w["path"] for w in wts[1:]]:
-            for spec in sorted(glob.glob(os.path.join(co, features, "*", "SPEC.md"))):
-                slug = os.path.basename(os.path.dirname(spec))
-                if not glob.glob(os.path.join(os.path.dirname(spec), "tasks", "*.md")):
-                    continue   # a closed feature (every task under done/): its records are history nothing reads (2026-10-18: five lines for row 1)
-                try:
-                    r = subprocess.run([sys.executable, pc, co, "--verify-stamp", "--feature", slug], capture_output=True, text=True, timeout=60)
-                except Exception:
-                    continue
-                if re.search(r"^(stamp|approval|review): LEGACY", r.stdout, re.M):
-                    legacy_recs += 1
-                    say("WARN", f"records: {slug} in {os.path.relpath(co, root) or '.'} carry the 0.6 digest form (the plan is unchanged)",
-                        f"cd {co} && python3 {pc} . --migrate-records --feature {slug}  (after its scripts/ match the plugin)")
-        if not legacy_recs:
-            say("OK", "records: every approval and review record in the current digest form")
     # loop
     try:
         with open(os.path.join(root, ".reef", "loop.json"), encoding="utf-8") as f:
