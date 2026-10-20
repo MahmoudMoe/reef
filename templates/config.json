@@ -144,7 +144,6 @@
           "critical": 0
       },
       "handback_words": 0,
-      "prompt_words": 0,
       "report_words": 0,
       "journal_words": 40000,
       "queue_words": 35000,
@@ -158,7 +157,6 @@
   },
   "context": {
     "failure_lines": 60,
-    "read_lines_max": 300,
     "explore_files": 40
   },
   "converge": {

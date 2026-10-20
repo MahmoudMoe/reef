@@ -881,7 +881,8 @@ def check_single_rollup(path, fm):
 # routing (2026-10-04, opus everywhere since 2026-10-17): opus plans, writes, attacks, verifies and reviews; sonnet does light
 # mechanical work. Each project overrides per role; an unset role is not checked.
 ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "plan_reviewer",
-           "loophole-hunter": "adversary", "mechanic": "mechanic", "Explore": "mechanic", "security": "security"}
+           "loophole-hunter": "adversary", "mechanic": "mechanic", "Explore": "mechanic", "security": "security",
+           "planner": "planner"}
 
 
 def read_config(root):

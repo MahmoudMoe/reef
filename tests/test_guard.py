@@ -259,6 +259,19 @@ class RoleModel(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("roles.adversary", r.stderr)
 
+    def test_the_planner_runs_on_roles_planner(self):
+        # 0.7 (2026-10-20): roles.planner was set in every config and enforced by nothing (the brief's known gap)
+        write_config(self.dir, {"gates": {"test": "true"}, "roles": {"planner": "opus"}})
+        r = dispatch(self.dir, "Draft the plan for row 3", subagent="reef:planner", model="sonnet")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("roles.planner", r.stderr)
+        r = dispatch(self.dir, "Draft the plan for row 3", subagent="reef:planner")
+        self.assertEqual(r.returncode, 2, "the agent file's default is not the configured model")
+        self.assertIn("pass model='opus'", r.stderr)
+        self.assertEqual(dispatch(self.dir, "Draft the plan for row 3", subagent="reef:planner", model="opus").returncode, 0)
+        self.assertEqual(dispatch(self.dir, "Review it", subagent="reef:plan-reviewer", model="opus").returncode, 0,
+                         "plan-reviewer is not matched by 'planner'")
+
     def test_implementer_on_configured_model_allowed(self):
         r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement", model="opus")
         self.assertEqual(r.returncode, 0, r.stderr)

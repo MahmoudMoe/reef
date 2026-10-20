@@ -2,6 +2,7 @@
 templates) cannot drift away silently. These tests do not prove an orchestrator obeys the
 prose — the README's enforcement map says which rules are prose — they prove the prose
 and the shipped defaults still say what the code and the config expect."""
+import glob
 import json
 import os
 import re
@@ -93,6 +94,30 @@ class GateLineIsComputed(unittest.TestCase):
         self.assertIn("`Approve plan <slug> at <digest16>?`", text, "the question the hook records stays exact")
         self.assertIn("--summary --feature <slug>", text)
         self.assertIn("`--summary` line VERBATIM", text)
+
+
+class SizeBudget(unittest.TestCase):
+    """0.7 (the owner, 2026-10-20: "is Reef creating technical debt?"): config keys, skill and agent prose, and script lines
+    grew with every fix and nothing was removed. tests/size-budget.json holds the ceiling; a PR that grows a number
+    edits that file in the same diff, with its reason in the CHANGELOG — the raise is a reviewed line, never silent."""
+
+    @staticmethod
+    def measure():
+        def n(d):
+            return sum(n(v) if isinstance(v, dict) and v else 1 for v in d.values())
+        keys = n(json.loads(read("templates", "config.json")))
+        words = sum(len(open(f, encoding="utf-8").read().split()) for f in glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md")) + glob.glob(os.path.join(ROOT, "agents", "*.md")))
+        lines = sum(len(open(f, encoding="utf-8", errors="ignore").read().splitlines()) for f in glob.glob(os.path.join(ROOT, "scripts", "reef-*")))
+        return {"config_keys": keys, "prose_words": words, "script_lines": lines}
+
+    def test_reef_does_not_grow_without_a_reviewed_raise(self):
+        budget = json.loads(read("tests", "size-budget.json"))
+        now = self.measure()
+        print(f"\nsize: config_keys {now['config_keys']}/{budget['config_keys']} · prose_words {now['prose_words']}/{budget['prose_words']} · "
+              f"script_lines {now['script_lines']}/{budget['script_lines']}")
+        over = {k: (now[k], budget[k]) for k in budget if now[k] > budget[k]}
+        self.assertEqual(over, {}, "Reef grew past tests/size-budget.json — cut something, or raise the number in that file in this "
+                                   "PR with the reason in the CHANGELOG")
 
 
 class ReviewSkill(unittest.TestCase):
