@@ -144,7 +144,9 @@ flowchart LR
 **What you accept**
 
 - Two human gates and nothing between them: the plan approval, last, after the machines have reviewed the plan,
-  and the release merge. Nothing after your approval voids it except a HALT you rule on yourself.
+  and the release merge. Nothing after your approval voids it except a HALT you rule on yourself. In a super Reef
+  night you approve one contract instead, and your proxy approves plans inside it, each decision recorded as his;
+  the release still waits for you in the morning.
 - A row costs real tokens: planning, review, the task graph and the close are separate sessions, each on its tier's
   model. On a subscription that is plan usage, not an invoice.
 - A forge is part of the loop: review verdicts are records tied to the PR head on GitHub. Without a remote, the loop
@@ -174,6 +176,10 @@ flowchart LR
 | The tick names stale `found` rows | Rows filed two batches ago that nobody admitted. | `python3 scripts/reef-queue.py triage`: one question per module, admit or drop with a reason. |
 | A check warns instead of failing | Content planned under 0.5 meets a rule new in 0.6. | Nothing. The rule fails only for content planned under 0.6. |
 | `Not verified in a browser:` in a verifier report | The judge could not open the app; it says so instead of claiming. | Check that part yourself, or give the task a browser proof row. |
+| `Approve night <YYYY-MM-DD> at <digest16>?` | The one question of a super Reef night: tonight's rows, the decisions your proxy may take, the hard limits. The approval is recorded against that contract and your profile. | Answer *Approve*, then `python3 scripts/reef-run.py --night`; or *Edit* the contract and be asked again. |
+| `reef-run: waiting on you — …` and `your questions: .reef/questions.md` | The headless runner reached a question only you can answer, and stopped. | Run `/reef-loop` in Claude Code; it asks the open questions as one set and continues. |
+| `release PR into <release> at <sha>: no PASS security record for that commit` | The release's security pass has not run on this exact head, or the base moved since it did. | Let the loop run `reef:security` on the release diff and record it; the PR opens on a PASS at the head. |
+| `a super Reef night is running (.reef/night/active): the release … is the owner's, in the morning` | A delegated night holds the release: Mahmoud may merge features, never the release. | Nothing tonight. Read `.reef/night/report.md` in the morning, then release yourself. |
 | Something looks off and you cannot say what | Two `AGENTS.md`, scripts behind the plugin, a plan nobody can find, a stuck worktree. | `/reef-doctor`: one screen, each finding with the command that fixes it. |
 
 <p align="center"><img src="assets/divider-rain.svg" alt="" width="100%"></p>
@@ -225,7 +231,7 @@ Every cap, model, branch name and path Reef uses is a key in this one file, writ
 | `tiers.light.allow` / `max_lines` / `migrations` | `docs/**, README.md` / `80` / migration dirs | what may be light |
 | `graph.parallel` · `resources.<name>.slots` · `worktree.dir` / `worktree.setup` | `10` · `1` (`heavy` 2) · `.reef/worktrees` / stack install | as in 0.5 |
 | **`graph.mode`** | `auto` | `auto`: a fresh `dispatch now` task runs as a workflow (`/reef-graph`) when this machine's probe recorded GATE OK, in chat (`/reef-task`) otherwise; `chat`: never; `graph`: as auto, a missing gate is BROKEN. A fix round and a `verify now` run in the graph too (a judge-only pipeline for a hand-back or a rejected report). Read from the main checkout, like `hunter.*`. |
-| `roles.*` | author opus · verifier opus · plan_reviewer opus · planner opus · adversary opus · reviewer opus · security opus · mechanic sonnet | the fallback when the tier table does not name the role |
+| `roles.*` | author opus · verifier opus · plan_reviewer opus · planner opus · adversary opus · reviewer opus · security opus · proxy fable · mechanic sonnet | the fallback when the tier table does not name the role |
 | `merge.by` · `ci.feature_gate` · `branches.base` / `branches.release` | `human` · `ci` · `main` / `main` (init: `develop` / `main`) | as in 0.5; `ci.check_name` (`every gate, once`) names the required check for `reef-repo` |
 | **`paths.features`** · `paths.tasks` / `adr` / `glossary` / `runlog` / `queue` | `reef/features` (0.6 tree) · 0.5 locations for a 0.5 project, `reef/…` for a 0.6 one | where things live; the loaders accept either shape |
 | `plan.test_re` / `plan.max_words` / **`plan.max_tasks`** | `""` / `0` / `12` | test-name override / task word cap / split a feature above this |
@@ -248,8 +254,10 @@ AGENTS.md  CLAUDE.md (pointer)  HANDOFF.md                 # root: the three fil
 .reef/                                                      # config and machine state
   config.json  version                                      #   committed
   loop.json  inflight/  verifying/  review/  approvals/  worktrees/  proposed/  ci-local/  hunt/  cost/  graph/  status.html   # gitignored
+  run/  night/  questions.md                                #   the runner's gate, log and lock; a night's contract, approval and report; your open questions
 reef/                                                       # every committed Reef artifact
   README.md                                                 #   the map of the tree, rendered by reef-init
+  owner.md                                                  #   your profile, the proxy's brief for a delegated night
   constitution.md  queue.md  queue-archive.md  journal.md  glossary.md  day-zero.md  recalibration.md
   architecture/   architecture.md  conventions.md  workspace.dsl  context.md  container.md  threat-model.md
                   adr/NNNN-<slug>.md                        # project-wide decisions only (stack, hosting, boundaries)
@@ -263,8 +271,9 @@ reef/                                                       # every committed Re
 scripts/reef-*   .githooks/   .github/workflows/ci.yml      # tooling where git and CI expect it
 ```
 
-The plugin itself: `skills/` (init, assess, explore, loop, plan, plan-review, task, graph, verify, review, c4, threat, doctor) ·
-`commands/` · `agents/` (implementer, verifier, plan-reviewer, loophole-hunter, mechanic, planner) · `scripts/` (`reef-init.py`,
+The plugin itself: `skills/` (init, assess, explore, loop, plan, plan-review, task, graph, verify, review, c4, threat, pentest,
+doctor, night) · `commands/` · `agents/` (implementer, verifier, plan-reviewer, loophole-hunter, mechanic, planner, security,
+mahmoud) · `scripts/` (`reef-init.py`, `reef-update.py`, `reef-doctor.py`, `reef-run.py` [probe|contract|--night], `reef-graph-run.py` [probe|generate|settle],
 `reef-migrate`, `reef-loop.py` [tick|start|stop|wait], `reef-handoff`, `reef-gate.sh` [fast|full|--failures],
 `reef-attempt`, `reef-guard.py`, `reef-approval.py`, `reef-record`, `reef-graph.py`, `reef-plan-check.py`
 [--rules|--digest|--needs-agent|--verify-stamp], `reef-converge`, `reef-adversarial`, `reef-claims.py`
@@ -389,11 +398,13 @@ measurements. Shipped on the way to 0.7 (`docs/design/workflow-v2.md`): the owne
 the plan reviewer run in parallel on the draft; a lean planner; tasks capped by criteria; graph mode (`/reef-graph`,
 gated by a probe of the guard); one command to update (`reef-update.py`), one screen to diagnose (`/reef-doctor`), a
 map of the tree and a status page; found-row triage; the cost of every task in the record; defaults sized like the
-field (word budgets off, the hunter's guard pass once per feature).
+field (word budgets off, the hunter's guard pass once per feature); the outer runner (`reef-run.py`: the loop in fresh
+headless sessions, so you are not the restart button); the release's security pass as a recorded verdict the release
+PR needs; `/reef-pentest` against the running app; and super Reef, one delegated night under Mahmoud, your proxy,
+inside a contract you approve once.
 
-Open: workflow v2 phase 4 (an external runner if the workflow is not enough, a release drill to `main`, the
-verifier-FAIL drill), a live capture of the AskUserQuestion payload, a sonnet author for the `light` tier once an
-author eval exists.
+Open: a release drill to `main` through the whole chain, a live capture of the AskUserQuestion payload, a sonnet
+author for the `light` tier once an author eval exists.
 
 The plan after first contact for ease of use and autopilot maturity: [`docs/design/usability-autopilot-plan.md`](docs/design/usability-autopilot-plan.md).
 
