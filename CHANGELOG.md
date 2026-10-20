@@ -1,6 +1,16 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Fix rounds run in graph mode** (2026-10-20, consolidation PR B): a task that failed once went back to the chat, one
+  orchestrator turn per agent result (≈ 25 turns per round). Now the tick sends a fix round (`attempts` > 0) and a
+  hand-back (`verify now`) to the graph when this machine's probe passed; `generate` gives the round-2 implementer the
+  last `attempt N FAIL` line and the gate log path ("keep the rest"), and the verifier reef-attempt's `rejudge:` line
+  and its round. After a rejected verifier report, or for a hand-back, it builds a judge-only pipeline: no implementer,
+  no dispatch counted, and a FULL judge after a rejected report (no round-1 verdict to carry); that path still counts the
+  attempt settle recorded, so a judge's formatting fault moves the cap. The saving is the round's orchestrator turns, to
+  be measured on the next failing task — the trial's 170–260k failures were mostly diagnosis of Reef defects, not the
+  round. tests/size-budget.json raised for this: `script_lines` 10,697 → 10,730, `prose_words` 17,314 → 17,406 (the skills,
+  README, site and manual now say fix rounds run in the graph).
 - **Stop the growth, remove the dead** (2026-10-20, the owner: "is Reef creating technical debt?"): `tests/size-budget.json`
   holds Reef's ceiling — template config keys, skill and agent words, script lines — and `test_contracts.py::SizeBudget`
   prints the three numbers on every run and fails when one is above it; a PR that grows Reef edits that file in the same

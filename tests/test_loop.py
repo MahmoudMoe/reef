@@ -348,9 +348,9 @@ class GrowthCap(unittest.TestCase):
 
 
 class VerifyNow(unittest.TestCase):
-    def test_graph_mode_is_the_main_checkouts_policy_gated_by_the_probe_and_never_a_fix_round(self):
+    def test_graph_mode_is_the_main_checkouts_policy_gated_by_the_probe(self):
         """0.7 phase 4: `graph.mode: auto` sends a fresh `dispatch now` task to the graph only when this machine's probe
-        recorded GATE OK; a fix round (attempts > 0) stays in chat; `chat` never; `graph` names a missing gate as BROKEN;
+        recorded GATE OK — a fix round and a hand-back too (2026-10-20); `chat` never; `graph` names a missing gate as BROKEN;
         the setting is read from the main checkout (a worktree's lagging copy does not decide)."""
         d = project()
         t = lambda *a: subprocess.run([sys.executable, LOOP, "tick", *a, "--repo", d], capture_output=True, text=True)
@@ -365,9 +365,13 @@ class VerifyNow(unittest.TestCase):
         self.assertEqual(st["graph_mode"], "auto")
         write(d, "tasks/101-a.md", task(101, "1").replace("attempts: 0", "attempts: 1"))
         out = t().stdout
-        self.assertIn("dispatch (chat): 101 — /reef-task (fix round)", out, "round 2 is judged in chat")
-        self.assertNotIn("dispatch (graph)", out)
+        self.assertIn("dispatch (graph): 101 — python3 scripts/reef-graph-run.py generate", out, "a fix round runs in the graph too (2026-10-20)")
+        self.assertNotIn("(fix round)", out)
         write(d, "tasks/101-a.md", task(101, "1"))
+        write(d, ".reef/ci-local/handback-101.md", "RUN: agent=implementer task=101\n")
+        out = t().stdout
+        self.assertIn("next: verify (graph): 101 — python3 scripts/reef-graph-run.py generate", out, "a hand-back is verified in the graph")
+        os.remove(os.path.join(d, ".reef", "ci-local", "handback-101.md"))
         cfg = json.loads(read_file(os.path.join(d, ".reef", "config.json")))
         cfg["graph"] = {"mode": "chat"}
         write(d, ".reef/config.json", json.dumps(cfg))
@@ -431,7 +435,7 @@ class VerifyNow(unittest.TestCase):
         write(d, "tasks/101-a.md", t.rstrip("\n") + "\n- attempt 1 FAIL: gate exit 1: FAIL decode.test.ts hook timed out · at " + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + "\n")
         st = json.loads(loop(d, "tick", "--json").stdout)
         self.assertEqual(st["verify_now"], [], "a failure recorded after the hand-back: the work was judged")
-        self.assertIn("101", st["dispatch_now"], "back to the implementer (a fix round, chat mode)")
+        self.assertIn("101", st["dispatch_now"], "back to the implementer (a fix round; chat here: no gate.json in this fixture)")
         self.assertEqual(st["dispatch_mode"].get("101"), "chat")
         # a failure OLDER than the hand-back (round 1's) does not flip a round-2 hand-back back to dispatch
         time.sleep(1.1)

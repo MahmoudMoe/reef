@@ -101,17 +101,58 @@ class Generate(unittest.TestCase):
         self.assertIn("nothing to dispatch", r.stdout)
 
 
-    def test_generate_leaves_a_fix_round_to_chat_and_refuses_under_mode_chat(self):
+    def judged(self, d, log="", attempts=0):
+        t = (T.task(101, "1").replace("complexity: mech", "complexity: design").replace("tier: light", "tier: full")
+             .replace("verify: gate-only", "verify: judge").replace("## Scope\nx", "## Scope\nx\n\n## Decision\nhuman words")
+             .replace("attempts: 0", f"attempts: {attempts}"))
+        T.write(d, "tasks/101-a.md", t.rstrip("\n") + ("\n" + log + "\n" if log else "\n"))
+        T.approve(d, "1")
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-record"), "plan-review", "1", "PASS", "--root", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)   # a task above light dispatches only on a plan-review PASS at its digest
+
+    def script_of(self, d):
+        js = open(sorted(glob.glob(os.path.join(d, ".reef", "graph", "run-*.js")), key=os.path.getmtime)[-1]).read()
+        return json.loads(js[js.index("const TASKS = ") + len("const TASKS = "):js.index("\nconst SNAP")])[0]
+
+    def test_a_fix_round_runs_in_the_graph_with_its_failure_and_its_rejudge_line(self):
+        # 2026-10-20: a task that failed once cost the orchestrator 170-260k in chat; round 2 now runs as a workflow
         d = graph_project()
         pass_gate(d)
-        T.write(d, "tasks/101-a.md", T.task(101, "1").replace("attempts: 0", "attempts: 1"))
+        self.judged(d, "- attempt 1 FAIL: AC-1 test_t101 missing · at 2026-10-20T10:00:00Z", attempts=1)
         r = g(d, "generate")
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("skipped 101: chat mode (a fix round", r.stdout)
-        self.assertIn("nothing to dispatch", r.stdout)
-        self.assertEqual(glob.glob(os.path.join(d, ".reef", "graph", "run-*.js")), [])
-        self.assertIn("attempts: 1\ndispatches: 0", open(os.path.join(d, "tasks", "101-a.md")).read(), "nothing was bookkept")
-        T.write(d, "tasks/101-a.md", T.task(101, "1"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        t = self.script_of(d)
+        self.assertIn("Round 2: the last round failed — - attempt 1 FAIL: AC-1 test_t101 missing", t["implement_prompt"])
+        self.assertIn(".reef/ci-local/gate-full.log", t["implement_prompt"])
+        self.assertIn("keep the rest", t["implement_prompt"])
+        self.assertIn("rejudge: AC-1", t["verifier_prompt"])
+        self.assertIn("round=2", t["verifier_prompt"])
+        self.assertIn("dispatches: 1", open(os.path.join(d, "tasks", "101-a.md")).read(), "an implementer dispatch is counted")
+
+    def test_a_rejected_report_or_a_hand_back_is_re_judged_in_full_without_an_implementer(self):
+        d = graph_project()
+        pass_gate(d)
+        self.judged(d, "- attempt 1 FAIL: verifier report rejected: no `RULE AC1:` line for criterion 1 · at 2026-10-20T10:00:00Z", attempts=1)
+        r = g(d, "generate")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        t = self.script_of(d)
+        self.assertIsNone(t["implement_prompt"], "the code was not judged wrong: no implementer")
+        self.assertNotIn("rejudge:", t["verifier_prompt"], "no valid round-1 report to carry: a full judge")
+        self.assertIn("dispatches: 0", open(os.path.join(d, "tasks", "101-a.md")).read(), "a judge-only run is not an implementer dispatch")
+        js = open(sorted(glob.glob(os.path.join(d, ".reef", "graph", "run-*.js")), key=os.path.getmtime)[-1]).read()
+        self.assertIn("t.implement_prompt\n        ? agent(", js, "the workflow skips the implementer stage when it has no prompt")
+        # a hand-back waiting for its judge (verify now) runs the same way
+        d = graph_project()
+        pass_gate(d)
+        self.judged(d)
+        T.write(d, ".reef/ci-local/handback-101.md", "RUN: agent=implementer task=101\n")
+        r = g(d, "generate")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIsNone(self.script_of(d)["implement_prompt"])
+
+    def test_generate_refuses_under_mode_chat(self):
+        d = graph_project()
+        pass_gate(d)
         cfg = json.load(open(os.path.join(d, ".reef", "config.json")))
         cfg["graph"] = {"mode": "chat"}
         T.write(d, ".reef/config.json", json.dumps(cfg))

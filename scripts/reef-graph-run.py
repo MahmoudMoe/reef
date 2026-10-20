@@ -148,15 +148,16 @@ def ready_tasks(root, only):
     if rc != 0:
         die(f"tick failed: {err.strip() or out.strip()}", 1)
     state = json.loads(out)
-    ids = [str(x) for x in state.get("dispatch_now", [])]
-    # 0.7: the tick decides the mode per task (graph.mode from the main checkout, the gate, a fix round stays in chat)
+    ids = [str(x) for x in state.get("dispatch_now", [])] + [str(x) for x in state.get("verify_now", [])]
+    # 0.7: the tick decides the mode per task (graph.mode from the main checkout and this machine's gate); a fix round
+    # and a handed-back task run here too since 2026-10-20
     dm = state.get("dispatch_mode") or {}
     chat_ids = [i for i in ids if dm.get(i, "graph") == "chat"]
     if state.get("graph_mode") == "chat":
         die("graph.mode is `chat` in the main checkout's config: /reef-task dispatches these; set `auto` or `graph` to use the graph", 1)
     for i in chat_ids:
         if not only or i in only:
-            print(f"skipped {i}: chat mode (a fix round — attempts > 0 — is judged in chat until round 2 is designed inside the graph): /reef-task")
+            print(f"skipped {i}: chat mode (no GATE OK on this machine): /reef-task")
     if only:
         missing = [i for i in only if i not in ids]
         if missing:
@@ -175,10 +176,22 @@ def ready_tasks(root, only):
             rc, out, _ = run([sys.executable, script(root, "reef-graph.py"), "ready", "--json", "--root", w], w)
             for t in (json.loads(out) if rc == 0 and out.strip() else []):
                 paths.setdefault(str(t["id"]), t["path"])
-    return [(i, paths.get(i)) for i in ids], state
+    verify = set(str(x) for x in state.get("verify_now", []))
+    return [(i, paths.get(i), i in verify) for i in ids], state
 
 
-def mark_dispatched(root, task_path, tid):
+def last_failure(task_path):
+    """The last `- attempt N FAIL: …` line under ## Log (reef-attempt writes it; settle words it), or ''."""
+    try:
+        with open(task_path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return ""
+    fails = re.findall(r"^\s*-\s*attempt \d+ FAIL:.*$", text, re.M)
+    return fails[-1].strip() if fails else ""
+
+
+def mark_dispatched(root, task_path, tid, implementer=True):
     """What the guard does on an allowed Task dispatch (reef-guard check_dispatch): the task becomes in-progress, its
     dispatch odometer moves, and .reef/inflight/<id> is written in the main checkout — so the tick, the Stop hook
     and the reviewer lock see a graph-mode task exactly as a chat-mode one."""
@@ -188,7 +201,7 @@ def mark_dispatched(root, task_path, tid):
     fm = m.group(1) if m else ""
     feature = (re.search(r"^feature:[ \t]*(\S+)", fm, re.M) or [None, ""])[1]
     tier = (re.search(r"^tier:[ \t]*(\S+)", fm, re.M) or [None, "full"])[1]
-    if m:
+    if m and implementer:
         new_fm = re.sub(r"^status:.*$", "status: in-progress", fm, count=1, flags=re.M)
         dm = re.search(r"^dispatches:[ \t]*(\d+)", new_fm, re.M)
         if dm:
@@ -219,7 +232,7 @@ def cmd_generate(root, only):
     report_dir = os.path.join("/tmp", f"reef-graph-{hashlib.sha1(root.encode()).hexdigest()[:8]}")
     os.makedirs(report_dir, exist_ok=True)
     items, skipped = [], []
-    for tid, path in tasks:
+    for tid, path, verify_only in tasks:
         if not path or not os.path.isfile(path):
             skipped.append(f"{tid}: task file not found")
             continue
@@ -241,7 +254,14 @@ def cmd_generate(root, only):
         adversary_model = (re.search(r"model=(\w+)", get("adversary")) or [None, ""])[1]
         effort = (re.search(r"effort=(\w+)", get("dispatch")) or [None, ""])[1]
         reef_task = f"REEF-TASK: {os.path.abspath(path)}"
-        mark_dispatched(root, path, tid)
+        # the round: a fix round re-dispatches the implementer with the failure; a report rejection or a hand-back only
+        # re-judges (no implementer); after a rejected report the judge is FULL — there is no round-1 verdict to carry
+        fail = last_failure(path)
+        rejected = "verifier report rejected" in fail
+        attempt = int((re.search(r"attempt=(\d+)/", get("dispatch")) or [None, "1"])[1])
+        verify_only = verify_only or rejected
+        rejudge = "" if rejected else get("rejudge")
+        mark_dispatched(root, path, tid, implementer=not verify_only)
         judge = bool(get("verifier"))
         hunter = bool(get("adversary"))
         items.append({
@@ -249,13 +269,18 @@ def cmd_generate(root, only):
             "judge": judge, "hunter": hunter,
             "author_model": author_model if author_model in MODELS else None, "verifier_model": verifier_model if verifier_model in MODELS else None,
             "adversary_model": adversary_model if adversary_model in MODELS else None, "effort": effort or None,
-            "implement_prompt": f"{reef_task}\nEffort: {effort or 'medium'}. Work in the worktree {worktree} (the task's own checkout; the task file stays where it is). "
-                                f"Write your hand-back FILE to {worktree}/.reef/ci-local/handback-{tid}.md before your final message (writing.handback_words; evidence only); "
-                                f"return that path and the RUN line only.",
+            "implement_prompt": None if verify_only else (
+                                f"{reef_task}\nEffort: {effort or 'medium'}. Work in the worktree {worktree} (the task's own checkout; the task file stays where it is). "
+                                + (f"Round {attempt}: the last round failed — {fail[:400]} (gate log: {worktree}/.reef/ci-local/gate-full.log). The "
+                                   f"previous round's work is uncommitted in this worktree: fix what failed, keep the rest. " if fail and attempt > 1 else "")
+                                + f"Write your hand-back FILE to {worktree}/.reef/ci-local/handback-{tid}.md before your final message (writing.handback_words; evidence only); "
+                                f"return that path and the RUN line only."),
             "gate_prompt": f"{reef_task}\nMechanic, in {worktree}: (1) python3 scripts/reef-claims.py check --handback .reef/ci-local/handback-{tid}.md — put its first line in handback_check; "
                            f"(2) sh scripts/reef-gate.sh full --failures — put its exit code in gate_exit and, if it failed, the failing block (under 60 lines) in notes; "
                            f"(3) sh scripts/reef-snapshot.sh — put the hash it prints in snapshot. Change no file. Return the JSON only.",
-            "verifier_prompt": f"{reef_task}\n{get('report') or ''}\nVerify the task's work in the worktree {worktree} (read-only). Write your report FILE to "
+            "verifier_prompt": f"{reef_task}\n{get('report') or ''}\n"
+                               + (f"rejudge: {rejudge}\nRound {attempt}: put round={attempt} on your RUN line.\n" if rejudge and attempt > 1 else "")
+                               + f"Verify the task's work in the worktree {worktree} (read-only). Write your report FILE to "
                                f"{report_dir}/report-{tid}-verifier.md before your final message; return verdict and report_path.",
             "hunter_prompt": f"{reef_task}\n{get('hunter-report') or ''}\nGuard pass on the finished code in the worktree {worktree} (read-only): how can every check be green while "
                              f"the defect happens? Write your report FILE to {report_dir}/report-{tid}-hunter.md before your final message; return verdict (FAIL iff a BLOCKER) and report_path.",
@@ -278,7 +303,9 @@ const JUDGE = {json.dumps(JUDGE_SCHEMA)}
 const opt = (o) => Object.fromEntries(Object.entries(o).filter(([k, v]) => v !== null && v !== undefined))
 log(`reef graph: ${{TASKS.length}} task(s): ${{TASKS.map(t => t.id).join(', ')}}`)
 const results = await pipeline(TASKS,
-  t => agent(t.implement_prompt, opt({{ label: `implement:${{t.id}}`, phase: 'Implement', agentType: 'reef:implementer', model: t.author_model, effort: t.effort }}))
+  t => (t.implement_prompt
+        ? agent(t.implement_prompt, opt({{ label: `implement:${{t.id}}`, phase: 'Implement', agentType: 'reef:implementer', model: t.author_model, effort: t.effort }}))
+        : Promise.resolve(null))
         .then(text => ({{ implementer: text }})),
   (r, t) => agent(t.gate_prompt, {{ label: `gate:${{t.id}}`, phase: 'Gate', agentType: 'reef:mechanic', schema: SNAP, effort: 'low' }})
         .then(g => ({{ ...r, gate: g }})),
