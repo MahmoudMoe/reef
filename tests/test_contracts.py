@@ -120,6 +120,14 @@ class SizeBudget(unittest.TestCase):
                                    "PR with the reason in the CHANGELOG")
 
 
+class HandbackShapeIsTold(unittest.TestCase):
+    def test_the_implementer_is_told_the_claims_list_the_check_requires(self):
+        # 2026-10-20 (qassimha 301): the definition listed the hand-back's contents without the claims list; the check
+        # rejected it and graph mode counted an attempt
+        self.assertIn("a `Claims:` list — one line per claim, `<sentence> — true at <path>:<line>`", read("agents", "implementer.md"))
+        self.assertIn("graph mode: settle counts one attempt", read("scripts", "reef-claims.py"))
+
+
 class ReviewSkill(unittest.TestCase):
     def setUp(self):
         self.text = read("skills", "reef-review", "SKILL.md")
