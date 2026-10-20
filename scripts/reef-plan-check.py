@@ -23,6 +23,8 @@ Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
   the AskUserQuestion hook, scripts/reef-approval.py) whose digest16 equals the digest's first 16 hex;
   a pre-0.6 feature only warns. The approvals live in the MAIN checkout's .reef/, never a worktree's.
 - --digest FEATURE: print `digest: <feature> <sha256>` — the same digest the stamp uses — and exit.
+- --summary --feature SLUG (0.7): one readable line for the owner's gate — tasks, criteria, draft ADRs, and the plan
+  files changed since the last recorded approval (the approval record's `files`); --plan-files prints that map.
 - --needs-agent: exit 0 when the plan-reviewer agent is needed (some task heavier than light, or no
   tier table), 3 when every task is light and tiers.light.roles.plan_reviewer is "none".
 Rule for the orchestrator: this script is deterministic; never argue with it, never work around it.
@@ -172,7 +174,8 @@ FEATURE_GATE = ("ci", "local")
 
 def parse_args(argv):
     verify, feature, args = False, None, []
-    flags = {"digest": False, "needs_agent": False, "rules": False, "quiet": False, "legacy_digest": False, "migrate_records": False}
+    flags = {"digest": False, "needs_agent": False, "rules": False, "quiet": False, "legacy_digest": False, "migrate_records": False,
+             "summary": False, "plan_files": False}
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -180,6 +183,10 @@ def parse_args(argv):
             verify = True
         elif a == "--digest":
             flags["digest"] = True
+        elif a == "--summary":
+            flags["summary"] = True       # 0.7: the readable line beside the digest at the owner's gate
+        elif a == "--plan-files":
+            flags["plan_files"] = True    # 0.7: {file: sha12} over the digest's own files, for the approval record
         elif a == "--legacy-digest":
             flags["legacy_digest"] = True   # the 0.6 form (the hunter's stamp inside): what a record written before 2026-10-18 carries
         elif a == "--migrate-records":
@@ -596,10 +603,13 @@ def main():
             feat = ""
         by_feature.setdefault(feat, []).append(p)
 
+    def digest_files(feat):
+        extra = [p for p in folder_files(folders[feat]) if p not in stamp_task_set and TASK_NAME_RE.match(os.path.basename(p)) is None] if feat in folders else []
+        return sorted(set(by_feature.get(feat, []) + adr_files + extra), key=stamp_key)
+
     def digest_for(feat, legacy=False):
         h = hashlib.sha256()
-        extra = [p for p in folder_files(folders[feat]) if p not in stamp_task_set and TASK_NAME_RE.match(os.path.basename(p)) is None] if feat in folders else []
-        for p in sorted(set(by_feature.get(feat, []) + adr_files + extra), key=stamp_key):
+        for p in digest_files(feat):
             h.update(stamp_key(p).encode() + b"\0")
             h.update(stamp_body(p, legacy) + b"\0")
         return h.hexdigest()
@@ -614,6 +624,39 @@ def main():
             print("FAIL: --digest requires --feature SLUG")
             sys.exit(1)
         print(f"digest: {feature_filter} {digest_for(feature_filter)}")
+        sys.exit(0)
+    if flags["plan_files"] or flags["summary"]:
+        if feature_filter is None:
+            print("FAIL: --summary / --plan-files require --feature SLUG")
+            sys.exit(1)
+        files = {stamp_key(p): hashlib.sha256(stamp_body(p)).hexdigest()[:12] for p in digest_files(feature_filter)}
+        if flags["plan_files"]:
+            print(json.dumps(files, sort_keys=True))
+            sys.exit(0)
+        tasks_here = [p for p in by_feature.get(feature_filter, []) if os.path.isfile(p)]
+        n_ac = 0
+        for p in tasks_here:
+            try:
+                n_ac += len(criteria(read(p)) or [])
+            except OSError:
+                pass
+        n_draft = sum(1 for k in files if os.path.basename(k).startswith("draft-"))
+        parts = [f"{len(tasks_here)} task(s)", f"{n_ac} criteria", f"{n_draft} draft ADR(s)"]
+        try:
+            with open(os.path.join(main_checkout(root), ".reef", "approvals", f"{feature_filter}.json"), encoding="utf-8") as f:
+                rec = json.load(f)
+        except Exception:
+            rec = None
+        if rec is None:
+            parts.append("first approval")
+        elif not isinstance(rec.get("files"), dict):
+            parts.append(f"approved {str(rec.get('approved_at', '?'))[:10]}, before this line recorded files: read the plan in full")
+        else:
+            old_files = rec["files"]
+            moved = sorted([k for k in files if old_files.get(k) != files[k]] + [f"{k} (removed)" for k in old_files if k not in files])
+            when = str(rec.get("approved_at", "?"))[:10]
+            parts.append(f"changed since your approval on {when}: {', '.join(moved)}" if moved else f"unchanged since your approval on {when}")
+        print(f"summary: {feature_filter} · " + " · ".join(parts))
         sys.exit(0)
     if flags["legacy_digest"]:
         if feature_filter is None:

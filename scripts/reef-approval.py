@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # CLASS: code
 """Reef approval — the human's plan approval as a RECORD bound to the plan's digest (PostToolUse AskUserQuestion hook).
-Writes .reef/approvals/<feature>.json = {digest16, approved_at} only when a question `Approve plan <feature> at <16 hex>?`
+Writes .reef/approvals/<feature>.json = {digest16, approved_at, files} only when a question `Approve plan <feature> at <16 hex>?`
 is answered exactly `Approve` and the 16 hex equal the current digest (reef-plan-check.py --digest); a timeout
 (afkTimeoutMs), another label or a stale digest writes nothing. Always exit 0; the guard enforces the record.
 Usage: cat payload.json | reef-approval.py [--root DIR]
@@ -70,6 +70,19 @@ def current_digest(root, feature):
     r = subprocess.run([sys.executable, script, root, "--digest", "--feature", feature], capture_output=True, text=True, timeout=60)
     m = re.search(r"^digest: \S+ ([0-9a-f]{64})", r.stdout, re.M)
     return m.group(1) if m else None
+
+
+def plan_files(root, feature):
+    """{file: sha12} over the digest's own files (reef-plan-check.py --plan-files); {} when it cannot run."""
+    script = os.path.join(root, "scripts", "reef-plan-check.py")
+    if not os.path.isfile(script):
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
+    try:
+        r = subprocess.run([sys.executable, script, root, "--plan-files", "--feature", feature], capture_output=True, text=True, timeout=60)
+        out = json.loads(r.stdout) if r.returncode == 0 else {}
+        return out if isinstance(out, dict) else {}
+    except Exception:
+        return {}
 
 
 def plan_check_failures(root, feature):
@@ -149,6 +162,9 @@ def main(argv):
         d = os.path.join(root, ".reef", "approvals")
         os.makedirs(d, exist_ok=True)
         rec = {"digest16": digest16, "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        files = plan_files(where[0], feature)
+        if files:
+            rec["files"] = files   # 0.7: {file: sha12} — the next gate's summary names what changed since this approval
         with open(os.path.join(d, f"{feature}.json"), "w", encoding="utf-8") as f:
             json.dump(rec, f, indent=1)
             f.write("\n")

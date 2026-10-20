@@ -87,6 +87,14 @@ class PlatformsSaidPlainly(unittest.TestCase):
         self.assertIn("WSL2", read("docs", "manual", "ar", "index.html"))
 
 
+class GateLineIsComputed(unittest.TestCase):
+    def test_the_plan_gate_shows_the_scripts_summary_beside_the_exact_question(self):
+        text = read("skills", "reef-plan", "SKILL.md")
+        self.assertIn("`Approve plan <slug> at <digest16>?`", text, "the question the hook records stays exact")
+        self.assertIn("--summary --feature <slug>", text)
+        self.assertIn("`--summary` line VERBATIM", text)
+
+
 class ReviewSkill(unittest.TestCase):
     def setUp(self):
         self.text = read("skills", "reef-review", "SKILL.md")

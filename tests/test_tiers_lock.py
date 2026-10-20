@@ -309,6 +309,30 @@ class HumanOnlyApproval(unittest.TestCase):
         self.assertIn("approval: STALE", r.stdout)
 
 
+    def test_the_gate_line_is_computed_and_names_what_changed_since_the_approval(self):
+        # 0.7 (the owner, 2026-10-20): "Approve plan … at bd8cd330bfb50bfd?" told them nothing; a readable line from a
+        # script now sits beside the fingerprint, and the approval record keeps {file: sha12} to say what changed since
+        line = lambda: plan_check(self.d, "--summary", "--feature", "demo").stdout.strip()
+        self.assertEqual(line(), "summary: demo · 1 task(s) · 1 criteria · 0 draft ADR(s) · first approval")
+        digest = plan_check(self.d, "--digest", "--feature", "demo").stdout.split()[-1]
+        q = f"Approve plan demo at {digest[:16]}?"
+        self.assertEqual(self._hook(q, "Approve").returncode, 0)
+        with open(os.path.join(self.d, ".reef", "approvals", "demo.json")) as f:
+            rec = json.load(f)
+        self.assertEqual(rec["digest16"], digest[:16])
+        self.assertEqual(list(rec["files"]), ["007-demo.md"], "the digest's own files, keyed as the digest keys them")
+        self.assertRegex(line(), r"· unchanged since your approval on \d{4}-\d\d-\d\d$")
+        tp = os.path.join(self.d, "tasks", "007-demo.md")
+        with open(tp) as f:
+            t = f.read()
+        with open(tp, "w") as f:
+            f.write(t.replace("## Scope\nx", "## Scope\nx and more"))
+        self.assertRegex(line(), r"· changed since your approval on \d{4}-\d\d-\d\d: 007-demo\.md$")
+        # a record from before this field: the line says so instead of guessing
+        with open(os.path.join(self.d, ".reef", "approvals", "demo.json"), "w") as f:
+            json.dump({"digest16": digest[:16], "approved_at": "2026-10-19T00:00:00Z"}, f)
+        self.assertIn("approved 2026-10-19, before this line recorded files: read the plan in full", line())
+
     def test_hook_refuses_while_plan_check_fails(self):
         # 2026-10-17: five sentences over the word ceiling surfaced AFTER the owner approved; fixing them voided the approval
         tp = os.path.join(self.d, "tasks", "007-demo.md")

@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The plan gate says what you are approving** (2026-10-20, the owner: "Approve plan … at bd8cd330bfb50bfd?" told them
+  nothing): `reef-plan-check.py --summary --feature <slug>` prints one line — tasks, criteria, draft ADRs, and the plan
+  files changed since the last recorded approval — and `/reef-plan` puts it VERBATIM under the `Approve` option and above
+  the question set. The question itself is unchanged (the hook records only that exact text; the digest still binds the
+  approval). `reef-approval.py` now stores `files` = {file: sha12} over the digest's own files (`--plan-files`), so the
+  next gate names what moved; a record from before says "read the plan in full" instead of guessing.
 - **Platforms said plainly** (2026-10-20, the owner): Reef runs on macOS or Linux; on Windows, inside WSL2. The README,
   the site and the Arabic manual say so first under "What it needs". Native Windows has no `fcntl` locks, no `SIGALRM`
   deadline and no process groups, and the guard died at its first import; it now stops inside a Reef project with that
