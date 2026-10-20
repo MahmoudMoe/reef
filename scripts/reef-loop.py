@@ -276,6 +276,16 @@ def tick(root):
         except (OSError, ValueError):
             att = 0
         dispatch_mode[str(t["id"])] = "graph" if (mode != "chat" and gate and att == 0) else "chat"
+    # a dispatched-and-failed task is progress: its attempts/dispatches counters are part of the tick's fingerprint
+    # (2026-10-19, qassimha 1302, row 70: a graph run dispatched, ran and failed 1302 between two ticks that hashed the
+    # same, and the loop parked itself for "no progress")
+    counters = {}
+    for tid in [str(t["id"]) for t in dispatch_now] + verify_now:
+        try:
+            fm = read(str((by_id.get(tid) or {}).get("path") or ""))[:4000]
+            counters[tid] = "/".join((re.search(rf"^{k}:[ \t]*(\d+)", fm, re.M) or [None, "0"])[1] for k in ("attempts", "dispatches"))
+        except OSError:
+            counters[tid] = "?"
     # the files behind the ids, for the session-start text: 2026-10-18, after every /clear the fresh orchestrator ran
     # `find . -name "202*"` over the repository and listed .reef/hunt to locate what the tick had just named
     files = {}
@@ -342,9 +352,9 @@ def tick(root):
         "worktrees": len(worktrees), "wait": st.get("wait"), "active": bool(st.get("active")), "stop": stop, "over_growth": over, "triage": triage_line,
         "broken": ([] if rc_g == 0 else ["task graph broken or unreadable (reef-graph ready failed)"])
                   + (["graph.mode is `graph` but this machine has no GATE OK — python3 scripts/reef-graph-run.py probe (chat mode meanwhile)"] if (mode == "graph" and not gate and dispatch_now) else []),
-        "graph_mode": mode, "graph_gate": gate, "dispatch_mode": dispatch_mode,
+        "graph_mode": mode, "graph_gate": gate, "dispatch_mode": dispatch_mode, "counters": counters,
     }
-    h = hashlib.sha1(json.dumps({k: state[k] for k in ("rows_to_plan", "dispatch_now", "verify_now", "awaiting", "prs_to_review", "rows_to_close", "in_flight", "returned_unmerged", "parked", "building")}, sort_keys=True).encode()).hexdigest()[:12]
+    h = hashlib.sha1(json.dumps({k: state[k] for k in ("rows_to_plan", "dispatch_now", "verify_now", "awaiting", "prs_to_review", "rows_to_close", "in_flight", "returned_unmerged", "parked", "building", "counters")}, sort_keys=True).encode()).hexdigest()[:12]
     state["hash"] = h
     # no-progress parking (5.3): K identical ticks with nothing in flight
     k = int((cfg.get("loop") or {}).get("no_progress_ticks", 3) or 3)

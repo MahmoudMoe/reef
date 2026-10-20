@@ -239,13 +239,25 @@ def main(argv):
                  for f in os.listdir(d) for m in [re.match(r"^R(\d+)-", f)] if m]
         n = 1 + max(taken, default=0)
         rollup = os.path.join(tdir, f"R{n:02d}-{feature}.md")
-        text = tpl.replace("id: NNNnn", f"id: R{n}").replace("feature: <feature-slug>", f"feature: {feature}").replace("# NNNnn — <title>", f"# R{n} — {feature} rollup")
-        text = text.replace("complexity: mech|design", "complexity: design").replace("effort: low|medium|high", "effort: medium").replace("tier: light|full|design|critical", "tier: full").replace("verify: judge|gate-only", "verify: judge")
+        # complete, no placeholders: the orchestrator used to hand-fill the template, and two features' rollups both
+        # claimed the literal `reef-converge <feature> --dry-run` (2026-10-19, qassimha row 68)
+        text = (f"---\nid: R{n}\nfeature: {feature}\nstatus: pending\ncomplexity: design\neffort: medium\nblocked-by: []\n"
+                f"resources: []\ntier: full\ntouches: []\nverify: judge\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n"
+                f"# R{n} — {feature} rollup\n\n## Scope\nThe feature's Proof rows run on the integrated branch; every `missing` or "
+                f"`contradicts` line under Converge below is fixed here, or closed with its reason.\n\n"
+                f"## Acceptance Criteria\n- AC-1: every Proof row of the feature holds on the integrated branch.\n\n"
+                f"## Proof\n| AC | Proof |\n|---|---|\n| AC-1 | `python3 scripts/reef-converge {feature} --dry-run` |\n\n## Log\n")
         with open(rollup, "w", encoding="utf-8") as f:
             f.write(text)
         print(f"rollup created: {os.path.relpath(rollup, root)}")
-    with open(rollup, "a", encoding="utf-8") as f:
-        f.write(f"\n## Converge {datetime.date.today().isoformat()}\n" + "".join(f"- {x}\n" for x in findings))
+    # the findings go BEFORE ## Log (the last section); a later run adds its own dated section there too
+    with open(rollup, encoding="utf-8") as f:
+        body = f.read()
+    block = f"## Converge {datetime.date.today().isoformat()}\n" + "".join(f"- {x}\n" for x in findings) + "\n"
+    m = re.search(r"^## Log[ \t]*$", body, re.M)
+    body = body[:m.start()] + block + body[m.start():] if m else body.rstrip("\n") + "\n\n" + block
+    with open(rollup, "w", encoding="utf-8") as f:
+        f.write(body)
     print(f"appended to {os.path.relpath(rollup, root)}")
     return 1
 

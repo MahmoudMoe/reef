@@ -538,6 +538,35 @@ class Converge(unittest.TestCase):
         with open(os.path.join(tdir, made[0])) as f:
             self.assertIn("id: R4", f.read())
 
+    def test_a_rollup_is_complete_and_holds_to_no_planner_rule(self):
+        # 2026-10-19 (qassimha row 68): converge wrote the raw task template (placeholders, complexity design with no
+        # Decision, findings after ## Log); the orchestrator hand-filled two rollups with the same literal
+        # `reef-converge <feature> --dry-run`, and the plan check failed seven rules on them — a red check blocks approvals
+        pc = os.path.join(ROOT, "scripts", "reef-plan-check.py")
+        rollup_fails = lambda: [l for l in subprocess.run([sys.executable, pc, self.d], capture_output=True, text=True).stdout.splitlines()
+                                if l.startswith("FAIL") and "/R0" in l or l.startswith("FAIL: test name claimed")]
+        with open(os.path.join(self.d, "tests", "test_export.py")) as f:
+            t = f.read()
+        write(self.d, "tests/test_export.py", t.replace("    def test_csv_two_decimals(self):\n        self.assertIn('2.00', export_csv([{'id': 1, 'amount': 2}]))\n", ""))
+        self.assertEqual(self.converge().returncode, 1)
+        self.assertEqual(self.converge().returncode, 1, "a second run adds its own section")
+        p = os.path.join(self.d, "reef/features/csv-export-for-orders/tasks/R01-csv-export-for-orders.md")
+        with open(p) as f:
+            text = f.read()
+        self.assertNotIn("<", text.split("## Converge")[0], "no template placeholder left")
+        self.assertIn("`python3 scripts/reef-converge csv-export-for-orders --dry-run`", text)
+        self.assertEqual(text.count("## Converge"), 2)
+        self.assertTrue(text.rstrip().endswith("## Log"), "## Log stays the last section")
+        self.assertEqual(rollup_fails(), [])
+        # the trial's shape, hand-edited before this fix: two closed rollups, design, sections after Log, one Proof
+        legacy = ("---\nid: R{n}\nfeature: {f}\nstatus: done\ncomplexity: design\neffort: medium\nblocked-by: []\nresources: []\n"
+                  "tier: full\ntouches: []\nverify: judge\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# R{n}\n\n## Scope\nx\n\n"
+                  "## Acceptance Criteria\n- AC-1: every Proof row holds.\n\n## Proof\n| AC | Proof |\n|---|---|\n"
+                  "| AC-1 | `python3 scripts/reef-converge <feature> --dry-run` |\n\n## Log\n\n## Converge 2026-10-19\n- x\n\n## Closed 2026-10-19\ny\n")
+        write(self.d, "reef/features/old-a/tasks/done/R02-old-a.md", legacy.format(n=2, f="old-a"))
+        write(self.d, "reef/features/old-b/tasks/done/R03-old-b.md", legacy.format(n=3, f="old-b"))
+        self.assertEqual(rollup_fails(), [], "a rollup keeps schema and graph checks, not the planner's authoring rules")
+
     def test_converged_then_missing_then_contradicts(self):
         r = self.converge()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
