@@ -186,9 +186,11 @@ class Settle(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("FAIL 101: gate exit 1: FAIL tests/x", r.stdout)
         self.assertIn("attempts: 1", open(os.path.join(d, "tasks", "101-a.md")).read(), "the failure is counted the way a chat round is")
-        r = g(d, "settle", self.results(d, handback_check="REJECTED hand-back: 314 words > 150"))
+        r = g(d, "settle", self.results(d, handback_check="REJECTED hand-back (chat mode: re-dispatch once, no attempt consumed; graph mode: "
+                                                          "settle counts one attempt):\n  - no claims list ('<sentence> — true at <path>:<line>' lines)"))
         self.assertEqual(r.returncode, 1)
-        self.assertIn("hand-back: REJECTED", r.stdout)
+        self.assertIn("hand-back rejected: no claims list", r.stdout, "the reason, not the header (2026-10-20, 301)")
+        self.assertIn("FAIL: hand-back rejected: no claims list", open(os.path.join(d, "tasks", "101-a.md")).read(), "the next round reads it")
 
     def test_a_rejected_report_records_the_reasons_not_the_note_before_them(self):
         """2026-10-19, qassimha 1302 (row 69): reef-claims printed `note: report 661 words` before its REJECTED reasons, settle

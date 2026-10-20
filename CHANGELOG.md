@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The hand-back's claims list, told and recorded** (2026-10-20, qassimha 301, the owner's yes): the implementer's
+  definition listed the hand-back's contents without the `Claims:` list the check requires, so 301's hand-back was
+  rejected and graph mode counted an attempt; it now names the list and its line shape. The rejection message is true in
+  both modes (chat: re-dispatch once, no attempt; graph: settle counts one), and the graph's gate step passes the
+  rejection's `- ` reasons so settle records them instead of the header. tests/size-budget.json raised: `prose_words`
+  17,406 → 17,436, `script_lines` 10,730 → 10,733.
 - **Fix rounds run in graph mode** (2026-10-20, consolidation PR B): a task that failed once went back to the chat, one
   orchestrator turn per agent result (≈ 25 turns per round). Now the tick sends a fix round (`attempts` > 0) and a
   hand-back (`verify now`) to the graph when this machine's probe passed; `generate` gives the round-2 implementer the

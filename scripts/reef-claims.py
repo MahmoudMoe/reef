@@ -168,7 +168,8 @@ def cmd_handback(repo, path):
     if not re.search(r"^RUN:\s*agent=", text, re.M):
         bad.append("no `RUN: agent=… task=…` header")
     if bad:
-        print("REJECTED hand-back (re-dispatch once, no attempt consumed):")
+        # true in both modes (2026-10-20, qassimha 301: graph mode counted the attempt this line said was not consumed)
+        print("REJECTED hand-back (chat mode: re-dispatch once, no attempt consumed; graph mode: settle counts one attempt):")
         for b in bad:
             print(f"  - {b}")
         return 1

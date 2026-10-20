@@ -275,7 +275,7 @@ def cmd_generate(root, only):
                                    f"previous round's work is uncommitted in this worktree: fix what failed, keep the rest. " if fail and attempt > 1 else "")
                                 + f"Write your hand-back FILE to {worktree}/.reef/ci-local/handback-{tid}.md before your final message (writing.handback_words; evidence only); "
                                 f"return that path and the RUN line only."),
-            "gate_prompt": f"{reef_task}\nMechanic, in {worktree}: (1) python3 scripts/reef-claims.py check --handback .reef/ci-local/handback-{tid}.md — put its first line in handback_check; "
+            "gate_prompt": f"{reef_task}\nMechanic, in {worktree}: (1) python3 scripts/reef-claims.py check --handback .reef/ci-local/handback-{tid}.md — put its first line in handback_check, and when it is REJECTED the `- ` reason lines after it too; "
                            f"(2) sh scripts/reef-gate.sh full --failures — put its exit code in gate_exit and, if it failed, the failing block (under 60 lines) in notes; "
                            f"(3) sh scripts/reef-snapshot.sh — put the hash it prints in snapshot. Change no file. Return the JSON only.",
             "verifier_prompt": f"{reef_task}\n{get('report') or ''}\n"
@@ -370,8 +370,10 @@ def cmd_settle(root, results_path):
             why.append("task file missing")
         if gate.get("gate_exit") != 0:
             why.append(f"gate exit {gate.get('gate_exit')}" + (f": {str(gate.get('notes'))[:300]}" if gate.get("notes") else ""))
-        if not str(gate.get("handback_check", "")).lower().startswith("ok"):
-            why.append(f"hand-back: {str(gate.get('handback_check'))[:100] or 'not checked'}")
+        hc = str(gate.get("handback_check", "") or "")
+        if not hc.lower().startswith("ok"):
+            # the reasons, not the header (2026-10-20, qassimha 301: the Log said "REJECTED hand-back (…)" and nothing else)
+            why.append(f"hand-back rejected: {rejection(hc)}" if hc.startswith("REJECTED") else f"hand-back: {hc[:100] or 'not checked'}")
         # a red gate or a rejected hand-back ends the pipeline before the judges (the script skips them), so their
         # absence is the task's failure, not a missing verdict (2026-10-18, qassimha 1103: settle said "no verifier
         # verdict" on a red gate, that text suppressed reef-attempt, and the orchestrator counted the attempt by hand)
