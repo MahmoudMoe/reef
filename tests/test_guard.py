@@ -146,6 +146,29 @@ ALLOW_BASH = [
 ]
 
 
+class NativeWindows(unittest.TestCase):
+    """0.7 (the owner, 2026-10-20): native Windows has no fcntl, SIGALRM or process groups; the guard died at its first
+    import. Inside a Reef project it now stops with the one sentence that helps; anywhere else it steps aside."""
+
+    def guard(self, cwd):
+        env = dict(os.environ, REEF_TEST_NATIVE_WINDOWS="1")
+        return subprocess.run([sys.executable, GUARD], input=json.dumps({"tool_name": "Bash", "cwd": cwd, "tool_input": {"command": "ls"}}),
+                              capture_output=True, text=True, env=env)
+
+    def test_stops_with_wsl2_inside_a_reef_project_and_steps_aside_elsewhere(self):
+        proj = tempfile.mkdtemp(prefix="reef-win.")
+        write_config(proj, {"gates": {"test": "true"}})
+        sub = os.path.join(proj, "src", "deep")
+        os.makedirs(sub)
+        r = self.guard(sub)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("on Windows, run Claude Code inside WSL2", r.stderr)
+        self.assertNotIn("Traceback", r.stderr, "no crash on the fcntl import")
+        other = tempfile.mkdtemp(prefix="not-reef.")
+        r = self.guard(other)
+        self.assertEqual(r.returncode, 0, "a Windows user's other projects are not Reef's to block")
+
+
 class BashGuard(unittest.TestCase):
     def test_denies_bypasses(self):
         for cmd in DENY_BASH:

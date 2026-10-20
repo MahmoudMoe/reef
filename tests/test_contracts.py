@@ -79,6 +79,14 @@ class PentestOnDemand(unittest.TestCase):
         self.assertNotIn("once per release", read("agents", "loophole-hunter.md"), "no step runs it per release")
 
 
+class PlatformsSaidPlainly(unittest.TestCase):
+    def test_the_readme_the_site_and_the_manual_say_macos_linux_or_wsl2(self):
+        # 0.7 (2026-10-20): native Windows cannot run the guard; every page a new user reads says so, in the requirements
+        self.assertIn("**macOS or Linux. On Windows, run Claude Code inside WSL2.**", read("README.md"))
+        self.assertIn("macOS or Linux. On Windows, run Claude Code inside WSL2.", read("docs", "index.html"))
+        self.assertIn("WSL2", read("docs", "manual", "ar", "index.html"))
+
+
 class ReviewSkill(unittest.TestCase):
     def setUp(self):
         self.text = read("skills", "reef-review", "SKILL.md")

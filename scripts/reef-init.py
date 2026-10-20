@@ -586,6 +586,10 @@ def accept(root, paths):
 
 
 def main(argv):
+    if os.name == "nt" or os.environ.get("REEF_TEST_NATIVE_WINDOWS"):
+        # the guard, the task graph and the attempt counter need fcntl locks, a signal timer and process groups
+        print("reef-init: Reef runs on macOS or Linux; on Windows, run Claude Code inside WSL2 — native Windows lacks the file locks and timers Reef's guard needs; nothing written", file=sys.stderr)
+        return 1
     root, name, base, release, dry, to_accept, to_keep, grill = ".", None, "develop", "main", False, [], [], None
     verbose = "--verbose" in argv
     argv = [a for a in argv if a != "--verbose"]

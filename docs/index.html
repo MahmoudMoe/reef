@@ -296,6 +296,7 @@ make setup</code></pre>
     <div class="cards">
       <div class="card">
         <h3>What it needs</h3>
+        <p><strong>macOS or Linux. On Windows, run Claude Code inside WSL2.</strong> Native Windows is not supported: the guard needs file locks, a signal timer and process groups that Windows does not have, so inside a Reef project it stops and says so.</p>
         <p><strong>Claude Code</strong> with the plugin installed from the marketplace.</p>
         <p><strong><code>python3</code> on the PATH.</strong> The guard is Python; without it a dispatch is denied and the Bash check runs degraded.</p>
         <p><strong>git with the hooks installed.</strong> Hooks are local git config: run <code>make setup</code> after every clone.</p>

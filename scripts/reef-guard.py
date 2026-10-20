@@ -55,6 +55,29 @@ Reads the hook JSON on stdin. Two duties:
 Exit 0 = allow. Exit 2 = deny (reason on stderr). Anything unparseable that
 smells like a bypass is denied; anything unparseable and innocent is allowed.
 """
+import os as _os
+import sys as _sys
+
+# 0.7: native Windows has no fcntl locks, no SIGALRM deadline and no process groups, and the guard cannot run there.
+# Inside a Reef project it stops with the one sentence that helps; anywhere else it steps aside (the plugin's hook runs
+# in every session, and a Windows user's other projects are not Reef's to block). WSL2 is Linux: os.name is "posix".
+if _os.name == "nt" or _os.environ.get("REEF_TEST_NATIVE_WINDOWS"):
+    try:
+        import json as _json
+        _cwd = str((_json.load(_sys.stdin) or {}).get("cwd") or _os.getcwd())
+    except Exception:
+        _cwd = _os.getcwd()
+    _d = _os.path.abspath(_cwd)
+    while True:
+        if _os.path.isfile(_os.path.join(_d, ".reef", "config.json")):
+            print("reef-guard DENY: Reef runs on macOS or Linux; on Windows, run Claude Code inside WSL2 — native Windows lacks the file locks and timers the guard needs "
+                  "(README: Before you run it)", file=_sys.stderr)
+            _sys.exit(2)
+        _up = _os.path.dirname(_d)
+        if _up == _d:
+            _sys.exit(0)
+        _d = _up
+
 import fcntl
 import hashlib
 import json
