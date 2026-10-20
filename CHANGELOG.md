@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Platforms said plainly** (2026-10-20, the owner): Reef runs on macOS or Linux; on Windows, inside WSL2. The README,
+  the site and the Arabic manual say so first under "What it needs". Native Windows has no `fcntl` locks, no `SIGALRM`
+  deadline and no process groups, and the guard died at its first import; it now stops inside a Reef project with that
+  sentence and steps aside in any other project, and `reef-init` refuses before writing anything. (The guard's hook calls
+  `python3`; a Windows Python reachable only as `python` never reaches the check, so the README is the first word.)
 - **Fixes from the trial's row 13** (2026-10-20, queue rows 68–70, the owner's yes): (68) a rollup (`R<n>-<slug>.md`) is
   written by `reef-converge`, never planned or stamped, so the plan check keeps its schema, id and graph checks and drops
   the planner's authoring rules (Log last, a human Decision, an FR key, a test name claimed twice); converge writes a

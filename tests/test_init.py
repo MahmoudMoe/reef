@@ -16,6 +16,16 @@ def init(root, *args):
     return subprocess.run([sys.executable, INIT, "--root", root, "--verbose", *args], capture_output=True, text=True)
 
 
+class NativeWindowsInit(unittest.TestCase):
+    def test_init_refuses_on_native_windows_and_writes_nothing(self):
+        d = tempfile.mkdtemp(prefix="reef-win-init.")
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-init.py"), "--root", d],
+                           capture_output=True, text=True, env=dict(os.environ, REEF_TEST_NATIVE_WINDOWS="1"))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("on Windows, run Claude Code inside WSL2", r.stderr)
+        self.assertEqual(os.listdir(d), [], "nothing written")
+
+
 class QuietByDefault(unittest.TestCase):
     def test_a_refresh_prints_one_skipped_line_unless_verbose(self):
         # first full loop (2026-10-17): every refresh printed 38 `skipped` lines the owner read past to find one PROPOSED
