@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`scripts/reef-run.py`, the outer runner** (usability plan B1, the owner's go 2026-10-20): `/reef-loop` in fresh
+  headless sessions (`claude -p … --permission-mode auto`), one after another — at the context ceiling the next session
+  re-enters from the handoff, so the owner is no longer the restart button. It stops when the loop waits on the owner
+  (exit 2; their questions in `.reef/questions.md`, which the handoff already read), stops (0), parks (3), ends a session
+  with work in flight (3 — a headless session waits for Bash background work, checked 2026-10-20; the Workflow tool is
+  not yet proven, so the runner never starts a second copy), or reaches `--max-iterations` (4). Gated, fail closed:
+  `reef-run.py probe` proves reef-guard denies a headless session's forbidden write, per permission mode. One runner per
+  checkout (`.reef/run/lock`); it does not stop an interactive `/reef-loop` beside it. `/reef-loop` now grills every
+  ready row of the batch in one question set before planning, and asks `.reef/questions.md` first. `reef-init` copies
+  the runner and gitignores `.reef/run/` and `.reef/questions.md`. tests/size-budget.json raised: `script_lines`
+  10,733 → 10,910 (the runner), `prose_words` 17,436 → 17,569.
 - **The hand-back's claims list, told and recorded** (2026-10-20, qassimha 301, the owner's yes): the implementer's
   definition listed the hand-back's contents without the `Claims:` list the check requires, so 301's hand-back was
   rejected and graph mode counted an attempt; it now names the list and its line shape. The rejection message is true in
