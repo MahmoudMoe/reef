@@ -9,9 +9,6 @@ Usage:
   reef-adversarial --feature <slug> guard <report>     (0.7) hunter.guard_pass = feature: ONE guard pass on the feature's
                                                        merged diff, recorded on every design/critical task of the feature
                                                        (open and done); reef-record refuses GREEN without it
-  reef-adversarial <task-file> plan --migrate          (0.7) re-stamp a record written before the cut moved to
-                                                       `## Reviewer notes` — only when the 0.6-form hash of the file
-                                                       still equals the stamp (the plan is unchanged); no hunter round
   reef-adversarial <task-file> plan --decided <mark>   (0.7) the owner ruled at the gate (queue footnote <mark>) on a
                                                        plan edited after the hunter's last pass: re-stamp without a round
 
@@ -45,7 +42,6 @@ import sys
 import tempfile
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
-LOG_HEADING = re.compile(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", re.M)
 # the Reviewer notes (plan-review advisories) are outside the plan, like the Log — reef-plan-check cuts the same way
 # (2026-10-18: notes added after the hunter's pass changed this hash and the orchestrator reverted the notes to match)
 CUT_HEADING = re.compile(r"^##[ \t]+(?:[Ll][Oo][Gg]|Reviewer notes)[ \t]*$", re.M)
@@ -198,13 +194,6 @@ def plan_hash(text):
     return _hash_cut(text, CUT_HEADING)
 
 
-def legacy_plan_hash(text):
-    """The 0.6 form: cut at ## Log only, so the Reviewer notes were inside the hash. Read by `plan --migrate` and by
-    the guard's denial (2026-10-18: a stamp written the day before the cut moved failed as "the plan changed"); never
-    written."""
-    return _hash_cut(text, LOG_HEADING)
-
-
 def set_key(path, text, key, value):
     m = FENCE.match(text)
     fm = m.group(1)
@@ -278,25 +267,6 @@ def main(argv):
     if len(argv) == 2 and argv[1] == "plan-hash":
         print(plan_hash(read(argv[0])))
         return 0
-    if len(argv) == 3 and argv[1] == "plan" and argv[2] == "--migrate":
-        task_path = argv[0]
-        if not os.path.isfile(task_path):
-            die(f"file not found: {task_path}")
-        text = read(task_path)
-        fm = frontmatter(text)
-        got = ((fm or {}).get("adversarial-plan") or "").strip()
-        if fm is None or not got:
-            die("--migrate re-stamps a record the hunter wrote; there is no adversarial-plan record here — run the hunter")
-        want = plan_hash(text)
-        if got == want:
-            print(f"adversarial-plan: {got} is current — nothing to migrate")
-            return 0
-        if got != legacy_plan_hash(text):
-            die(f"the plan changed since the hunter's pass (adversarial-plan {got} is neither the current hash {want} nor the 0.6 form of "
-                f"this file) — not a migration: a hunter re-check within hunter.plan_rounds, or the owner's ruling at the gate (`plan --decided <mark>`)")
-        set_key(task_path, text, "adversarial-plan", want)
-        print(f"adversarial-plan: {got} → {want} (the 0.6 stamp hashed the Reviewer notes; the plan is unchanged, no hunter round)")
-        return 0
     if len(argv) == 4 and argv[1] == "plan" and argv[2] == "--decided":
         task_path, mark = argv[0], argv[3].strip()
         if not os.path.isfile(task_path):
@@ -314,7 +284,7 @@ def main(argv):
         clear_plan_marker(task_path, fm.get("id", ""))
         return 0
     if len(argv) != 3 or argv[1] not in PASSES:
-        die("usage: reef-adversarial <task-file> plan|guard <report-file>  |  --feature <slug> guard <report-file>  |  <task-file> plan --decided <mark>  |  <task-file> plan --migrate  |  <task-file> plan-hash")
+        die("usage: reef-adversarial <task-file> plan|guard <report-file>  |  --feature <slug> guard <report-file>  |  <task-file> plan --decided <mark>  |  <task-file> plan-hash")
     task_path, which, report_path = argv
     for p in (task_path, report_path):
         if not os.path.isfile(p):

@@ -159,7 +159,6 @@ flowchart LR
 | `Approve plan <slug> at <digest16>?` | The one question of a feature, asked after the machine review. The approval is recorded against that digest; reviewer notes and the ADR status line sit outside it. | Answer *Approve*, or say what to change; the planner amends, the machines re-check, and you are asked again. |
 | `awaiting: <feature> (machine review (hunter ‖ plan reviewer) before the gate)` in the tick | The draft has no review pass or no hunter pass at its current digest. | Run `/reef-plan <slug>`; it picks the feature up at the review. The tick will not offer its tasks until then. |
 | `awaiting: <feature> (hunter plan pass stale on <task>: …)` | A review-round edit moved the digest after the hunter passed. | A re-check within `hunter.plan_rounds`, or rule on the open hole yourself with the `--decided` command the line prints. |
-| `awaiting: <feature> (records in the 0.6 digest form: …)` | The plan's records were written before the digest changed shape. Nothing is re-asked. | Run the one `--migrate-records` command the line prints, in the plan's checkout. |
 | `HALT` from the plan reviewer | Two of your own documents contradict each other. The reviewer does not pick a winner. | Decide which one is right; the planner amends and the machines re-check. |
 | `dispatch (graph): 101, 102 — python3 scripts/reef-graph-run.py generate` | Several tasks are ready and this machine's probe recorded `GATE OK`. | Nothing: `/reef-loop` runs them as one background workflow and settles the results. |
 | `verify now: <id> (handed back, uncommitted — gate + verifier, no implementer)` | An implementer handed the task back and nothing judged it yet. | Nothing: `/reef-loop` judges it (in the graph when this machine's probe passed, else `/reef-task` from the gate). |
@@ -375,7 +374,7 @@ Every claim above has a number behind it, and the numbers live in `docs/perf/`:
 
 ### Selftests
 
-`sh tests/run.sh` — 566 sabotage and contract tests (461 Python + 105 shell, as the suite runs them). Every mechanism in
+`sh tests/run.sh` — 556 sabotage and contract tests (451 Python + 105 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
 script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials
