@@ -1,6 +1,22 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Super Reef: one delegated night under Mahmoud, the owner's proxy** (the owner's go and decisions, 2026-10-21;
+  plan reviewed by the advisor). `/reef-night`: `reef:mahmoud` — chief design architect and product manager, twenty
+  years, precise, concise, simple and robust — drafts the owner's profile (`reef/owner.md`, from their verbatim
+  footnotes) and tonight's contract (`Rows:`, the decisions it may take, the hard limits); the owner answers ONE
+  question, `Approve night <date> at <digest16>?` (the digest covers the contract AND the profile; an edit to either
+  approves nothing), recorded `.reef/approvals/night.json`. `reef-run.py --night` then runs the loop: inside the contract
+  Mahmoud decides; `reef-approval.py --proxy` writes his plan approval (`by: mahmoud (proxy)`) only while
+  `.reef/night/active` exists (written by the runner alone), for a row the contract names (the feature's SPEC `Row:`),
+  from his own report at the protected evidence path `.reef/ci-local/report-mahmoud-<slug>.md`, at the plan's current
+  digest, with the plan check green; his other decisions are queue footnotes labeled `Mahmoud (proxy, night <date>):`.
+  The guard protects `.reef/night/` like the approvals, refuses the release PR while a night runs, pins
+  `roles.proxy` and locks Mahmoud read-only. At exit the runner writes `.reef/night/report.md`: his approvals and
+  decisions (undo: delete or edit) apart from the merges (undo: `git revert -m 1`). **Mahmoud runs on Fable** — the
+  owner's explicit exception to "opus for every Reef role", for this one role. The README's rule "plan approval is the
+  HUMAN's" now names the delegated case. tests/size-budget.json raised: `config_keys` 88 → 89 (`roles.proxy`),
+  `prose_words` 17,569 → 18,659 (the agent and the skill), `script_lines` 10,910 → 11,133.
 - **`scripts/reef-run.py`, the outer runner** (usability plan B1, the owner's go 2026-10-20): `/reef-loop` in fresh
   headless sessions (`claude -p … --permission-mode auto`), one after another — at the context ceiling the next session
   re-enters from the handoff, so the owner is no longer the restart button. It stops when the loop waits on the owner

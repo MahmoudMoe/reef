@@ -9,7 +9,12 @@ Usage (the owner's terminal, in the project's main checkout):
   reef-run.py probe [--repo DIR] [--permission-mode auto]   once per machine and mode: one headless session tries a
       forbidden write; GATE OK only when reef-guard denied it and no file exists (fail closed — a headless session the
       guard does not reach would be a way around every rule)
-  reef-run.py [--repo DIR] [--max-iterations 10] [--permission-mode auto]
+  reef-run.py [--repo DIR] [--max-iterations 10] [--permission-mode auto] [--night]
+  reef-run.py contract [--from FILE]   (super Reef) install tonight's contract into .reef/night/contract.md and print
+      the night digest (contract + reef/owner.md) and the exact question /reef-night asks: `Approve night <date> at <16 hex>?`
+  --night: a delegated night (/reef-night): refuses without .reef/approvals/night.json at the CURRENT night digest; owner
+      decisions inside the contract go to reef:mahmoud (the owner's proxy); `.reef/night/active` exists while it runs
+      (the guard then refuses a release PR); `.reef/night/report.md` at exit — every proxy decision and every merge.
 Exit: 0 the loop stopped · 2 waiting on the owner (their questions are in .reef/questions.md) · 3 parked, or a session
 ended with work in flight · 4 the iteration cap · 1 refused (no probe for this mode, a second runner, not a project).
 Files (gitignored): .reef/run/gate.json · .reef/run/run.log (one JSON line per session) · .reef/run/lock.
@@ -22,6 +27,13 @@ import sys
 import time
 
 RUN_DIR = os.path.join(".reef", "run")
+NIGHT_DIR = os.path.join(".reef", "night")
+NIGHT_PROMPT = (" SUPER REEF NIGHT (.reef/night/contract.md, approved by the owner; /reef-night has the rules): every owner decision "
+                "INSIDE the contract goes to reef:mahmoud (model roles.proxy), never to questions.md. A plan approval: Mahmoud writes "
+                "its report, you `cp` it to .reef/ci-local/report-mahmoud-<slug>.md, then `python3 scripts/reef-approval.py --proxy "
+                "--feature <slug> --report <that file>`. A design look, a product question, a post-round-2 hole, triage: "
+                "`python3 scripts/reef-queue.py footnote \"Mahmoud (proxy, night <date>): <decision> — <why>\" --row <id>`. A WAIT "
+                "(outside the contract, or a hard limit): questions.md, and keep the other rows moving.")
 PROMPT = ("/reef-loop — a reef-run iteration: headless, AskUserQuestion does not exist here. Keep every row moving that "
           "does not need the owner. Do not ask: append each question for the owner to .reef/questions.md, one line each — "
           "`- row <id>: <the question> — recommended: <your answer>` — the next interactive /reef-loop asks them as ONE set. "
@@ -77,6 +89,97 @@ def in_flight(root):
     return sorted(set(ids))
 
 
+def night_digest(root):
+    """sha256 over the contract and the owner's profile, in one place (the hook and --proxy import this): an edit to
+    either after the owner's approval approves nothing."""
+    import hashlib
+    h = hashlib.sha256()
+    for rel in (os.path.join(NIGHT_DIR, "contract.md"), os.path.join("reef", "owner.md")):
+        try:
+            with open(os.path.join(root, rel), "rb") as f:
+                h.update(rel.encode() + b"\0" + f.read() + b"\0")
+        except OSError:
+            return ""
+    return h.hexdigest()
+
+
+def night_rows(root):
+    """The queue row ids the contract names on its `Rows:` line."""
+    import re
+    try:
+        with open(os.path.join(root, NIGHT_DIR, "contract.md"), encoding="utf-8") as f:
+            m = re.search(r"^Rows:\s*(.+)$", f.read(), re.M)
+    except OSError:
+        return []
+    return [x for x in re.findall(r"\d+", m.group(1))] if m else []
+
+
+def night_ok(root):
+    """(ok, why): night.json carries the current night digest."""
+    try:
+        with open(os.path.join(root, ".reef", "approvals", "night.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+    except (OSError, ValueError):
+        return False, "no .reef/approvals/night.json — run /reef-night in Claude Code first (the owner approves tonight's contract)"
+    dg = night_digest(root)
+    if not dg or rec.get("digest16") != dg[:16]:
+        return False, f"the contract or reef/owner.md changed since the owner approved it ({rec.get('digest16')} vs {dg[:16] or 'missing'}) — /reef-night again"
+    return True, ""
+
+
+def cmd_contract(root, src):
+    import shutil
+    os.makedirs(os.path.join(root, NIGHT_DIR), exist_ok=True)
+    if src:
+        shutil.copyfile(src, os.path.join(root, NIGHT_DIR, "contract.md"))
+    dg = night_digest(root)
+    if not dg:
+        die("no .reef/night/contract.md, or no reef/owner.md — /reef-night drafts both")
+    print(f"night digest: {dg}")
+    print(f"rows: {', '.join(night_rows(root)) or '-'}")
+    print(f"question: Approve night {time.strftime('%Y-%m-%d')} at {dg[:16]}?")
+    return 0
+
+
+def morning_report(root, started, log):
+    """Every proxy decision and every merge since `started` — the owner reverses a decision by deleting its record or
+    footnote, a merge only by `git revert` on the base branch, so they are listed apart."""
+    import glob
+    lines = [f"# Night report — {time.strftime('%Y-%m-%d %H:%M')}", ""]
+    appr = []
+    for p in sorted(glob.glob(os.path.join(root, ".reef", "approvals", "*.json"))):
+        try:
+            rec = json.load(open(p, encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if str(rec.get("by", "")).startswith("mahmoud") and str(rec.get("approved_at", "")) >= started:
+            appr.append(f"- plan `{os.path.basename(p)[:-5]}` approved at {rec.get('digest16')} — undo: delete {os.path.relpath(p, root)}")
+    lines += ["## Mahmoud's plan approvals", *(appr or ["- none"]), ""]
+    foot = []
+    try:
+        cfg = json.load(open(os.path.join(root, ".reef", "config.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        cfg = {}
+    queue = os.path.join(root, (cfg.get("paths") or {}).get("queue", "docs/queue.md"))
+    try:
+        foot = [f"- {l.strip()}" for l in open(queue, encoding="utf-8") if "Mahmoud (proxy" in l]
+    except OSError:
+        pass
+    lines += ["## Mahmoud's other decisions (queue footnotes — undo: edit the footnote)", *(foot or ["- none"]), ""]
+    base = str((cfg.get("branches") or {}).get("base", "main") or "main")
+    r = subprocess.run(["git", "-C", root, "log", "--merges", "--format=- %h %s", f"--since={started}", base], capture_output=True, text=True)
+    lines += [f"## Merges into {base} (undo: git revert -m 1 <sha>)", *(r.stdout.splitlines() or ["- none"]), ""]
+    q = os.path.join(root, ".reef", "questions.md")
+    lines += ["## Waiting for you", *(open(q, encoding="utf-8").read().splitlines() if os.path.isfile(q) else ["- nothing"]), ""]
+    sessions = [json.loads(l) for l in open(log, encoding="utf-8")] if os.path.isfile(log) else []
+    tonight = [x for x in sessions if str(x.get("at", "")) >= started]
+    cost = sum(float(x.get("cost_usd") or 0) for x in tonight)
+    lines += [f"Sessions: {len(tonight)} · cost: ${cost:.2f} · log: {os.path.relpath(log, root)}"]
+    with open(os.path.join(root, NIGHT_DIR, "report.md"), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"reef-run: the night report — {os.path.join(NIGHT_DIR, 'report.md')}")
+
+
 def cmd_probe(root, mode):
     target = os.path.join(root, ".reef", "approvals", "run-probe.json")
     out = session(root, "You are a probe, not a worker. Run exactly this one shell command and nothing else: "
@@ -98,7 +201,11 @@ def cmd_probe(root, mode):
     return 1
 
 
-def cmd_run(root, mode, cap):
+def cmd_run(root, mode, cap, night=False):
+    if night:
+        ok, why = night_ok(root)
+        if not ok:
+            die(why)
     try:
         with open(os.path.join(root, RUN_DIR, "gate.json"), encoding="utf-8") as f:
             gate = json.load(f)
@@ -117,9 +224,14 @@ def cmd_run(root, mode, cap):
     with open(lock, "w", encoding="utf-8") as f:
         f.write(str(os.getpid()))
     log = os.path.join(root, RUN_DIR, "run.log")
+    started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    active = os.path.join(root, NIGHT_DIR, "active")
+    if night:
+        with open(active, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": night_digest(root)[:16]}))
     try:
         for i in range(1, cap + 1):
-            out = session(root, PROMPT, mode)
+            out = session(root, PROMPT + (NIGHT_PROMPT if night else ""), mode)
             st = loop_state(root)
             wait, stop, parked = st.get("wait") or "", st.get("stop") or "", st.get("parked") or ""
             flying = [] if (wait or stop or parked) else in_flight(root)
@@ -149,10 +261,14 @@ def cmd_run(root, mode, cap):
         print(f"reef-run: {cap} sessions, the iteration cap — the last state is in {log}")
         return 4
     finally:
-        try:
-            os.unlink(lock)
-        except OSError:
-            pass
+        for p in (lock, active if night else None):
+            try:
+                if p:
+                    os.unlink(p)
+            except OSError:
+                pass
+        if night:
+            morning_report(root, started, log)
 
 
 def main(argv):
@@ -168,9 +284,12 @@ def main(argv):
     if not os.path.isfile(os.path.join(root, ".reef", "config.json")):
         die(f"{root} is not a Reef project (no .reef/config.json)")
     os.makedirs(os.path.join(root, RUN_DIR), exist_ok=True)
+    os.makedirs(os.path.join(root, NIGHT_DIR), exist_ok=True)
     if args[:1] == ["probe"]:
         return cmd_probe(root, mode)
-    return cmd_run(root, mode, cap)
+    if args[:1] == ["contract"]:
+        return cmd_contract(root, args[args.index("--from") + 1] if "--from" in args else None)
+    return cmd_run(root, mode, cap, night="--night" in args)
 
 
 if __name__ == "__main__":

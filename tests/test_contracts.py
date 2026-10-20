@@ -42,7 +42,7 @@ class ConfigTemplate(unittest.TestCase):
     def test_model_per_role_defaults_match_agent_frontmatter(self):
         roles = self.cfg["roles"]
         for role, agent in (("author", "implementer"), ("verifier", "verifier"),
-                            ("plan_reviewer", "plan-reviewer"), ("mechanic", "mechanic"), ("security", "security")):
+                            ("plan_reviewer", "plan-reviewer"), ("mechanic", "mechanic"), ("security", "security"), ("proxy", "mahmoud")):
             front = re.search(r"^model:\s*(\S+)", read("agents", f"{agent}.md"), re.M).group(1)
             self.assertEqual(roles[role], front, f"roles.{role} default must equal the agent's frontmatter")
 
@@ -126,6 +126,21 @@ class HandbackShapeIsTold(unittest.TestCase):
         # rejected it and graph mode counted an attempt
         self.assertIn("a `Claims:` list — one line per claim, `<sentence> — true at <path>:<line>`", read("agents", "implementer.md"))
         self.assertIn("graph mode: settle counts one attempt", read("scripts", "reef-claims.py"))
+
+
+class SuperReefIsHonest(unittest.TestCase):
+    def test_mahmoud_is_read_only_terse_and_the_night_is_approved_once_by_its_exact_question(self):
+        text = read("agents", "mahmoud.md")
+        tools = re.search(r"^tools:\s*(.+)$", text, re.M).group(1)
+        self.assertNotRegex(tools, r"\b(Edit|Write|MultiEdit|NotebookEdit)\b")
+        self.assertIn("**Terse (0.7, the owner's rule).**", text)
+        for limit in ("the release to the default branch", "secrets and credentials", "outside the contract"):
+            self.assertIn(limit, text)
+        skill = read("skills", "reef-night", "SKILL.md")
+        self.assertIn("`Approve night <YYYY-MM-DD> at <digest16>?`", skill)
+        self.assertIn("Mahmoud (proxy, night <date>)", skill, "a proxy footnote is labeled, never the owner's words")
+        self.assertRegex(read("scripts", "reef-guard.py"), r'LOCKED_TYPES = \([^)]*"mahmoud"')
+        self.assertIn("reef-night", read("commands", "night.md"))
 
 
 class ReviewSkill(unittest.TestCase):

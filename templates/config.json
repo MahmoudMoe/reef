@@ -21,6 +21,7 @@
     "adversary": "opus",
     "reviewer": "opus",
     "security": "opus",
+    "proxy": "fable",
     "mechanic": "sonnet"
   },
   "merge": {
