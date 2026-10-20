@@ -149,6 +149,27 @@ class Settle(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("hand-back: REJECTED", r.stdout)
 
+    def test_a_rejected_report_records_the_reasons_not_the_note_before_them(self):
+        """2026-10-19, qassimha 1302 (row 69): reef-claims printed `note: report 661 words` before its REJECTED reasons, settle
+        kept the first line, and the fix round's Log said nothing about what to fix."""
+        d = graph_project()
+        pass_gate(d)
+        g(d, "generate")
+        rp = os.path.join(d, "report-101-verifier.md")
+        with open(rp, "w") as f:
+            f.write("RUN: agent=verifier task=101\nVERDICT: PASS\n")
+        p = self.results(d)
+        res = json.load(open(p))
+        res["tasks"][0]["judge"] = True
+        res["tasks"][0]["judges"] = [{"role": "verifier", "verdict": "PASS", "report_path": rp, "summary": "PASS"}]
+        json.dump(res, open(p, "w"))
+        r = g(d, "settle", p)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("verifier report rejected: no `RULE AC1:` line for criterion 1", r.stdout)
+        self.assertNotIn("note: report", r.stdout)
+        self.assertIn("- attempt 1 FAIL: verifier report rejected: no `RULE AC1:` line", open(os.path.join(d, "tasks", "101-a.md")).read(),
+                      "the fix round reads the reasons")
+
     def test_a_red_gate_on_a_judged_task_counts_the_attempt_and_names_the_gate_not_a_missing_verdict(self):
         """2026-10-18, qassimha 1103: the pipeline skips the judges on a red gate, settle added "no verifier verdict",
         and that text suppressed reef-attempt — the task kept attempts: 0 and the next dispatch never saw the failure."""

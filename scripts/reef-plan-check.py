@@ -903,10 +903,14 @@ def main():
     # per-task semantic checks, ordered by file
     for rel, fm in sorted(tasks.items()):
         text = fm["_text"]
+        # a rollup (R<n>-<slug>.md) is written by reef-converge, never planned or stamped: it keeps the schema, id and
+        # graph checks, not the planner's authoring rules (2026-10-19, qassimha row 68: the rollups converge wrote failed
+        # seven of them — Log last, a human Decision, an FR key, the same Proof command in two features)
+        rollup = re.match(r"^R\d+-", os.path.basename(rel)) is not None
         # the stamp ignores everything after ## Log — so nothing but log content may
         # live there, or a plan section could be edited invisibly after approval
         log_parts = LOG_HEADING.split(text, maxsplit=1)
-        if len(log_parts) == 2 and re.search(r"^##[ \t]", log_parts[1], re.M):
+        if not rollup and len(log_parts) == 2 and re.search(r"^##[ \t]", log_parts[1], re.M):
             fail(f"{rel}: ## Log must be the LAST section — the stamp ignores everything after it")
         notes_parts = NOTES_HEADING.split(text, maxsplit=1)
         if len(notes_parts) == 2:
@@ -921,7 +925,7 @@ def main():
             words = len(re.findall(r"\S+", plan_text[fmm.end():] if fmm else plan_text))
             if words > cap:
                 fail(f"{rel}: {words} words > {cap_name} {cap} (the Log does not count) — split the slice")
-        if fm.get("complexity") == "design":
+        if fm.get("complexity") == "design" and not rollup:
             dec = section(text, "Decision")
             # comments don't count: the untouched template placeholder is an HTML comment,
             # and this check exists precisely to force the HUMAN to write the Decision
@@ -990,7 +994,7 @@ def main():
                     shape_errs.append(f"{c[:50]!r} has no ## Proof row")
                 else:
                     automated += 1
-                    for n in (test_re.findall(proof_rows[ac_id]) or [proof_rows[ac_id]]):
+                    for n in ([] if rollup else (test_re.findall(proof_rows[ac_id]) or [proof_rows[ac_id]])):
                         test_owners.setdefault(n if isinstance(n, str) and n else proof_rows[ac_id], set()).add(rel)
             else:
                 names = [m.group(0) for m in test_re.finditer(c)]
@@ -998,11 +1002,11 @@ def main():
                     untested.append(c[:60])
                 else:
                     automated += 1
-                for n in names:
+                for n in ([] if rollup else names):
                     test_owners.setdefault(n, set()).add(rel)
             if wmax and len(c.split()) > wmax:
                 (fail if is06 else warn)(f"{rel}: criterion over writing.criterion_words {wmax}: {c[:50]!r}")
-            if fdir:
+            if fdir and not rollup:
                 keys = {f"{a}-{b}" for a, b in KEY_RE.findall(c)}
                 if not keys:
                     key_errs.append(f"{c[:50]!r} cites no FR-n/SC-n key of its feature")

@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Fixes from the trial's row 13** (2026-10-20, queue rows 68–70, the owner's yes): (68) a rollup (`R<n>-<slug>.md`) is
+  written by `reef-converge`, never planned or stamped, so the plan check keeps its schema, id and graph checks and drops
+  the planner's authoring rules (Log last, a human Decision, an FR key, a test name claimed twice); converge writes a
+  complete rollup (no placeholders, the feature's own slug in its Proof) and puts each dated `## Converge` section
+  before `## Log` — the trial's two closed rollups failed seven rules, and a red check blocks plan approvals. (69)
+  `settle` records a rejected report's reasons (the `- …` lines under `REJECTED`), not reef-claims' first line, which
+  was a `note:` about word count — 1302's fix round got nothing actionable. (70) each dispatchable task's
+  `attempts/dispatches` counters are part of the tick's fingerprint, so a graph run that dispatched and failed a task
+  between two ticks is progress, not a "no progress" park.
 - **Fixes from the trial's row 11 close** (2026-10-19, queue row 67, the owner's yes to both): `reef-converge` numbers a new
   rollup after the highest `R<n>` in EVERY feature folder (it counted its own folder, so row 11 took `R1` beside row 2's and
   the tick printed BROKEN; the orchestrator renamed it by hand). `reef-update --commit` commits `.reef/config.json` with

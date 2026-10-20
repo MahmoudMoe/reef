@@ -119,6 +119,20 @@ class Tick(unittest.TestCase):
         st = json.loads(loop(d, "tick", "--json").stdout)
         self.assertIn("no progress: 2 identical ticks", st["parked_loop"])
 
+    def test_a_dispatched_and_failed_task_between_ticks_is_progress(self):
+        # 2026-10-19 (qassimha 1302, row 70): a graph run dispatched, ran and failed 1302 between two ticks; nothing the
+        # tick hashed had changed, so the loop parked for "no progress" right after real work
+        d = project({"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md"}, "loop": {"no_progress_ticks": 2}})
+        loop(d, "start")
+        loop(d, "tick")
+        t = read_file(os.path.join(d, "tasks", "101-a.md"))
+        write(d, "tasks/101-a.md", t.replace("attempts: 0", "attempts: 1").replace("dispatches: 0", "dispatches: 1"))
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertIsNone(st["parked_loop"], "a counted attempt is progress")
+        self.assertEqual(st["counters"].get("101"), "1/1")
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertIn("no progress: 2 identical ticks", st["parked_loop"], "nothing moved since: the park still works")
+
     def test_budget_ceiling_parks(self):
         d = project({"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md"}, "caps": {"feature_tokens": 1000}})
         t = write(d, "t.jsonl", json.dumps({"type": "assistant", "requestId": "r1", "message": {"usage": {"input_tokens": 5000, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 1}, "content": []}}) + "\n")

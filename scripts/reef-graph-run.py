@@ -309,6 +309,19 @@ return {{ tasks: results.filter(Boolean), skipped: TASKS.length - results.filter
 
 # ---------------------------------------------------------------- settle
 
+def rejection(text):
+    """The reasons a reef-claims check rejected, not its first line: a rejected report prints `note:` lines first and the
+    reasons as `  - …` under `REJECTED …:` (2026-10-19, qassimha 1302, row 69: the attempt recorded "note: report 661
+    words" and the fix round's rejudge line carried nothing actionable)."""
+    lines = (text or "").strip().splitlines()
+    i = next((k for k, l in enumerate(lines) if l.startswith("REJECTED")), None)
+    if i is not None:
+        reasons = [l.strip()[2:].strip() for l in lines[i + 1:] if l.strip().startswith("- ")]
+        return "; ".join(reasons)[:250] or lines[i][:250]
+    rest = [l for l in lines if l.strip() and not l.startswith("note:")]
+    return (rest[0] if rest else (lines[0] if lines else ""))[:250]
+
+
 def cmd_settle(root, results_path):
     try:
         with open(results_path, encoding="utf-8") as f:
@@ -355,7 +368,7 @@ def cmd_settle(root, results_path):
                 if role == "verifier":
                     rc, out, err = run([sys.executable, script(root, "reef-claims.py"), "report", dest, "--task", task_file], root)
                     if rc != 0:
-                        why.append(f"verifier report rejected: {(out or err).strip().splitlines()[0][:120] if (out or err).strip() else rc}")
+                        why.append(f"verifier report rejected: {rejection(out or err) or rc}")
                 if j.get("verdict") != "PASS":
                     why.append(f"{role}: {j.get('verdict')} — {str(j.get('summary', ''))[:140]}")
                 elif role == "hunter":
