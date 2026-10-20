@@ -57,7 +57,7 @@ Then, inside your project:
 | **An existing project** | `/reef-init`, then `/reef-assess` | Nothing you wrote is overwritten: a differing rendering lands in `.reef/proposed/<path>` with a diff and `python3 scripts/reef-init.py --accept <path>` applies the ones you choose. `/reef-assess` reads how the project works and was written, every claim with a proving path, then moves its documents into the tree under one approval. Archive, never delete; one `git revert` undoes it. |
 | **A feature to build** | `/reef-plan <row>` → `/reef-task <slug>` → `/reef-review <slug>` | The grill; the spec and the tasks drafted in the feature worktree; the hunter and a fresh reviewer in parallel; then the one question for you, last — nothing after it voids your approval. Every ready task at once, each in its own worktree, each verified by a fresh judge. The PR, the acceptance against the spec, the diff review, the merge and the close. |
 | **A queue of rows** | `/reef-loop` | Every ready row through the four commands above, in parallel where rows do not collide. It stops only for your decisions, a missing credential, a wrong spec, or a cap, and batches its questions. |
-| **Several tasks ready** | `/reef-graph` | The task graph as one Claude Code workflow: implementer, gate, verifier and hunter per task, in the background, one summary back. Gated by a probe that proves the guard reaches workflow agents on this machine; the merge stays with the orchestrator. |
+| **To build without the loop, or to check a new machine** | `/reef-graph` | The same build step `/reef-loop` already uses for every fresh task (graph mode, chosen automatically): implementer, gate and verifier per task as one background workflow, one summary back. Run it yourself only to build a feature without the queue and loop, or once on a new machine to run the probe that proves the guard reaches workflow agents. Never next to a running loop: one orchestrator per project. |
 | **The running app attacked** | `/reef-pentest <url>` | One adversary attacks every threat-model row against a live copy of the app, the way a user or a logged-in attacker could; each hole becomes a found queue row. On demand, at any point; needs `/reef-threat` first; only a target you own, never production unless you say so. |
 | **Something looks off** | `/reef-doctor` | One screen: the plugin clone's branch and freshness, scripts behind the plugin, the queue's home, worktrees, the loop's state, gh, Docker, waiting proposals — each with its fix. `reef/README.md` is the map of the tree; `.reef/status.html` the live page. |
 | **A new Reef** | `python3 <plugin>/scripts/reef-update.py --commit` | Pulls the plugin clone, refreshes the project, commits Reef's own files, prints the two Claude Code commands. |
@@ -101,9 +101,9 @@ flowchart LR
 3. **The gate, last.** One question: `Approve plan <slug> at <digest16>?` Your answer is recorded against that exact
    plan. Nothing after it voids your approval: reviewer notes and the ADR status line sit outside the digest, and
    only a HALT ruling or your own decision edits an approved plan.
-4. **Build.** `/reef-task` starts every ready task at once, each in its own worktree on its tier's model; when several
-   are ready and this machine's probe has proved the guard reaches workflow agents, the tick names `/reef-graph`
-   and the same graph runs as one background workflow. Per task: an implementer builds it test-first and hands
+4. **Build.** Every ready task starts at once, each in its own worktree on its tier's model. A fresh task runs as one
+   background workflow (graph mode, `/reef-graph`) once this machine's probe has proved the guard reaches workflow
+   agents; a fix round, or a task without that proof, runs in the chat (`/reef-task`). The loop chooses; you don't. Per task: an implementer builds it test-first and hands
    back; a verifier in a fresh context writes its pass or fail rule per criterion *before* reading the diff; a second
    round judges only what the round changed; a hash of the tree proves the judges changed nothing. Three fix rounds
    per task, then it stops and tells you.
@@ -156,7 +156,7 @@ flowchart LR
 | `awaiting: <feature> (hunter plan pass stale on <task>: …)` | A review-round edit moved the digest after the hunter passed. | A re-check within `hunter.plan_rounds`, or rule on the open hole yourself with the `--decided` command the line prints. |
 | `awaiting: <feature> (records in the 0.6 digest form: …)` | The plan's records were written before the digest changed shape. Nothing is re-asked. | Run the one `--migrate-records` command the line prints, in the plan's checkout. |
 | `HALT` from the plan reviewer | Two of your own documents contradict each other. The reviewer does not pick a winner. | Decide which one is right; the planner amends and the machines re-check. |
-| `dispatch (graph): 101, 102 — python3 scripts/reef-graph-run.py generate` | Several tasks are ready and this machine's probe recorded `GATE OK`. | Run `/reef-graph`; one workflow builds and judges them in the background and settles the results. |
+| `dispatch (graph): 101, 102 — python3 scripts/reef-graph-run.py generate` | Several tasks are ready and this machine's probe recorded `GATE OK`. | Nothing: `/reef-loop` runs them as one background workflow and settles the results. |
 | `verify now: <id> (handed back, uncommitted — gate + verifier, no implementer)` | An implementer handed the task back and nothing judged it yet. | Run `/reef-task`; it starts that task at the gate. |
 | `BROKEN: graph.mode is graph but this machine has no GATE OK` | You asked for graph mode and the probe has not proved the guard reaches workflow agents here. | `python3 scripts/reef-graph-run.py probe` once, then the probe-check it prints; chat mode runs meanwhile. |
 | `GROWTH over caps.task_growth: <ids> — say why in the journal` | A task cost the orchestrator more context than the cap you set. | Say why in the journal row, or split the task next time. |
