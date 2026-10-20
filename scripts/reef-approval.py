@@ -14,6 +14,17 @@ import sys
 import time
 
 QUESTION = re.compile(r"^Approve plan (?P<feature>[A-Za-z0-9][A-Za-z0-9._-]*) at (?P<digest>[0-9a-f]{16})\?$")
+NIGHT_Q = re.compile(r"^Approve night (?P<date>\d{4}-\d\d-\d\d) at (?P<digest>[0-9a-f]{16})\?$")
+
+
+def runner():
+    """reef-run.py's night digest and rows — one definition, imported (the hook and --proxy must agree with it)."""
+    import importlib.util
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location("reef_run", os.path.join(here, "reef-run.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def main_checkout(cwd):
@@ -115,7 +126,77 @@ def plan_digests(cwd, feature):
     return out
 
 
+def feature_row(root, feature):
+    """The queue row a feature answers (`Row: N` in its SPEC.md), from the checkout that holds the plan."""
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            feats = (json.load(f).get("paths") or {}).get("features", "reef/features")
+    except Exception:
+        feats = "reef/features"
+    try:
+        with open(os.path.join(root, feats, feature, "SPEC.md"), encoding="utf-8") as f:
+            m = re.search(r"^Row:\s*(\d+)", f.read(), re.M)
+        return m.group(1) if m else ""
+    except OSError:
+        return ""
+
+
+def cmd_proxy(argv):
+    """Super Reef: Mahmoud's plan approval, written only while the night runs (.reef/night/active), under the approved
+    contract at its current digest, for a row the contract names, from Mahmoud's own report (a protected evidence path
+    the main session may only copy), at the plan's current digest, with the plan check green."""
+    feature = argv[argv.index("--feature") + 1] if "--feature" in argv else ""
+    report = argv[argv.index("--report") + 1] if "--report" in argv else ""
+    if not feature or not report:
+        print("usage: reef-approval.py --proxy --feature <slug> --report .reef/ci-local/report-mahmoud-<slug>.md")
+        return 2
+    cwd = os.getcwd()
+    root = main_checkout(cwd)
+    refuse = lambda why: (print(f"reef-approval: {feature}: REFUSED — {why}; nothing written"), 1)[1]
+    if not os.path.isfile(os.path.join(root, ".reef", "night", "active")):
+        return refuse("no night is running (.reef/night/active is written by `reef-run.py --night` alone)")
+    rr = runner()
+    ok, why = rr.night_ok(root)
+    if not ok:
+        return refuse(why)
+    if not re.search(r"(^|/)\.reef/ci-local/report-mahmoud-" + re.escape(feature) + r"\.md$", report.replace(os.sep, "/")):
+        return refuse(f"the report must be Mahmoud's own file copied to .reef/ci-local/report-mahmoud-{feature}.md")
+    digests = plan_digests(cwd, feature)
+    if not digests:
+        return refuse("no checkout holds this plan")
+    where, dg = next(iter(digests.items()))
+    row = feature_row(where, feature)
+    if not row or row not in rr.night_rows(root):
+        return refuse(f"its row ({row or 'no Row: line in SPEC.md'}) is not in tonight's contract ({', '.join(rr.night_rows(root)) or '-'})")
+    try:
+        with open(report if os.path.isabs(report) else os.path.join(cwd, report), encoding="utf-8") as f:
+            text = f.read()
+    except OSError as e:
+        return refuse(f"cannot read the report: {e}")
+    if not re.search(r"^RUN:[ \t]*agent=mahmoud\b", text, re.M):
+        return refuse("the report's first line is not `RUN: agent=mahmoud …`")
+    if not re.search(r"^APPROVE plan " + re.escape(feature) + r" at " + dg[:16] + r"\b", text, re.M):
+        return refuse(f"the report has no `APPROVE plan {feature} at {dg[:16]}` line (the plan's current digest)")
+    fails = plan_check_failures(where, feature)
+    if fails:
+        return refuse(f"reef-plan-check.py FAILS in {where}: {fails[0][:160]}")
+    d = os.path.join(root, ".reef", "approvals")
+    os.makedirs(d, exist_ok=True)
+    rec = {"digest16": dg[:16], "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+           "by": "mahmoud (proxy)", "night": rr.night_digest(root)[:16]}
+    files = plan_files(where, feature)
+    if files:
+        rec["files"] = files
+    with open(os.path.join(d, f"{feature}.json"), "w", encoding="utf-8") as f:
+        json.dump(rec, f, indent=1)
+        f.write("\n")
+    print(f"reef-approval: {feature} approved at {dg[:16]} by mahmoud (proxy), night {rec['night']} -> .reef/approvals/{feature}.json")
+    return 0
+
+
 def main(argv):
+    if "--proxy" in argv:
+        return cmd_proxy(argv)
     root = None
     if "--root" in argv:
         root = argv[argv.index("--root") + 1]
@@ -139,6 +220,26 @@ def main(argv):
     root = root or main_checkout(payload.get("cwd") or os.getcwd())
     wrote = 0
     for question, label in answers.items():
+        n = NIGHT_Q.match(str(question).strip())
+        if n:
+            # super Reef (2026-10-21): the owner approves tonight's contract + their profile ONCE, at their digest
+            if str(label).strip() != "Approve":
+                print(f"reef-approval: night {n.group('date')}: answer was {label!r} — nothing written")
+                continue
+            rr = runner()
+            dg = rr.night_digest(root)
+            if not dg or dg[:16] != n.group("digest"):
+                print(f"reef-approval: night {n.group('date')}: the question's digest {n.group('digest')} is not the contract's ({dg[:16] or 'missing'}) (stale) — nothing written")
+                continue
+            d = os.path.join(root, ".reef", "approvals")
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "night.json"), "w", encoding="utf-8") as f:
+                json.dump({"digest16": dg[:16], "date": n.group("date"), "rows": rr.night_rows(root),
+                           "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f, indent=1)
+                f.write("\n")
+            print(f"reef-approval: night {n.group('date')} approved at {dg[:16]} (rows {', '.join(rr.night_rows(root)) or '-'}) -> .reef/approvals/night.json")
+            wrote += 1
+            continue
         m = QUESTION.match(str(question).strip())
         if not m:
             continue

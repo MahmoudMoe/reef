@@ -92,14 +92,14 @@ import time
 
 DEADLINE = float(os.environ.get("REEF_GUARD_DEADLINE", "8"))
 TIER_ORDER = ["light", "full", "design", "critical"]
-LOCKED_TYPES = ("verifier", "loophole-hunter", "plan-reviewer", "Explore", "security")
+LOCKED_TYPES = ("verifier", "loophole-hunter", "plan-reviewer", "Explore", "security", "mahmoud")
 AGENT_TYPES = LOCKED_TYPES + ("implementer", "mechanic")
 MUTATING_GIT = {"commit", "add", "rm", "mv", "checkout", "switch", "restore", "reset", "merge", "rebase", "push",
                 "stash", "apply", "am", "cherry-pick", "revert", "clean", "worktree", "submodule", "init", "clone"}
 WRITE_HEADS = {"tee", "cp", "mv", "rm", "touch", "mkdir", "rmdir", "truncate", "dd", "install", "ln", "chmod", "chown", "shred", "unlink"}
 REDIRECTS = {">", ">>", ">|"}
 STATUS_LINE = re.compile(r"in flight:.*?/\s*waiting on:.*?/\s*next:\s*\S", re.S)
-RECORD_DIRS = re.compile(r"(^|/)\.reef/(approvals|review)(/|$)")
+RECORD_DIRS = re.compile(r"(^|/)\.reef/(approvals|review|night)(/|$)")   # night (0.7, super Reef): the contract and the `active` marker
 # evidence an AGENT produced: a hand-back, a verifier/hunter report, a plan review. The main session (no agent_id in
 # the payload) may copy one (cp/mv from the scratchpad) but never write its content (2026-10-17: a hunter report and
 # a hand-back were typed by the orchestrator "from the agent's message" — evidence nobody but the orchestrator wrote).
@@ -295,8 +295,8 @@ def check_record_dirs(seg):
     """.reef/approvals/ and .reef/review/ are written by scripts/reef-approval.py and scripts/reef-record
     only: a hand-written record would be an approval nobody gave (tripwire; the digest check is the code)."""
     if any(RECORD_DIRS.search(t) for t in write_targets(seg)):
-        deny("writing under .reef/approvals/ or .reef/review/ by hand — these records are written by the "
-             "AskUserQuestion hook and scripts/reef-record, bound to a digest or a forge SHA")
+        deny("writing under .reef/approvals/, .reef/review/ or .reef/night/ by hand — these records are written by the "
+             "AskUserQuestion hook, scripts/reef-record and scripts/reef-run.py, bound to a digest or a forge SHA")
 
 
 def check_evidence_authoring(seg, ctx):
@@ -503,6 +503,9 @@ def check_release_pr(seg, ctx):
     if release == base or (pr_base is not None and pr_base != release):
         return
     cwd = ctx.get("cwd") or os.getcwd()
+    if pr_base == release and any(os.path.isfile(os.path.join(r, ".reef", "night", "active")) for r in roots):
+        deny(f"a super Reef night is running (.reef/night/active): the release to {release} is the owner's, in the morning — "
+             "Mahmoud never opens it")
     head_ref = _flag(rest, ("--head",), ("-H",))
     ref = f"refs/heads/{head_ref.split(':')[-1]}" if head_ref else "HEAD"
     r = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], cwd=cwd, capture_output=True, text=True)
@@ -882,7 +885,7 @@ def check_single_rollup(path, fm):
 # mechanical work. Each project overrides per role; an unset role is not checked.
 ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "plan_reviewer",
            "loophole-hunter": "adversary", "mechanic": "mechanic", "Explore": "mechanic", "security": "security",
-           "planner": "planner"}
+           "planner": "planner", "mahmoud": "proxy"}
 
 
 def read_config(root):
