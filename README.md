@@ -103,7 +103,8 @@ flowchart LR
    only a HALT ruling or your own decision edits an approved plan.
 4. **Build.** Every ready task starts at once, each in its own worktree on its tier's model. A fresh task runs as one
    background workflow (graph mode, `/reef-graph`) once this machine's probe has proved the guard reaches workflow
-   agents; a fix round, or a task without that proof, runs in the chat (`/reef-task`). The loop chooses; you don't. Per task: an implementer builds it test-first and hands
+   agents, and so does a fix round (the implementer gets the failure, the verifier judges what it named); without that
+   proof it runs in the chat (`/reef-task`). The loop chooses; you don't. Per task: an implementer builds it test-first and hands
    back; a verifier in a fresh context writes its pass or fail rule per criterion *before* reading the diff; a second
    round judges only what the round changed; a hash of the tree proves the judges changed nothing. Three fix rounds
    per task, then it stops and tells you.
@@ -159,7 +160,7 @@ flowchart LR
 | `awaiting: <feature> (records in the 0.6 digest form: …)` | The plan's records were written before the digest changed shape. Nothing is re-asked. | Run the one `--migrate-records` command the line prints, in the plan's checkout. |
 | `HALT` from the plan reviewer | Two of your own documents contradict each other. The reviewer does not pick a winner. | Decide which one is right; the planner amends and the machines re-check. |
 | `dispatch (graph): 101, 102 — python3 scripts/reef-graph-run.py generate` | Several tasks are ready and this machine's probe recorded `GATE OK`. | Nothing: `/reef-loop` runs them as one background workflow and settles the results. |
-| `verify now: <id> (handed back, uncommitted — gate + verifier, no implementer)` | An implementer handed the task back and nothing judged it yet. | Run `/reef-task`; it starts that task at the gate. |
+| `verify now: <id> (handed back, uncommitted — gate + verifier, no implementer)` | An implementer handed the task back and nothing judged it yet. | Nothing: `/reef-loop` judges it (in the graph when this machine's probe passed, else `/reef-task` from the gate). |
 | `BROKEN: graph.mode is graph but this machine has no GATE OK` | You asked for graph mode and the probe has not proved the guard reaches workflow agents here. | `python3 scripts/reef-graph-run.py probe` once, then the probe-check it prints; chat mode runs meanwhile. |
 | `GROWTH over caps.task_growth: <ids> — say why in the journal` | A task cost the orchestrator more context than the cap you set. | Say why in the journal row, or split the task next time. |
 | `USER ACTION REQUIRED` with a list of commands | No remote, or no `gh` login. Reef does not guess at a forge. | Run the listed commands yourself, then the next command the handoff names. |
@@ -220,7 +221,7 @@ Every cap, model, branch name and path Reef uses is a key in this one file, writ
 | **`tiers.<tier>.roles` / `.effort` / `.paths`** | the table above; design paths auth/crypto/secrets/migrations; critical paths `.githooks/**`, `scripts/reef-*`, `hooks/**`, `.reef/config.json` | model per role, effort, path classes that force the tier |
 | `tiers.light.allow` / `max_lines` / `migrations` | `docs/**, README.md` / `80` / migration dirs | what may be light |
 | `graph.parallel` · `resources.<name>.slots` · `worktree.dir` / `worktree.setup` | `10` · `1` (`heavy` 2) · `.reef/worktrees` / stack install | as in 0.5 |
-| **`graph.mode`** | `auto` | `auto`: a fresh `dispatch now` task runs as a workflow (`/reef-graph`) when this machine's probe recorded GATE OK, in chat (`/reef-task`) otherwise; `chat`: never; `graph`: as auto, a missing gate is BROKEN. A fix round and a `verify now` stay in chat. Read from the main checkout, like `hunter.*`. |
+| **`graph.mode`** | `auto` | `auto`: a fresh `dispatch now` task runs as a workflow (`/reef-graph`) when this machine's probe recorded GATE OK, in chat (`/reef-task`) otherwise; `chat`: never; `graph`: as auto, a missing gate is BROKEN. A fix round and a `verify now` run in the graph too (a judge-only pipeline for a hand-back or a rejected report). Read from the main checkout, like `hunter.*`. |
 | `roles.*` | author opus · verifier opus · plan_reviewer opus · planner opus · adversary opus · reviewer opus · security opus · mechanic sonnet | the fallback when the tier table does not name the role |
 | `merge.by` · `ci.feature_gate` · `branches.base` / `branches.release` | `human` · `ci` · `main` / `main` (init: `develop` / `main`) | as in 0.5; `ci.check_name` (`every gate, once`) names the required check for `reef-repo` |
 | **`paths.features`** · `paths.tasks` / `adr` / `glossary` / `runlog` / `queue` | `reef/features` (0.6 tree) · 0.5 locations for a 0.5 project, `reef/…` for a 0.6 one | where things live; the loaders accept either shape |
@@ -371,7 +372,7 @@ Every claim above has a number behind it, and the numbers live in `docs/perf/`:
 
 ### Selftests
 
-`sh tests/run.sh` — 554 sabotage and contract tests (449 Python + 105 shell, as the suite runs them). Every mechanism in
+`sh tests/run.sh` — 556 sabotage and contract tests (451 Python + 105 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
 script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials

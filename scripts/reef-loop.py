@@ -275,7 +275,11 @@ def tick(root):
             att = int((re.search(r"^attempts:[ \t]*(\d+)", read(str(t.get("path") or ""))[:4000], re.M) or [None, "0"])[1])
         except (OSError, ValueError):
             att = 0
-        dispatch_mode[str(t["id"])] = "graph" if (mode != "chat" and gate and att == 0) else "chat"
+        dispatch_mode[str(t["id"])] = "graph" if (mode != "chat" and gate) else "chat"
+    # 0.7: a fix round and a handed-back task run in the graph too (generate builds the round-2 or verify-only
+    # pipeline); a failed task cost the orchestrator one chat turn per agent result before (2026-10-20)
+    for tid in verify_now:
+        dispatch_mode[tid] = "graph" if (mode != "chat" and gate) else "chat"
     # a dispatched-and-failed task is progress: its attempts/dispatches counters are part of the tick's fingerprint
     # (2026-10-19, qassimha 1302, row 70: a graph run dispatched, ran and failed 1302 between two ticks that hashed the
     # same, and the loop parked itself for "no progress")
@@ -381,10 +385,12 @@ def render(state):
     dm = state.get("dispatch_mode") or {}
     g_ids = [i for i in state["dispatch_now"] if dm.get(i) == "graph"]
     c_ids = [i for i in state["dispatch_now"] if dm.get(i) != "graph"]
-    why = "" if state.get("graph_mode") == "chat" else (" (fix round)" if state.get("graph_gate") else " (no GATE OK — reef-graph-run.py probe)")
+    why = "" if state.get("graph_mode") == "chat" else ("" if state.get("graph_gate") else " (no GATE OK — reef-graph-run.py probe)")
     disp = " · ".join(([f"dispatch (graph): {', '.join(g_ids)} — python3 scripts/reef-graph-run.py generate"] if g_ids else [])
                       + ([f"dispatch (chat): {', '.join(c_ids)} — /reef-task{why}"] if c_ids else []))
-    nxt = ("verify: " + ", ".join(state["verify_now"])) if state.get("verify_now") else \
+    v_graph = [i for i in state.get("verify_now") or [] if dm.get(i) == "graph"]
+    nxt = (f"verify (graph): {', '.join(v_graph)} — python3 scripts/reef-graph-run.py generate") if v_graph else \
+          ("verify: " + ", ".join(state["verify_now"])) if state.get("verify_now") else \
           disp if state["dispatch_now"] else \
           ("review: " + state["prs_to_review"][0]) if state["prs_to_review"] else \
           ("close: " + ", ".join(state["rows_to_close"])) if state["rows_to_close"] else \
