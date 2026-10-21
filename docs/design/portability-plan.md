@@ -94,7 +94,7 @@ claim parity.**
 | Graph mode | No Workflow tool [D] | `graph.mode: chat` (exists) |
 | Stop hook | OpenCode has none; `session.idle` only notifies [D] | The runner's tick between sessions |
 | Approval hook | No `AskUserQuestion` PostToolUse | `reef-approval.py`'s command path (exists) |
-| Precise cost and context ceiling | No transcript a hook can read mid-session **[?]** | Usage from the run's `step_finish` events [C]; the ceiling stays fail-open |
+| Precise cost and context ceiling | No transcript a hook can read mid-session **[?]** | Usage from the run's `step_finish` events [V] (phase 0); the ceiling stays fail-open |
 
 ## 6. Flags for the owner
 
