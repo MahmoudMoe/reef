@@ -360,6 +360,28 @@ class PlanRoundCap(unittest.TestCase):
             json.dump({"hunter": {"plan_rounds": 0}}, f)
         self.assertEqual(adv(p, "plan", self.report(d, 9)).returncode, 0)
 
+    def test_the_cap_is_read_from_the_main_checkout_not_the_worktree(self):
+        # 2026-10-21: row 4's plan lives in its feature worktree; the worktree's copy of the config kept plan_rounds 2
+        # after the owner's 3 on develop, and the loop asked the owner to edit both files. Loop policy has one home.
+        main = tempfile.mkdtemp(prefix="reef-adv-main.")
+        g = ["git", "-C", main, "-c", "user.email=t@t", "-c", "user.name=t"]
+        subprocess.run(["git", "init", "-q", "-b", "develop", main], check=True)
+        os.makedirs(os.path.join(main, ".reef"))
+        with open(os.path.join(main, ".reef", "config.json"), "w") as f:
+            json.dump({"hunter": {"plan_rounds": 2}}, f)
+        subprocess.run(g + ["add", "-A"], check=True, capture_output=True)
+        subprocess.run(g + ["commit", "-qm", "cap 2"], check=True, capture_output=True)
+        wt = os.path.join(main, ".reef", "worktrees", "feat")
+        subprocess.run(g + ["worktree", "add", "-q", "-b", "feat/x", wt], check=True, capture_output=True)
+        with open(os.path.join(main, ".reef", "config.json"), "w") as f:
+            json.dump({"hunter": {"plan_rounds": 3}}, f)   # the owner's edit, on develop only
+        p = task(wt)
+        r = adv(p, "plan", self.report(wt, 3))
+        self.assertEqual(r.returncode, 0, "the worktree's stale copy must not decide: " + r.stderr)
+        r = adv(p, "plan", self.report(wt, 4))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("round 4 > hunter.plan_rounds 3", r.stderr)
+
     def test_decided_restamps_without_a_round_and_stays_outside_the_hash(self):
         d = tempfile.mkdtemp(prefix="reef-adv.")
         p = task(d)

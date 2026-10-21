@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The hunter's round cap has one home** (the owner's go, 2026-10-21). `hunter.plan_rounds` was read from the
+  config nearest the task file, and a plan's task file lives in its feature worktree, whose copy of the config kept
+  the old cap: row 4's loop asked the owner to raise it in two files. `reef-adversarial` now reads it from the main
+  checkout, through one `policy_config` shared with `hunter.guard_pass` (which already did), so the README's claim
+  that `hunter.*` is read from the main checkout holds. tests/size-budget.json lowered: `script_lines` 11,269 → 11,264.
 - **Bullets, not paragraphs** (the owner's go, 2026-10-21: "the planning, spec, queue write-up is too big … be
   concise even if you sacrifice grammar"). The seven agents that write English (implementer, verifier, hunter,
   plan reviewer, planner, security, Mahmoud) carry one rule beside the Terse rule: every file they write is one fact
