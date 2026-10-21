@@ -1292,6 +1292,30 @@ def arm_deadline():
     signal.setitimer(signal.ITIMER_REAL, DEADLINE)
 
 
+HOST_TOOLS = {"shell": ("Bash", {"command": "command"}),
+              "write": ("Write", {"file_path": "path", "content": "content"}),
+              "edit": ("Edit", {"file_path": "path", "old_string": "old", "new_string": "new"}),
+              "dispatch": ("Agent", {"subagent_type": "subagent", "model": "model", "prompt": "prompt"})}
+
+
+def from_host(p):
+    """Another host's adapter sends one normalized input (`reef_host`, `tool`, `agent`, `cwd`, the tool's fields); it
+    becomes the payload the checks below already read. The caller is required: a missing one would make every call the
+    main session's, and a judge's write would pass the reviewer lock unseen. An unmapped tool is refused, not passed."""
+    agent = str(p.get("agent") or "").strip()
+    if not agent:
+        deny(f"{p.get('reef_host')} input without `agent`: the adapter must say who calls (\"main\" or the agent's name)")
+    if p.get("tool") not in HOST_TOOLS:
+        deny(f"{p.get('reef_host')} input names tool {p.get('tool')!r}: the guard maps only {', '.join(HOST_TOOLS)}")
+    name, fields = HOST_TOOLS[p["tool"]]
+    out = {"tool_name": name, "hook_event_name": "PreToolUse", "cwd": p.get("cwd") or os.getcwd(),
+           "transcript_path": p.get("transcript_path"),
+           "tool_input": {k: p[v] for k, v in fields.items() if p.get(v) is not None}}
+    if agent != "main":
+        out.update(agent_type=agent, agent_id=str(p.get("agent_id") or agent))
+    return out
+
+
 def main():
     arm_deadline()
     if os.environ.get("REEF_GUARD_TEST_HANG"):
@@ -1300,6 +1324,8 @@ def main():
         payload = json.load(sys.stdin)
     except Exception:
         sys.exit(0)
+    if isinstance(payload, dict) and "reef_host" in payload:
+        payload = from_host(payload)
     tool = payload.get("tool_name", "")
     tool_input = payload.get("tool_input") or {}
     if payload.get("hook_event_name") == "Stop":
