@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **A finding that may never happen is noted, not queued** (the owner's go, 2026-10-21: found rows outran their
+  closing — 77 of qassimha's 82 open rows were found, 11 from one row's hunters in one night — "I'm worried we drop
+  important fixes"). The hunter's NEW-ROW is now a hole that WILL happen but is not this item's (a queue row, as
+  before); a hole that may never happen is `NOTED: <hole> — possible: <why> — worst case: <…>`, and an uncited finding
+  is demoted to NOTED, not NEW-ROW. Anything touching security, privacy, money or data loss is always a NEW-ROW however
+  unlikely. `reef-queue.py note "<finding>" --row <id>` records a note in `noted-risks.md` beside the queue and refuses
+  one whose words name those classes (a backstop: class words only — "token" would make every share-link finding a
+  row); `promote-note n<k>` makes one a found row and marks the note `→ row <id>`; a note is never deleted; `triage`
+  counts the open notes on its head line. Filing lines in /reef-plan, /reef-task, /reef-review and reef:mahmoud. On
+  last night's rows 78–88: about 4–5 of 11 would have been notes; the security, data and will-happen ones stay rows.
+  tests/size-budget.json raised: `prose_words` 18,708 → 18,884, `script_lines` 11,147 → 11,213.
 - **A headless session keeps its workflow alive** (the trial night, 2026-10-21; the owner's go): the session launched
   the graph for 1201 and 1202, ended its turn, and `claude -p` exited exactly ten minutes later, killing both
   implementers mid-build (Claude Code's run record: `killed`). Claude Code waits for background agents and workflows

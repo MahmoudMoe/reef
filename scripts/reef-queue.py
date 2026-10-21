@@ -20,6 +20,11 @@ Usage:
   reef-queue.py triage [--repo DIR] [--count]              (0.7) rule 7: found rows still queued two batches after they
                                                  entered, grouped by module, with the three outcomes as ONE owner
                                                  question; the open found vs planned count; --count prints one line
+  reef-queue.py note "<finding>" [--row ID] [--repo DIR]   (0.7) a hunter's NOTED finding — possible, may never happen —
+                                                 recorded in noted-risks.md beside the queue instead of queued; refused
+                                                 for a security, privacy, money or data-loss finding (always a row); prints n<k>
+  reef-queue.py promote-note n<k> [--batch N] [--repo DIR] (0.7) that note as a found row (Depends its row); the note keeps
+                                                 `→ row <id>` — a note is never deleted; prints the row id
   reef-queue.py set-batch ID N [--repo DIR]                (0.7) move a row to batch N (a promotion; footnote the reason)
   reef-queue.py drop-row ID --reason "<text>" [--repo DIR] (0.7) delete a queued row (rule 7) and record the reason as a footnote
   reef-queue.py index [--repo DIR]              (0.6) regenerate <paths.features>/README.md: feature, row, batch,
@@ -248,7 +253,7 @@ def cmd_footnote(root, text, row_id):
     return 0
 
 
-def cmd_add_row(root, item, depends, source, batch, admitted):
+def add_row(root, item, depends, source, batch, admitted):
     _, qpath, apath = queue_paths(root)
     q = read(qpath)
     ids = [int(r["Id"]) for r in parse_table(q) if r["Id"].isdigit()]
@@ -278,6 +283,60 @@ def cmd_add_row(root, item, depends, source, batch, admitted):
         lines.insert(last + 1, row)
         q = "\n".join(lines) + "\n"
     write_text(qpath, q)
+    return new_id
+
+
+def cmd_add_row(root, item, depends, source, batch, admitted):
+    print(add_row(root, item, depends, source, batch, admitted))
+    return 0
+
+
+# found rows outran their closing (the owner, 2026-10-21: 77 of qassimha's 82 open rows were found, 11 from one row's
+# hunters in one night): a hole that may never happen is recorded, not queued — and nothing important is dropped, so a
+# finding in these classes is always a row, whatever its odds
+SAFETY = re.compile(r"\b(auth\w*|sessions?|cookies?|csrf|xss|inject\w*|secrets?|passwords?|credentials?|pii|personal data|"
+                    r"privacy|leak\w*|payments?|charges?|refunds?|data loss|permissions?|bypass\w*|attack\w*)\b", re.I)
+NOTES_HEAD = ("# Noted risks\n\nFindings that may never happen, recorded instead of queued (`reef-queue.py note`). "
+              "`reef-queue.py promote-note n<k>` makes one a found row. A note is never deleted.\n\n")
+
+
+def notes_path(root):
+    _, qpath, _ = queue_paths(root)
+    return os.path.join(os.path.dirname(qpath), "noted-risks.md")
+
+
+def open_notes(root):
+    p = notes_path(root)
+    return [l for l in read(p).splitlines() if re.match(r"^- n\d+ · ", l) and " → row " not in l] if os.path.isfile(p) else []
+
+
+def cmd_note(root, text, row_id):
+    import datetime
+    text = " ".join(text.split()).replace("|", "/")
+    if not text:
+        die("note: the finding, one line")
+    m = SAFETY.search(text)
+    if m:
+        die(f"'{m.group(0)}': a security, privacy, money or data-loss finding is always a queue row — "
+            f"add-row --item \"…\" --source found", 1)
+    p = notes_path(root)
+    body = read(p) if os.path.isfile(p) else NOTES_HEAD
+    n = max((int(x) for x in re.findall(r"(?m)^- n(\d+) · ", body)), default=0) + 1
+    write_text(p, body.rstrip("\n") + f"\n- n{n} · row {row_id or '-'} · {datetime.date.today().isoformat()} · {text}\n")
+    print(f"n{n}")
+    return 0
+
+
+def cmd_promote_note(root, nid, batch):
+    p = notes_path(root)
+    body = read(p) if os.path.isfile(p) else ""
+    m = re.search(rf"(?m)^- {re.escape(nid)} · row (\S+) · \S+ · (.*)$", body)
+    if not m:
+        die(f"no note {nid} in {os.path.relpath(p, root)}", 1)
+    if " → row " in m.group(0):
+        die(f"note {nid} is already a row ({m.group(0).rsplit(' → ', 1)[1]})", 1)
+    new_id = add_row(root, f"{m.group(2).strip()} (noted {nid})", "" if m.group(1) == "-" else m.group(1), "found", batch, "")
+    write_text(p, body.replace(m.group(0), f"{m.group(0)} → row {new_id}", 1))
     print(new_id)
     return 0
 
@@ -331,6 +390,9 @@ def cmd_triage(root, count_only):
     stale, open_found, open_planned = triage_rows(rows, text)
     cur = current_batch(text) or "?"
     head = f"triage: batch {cur} · open found {len(open_found)} vs planned {len(open_planned)} · stale found (rule 7): {len(stale)}"
+    notes = open_notes(root)
+    if notes:
+        head += f" · noted risks: {len(notes)} open ({os.path.relpath(notes_path(root), root)}; promote-note n<k> makes one a row)"
     if count_only:
         print(head)
         return 0 if not stale else 1
@@ -596,7 +658,7 @@ def main(argv):
         argv = argv[:i] + argv[i + 2:]
     root = repo_root(repo)
     if not argv:
-        die("usage: reef-queue.py status|ready [--all]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids>|triage [--count]|set-batch ID N|drop-row ID --reason <text> [--repo DIR]")
+        die("usage: reef-queue.py status|ready [--all]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids>|triage [--count]|note <text> [--row ID]|promote-note n<k> [--batch N]|set-batch ID N|drop-row ID --reason <text> [--repo DIR]")
     cmd = argv[0]
     if cmd == "status":
         return cmd_status(root)
@@ -621,6 +683,10 @@ def main(argv):
         return cmd_set_depends(root, argv[1], argv[2])
     if cmd == "triage":
         return cmd_triage(root, "--count" in argv)
+    if cmd == "note" and len(argv) >= 2:
+        return cmd_note(root, argv[1], opt("--row", None))
+    if cmd == "promote-note" and len(argv) >= 2:
+        return cmd_promote_note(root, argv[1], opt("--batch", None))
     if cmd == "set-batch" and len(argv) >= 3:
         return cmd_set_batch(root, argv[1], argv[2])
     if cmd == "drop-row" and len(argv) >= 2 and "--reason" in argv:
