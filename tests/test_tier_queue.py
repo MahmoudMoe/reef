@@ -314,6 +314,9 @@ class QueueEdits(unittest.TestCase):
         self.assertIn("| 13 | Receipt photo deletion¹²²³ | 1 | planned | 2 | |", q)
         self.assertTrue(q.rstrip().endswith(")"), "appended under ## Footnotes, nothing after")
         self.assertEqual(queue(self.d, "check").returncode, 0, "the queue still parses")
+        # a decision its author already dated keeps ONE date (night 2026-10-21: ⁵⁴ read "(2026-10-21) (2026-10-21)")
+        queue(self.d, "footnote", "Mahmoud (proxy, night 2026-10-21): keep the confirm (2026-10-21)")
+        self.assertRegex(read_file(self.d, "docs/queue.md"), r"(?m)^²⁴ Mahmoud \(proxy, night 2026-10-21\): keep the confirm \(2026-10-21\)$")
 
     def test_add_row_found_lands_in_the_next_batch_planned_in_the_current_and_set_depends_edits_one_cell(self):
         r = queue(self.d, "add-row", "--item", "Magic-link rate limit (row 11 plan)", "--depends", "11", "--source", "found")
