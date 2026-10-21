@@ -330,7 +330,7 @@ return {{ tasks: results.filter(Boolean), skipped: TASKS.length - results.filter
         f.write(js)
     print(f"graph: {len(items)} task(s): {', '.join(i['id'] for i in items)}  reports: {report_dir}")
     print(f"script: {p}")
-    print(f"next: call the Workflow tool with scriptPath {p}; save its return value as JSON to .reef/graph/results-{h}.json; then `reef-graph-run.py settle` that file")
+    print(f"next: call the Workflow tool with scriptPath {p}; when it completes, `reef-graph-run.py settle <the output file its completion notice names>`")
     return 0
 
 
@@ -349,18 +349,39 @@ def rejection(text):
     return (rest[0] if rest else (lines[0] if lines else ""))[:250]
 
 
+def findings(report_path, tid):
+    """The hunter's NEW-ROW and NOTED lines, for the orchestrator to file (2026-10-21: graph mode copied a hunter's report
+    at settle and nothing said what it had found — a finding not filed is a finding dropped)."""
+    row = str(int(tid) // 100) if tid.isdigit() and int(tid) >= 100 else "?"
+    out = []
+    with open(report_path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            m = re.match(r"^(NEW-ROW|NOTED)\s*:\s*(.+)$", line.replace("*", "").strip())
+            if m:
+                out.append(f"  {m.group(1)} (hunter {tid}, row {row}): {m.group(2)[:200]}")
+    return out
+
+
 def cmd_settle(root, results_path):
     try:
         with open(results_path, encoding="utf-8") as f:
             res = json.load(f)
     except Exception as e:
         die(f"cannot read the results: {e}", 1)
+    # the completion notice's output file holds the return value under "result" — settle it as it is, nothing typed
+    # (2026-10-21: a hand-typed results file was blocked by auto mode as a possible checks bypass)
+    if isinstance(res, dict) and "tasks" not in res and "result" in res:
+        if not isinstance(res.get("result"), dict):
+            die("the workflow ended without a result (killed or failed): its tasks stay in flight until the tick frees them "
+                "after loop.inflight_stale_minutes", 1)
+        res = res["result"]
     tasks = res.get("tasks") if isinstance(res, dict) else None
     if not isinstance(tasks, list):
         die("results hold no `tasks` list — save the Workflow tool's return value as it came", 1)
-    failed = 0
+    failed, filed = 0, False
     for r in tasks:
         tid, task_file, wt = str(r.get("task")), r.get("task_file") or "", r.get("worktree") or ""
+        found = []
         marker = os.path.join(root, ".reef", "inflight", tid)
         if os.path.isfile(marker):
             os.unlink(marker)   # handed back: the task is no longer in flight (chat mode: /reef-task removes it on the hand-back)
@@ -404,6 +425,9 @@ def cmd_settle(root, results_path):
                     rc, out, err = run([sys.executable, script(root, "reef-adversarial"), task_file, "guard", dest], root)
                     if rc != 0:
                         why.append(f"guard-pass record refused: {err.strip().splitlines()[-1][:140] if err.strip() else rc}")
+        for j in (r.get("judges") or []):
+            if isinstance(j, dict) and j.get("role") == "hunter" and os.path.isfile(j.get("report_path") or ""):
+                found += findings(j["report_path"], tid)
         if why:
             failed += 1
             reason = "; ".join(why)
@@ -414,6 +438,12 @@ def cmd_settle(root, results_path):
                 print(f"  attempt counted: {att.group(0) if att else (err_a or out_a).strip().splitlines()[-1][:120] if (err_a or out_a).strip() else rc_a}")
         else:
             print(f"READY TO MERGE {tid} ({wt}) — /reef-task step 4: commit in the worktree, merge --no-ff into the feature branch, status done, journal row")
+        for line in found:
+            print(line)
+        filed = filed or bool(found)
+    if filed:
+        print("file each on branches.base: NEW-ROW → `reef-queue.py add-row --item \"…\" --source found --depends <row>`; "
+              "NOTED → `reef-queue.py note \"…\" --row <row>`")
     return 1 if failed else 0
 
 

@@ -192,6 +192,42 @@ class Settle(unittest.TestCase):
         self.assertIn("hand-back rejected: no claims list", r.stdout, "the reason, not the header (2026-10-20, 301)")
         self.assertIn("FAIL: hand-back rejected: no claims list", open(os.path.join(d, "tasks", "101-a.md")).read(), "the next round reads it")
 
+    def test_the_notices_output_file_is_settled_as_it_is_and_a_killed_run_is_refused(self):
+        # 2026-10-21: a hand-typed results file was blocked by auto mode; the completion notice names a file holding
+        # {"result": <the return value>, …}; the night's killed run left `result: null`
+        d = graph_project()
+        pass_gate(d)
+        g(d, "generate")
+        res = json.load(open(self.results(d)))
+        out = os.path.join(d, "wf.output")
+        json.dump({"summary": "reef graph", "agentCount": 4, "result": res, "workflowProgress": []}, open(out, "w"))
+        r = g(d, "settle", out)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("READY TO MERGE 101", r.stdout)
+        json.dump({"summary": "reef graph", "result": None}, open(out, "w"))
+        r = g(d, "settle", out)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("ended without a result", r.stderr)
+
+    def test_settle_prints_the_hunters_new_rows_and_notes_so_none_is_dropped(self):
+        # 2026-10-21: graph mode copied the hunter's report and nothing said what it found
+        d = graph_project()
+        pass_gate(d)
+        g(d, "generate")
+        rp = os.path.join(d, "report-101-hunter.md")
+        with open(rp, "w") as f:
+            f.write("RUN: agent=loophole-hunter task=101 pass=guard\nDEFECT: x\nBLOCKER: none\n"
+                    "**NEW-ROW:** a flood of wrong tokens locks the bill row — will happen, not this item's: bills.ts:80 — queue it\n"
+                    "NOTED: two joins in one ms list in either order — possible: same-ms commits — worst case: cosmetic\nVERDICT: PASS\n")
+        p = self.results(d)
+        res = json.load(open(p))
+        res["tasks"][0]["judges"] = [{"role": "hunter", "verdict": "PASS", "report_path": rp, "summary": "PASS"}]
+        json.dump(res, open(p, "w"))
+        r = g(d, "settle", p)
+        self.assertIn("  NEW-ROW (hunter 101, row 1): a flood of wrong tokens locks the bill row", r.stdout)
+        self.assertIn("  NOTED (hunter 101, row 1): two joins in one ms list in either order", r.stdout)
+        self.assertIn("file each on branches.base", r.stdout)
+
     def test_a_rejected_report_records_the_reasons_not_the_note_before_them(self):
         """2026-10-19, qassimha 1302 (row 69): reef-claims printed `note: report 661 words` before its REJECTED reasons, settle
         kept the first line, and the fix round's Log said nothing about what to fix."""

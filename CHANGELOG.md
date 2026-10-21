@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **No finding left unfiled, no result typed by hand** (the owner's go after an audit, 2026-10-21). In graph mode
+  `settle` read the hunter's report and printed only READY/FAIL — its NEW-ROW and NOTED lines reached no one; settle
+  now prints each, with the command that files it. The release security pass filed its BLOCKERs and HIGHs only; each of
+  its `NEW-ROW`s now becomes a found row (a security finding is never a note). `settle` takes the completion notice's
+  output file as it is (`{"result": …}`) and refuses a run that ended without a result — the trial's orchestrator
+  typed a results file by hand and auto mode blocked it as a possible checks bypass. /reef-graph's rule on a task the
+  results omit was wrong (`generate` skips a task in flight); it now says the tick frees it after
+  `loop.inflight_stale_minutes`. tests/size-budget.json raised: `prose_words` 18,884 → 18,952, `script_lines` 11,213 → 11,243.
 - **A finding that may never happen is noted, not queued** (the owner's go, 2026-10-21: found rows outran their
   closing — 77 of qassimha's 82 open rows were found, 11 from one row's hunters in one night — "I'm worried we drop
   important fixes"). The hunter's NEW-ROW is now a hole that WILL happen but is not this item's (a queue row, as
