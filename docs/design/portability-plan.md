@@ -41,8 +41,8 @@ Without `agent_id`/`agent_type` in the hook payload the guard treats every call 
 reviewer lock (judges may not write) **silently never fires** (`reef-guard.py:1113`, `:326`) [V]. That is a safety
 loss with no error.
 
-- Claude Code sends both fields [V]. Codex lists them as hook fields [D]. OpenCode's `tool.execute.before` input has a
-  session id; whether a hook can map it to the calling agent is **[?]**.
+- Claude Code sends both fields [V]. Codex lists them as hook fields [D]. OpenCode's `tool.execute.before` input has only a
+  session id; a plugin maps it to the agent from `chat.params` **[V]** (phase 0).
 - So "the guard knows the caller" is a precondition per host, checked before anything else is built.
 - So the guard **fails closed** where another host's input enters: no caller, no call (phase 1). On Claude Code's own
   path a main-session call has no caller by design, so the rule cannot live there.
@@ -53,6 +53,10 @@ loss with no error.
 Run Reef's existing probe on OpenCode by hand: a headless session dispatches a judge subagent, the judge attempts a
 forbidden write, the guard (wired through a throwaway OpenCode plugin) denies it **and knows it was the judge**.
 Pin one OpenCode version. **If the probe fails, the port stops here.** Cost: one session, about a day.
+
+**Passed 2026-10-21** on OpenCode 1.19.3 (`docs/perf/opencode-probe-2026-10-21.md`): the plugin learns the caller
+from `chat.params` (session → agent), and the guard refused the verifier's `git commit` and allowed the main agent's
+`git status`. Section 3's open question is answered for v1.
 
 ### Phase 1 — neutral core, inside Claude Code (one PR, any host decision)
 Behaviour on Claude stays the same; each item has a test.
@@ -90,7 +94,7 @@ claim parity.**
 | Graph mode | No Workflow tool [D] | `graph.mode: chat` (exists) |
 | Stop hook | OpenCode has none; `session.idle` only notifies [D] | The runner's tick between sessions |
 | Approval hook | No `AskUserQuestion` PostToolUse | `reef-approval.py`'s command path (exists) |
-| Precise cost and context ceiling | No transcript a hook can read mid-session **[?]** | Usage from the run's `step_finish` events [C]; the ceiling stays fail-open |
+| Precise cost and context ceiling | No transcript a hook can read mid-session **[?]** | Usage from the run's `step_finish` events [V] (phase 0); the ceiling stays fail-open |
 
 ## 6. Flags for the owner
 

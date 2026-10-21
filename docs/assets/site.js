@@ -1,12 +1,12 @@
 /* Reef site. No dependencies. Everything here chooses what to show; nothing here is the only copy of a fact.
-   The settings table and the version are read from the README (one home per fact); see
+   The settings table, the hosts table and the version are read from the README (one home per fact); see
    docs/design/site-information-architecture.md. */
 (function () {
   'use strict';
   const REPO = 'https://github.com/MahmoudMoe/reef';
   const BLOB = REPO + '/blob/main/';
   const README_URLS = ['README.md', '../README.md', 'https://raw.githubusercontent.com/MahmoudMoe/reef/main/README.md'];
-  const TABLE_HEADINGS = { settings: 'Settings' };
+  const TABLE_HEADINGS = { settings: 'Settings', hosts: 'Hosts' };
 
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
@@ -176,6 +176,13 @@
     search.addEventListener('input', apply); apply();
   }
 
+  function renderHosts(table) {
+    const host = $('#hosts-table'); if (!host) return;
+    let html = `<table><thead><tr>${table.header.map(h => `<th>${inline(h)}</th>`).join('')}</tr></thead><tbody>`;
+    table.body.forEach(r => { html += `<tr>${r.map((c, i) => `<td${i === 0 ? ' style="min-width:160px"' : ''}>${i === 0 ? '<strong>' + inline(c) + '</strong>' : inline(c)}</td>`).join('')}</tr>`; });
+    host.innerHTML = html + '</tbody></table>';
+  }
+
   async function fetchReadme() {
     for (const url of README_URLS) {
       try {
@@ -191,6 +198,8 @@
     if (!md) return; // the sections keep their README links
     const settings = tableAfterHeading(md, TABLE_HEADINGS.settings);
     if (settings) renderSettings(settings);
+    const hosts = tableAfterHeading(md, TABLE_HEADINGS.hosts);
+    if (hosts) renderHosts(hosts);
     const v = md.match(/version-(\d+\.\d+\.\d+)/);
     if (v) $$('[data-version]').forEach(el => el.textContent = 'v' + v[1]);
   }
