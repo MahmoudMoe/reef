@@ -270,6 +270,30 @@ class Triage(unittest.TestCase):
         self.assertIn("nothing to triage", r.stdout)
         self.assertEqual(queue(self.d, "triage", "--count").returncode, 0)
 
+    def test_a_finding_that_may_never_happen_is_noted_not_queued_and_promoted_in_one_step(self):
+        # the owner, 2026-10-21: found rows outran their closing (77 of 82 open rows), but nothing important may be dropped
+        r = queue(self.d, "note", "Names in join order tie within one ms | cosmetic", "--row", "12")
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "n1"), r.stderr)
+        self.assertEqual(queue(self.d, "note", "a no-JS double submit orphans one name").stdout.strip(), "n2")
+        notes = read_file(self.d, "docs/noted-risks.md")
+        self.assertRegex(notes, r"(?m)^- n1 · row 12 · \d{4}-\d{2}-\d{2} · Names in join order tie within one ms / cosmetic$")
+        self.assertEqual(queue(self.d, "check").returncode, 0, "the notes file beside the queue keeps check green")
+        before = read_file(self.d, "docs/queue.md")
+        for risky in ("participant cookies sent site-wide", "a leaked link stays live", "refund amounts round twice", "an attacker floods the join form"):
+            r = queue(self.d, "note", risky, "--row", "12")
+            self.assertEqual(r.returncode, 1, risky)
+            self.assertIn("always a queue row", r.stderr)
+        self.assertEqual(read_file(self.d, "docs/queue.md"), before)
+        r = queue(self.d, "triage", "--count")
+        self.assertIn("noted risks: 2 open (docs/noted-risks.md; promote-note n<k> makes one a row)", r.stdout)
+        r = queue(self.d, "promote-note", "n1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rid = r.stdout.strip()
+        self.assertRegex(read_file(self.d, "docs/queue.md"), rf"(?m)^\| {rid} \| Names in join order tie within one ms / cosmetic \(noted n1\) \| 12 \| found \| 4 \|", "a found row, the next batch (rule 6)")
+        self.assertIn(f"· Names in join order tie within one ms / cosmetic → row {rid}", read_file(self.d, "docs/noted-risks.md"), "kept, marked")
+        self.assertEqual(queue(self.d, "promote-note", "n1").returncode, 1, "promoted once")
+        self.assertIn("noted risks: 1 open", queue(self.d, "triage", "--count").stdout)
+
     def test_set_batch_moves_the_row_under_its_new_heading(self):
         r = queue(self.d, "set-batch", "14", "3")
         self.assertEqual(r.returncode, 0, r.stderr)

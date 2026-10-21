@@ -184,6 +184,15 @@ class Lessons(unittest.TestCase):
         self.assertIn("claims-only", text)
         self.assertRegex(text, r"(?i)never a fourth round")
 
+    def test_a_hole_that_may_never_happen_is_noted_not_queued_except_the_safety_classes(self):
+        # the owner, 2026-10-21: found rows outran their closing; "I'm worried we drop important fixes"
+        text = read("agents", "loophole-hunter.md")
+        self.assertIn("NOTED: <hole> — possible: <why> — worst case: <one line>", text)
+        self.assertIn("NEW-ROW: <hole> — will happen, not this item's", text)
+        self.assertIn("security, privacy, money or data loss, which is always a NEW-ROW however unlikely", text)
+        for p in (("skills", "reef-task", "SKILL.md"), ("skills", "reef-plan", "SKILL.md"), ("skills", "reef-review", "SKILL.md"), ("agents", "mahmoud.md")):
+            self.assertIn("reef-queue.py note", read(*p), p)
+
     def test_hunter_ranks_by_cost_and_stops(self):
         text = read("agents", "loophole-hunter.md")
         self.assertRegex(text, r"(?i)rank every hole by its real cost")
