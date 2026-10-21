@@ -335,16 +335,25 @@ class PlanRoundCap(unittest.TestCase):
     def report(self, d, rnd, suffix=""):
         return write(d, f"r{rnd}.md", f"RUN: agent=loophole-hunter task=1 pass=plan {suffix or f'round={rnd}'}\nDEFECT: x\nBLOCKER: none\nVERDICT: PASS\n")
 
-    def test_round_three_is_refused_and_round_two_recorded(self):
+    def failed(self, d, rnd):
+        return write(d, f"f{rnd}.md", f"RUN: agent=loophole-hunter task=1 pass=plan round={rnd}\nDEFECT: x\nBLOCKER: a hole\nVERDICT: FAIL\n")
+
+    def test_a_pass_records_at_any_round_and_a_fail_at_the_cap_goes_to_the_owner(self):
+        # 2026-10-21 (qassimha R4): the round-3 PASS was refused at cap 2 and the only way out was a config change; the
+        # cap meant "no further round after a FAIL", and it threw a PASS away instead
         d = tempfile.mkdtemp(prefix="reef-adv.")
         p = task(d)
-        self.assertEqual(adv(p, "plan", self.report(d, 2)).returncode, 0)
-        r = adv(p, "plan", self.report(d, 3))
+        r = adv(p, "plan", self.failed(d, 1))
         self.assertEqual(r.returncode, 2)
-        self.assertIn("round 3 > hunter.plan_rounds 2", r.stderr)
+        self.assertNotIn("--decided", r.stderr, "below the cap a FAIL means fix and re-check")
+        r = adv(p, "plan", self.failed(d, 2))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("round 2 FAILED at hunter.plan_rounds 2", r.stderr)
         self.assertIn("--decided", r.stderr)
-        r = adv(p, "plan", self.report(d, 5, "(round 5)"))
-        self.assertEqual(r.returncode, 2, "the parenthesised spelling seen live counts too")
+        r = adv(p, "plan", self.report(d, 3))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("above hunter.plan_rounds 2", r.stdout)
+        self.assertEqual(adv(p, "plan", self.report(d, 5, "(round 5)")).returncode, 0, "the parenthesised spelling seen live counts too")
         self.assertEqual(adv(p, "plan", write(d, "r0.md", "RUN: agent=loophole-hunter task=1 pass=plan\nBLOCKER: none\nVERDICT: PASS\n")).returncode, 0,
                          "no round on the RUN line = round 1 (older reports)")
 
@@ -354,11 +363,30 @@ class PlanRoundCap(unittest.TestCase):
         os.makedirs(os.path.join(d, ".reef"))
         with open(os.path.join(d, ".reef", "config.json"), "w") as f:
             json.dump({"hunter": {"plan_rounds": 3}}, f)
-        self.assertEqual(adv(p, "plan", self.report(d, 3)).returncode, 0)
-        self.assertEqual(adv(p, "plan", self.report(d, 4)).returncode, 2)
+        self.assertNotIn("--decided", adv(p, "plan", self.failed(d, 2)).stderr)
+        self.assertIn("round 3 FAILED at hunter.plan_rounds 3", adv(p, "plan", self.failed(d, 3)).stderr)
         with open(os.path.join(d, ".reef", "config.json"), "w") as f:
             json.dump({"hunter": {"plan_rounds": 0}}, f)
-        self.assertEqual(adv(p, "plan", self.report(d, 9)).returncode, 0)
+        self.assertNotIn("--decided", adv(p, "plan", self.failed(d, 9)).stderr, "0 = no cap")
+
+    def test_decided_needs_the_owners_footnote_not_a_prior_pass(self):
+        # 2026-10-21 (qassimha R4): `--decided` refused a plan the hunter had never passed, so the route the cap message
+        # names was closed exactly where the cap sends you. The brake is the owner's ruling, written on the row.
+        d = tempfile.mkdtemp(prefix="reef-adv.")
+        p = task(d)
+        os.makedirs(os.path.join(d, ".reef"))
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump({"paths": {"queue": "reef/queue.md"}}, f)
+        os.makedirs(os.path.join(d, "reef"))
+        with open(os.path.join(d, "reef", "queue.md"), "w") as f:
+            f.write("# Queue\n\n⁶⁸ Row 1, owner ruled: fix as drafted.\n")
+        r = adv(p, "plan", "--decided", "⁶⁹")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no queue footnote ⁶⁹", r.stderr)
+        r = adv(p, "plan", "--decided", "68")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("owner decision 68", r.stdout)
+        self.assertRegex(open(p).read(), r"(?m)^adversarial-decided: 68$")
 
     def test_the_cap_is_read_from_the_main_checkout_not_the_worktree(self):
         # 2026-10-21: row 4's plan lives in its feature worktree; the worktree's copy of the config kept plan_rounds 2
@@ -376,11 +404,9 @@ class PlanRoundCap(unittest.TestCase):
         with open(os.path.join(main, ".reef", "config.json"), "w") as f:
             json.dump({"hunter": {"plan_rounds": 3}}, f)   # the owner's edit, on develop only
         p = task(wt)
-        r = adv(p, "plan", self.report(wt, 3))
-        self.assertEqual(r.returncode, 0, "the worktree's stale copy must not decide: " + r.stderr)
-        r = adv(p, "plan", self.report(wt, 4))
-        self.assertEqual(r.returncode, 2)
-        self.assertIn("round 4 > hunter.plan_rounds 3", r.stderr)
+        r = adv(p, "plan", self.failed(wt, 2))
+        self.assertNotIn("--decided", r.stderr, "the worktree's stale copy (cap 2) must not decide: " + r.stderr)
+        self.assertIn("round 3 FAILED at hunter.plan_rounds 3", adv(p, "plan", self.failed(wt, 3)).stderr)
 
     def test_decided_restamps_without_a_round_and_stays_outside_the_hash(self):
         d = tempfile.mkdtemp(prefix="reef-adv.")

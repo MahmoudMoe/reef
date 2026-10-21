@@ -12,10 +12,11 @@ Usage:
   reef-adversarial <task-file> plan --decided <mark>   (0.7) the owner ruled at the gate (queue footnote <mark>) on a
                                                        plan edited after the hunter's last pass: re-stamp without a round
 
-The plan pass has a ROUND CAP (0.7, `hunter.plan_rounds`, default 2): the pass, one fix, one re-check. A report whose
-RUN line says `round=N` / `(round N)` above the cap is refused — the hole it names is the owner's decision at the gate
-(fix as drafted / accept as a found row / drop the task), or an AC/Proof row the CODE proves, never a third hunter
-round on prose (2026-10-17: rows 2 and 13 reached round 6 and three planning sessions produced no code).
+The plan pass has a ROUND CAP (0.7, `hunter.plan_rounds`, default 2): the pass, one fix, one re-check. A FAIL at a round
+(`round=N` / `(round N)` on the RUN line) at or above the cap gets no further round — the hole it names is the owner's
+decision at the gate (fix as drafted / accept as a found row / drop the task), or an AC/Proof row the CODE proves,
+never another hunter round on prose (2026-10-17: rows 2 and 13 reached round 6). A PASS is recorded at any round: it
+ends the cycle (2026-10-21: R4's round-3 PASS was refused, and the only way out was a config change by the owner).
 
 A `tier: design` task runs the loophole-hunter twice. This script turns each pass into a
 frontmatter key the mechanisms read:
@@ -76,9 +77,9 @@ def config_near(path):
     return None, {}
 
 
-def policy_config(path):
-    """Loop policy has ONE home: the MAIN checkout's config (a worktree's copy predates the owner's edit until its next
-    merge of the base); the nearest config when there is no other checkout."""
+def policy(path):
+    """(root, config): loop policy has ONE home, the MAIN checkout's config (a worktree's copy predates the owner's edit
+    until its next merge of the base); the nearest config when there is no other checkout."""
     root, cfg = config_near(path)
     if root:
         try:
@@ -86,10 +87,25 @@ def policy_config(path):
             main = next((l[len("worktree "):].strip() for l in r.stdout.splitlines() if l.startswith("worktree ")), "")
             if main and os.path.abspath(main) != os.path.abspath(root):
                 with open(os.path.join(main, ".reef", "config.json"), encoding="utf-8") as f:
-                    cfg = json.load(f)
+                    root, cfg = main, json.load(f)
         except Exception:
             pass
-    return cfg
+    return root, cfg
+
+
+def policy_config(path):
+    return policy(path)[1]
+
+
+def footnote_in_queue(task_path, mark):
+    """The owner's ruling is a queue footnote: a line of the main checkout's queue starting with its mark (`⁶⁸`, or `68`)."""
+    root, cfg = policy(task_path)
+    sup = mark.translate(str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹"))
+    try:
+        with open(os.path.join(root or ".", (cfg.get("paths") or {}).get("queue", "docs/queue.md")), encoding="utf-8") as f:
+            return any(l.startswith(sup + " ") for l in f)
+    except OSError:
+        return False
 
 
 def guard_pass_mode(path):
@@ -270,8 +286,11 @@ def main(argv):
             die("--decided needs the queue footnote mark that records the owner's ruling")
         text = read(task_path)
         fm = frontmatter(text)
-        if fm is None or "adversarial-plan" not in fm:
-            die("--decided re-stamps a plan the hunter already passed once; there is no adversarial-plan record here — run the hunter")
+        if fm is None:
+            die(f"{task_path} has no frontmatter fence — not a reef task file")
+        if "adversarial-plan" not in fm and not footnote_in_queue(task_path, mark):
+            die(f"--decided {mark} on a plan the hunter never passed: no queue footnote {mark} — write the owner's ruling as a "
+                f"footnote on the row first (with a pass on record, a decision only replaces the re-check)")
         value = plan_hash(text)
         set_key(task_path, text, "adversarial-plan", value)
         set_key(task_path, read(task_path), "adversarial-decided", mark)
@@ -291,13 +310,16 @@ def main(argv):
     if fm.get("complexity") == "mech" or fm.get("tier") == "light":
         die("the adversarial stage never runs on a mech/light task — nothing to record")
     report = read(report_path)
-    check_report(report, which)
     if which == "plan":
         cap, rnd = plan_rounds_cap(task_path), report_round(report)
-        if cap and rnd > cap:
-            die(f"plan pass round {rnd} > hunter.plan_rounds {cap}: the plan gets no further hunter round. An open hole is the owner's "
+        if cap and rnd >= cap and re.search(r"^VERDICT:[ \t]*FAIL\b", report, re.M):
+            die(f"plan pass round {rnd} FAILED at hunter.plan_rounds {cap}: the plan gets no further hunter round. An open hole is the owner's "
                 f"decision at the gate (fix as drafted / accept it as a found row / drop the task) — record his words as a queue footnote and run "
                 f"`reef-adversarial <task> plan --decided <mark>`; a hole the code must prove becomes an AC with a Proof row, and the hunter's next pass is on the CODE")
+    check_report(report, which)
+    if which == "plan":
+        if cap and rnd > cap:
+            print(f"note: round {rnd} is above hunter.plan_rounds {cap}; its PASS is recorded, and a FAIL at the cap would have gone to the owner")
         value = plan_hash(text)
     else:
         if "adversarial-plan" not in fm:
