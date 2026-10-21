@@ -26,6 +26,7 @@
     </a>
     <nav class="nav" aria-label="Sections">
       <a href="#start">Start</a>
+      <a href="#hosts">Hosts</a>
       <a href="#how">How it works</a>
       <a href="#roles">Roles</a>
       <a href="#tiers">Tiers</a>
@@ -60,8 +61,9 @@
       <ul class="proofs" aria-label="Three facts">
         <li><a href="#how"><span class="n">1</span> You decide twice: the plan and the release</a></li>
         <li><a href="#practice"><span class="n">2</span> It never overwrites a file you wrote</a></li>
-        <li><a href="#how"><span class="n">3</span> It resumes from disk after <code>/clear</code></a></li>
+        <li><a href="#how"><span class="n">3</span> It resumes from disk in a fresh session</a></li>
       </ul>
+      <p class="muted" style="margin:0 0 6px;font-size:.9rem">In Claude Code. Another host: <a href="#hosts">Hosts</a>.</p>
       <div class="install">
 <pre><code>/plugin marketplace add MahmoudMoe/reef
 /plugin install reef@mahmoudmoe</code></pre>
@@ -94,7 +96,7 @@
     <div class="sec-head">
       <span class="eyebrow">Start here</span>
       <h2>Pick your situation. One command each.</h2>
-      <p>The same rows as the README's install table, one at a time. Every command below is a Claude Code slash command inside your project.</p>
+      <p>The same rows as the README's install table, one at a time. Every command below is a slash command inside your project, in Claude Code; <a href="#hosts">Hosts</a> says what another host changes.</p>
     </div>
     <div class="tabs" role="tablist" aria-label="Your situation">
       <button class="tab" role="tab" aria-selected="true" aria-controls="sit-new" id="tab-new" type="button">A new project</button>
@@ -180,6 +182,22 @@ make setup</code></pre>
   </div>
 </section>
 
+<!-- 2b. HOSTS: parsed from the README -->
+<section id="hosts">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Hosts</span>
+      <h2>Where Reef runs: Claude Code today, OpenCode planned.</h2>
+      <p>Reef runs inside an agent host: the CLI that runs its skills, dispatches its agents and calls its guard before every command. Nothing in OpenCode's column is an instruction until its adapter passes the guard probe. The table is read from the README at page load.</p>
+    </div>
+    <div class="tablebox">
+      <div class="scroll" id="hosts-table">
+        <p class="state">Claude Code is supported; OpenCode is planned, not built. If this stays here, read the table on GitHub: <a href="https://github.com/MahmoudMoe/reef#hosts">Hosts</a>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- 3. HOW IT WORKS: the pipeline explorer -->
 <section id="how">
   <div class="wrap">
@@ -241,7 +259,7 @@ make setup</code></pre>
     </div>
 
     <div class="detail three" id="st-resume" role="tabpanel" aria-labelledby="stage-resume" hidden>
-      <div class="full"><h3>07 · Resume anywhere</h3><p>Everything Reef knows is on disk. A new session, or one after <code>/clear</code>, reads the head of <code>HANDOFF.md</code> and one status tick, a few hundred tokens, which names the next command and the files behind every id it mentions, and continues every row from its last completed step. The tick never offers a task whose plan lacks your approval or its review; it says <code>awaiting</code> and names what is missing. <code>.reef/status.html</code> is the same picture as a page, refreshed every tick; <code>reef/README.md</code> is the map of the tree.</p></div>
+      <div class="full"><h3>07 · Resume anywhere</h3><p>Everything Reef knows is on disk. A new session, or a fresh one at the context ceiling (<code>/clear</code> in Claude Code), reads the head of <code>HANDOFF.md</code> and one status tick, a few hundred tokens, which names the next command and the files behind every id it mentions, and continues every row from its last completed step. The tick never offers a task whose plan lacks your approval or its review; it says <code>awaiting</code> and names what is missing. <code>.reef/status.html</code> is the same picture as a page, refreshed every tick; <code>reef/README.md</code> is the map of the tree.</p></div>
       <div><h4>What it writes</h4><ul><li><code>HANDOFF.md</code>, rewritten from measured state, including by the guard itself when the session's context runs out</li><li><code>.reef/status.html</code></li></ul></div>
       <div><h4>What lets it through</h4><p>A context ceiling and a reserve for starting new tasks. Over either, Reef writes the handoff first and then asks you to <code>/clear</code>.</p></div>
       <div><h4>Your part</h4><p>Run <code>/clear</code> when told. <code>scripts/reef-watch</code> shows what happened while you were away; <code>/reef-doctor</code> says what is wrong and how to fix it.</p></div>
@@ -307,7 +325,7 @@ make setup</code></pre>
       <div class="card">
         <h3>What it needs</h3>
         <p><strong>macOS or Linux. On Windows, run Claude Code inside WSL2.</strong> Native Windows is not supported: the guard needs file locks, a signal timer and process groups that Windows does not have, so inside a Reef project it stops and says so.</p>
-        <p><strong>Claude Code</strong> with the plugin installed from the marketplace.</p>
+        <p><strong>Claude Code</strong> with the plugin installed from the marketplace. <a href="#hosts">Hosts</a> says what another host changes.</p>
         <p><strong><code>python3</code> on the PATH.</strong> The guard is Python; without it a dispatch is denied and the Bash check runs degraded.</p>
         <p><strong>git with the hooks installed.</strong> Hooks are local git config: run <code>make setup</code> after every clone.</p>
         <p><strong><code>gh</code> logged in</strong> for the review, record and merge steps. Without it Reef stops with <code>USER ACTION REQUIRED</code> and lists the exact commands it would have run.</p>
@@ -341,7 +359,7 @@ make setup</code></pre>
           <tr><td><code>BROKEN: graph.mode is graph but this machine has no GATE OK</code></td><td>You asked for graph mode and the probe has not proved the guard reaches workflow agents here.</td><td><code>python3 scripts/reef-graph-run.py probe</code> once, then the probe-check it prints; chat mode runs meanwhile.</td></tr>
           <tr><td><code>GROWTH over caps.task_growth: &lt;ids&gt; — say why in the journal</code></td><td>A task cost the orchestrator more context than the cap you set.</td><td>Say why in the journal row, or split the task next time.</td></tr>
           <tr><td><code>USER ACTION REQUIRED</code> with a list of commands</td><td>No remote, or no <code>gh</code> login. Reef does not guess at a forge.</td><td>Run the listed commands yourself (push, PR, records, merge), then the next command the handoff names.</td></tr>
-          <tr><td><code>/clear now</code> and a fresh <code>HANDOFF.md</code></td><td>The session's context reached the ceiling, or has no room left for a new task. State is on disk.</td><td>Run <code>/clear</code>. The next session continues every row from its last completed step.</td></tr>
+          <tr><td><code>/clear now</code> and a fresh <code>HANDOFF.md</code></td><td>The session's context reached the ceiling, or has no room left for a new task. State is on disk.</td><td>Start a fresh session (<code>/clear</code> in Claude Code). The next session continues every row from its last completed step.</td></tr>
           <tr><td>The guard denied a dispatch</td><td>Outside the ready set, over the retry cap, the wrong model for the tier, no approval or review record, or a hand-back or report the orchestrator wrote itself. The message names which.</td><td>Fix the named cause. Nothing was dispatched and no marker was written.</td></tr>
           <tr><td>The guard denied a command</td><td>A gate bypass (<code>--no-verify</code>, <code>hooksPath</code>, a stash, a gate piped into <code>tail</code>), a hand-written approval or record, or a protected file outside a critical task.</td><td>Do it the gated way. If the rule itself is wrong, that is a <code>critical</code> task, not an edit.</td></tr>
           <tr><td>A gate exited <code>124</code></td><td>It ran past <code>gates.timeout_s</code> and was killed with its process group; a leaked dev server is the usual cause.</td><td>Find what held the port, or raise the timeout for that gate.</td></tr>
@@ -350,7 +368,7 @@ make setup</code></pre>
           <tr><td>A check warns instead of failing</td><td>Content planned under 0.5 meets a rule new in 0.6.</td><td>Nothing. The rule fails only for content planned under 0.6.</td></tr>
           <tr><td><code>Not verified in a browser:</code> in a verifier report</td><td>The judge could not open the app; it says so instead of claiming.</td><td>Check that part yourself, or give the task a browser proof row.</td></tr>
           <tr><td><code>Approve night &lt;YYYY-MM-DD&gt; at &lt;digest16&gt;?</code></td><td>The one question of a super Reef night: tonight's rows, the decisions your proxy may take, the hard limits. The approval is recorded against that contract and your profile.</td><td>Answer <em>Approve</em>, then <code>python3 scripts/reef-run.py --night</code>; or <em>Edit</em> the contract and be asked again.</td></tr>
-          <tr><td><code>reef-run: waiting on you — …</code> and <code>your questions: .reef/questions.md</code></td><td>The headless runner reached a question only you can answer, and stopped.</td><td>Run <code>/reef-loop</code> in Claude Code; it asks the open questions as one set and continues.</td></tr>
+          <tr><td><code>reef-run: waiting on you — …</code> and <code>your questions: .reef/questions.md</code></td><td>The headless runner reached a question only you can answer, and stopped.</td><td>Run <code>/reef-loop</code> in an interactive session; it asks the open questions as one set and continues.</td></tr>
           <tr><td><code>release PR into &lt;release&gt; at &lt;sha&gt;: no PASS security record for that commit</code></td><td>The release's security pass has not run on this exact head, or the base moved since it did.</td><td>Let the loop run the security agent on the release diff and record it; the PR opens on a PASS at the head.</td></tr>
           <tr><td><code>a super Reef night is running (.reef/night/active): the release … is the owner's, in the morning</code></td><td>A delegated night holds the release: Mahmoud may merge features, never the release.</td><td>Nothing tonight. Read <code>.reef/night/report.md</code> in the morning, then release yourself.</td></tr>
           <tr><td>Something looks off and you cannot say what</td><td>Two <code>AGENTS.md</code>, scripts behind the plugin, a plan nobody can find, a stuck worktree.</td><td><code>/reef-doctor</code>: one screen, each finding with the command that fixes it.</td></tr>

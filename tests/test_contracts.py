@@ -96,6 +96,46 @@ class GateLineIsComputed(unittest.TestCase):
         self.assertIn("`--summary` line VERBATIM", text)
 
 
+class DocsForTwoHosts(unittest.TestCase):
+    """0.7 (the owner, 2026-10-21: instructions for Claude Code and OpenCode): host facts have one home, the README's
+    `## Hosts` table; the site fetches it; the Arabic manual links it; the ledger says which rules carry to another
+    host. OpenCode stays "planned" until its adapter passes the guard probe."""
+
+    def table(self, heading):
+        md = read("README.md")
+        part = md.split(f"\n## {heading}\n", 1)[1].split("\n## ", 1)[0]
+        return [[c.strip() for c in l.strip().strip("|").split("|")] for l in part.splitlines() if l.startswith("|") and "|---" not in l]
+
+    def test_the_hosts_table_names_both_hosts_and_opencode_is_planned(self):
+        rows = self.table("Hosts")
+        self.assertEqual(rows[0], ["", "Claude Code", "OpenCode"])
+        status = dict((r[0], r[1:]) for r in rows[1:])["Status"]
+        self.assertEqual(status, ["supported", "planned, not built"], "OpenCode is planned until its probe passes")
+
+    def test_every_ledger_row_says_which_host_enforces_it(self):
+        md = read("README.md")
+        ledger = md.split("| Rule | Enforced by | Host | Layer |", 1)[1].split("</details>", 1)[0]
+        rows = [l for l in ledger.splitlines() if l.startswith("| ")]
+        self.assertGreaterEqual(len(rows), 40)
+        hosts = {}
+        for r in rows:
+            host = r.rstrip().rstrip("|").rsplit(" | ", 2)[-2].strip()
+            self.assertIn(host, ("portable", "Claude Code"), r[:80])
+            hosts[r[2:40]] = host
+        for rule in ("The missing dispatch", "Plan approval is the HUMAN's", "Context ceiling:", "Session start under"):
+            self.assertEqual(next(h for k, h in hosts.items() if k.startswith(rule)), "Claude Code", rule)
+
+    def test_the_site_fetches_the_hosts_table_and_the_manual_links_it(self):
+        self.assertIn("hosts: 'Hosts'", read("docs", "assets", "site.js"))
+        site = read("docs", "index.html")
+        self.assertIn('id="hosts-table"', site)
+        self.assertIn('<a href="#hosts">Hosts</a>', site)
+        self.assertIn("https://github.com/MahmoudMoe/reef#hosts", site, "the fallback when the fetch fails")
+        ar = read("docs", "manual", "ar", "index.html")
+        self.assertIn("https://github.com/MahmoudMoe/reef#hosts", ar)
+        self.assertIn("OpenCode", ar)
+
+
 class SizeBudget(unittest.TestCase):
     """0.7 (the owner, 2026-10-20: "is Reef creating technical debt?"): config keys, skill and agent prose, and script lines
     grew with every fix and nothing was removed. tests/size-budget.json holds the ceiling; a PR that grows a number

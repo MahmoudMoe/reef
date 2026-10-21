@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The docs for two hosts, step A** (the owner's go, 2026-10-21; `docs/design/docs-two-hosts-plan.md`). Host facts
+  have one home: the README's new `## Hosts` table, Claude Code supported and OpenCode planned, not built. The site
+  reads that table at page load like the Settings table (a Hosts section and nav link; with the fetch failing it links
+  the README); the Arabic manual's install step links it. The honesty ledger gains a Host column: `portable` when a
+  script, git or the guard's checks enforce the rule, `Claude Code` for the six rules that need a hook event only
+  Claude Code sends (the missing-dispatch Stop check, the tier's model per dispatch, the plan approval capture, the
+  context ceiling, the away report, the session-start budget). Host-specific steps say the step and name Claude
+  Code's command in brackets ("start a fresh session (`/clear` in Claude Code)"). Docs only; budget unchanged.
 - **The guard takes another host's input, and the caller is required** (the owner's go, 2026-10-21: Reef beyond
   Claude Code, phase 1 of `docs/design/portability-plan.md`). An adapter for another host sends one normalized input
   (`reef_host`, `tool`: shell/write/edit/dispatch, `agent`, `cwd`, the tool's fields); the guard translates it to the
