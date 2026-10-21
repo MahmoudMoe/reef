@@ -66,6 +66,8 @@ Behaviour on Claude stays the same; each item has a test.
 ### Phase 2 — the OpenCode adapter (only after phase 0 passes)
 - **Guard:** an OpenCode plugin that calls `reef-guard.py` with the normalized input and blocks on deny. Move what a
   glob can say into OpenCode's declarative permissions per agent; keep the script for what it cannot.
+  The plugin blocks on **any** non-zero exit or a timeout, not only exit 2, as `hooks.json` does with
+  `onFailure: block`: a crash in the guard (a dispatch check exits 1) must never read as an allow.
 - **Agents:** generate `.opencode/agents/*.md` from `agents/*.md` (one source), judges with `edit: deny`.
 - **Runner:** `reef-run.py --host opencode` runs `opencode run --format json`; one parser maps its events to the
   runner's lines. The event format is from source and community notes only **[C]**; record real payloads first, as
