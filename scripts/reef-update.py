@@ -100,6 +100,16 @@ def main(argv):
             cfg_before = json.load(f)
     except Exception:
         cfg_before = None
+    man_path = os.path.join(root, ".reef", "init-manifest.json")
+    def manifest():
+        try:
+            with open(man_path, encoding="utf-8") as f:
+                m = json.load(f)
+            return m if isinstance(m, dict) else {}
+        except Exception:
+            return {}
+    man_before = manifest()
+    dirty_before = {l[3:] for l in subprocess.run(["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True).stdout.splitlines() if len(l) > 3}
     init = os.path.join(plugin, "scripts", "reef-init.py")
     args = [sys.executable, init, "--root", root, "--plugin", plugin] + (["--dry-run"] if dry else [])
     rc, out = run(args, root, timeout=600)
@@ -115,7 +125,7 @@ def main(argv):
     for dp, _, fn in os.walk(pdir):
         props += [os.path.relpath(os.path.join(dp, f), pdir) for f in fn if not f.endswith(".diff")]
     for p in props[:6]:
-        print(f"proposal: {p} — accept: python3 scripts/reef-init.py --accept {p}   keep yours: --keep {p}")
+        print(f"proposal: {p} — accept: python3 {init} --root {root} --accept {p}   keep yours: --keep {p}")
     try:
         with open(os.path.join(plugin, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
             version = str(json.load(f).get("version") or "?")
@@ -132,6 +142,13 @@ def main(argv):
     st = subprocess.run(["git", "status", "--porcelain", "--"] + paths, cwd=root, capture_output=True, text=True)
     changed_files = [l[3:] for l in st.stdout.splitlines()
                      if len(l) > 3 and l[3:].startswith(("scripts/reef-", ".reef/", ".githooks/", ".gitignore", "reef/README.md", "docs/REEF.md"))]
+    # 2026-10-21 (qassimha): reef-init rewrote AGENTS.md in place (Reef's untouched rendering) and it sat uncommitted
+    for rel, h in manifest().items():
+        if rel.startswith("_") or h == "owner" or rel in changed_files or rel == ".reef/config.json" or rel in dirty_before:
+            continue
+        if man_before.get(rel) != h and subprocess.run(["git", "ls-files", "--error-unmatch", "--", rel], cwd=root, capture_output=True).returncode == 0 \
+                and subprocess.run(["git", "diff", "--quiet", "HEAD", "--", rel], cwd=root).returncode != 0:
+            changed_files.append(rel)
     def only_added(old, new):
         if isinstance(old, dict) and isinstance(new, dict):
             return all(k in new and only_added(v, new[k]) for k, v in old.items())
