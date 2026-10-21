@@ -10,6 +10,7 @@ Usage (the owner's terminal, in the project's main checkout):
       forbidden write; GATE OK only when reef-guard denied it and no file exists (fail closed — a headless session the
       guard does not reach would be a way around every rule)
   reef-run.py [--repo DIR] [--max-iterations 10] [--permission-mode auto] [--night]
+  reef-run.py watch [--repo DIR]   the live steps of the run in progress (any terminal; Ctrl-C to leave)
   reef-run.py contract [--from FILE]   (super Reef) install tonight's contract into .reef/night/contract.md and print
       the night digest (contract + reef/owner.md) and the exact question /reef-night asks: `Approve night <date> at <16 hex>?`
   --night: a delegated night (/reef-night): refuses without .reef/approvals/night.json at the CURRENT night digest; owner
@@ -17,16 +18,23 @@ Usage (the owner's terminal, in the project's main checkout):
       (the guard then refuses a release PR); `.reef/night/report.md` at exit — every proxy decision and every merge.
 Exit: 0 the loop stopped · 2 waiting on the owner (their questions are in .reef/questions.md) · 3 parked, or a session
 ended with work in flight · 4 the iteration cap · 1 refused (no probe for this mode, a second runner, not a project).
-Files (gitignored): .reef/run/gate.json · .reef/run/run.log (one JSON line per session) · .reef/run/lock.
+Files (gitignored): .reef/run/gate.json · .reef/run/run.log (one JSON line per session) · .reef/run/lock ·
+.reef/run/live.log (one line per step of the current run: an agent out and back with its verdict, the orchestrator's
+own words, a decision, a merge — what the terminal shows, and the Runner section of .reef/status.html).
 The lock stops a second RUNNER; it does not stop an interactive /reef-loop beside it — run one orchestrator at a time.
 """
+import html
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 
 RUN_DIR = os.path.join(".reef", "run")
+LIVE = os.path.join(RUN_DIR, "live.log")
+# the commands that decide or merge — every other Bash call is noise in the live view
+KEY_BASH = re.compile(r"reef-approval\.py --proxy|reef-queue\.py footnote|reef-record |gh pr (create|merge)|git merge |reef-loop\.py wait")
 NIGHT_DIR = os.path.join(".reef", "night")
 NIGHT_PROMPT = (" SUPER REEF NIGHT (.reef/night/contract.md, approved by the owner; /reef-night has the rules): every owner decision "
                 "INSIDE the contract goes to reef:mahmoud (model roles.proxy), never to questions.md. A plan approval: Mahmoud writes "
@@ -52,21 +60,118 @@ def main_checkout(repo):
     return first or os.path.abspath(repo)
 
 
-def session(root, prompt, mode):
-    """One headless Claude Code session in the project; its JSON result, or {"result": <raw output>}."""
+def steps(ev, names, verdicts):
+    """The live lines one stream-json event is worth (2026-10-21: the owner watched a silent terminal for an hour). An
+    agent or workflow starting, its sub-agent's hand-back verdict, its end; the orchestrator's own words; a decision or
+    merge command. A sub-agent's own steps stay out."""
+    kind, sub_, parent = ev.get("type"), ev.get("subtype"), ev.get("parent_tool_use_id")
+    if kind == "system" and sub_ == "task_started":
+        names[ev.get("tool_use_id")] = ev.get("description") or "a task"
+        return [f"→ {names[ev.get('tool_use_id')]} ({ev.get('subagent_type') or ev.get('task_type') or 'task'})"]
+    if kind == "system" and sub_ == "task_notification":
+        tid = ev.get("tool_use_id")
+        return [f"← {names.get(tid, 'a task')}: {verdicts.pop(tid, None) or ev.get('status') or 'ended'}"]
+    blocks = (ev.get("message") or {}).get("content")
+    if kind != "assistant" or not isinstance(blocks, list):
+        return []
+    out = []
+    for b in blocks:
+        if parent:
+            if b.get("type") == "tool_use" and b.get("name") == "SubagentHandback":
+                m = re.search(r"VERDICT:\s*(\S+)", str((b.get("input") or {}).get("message", "")))
+                verdicts[parent] = m.group(1) if m else "returned"
+        elif b.get("type") == "text" and b.get("text", "").strip():
+            out.append(b["text"].strip().splitlines()[0][:160])
+        elif b.get("type") == "tool_use" and b.get("name") == "Bash" and KEY_BASH.search((b.get("input") or {}).get("command", "")):
+            i = b["input"]
+            out.append("· " + (i.get("description") or i["command"])[:140])
+    return out
+
+
+def session(root, prompt, mode, say=None):
+    """One headless Claude Code session in the project, streamed: each event's live lines go to `say`; returns the last
+    `result` event (session_id, total_cost_usd, result), or {"result": <raw output>}."""
     claude = os.environ.get("REEF_CLAUDE", "claude")
     t0 = time.time()
     try:
-        p = subprocess.run([claude, "-p", prompt, "--permission-mode", mode, "--output-format", "json"], cwd=root,
-                           capture_output=True, text=True)
+        p = subprocess.Popen([claude, "-p", prompt, "--permission-mode", mode, "--output-format", "stream-json", "--verbose"],
+                             cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     except FileNotFoundError:
         die(f"`{claude}` is not on the PATH — install Claude Code, or set REEF_CLAUDE")
-    try:
-        out = json.loads(p.stdout)
-    except ValueError:
-        out = {"result": (p.stdout or p.stderr)[-2000:]}
+    out, raw, names, verdicts = None, [], {}, {}
+    for line in p.stdout:
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            raw.append(line)
+            continue
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("type") == "result":
+            out = ev
+        for text in (steps(ev, names, verdicts) if say else []):
+            say(text)
+    p.wait()
+    out = dict(out) if out else {"result": "".join(raw)[-2000:]}
     out["_rc"], out["_seconds"] = p.returncode, round(time.time() - t0, 1)
     return out
+
+
+def runner_html(root):
+    """The Runner section of .reef/status.html: running or not, the last ten live lines (the session number is in each)."""
+    try:
+        with open(os.path.join(root, LIVE), encoding="utf-8") as f:
+            tail = f.read().splitlines()[-10:]
+    except OSError:
+        return "<!--runner--><!--/runner-->"
+    try:
+        with open(os.path.join(root, RUN_DIR, "lock"), encoding="utf-8") as f:
+            pid = int(f.read().strip() or 0)
+        os.kill(pid, 0)
+        head = f"running (pid {pid}) · <code>python3 scripts/reef-run.py watch</code> follows it"
+    except (OSError, ValueError):
+        head = "not running · the last run's steps"
+    return (f"<!--runner--><h2>Runner</h2><div class=\"mute\">{head}</div><pre>{html.escape(chr(10).join(tail))}</pre>"
+            "<!--/runner-->")
+
+
+def refresh_status(root):
+    """Re-splice the Runner section into the tick's status page between its markers (the tick owns the rest)."""
+    p = os.path.join(root, ".reef", "status.html")
+    try:
+        with open(p, encoding="utf-8") as f:
+            page = f.read()
+    except OSError:
+        return
+    new = re.sub(r"<!--runner-->.*?<!--/runner-->", lambda _: runner_html(root), page, count=1, flags=re.S)
+    if new != page:
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(new)
+
+
+def cmd_watch(root):
+    """Follow .reef/run/live.log: the last 20 lines, then each new one (a new run truncates it — start again from 0)."""
+    p, pos = os.path.join(root, LIVE), 0
+    try:
+        with open(p, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+            pos = f.tell()
+        print("\n".join(lines[-20:]) or "reef-run: no live steps yet", flush=True)
+    except OSError:
+        print(f"reef-run: no {LIVE} yet — it appears when a run starts", flush=True)
+    try:
+        while True:
+            time.sleep(1)
+            size = os.path.getsize(p) if os.path.exists(p) else 0
+            if size < pos:
+                pos = 0
+            if size > pos:
+                with open(p, encoding="utf-8") as f:
+                    f.seek(pos)
+                    print(f.read(), end="", flush=True)
+                    pos = f.tell()
+    except KeyboardInterrupt:
+        return 0
 
 
 def loop_state(root):
@@ -249,9 +354,21 @@ def cmd_run(root, mode, cap, night=False):
     if night:
         with open(active, "w", encoding="utf-8") as f:
             f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": night_digest(root)[:16]}))
+    live = os.path.join(root, LIVE)
+    open(live, "w", encoding="utf-8").close()
+    i = 0
+
+    def say(text):
+        line = f"{time.strftime('%H:%M')} s{i} {text}"
+        print(line, flush=True)
+        with open(live, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+        refresh_status(root)
+
     try:
         for i in range(1, cap + 1):
-            out = session(root, PROMPT + (NIGHT_PROMPT if night else ""), mode)
+            say("session started" + (" (night)" if night else ""))
+            out = session(root, PROMPT + (NIGHT_PROMPT if night else ""), mode, say)
             st = loop_state(root)
             wait, stop, parked = st.get("wait") or "", st.get("stop") or "", st.get("parked") or ""
             flying = [] if (wait or stop or parked) else in_flight(root)
@@ -259,8 +376,10 @@ def cmd_run(root, mode, cap, night=False):
                 f.write(json.dumps({"iteration": i, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "session": out.get("session_id"),
                                     "seconds": out.get("_seconds"), "cost_usd": out.get("total_cost_usd"), "rc": out.get("_rc"),
                                     "wait": wait, "stop": stop, "parked": parked, "in_flight": flying}) + "\n")
-            print(f"reef-run: session {i}: " + (f"wait {wait!r}" if wait else f"stop {stop!r}" if stop else f"parked {parked!r}" if parked
-                                                  else f"in flight {flying}" if flying else "no wait recorded"))
+            cost = out.get("total_cost_usd")
+            say("session ended: " + (f"wait {wait!r}" if wait else f"stop {stop!r}" if stop else f"parked {parked!r}" if parked
+                                     else f"in flight {flying}" if flying else "no wait recorded")
+                + f" · {out.get('_seconds')} s" + (f" · ${cost:.2f}" if isinstance(cost, (int, float)) else ""))
             if stop:
                 print(f"reef-run: the loop stopped — {stop}")
                 return 0
@@ -287,6 +406,7 @@ def cmd_run(root, mode, cap, night=False):
                     os.unlink(p)
             except OSError:
                 pass
+        refresh_status(root)
         if night:
             morning_report(root, started, log)
 
@@ -305,6 +425,8 @@ def main(argv):
         die(f"{root} is not a Reef project (no .reef/config.json)")
     os.makedirs(os.path.join(root, RUN_DIR), exist_ok=True)
     os.makedirs(os.path.join(root, NIGHT_DIR), exist_ok=True)
+    if args[:1] == ["watch"]:
+        return cmd_watch(root)
     if args[:1] == ["probe"]:
         return cmd_probe(root, mode)
     if args[:1] == ["contract"]:

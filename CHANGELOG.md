@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The runner shows its progress** (the owner's go, 2026-10-21: "I cannot see any progress" through an hour of a
+  silent night session). `reef-run.py` reads the session's `stream-json` events and prints one line per step: an agent
+  or workflow starting (`→ Hunter 1203 plan round 2 (reef:loophole-hunter)`), its hand-back verdict (`← …: FAIL`), the
+  orchestrator's own words, a decision or merge command (proxy approval, footnote, record, PR, merge, wait), each
+  session's end with its time and cost; a sub-agent's own steps and other Bash calls stay out. The same lines go to
+  `.reef/run/live.log` (fresh each run); `reef-run.py watch` follows it from another terminal; `.reef/status.html` gets
+  a Runner section (running or not, the last ten lines), re-spliced on every step. Event shapes taken from a real
+  headless session. tests/size-budget.json raised: `script_lines` 11,005 → 11,140, `prose_words` 18,693 → 18,708.
 - **Night-mode fixes before the first real night** (the owner's yes, 2026-10-21): a hunter dispatched on a task no
   implementer has started (`status: pending`) is the PLAN pass, and the guard writes no `.reef/verifying/<id>` for it —
   a failed pass is never recorded, so its marker showed `in flight: verifying:1202, 1204` for hours on the trial; the

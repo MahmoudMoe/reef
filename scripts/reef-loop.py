@@ -408,6 +408,19 @@ def render(state):
     return "\n".join(lines[:MAX_LINES]) + "\n"
 
 
+def runner_section(root):
+    """reef-run.py's Runner section (one renderer: the runner re-splices it between the markers on every live step); empty
+    markers when reef-run.py is not beside this script."""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("reef_run", os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-run.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.runner_html(root)
+    except Exception:
+        return "<!--runner--><!--/runner-->"
+
+
 def write_status_page(root, state, text):
     """`.reef/status.html` (usability plan A2): the tick, the loop's wait or stop, the handoff's head, refreshed on
     every tick (the Stop hook ticks every turn) — what a person opens instead of asking "where are we" in chat."""
@@ -431,7 +444,7 @@ h1{{font-size:20px;margin:0 0 4px}} .mute{{color:var(--mute)}} pre{{background:t
 .active{{color:var(--ok)}} .waiting{{color:var(--warn)}} .STOP{{color:var(--bad)}} h2{{font-size:15px;margin:18px 0 6px}}</style></head><body>
 <h1>Reef — {html.escape(os.path.basename(root))} <span class="badge {badge}">{badge}</span></h1>
 <div class="mute">tick {html.escape(str(state.get('hash', '')))} · written {_t.strftime('%Y-%m-%d %H:%M:%S')} · refreshes every 60 s · <code>python3 scripts/reef-loop.py tick</code> is the source</div>
-<h2>The tick</h2><pre>{html.escape(text)}</pre>
+{runner_section(root)}<h2>The tick</h2><pre>{html.escape(text)}</pre>
 """ + (f"<h2>Waiting on</h2><pre>{html.escape(str(state.get('wait')))}</pre>" if state.get("wait") else "") \
         + (f"<h2>Stopped</h2><pre>{html.escape(str(state.get('stop')))}</pre>" if state.get("stop") else "") \
         + (f"<h2>HANDOFF.md (head)</h2><pre>{html.escape(hand)}</pre>" if hand else "") + "</body></html>\n"
