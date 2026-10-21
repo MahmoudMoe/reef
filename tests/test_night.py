@@ -79,6 +79,30 @@ class Contract(unittest.TestCase):
         self.assertIn("changed since the owner approved it", r.stderr)
 
 
+class TonightOnly(unittest.TestCase):
+    """2026-10-21 (qassimha): last night's approval (rows 3 and 12, both closed since) still passed `--night`; the night
+    ran one 29-second session and waited for the owner."""
+
+    def test_an_old_approval_or_a_contract_with_no_open_row_is_refused(self):
+        d = project()
+        approve_night(self, d)
+        p = os.path.join(d, ".reef", "approvals", "night.json")
+        rec = json.load(open(p))
+        rec["approved_at"] = "2020-01-01T00:00:00Z"
+        json.dump(rec, open(p, "w"))
+        r = R.run(d, ["stop:x"], "--night")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("another night's — run /reef-night for tonight", r.stderr)
+        d = project()
+        approve_night(self, d)
+        L.write(d, "reef/queue.md", "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n"
+                                    "| 3 | items | | planned | 1 | |\n")   # row 12 closed: moved to the archive
+        L.write(d, "reef/queue-archive.md", "| 12 | share links | | planned | 1 | |\n")
+        r = R.run(d, ["stop:x"], "--night")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("every row of the contract (12) is closed", r.stderr)
+
+
 class PersonalProfile(unittest.TestCase):
     def test_a_new_projects_first_night_starts_from_the_owners_personal_profile(self):
         # 2026-10-21, the owner: "this means I cannot start night mode at the beginning of the project!"

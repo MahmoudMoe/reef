@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **A night contract is for one night** (the owner's go, 2026-10-21). `reef-run.py --night` checked only the
+  contract's digest: last night's approval (rows 3 and 12, both closed since) still passed at 21:23, and the night ran
+  one 29-second session and waited. `night_ok`, used by the runner and by the proxy's approval, now also refuses an
+  approval older than 16 hours ("another night's") and a contract none of whose rows is open in the queue; both say
+  "run /reef-night for tonight". The 16 hours run from the owner's approval, so a contract approved in the afternoon
+  covers a night until the next morning. tests/size-budget.json raised: `script_lines` 11,305 → 11,334.
 - **The hunter's round cap stops rounds, not passes** (the owner's go, 2026-10-21: "fix why this hunter thing keeps
   coming"). qassimha's R4 rollup passed the hunter on round 3 and `reef-adversarial` refused to record it above
   `hunter.plan_rounds` 2; the cap's own message pointed to `--decided`, which refused a plan the hunter had never

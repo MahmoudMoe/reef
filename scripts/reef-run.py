@@ -243,7 +243,36 @@ def night_ok(root):
     dg = night_digest(root)
     if not dg or rec.get("digest16") != dg[:16]:
         return False, f"the contract or reef/owner.md changed since the owner approved it ({rec.get('digest16')} vs {dg[:16] or 'missing'}) — /reef-night again"
+    # 2026-10-21 (qassimha): last night's approval, rows 3 and 12 both closed since, still passed; the night ran one
+    # 29-second session and waited. An approval is for one night, and a contract with no open row has nothing to do.
+    import datetime
+    try:
+        at = datetime.datetime.fromisoformat(str(rec.get("approved_at", "")).replace("Z", "+00:00"))
+        age_h = (datetime.datetime.now(datetime.timezone.utc) - at).total_seconds() / 3600
+    except ValueError:
+        age_h = None
+    if age_h is None or age_h > NIGHT_HOURS:
+        return False, (f"the contract was approved {rec.get('approved_at') or 'at no recorded time'}, more than {NIGHT_HOURS} h ago: "
+                       "that was another night's — run /reef-night for tonight")
+    rows, open_ids = night_rows(root), queue_open_rows(root)
+    if rows and open_ids is not None and not set(rows) & open_ids:
+        return False, f"every row of the contract ({', '.join(rows)}) is closed — run /reef-night for tonight"
     return True, ""
+
+
+NIGHT_HOURS = 16
+
+
+def queue_open_rows(root):
+    """The ids of the queue's open rows (paths.queue; a closed row has moved to the archive), or None if unreadable."""
+    import re
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            rel = (json.load(f).get("paths") or {}).get("queue", "docs/queue.md")
+        with open(os.path.join(root, rel), encoding="utf-8") as f:
+            return {m.group(1) for m in re.finditer(r"^\|\s*(\d+)\s*\|", f.read(), re.M)}
+    except (OSError, ValueError):
+        return None
 
 
 def personal_profile():
