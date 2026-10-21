@@ -556,6 +556,21 @@ class JudgeScratch(unittest.TestCase):
                 self.assertEqual(self.judge(cmd).returncode, 2, f"a download into the project is a write: {cmd!r}")
         self.assertEqual(self.judge("curl -s -o /private/tmp/claude-501/x/scratchpad/r.json http://x").returncode, 0, "into the scratchpad: fine")
 
+    def test_the_jobs_scratchpad_is_scratch_and_the_rest_of_dot_claude_is_not(self):
+        # 2026-10-21 (qassimha row 5): the session's scratchpad was ~/.claude/jobs/b60d6e32/tmp; the plan reviewer's
+        # `mkdir -p … && cat > …/plan-review-<slug>.md` there was refused as a project write, twice, and the
+        # orchestrator copied the report out of the reviewer's transcript instead.
+        jobs = os.path.join(os.path.expanduser("~"), ".claude", "jobs", "b60d6e32", "tmp")
+        for cmd in (f"mkdir -p {jobs} && cat > {jobs}/plan-review-demo.md <<'EOF'\nRUN: agent=plan-reviewer\nEOF",
+                    f"printf x > ~/.claude/jobs/b60d6e32/tmp/r.md", f"S={jobs}; mkdir -p $S/r2 && printf x > $S/r2/report.md"):
+            with self.subTest(cmd=cmd[:60]):
+                r = self.judge(cmd, who="reef:plan-reviewer")
+                self.assertEqual(r.returncode, 0, f"FALSE POSITIVE: {cmd!r}\n{r.stderr}")
+        for cmd in (f"printf x > ~/.claude/jobs/b60d6e32/r.md", "printf x > ~/.claude/settings.json",
+                    f"printf x > ~/.claude/jobs/b60d6e32/tmp/../escape.md", "printf x > ~/.claude/jobs/tmp/r.md"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.judge(cmd, who="reef:plan-reviewer").returncode, 2, f"NOT DENIED: {cmd!r}")
+
 
 class WorktreeStamp(unittest.TestCase):
     """The compat read (2026-10-03) found both failure directions: the guard resolved the

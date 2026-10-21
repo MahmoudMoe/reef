@@ -283,12 +283,14 @@ def write_targets(seg):
 
 
 def is_scratch(path):
-    """Under the temp dir or a Claude scratchpad (/tmp/claude-…/…/scratchpad, /private/tmp/… on macOS)."""
+    """Under the temp dir or a Claude scratchpad: /tmp/claude-…/…/scratchpad (/private/tmp/… on macOS), or a session's
+    ~/.claude/jobs/<id>/tmp/ (2026-10-21: a plan reviewer's report there was refused as a project write)."""
     p = os.path.abspath(os.path.expanduser(path)) if path.startswith(("/", "~")) else ""
     if not p:
         return False
     tmp = os.path.realpath(tempfile.gettempdir())
-    return p.startswith((tmp + "/", "/tmp/", "/private/tmp/", "/var/folders/"))
+    jobs = re.match(re.escape(os.path.join(os.path.expanduser("~"), ".claude", "jobs")) + r"/[A-Za-z0-9_-]+/tmp(/|$)", p)
+    return bool(jobs) or p.startswith((tmp + "/", "/tmp/", "/private/tmp/", "/var/folders/"))
 
 
 def check_record_dirs(seg):

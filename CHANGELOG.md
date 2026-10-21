@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **A judge's scratchpad under `~/.claude/jobs/<id>/tmp` is scratch** (the owner's go, 2026-10-21). qassimha's
+  session put its scratchpad there; the guard took only `/tmp`, `/private/tmp` and `/var/folders` as scratch, so the
+  plan reviewer's report was refused as a project write twice and the orchestrator copied it out of the reviewer's
+  transcript. `is_scratch` now also takes `~/.claude/jobs/<id>/tmp/`; the rest of `~/.claude` and a `..` out of it
+  stay writes. tests/size-budget.json raised: `script_lines` 11,264 → 11,266.
 - **The hunter's round cap has one home** (the owner's go, 2026-10-21). `hunter.plan_rounds` was read from the
   config nearest the task file, and a plan's task file lives in its feature worktree, whose copy of the config kept
   the old cap: row 4's loop asked the owner to raise it in two files. `reef-adversarial` now reads it from the main
