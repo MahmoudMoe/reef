@@ -136,6 +136,25 @@ class DocsForTwoHosts(unittest.TestCase):
         self.assertIn("OpenCode", ar)
 
 
+class BulletsNotParagraphs(unittest.TestCase):
+    """0.7 (the owner, 2026-10-21: "the planning, spec, queue write-up is too big"): every agent that writes English,
+    the orchestrator's AGENTS.md and the plan templates ask for bullets, fragments fine, grammar optional; the
+    structured lines the scripts parse stay exact."""
+
+    def test_every_writing_agent_the_orchestrator_and_the_templates_ask_for_bullets(self):
+        for name in ("implementer", "verifier", "loophole-hunter", "plan-reviewer", "planner", "security", "mahmoud"):
+            text = read("agents", f"{name}.md")
+            self.assertIn("**Bullets, not paragraphs (0.7, the owner's rule).**", text, name)
+            self.assertIn("`RUN:`, `RULE AC<n>`, `VERDICT`, Proof rows, frontmatter", text, name)
+        self.assertIn("is bullets, not paragraphs", read("templates", "project", "AGENTS.md"))
+        self.assertIn("only the owner's words in a footnote stay as written", read("templates", "project", "AGENTS.md"))
+        for t in ("spec.md", "task.md"):
+            text = read("templates", t)
+            self.assertIn("<bullets:", text, t)
+            self.assertNotIn("one paragraph", text, t)
+            self.assertNotIn("two or three sentences", text, t)
+
+
 class SizeBudget(unittest.TestCase):
     """0.7 (the owner, 2026-10-20: "is Reef creating technical debt?"): config keys, skill and agent prose, and script lines
     grew with every fix and nothing was removed. tests/size-budget.json holds the ceiling; a PR that grows a number
@@ -195,6 +214,13 @@ class ReviewSkill(unittest.TestCase):
         self.assertIn("ci.feature_gate", self.text)
         self.assertIn("branches.base", self.text)
         self.assertNotIn("main...HEAD", self.text, "the diff base is the configured branch, not hard-coded main")
+
+    def test_a_loop_merge_is_one_bare_command_the_owner_authorizes(self):
+        # 2026-10-21: `cd … && gh pr merge 10 … | tail -3; gh pr view …` was refused by auto mode as self-approval;
+        # a permission rule matches only a bare command, and the guard's GREEN record stays the gate
+        self.assertIn("one bare command, `gh pr merge <n> --squash --delete-branch`", self.text)
+        self.assertIn("`Bash(gh pr merge *)`", self.text)
+        self.assertIn(".claude/settings.local.json", self.text)
 
     def test_one_rollup_one_cap(self):
         self.assertNotIn("--cap 5", self.text, "acceptance, diff and CI share ONE cap")
