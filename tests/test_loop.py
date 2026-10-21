@@ -317,6 +317,12 @@ class StatusPage(unittest.TestCase):
         h = re.search(r"tick (\w+)", text).group(1)
         self.assertIn(f"tick {h}", page)
         self.assertIn("in flight:", page)
+        self.assertIn("<!--runner--><!--/runner-->", page, "no run yet: an empty Runner slot for reef-run to fill")
+        write(d, ".reef/run/live.log", "08:18 s1 ← Hunter 1204 plan round 2: PASS\n")
+        loop(d, "tick")
+        page = read_file(os.path.join(d, ".reef", "status.html"))
+        self.assertIn("<h2>Runner</h2>", page)
+        self.assertIn("← Hunter 1204 plan round 2: PASS", page)
 
 
 class GrowthCap(unittest.TestCase):

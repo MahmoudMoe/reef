@@ -1,11 +1,13 @@
 """reef-run (0.7, the owner's go 2026-10-20): the outer runner — fresh headless sessions until the loop waits on the
 owner, stops, parks, leaves work in flight, or hits the cap; gated by a probe that proves the guard reaches a headless
-session. A fake `claude` on PATH plays the scripted sessions (one line of .fake-plan per call)."""
+session. A fake `claude` on PATH plays the scripted sessions (one line of .fake-plan per call), streaming the events a
+real `claude -p --output-format stream-json --verbose` sends (shapes taken from a real session, 2026-10-21)."""
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -35,7 +37,17 @@ elif kind == "probe-write":
     open(os.path.join(os.getcwd(), ".reef", "approvals", "run-probe.json"), "w").write("{}"); result = "it ran"
 if kind not in ("probe-deny", "probe-write"):
     json.dump(st, open(lp, "w"))
-print(json.dumps({"result": result, "session_id": "s-" + str(len(open(os.path.join(os.getcwd(), ".fake-calls")).read().splitlines())), "total_cost_usd": 0.1}))
+def ev(**e): print(json.dumps(e), flush=True)
+ev(type="system", subtype="init", session_id="x")
+ev(type="system", subtype="task_started", tool_use_id="t1", description="Hunter 1203 plan round 2", subagent_type="reef:loophole-hunter")
+ev(type="assistant", parent_tool_use_id="t1", message={"content": [{"type": "text", "text": "a sub-agent's own words"},
+   {"type": "tool_use", "name": "SubagentHandback", "input": {"message": "BLOCKER: threat-model row\nVERDICT: FAIL"}}]})
+ev(type="system", subtype="task_notification", tool_use_id="t1", status="completed")
+ev(type="assistant", parent_tool_use_id=None, message={"content": [{"type": "text", "text": "Row 12: the hunter found one hole.\nmore"},
+   {"type": "tool_use", "name": "Bash", "input": {"command": "python3 scripts/reef-approval.py --proxy --feature f --report r", "description": "Record Mahmoud's approval of row 12"}},
+   {"type": "tool_use", "name": "Bash", "input": {"command": "ls -la", "description": "noise"}}]})
+ev(type="result", result="partial", session_id="early", total_cost_usd=0.05)
+ev(type="result", result=result, session_id="s-" + str(len(open(os.path.join(os.getcwd(), ".fake-calls")).read().splitlines())), total_cost_usd=0.1)
 """
 
 
@@ -113,6 +125,42 @@ class Loop(unittest.TestCase):
         r = run(self.d, ["none", "none", "none"], "--max-iterations", "2")
         self.assertEqual(r.returncode, 4)
         self.assertIn("2 sessions, the iteration cap", r.stdout)
+
+    def test_the_owner_sees_each_step_live_in_the_terminal_the_log_and_the_status_page(self):
+        # 2026-10-21: the owner watched a silent terminal through a night session — "I cannot see any progress"
+        page = os.path.join(self.d, ".reef", "status.html")
+        open(page, "w").write("<h1>x</h1><!--runner--><!--/runner--><h2>The tick</h2>")
+        r = run(self.d, ["stop:done"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        live = open(os.path.join(self.d, ".reef", "run", "live.log")).read()
+        for step in ("s1 session started", "s1 → Hunter 1203 plan round 2 (reef:loophole-hunter)", "s1 ← Hunter 1203 plan round 2: FAIL",
+                     "s1 Row 12: the hunter found one hole.", "s1 · Record Mahmoud's approval of row 12", "s1 session ended: stop 'done'"):
+            self.assertIn(step, live)
+            self.assertIn(step, r.stdout, "the terminal shows the same lines")
+        for noise in ("a sub-agent's own words", "noise", "more"):
+            self.assertNotIn(noise, live)
+        self.assertIn("$0.10", live, "the last result event is the session's cost")
+        self.assertEqual(json.loads(open(os.path.join(self.d, ".reef", "run", "run.log")).read().splitlines()[-1])["session"], "s-1")
+        body = open(page).read()
+        self.assertIn("<h2>Runner</h2>", body)
+        self.assertIn("not running", body)
+        self.assertIn("← Hunter 1203 plan round 2: FAIL", body)
+        self.assertIn("<h2>The tick</h2>", body, "the tick's part is left alone")
+        run(self.d, ["stop:again"])
+        self.assertNotIn("s1 session ended: stop 'done'", open(os.path.join(self.d, ".reef", "run", "live.log")).read(), "a new run starts a fresh live log")
+
+    def test_watch_follows_the_live_log_from_another_terminal(self):
+        live = os.path.join(self.d, ".reef", "run", "live.log")
+        open(live, "w").write("08:16 s1 → Hunter 1204 plan round 2 (reef:loophole-hunter)\n")
+        w = subprocess.Popen([sys.executable, RUN, "watch", "--repo", self.d], stdout=subprocess.PIPE, text=True)
+        time.sleep(1.5)
+        open(live, "a").write("08:18 s1 ← Hunter 1204 plan round 2: PASS\n")
+        time.sleep(1.5)
+        w.terminate()
+        out = w.communicate()[0]
+        self.assertIn("→ Hunter 1204", out)
+        self.assertIn("← Hunter 1204 plan round 2: PASS", out, "a new line shows up as it is written")
+        self.assertEqual(calls(self.d), [], "watch starts no session")
 
     def test_a_second_runner_is_refused(self):
         os.makedirs(os.path.join(self.d, ".reef", "run"), exist_ok=True)
