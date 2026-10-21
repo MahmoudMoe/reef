@@ -79,6 +79,25 @@ class Contract(unittest.TestCase):
         self.assertIn("changed since the owner approved it", r.stderr)
 
 
+class PersonalProfile(unittest.TestCase):
+    def test_a_new_projects_first_night_starts_from_the_owners_personal_profile(self):
+        # 2026-10-21, the owner: "this means I cannot start night mode at the beginning of the project!"
+        d = project()
+        os.remove(os.path.join(d, "reef", "owner.md"))
+        mine = os.path.join(tempfile.mkdtemp(prefix="reef-home."), "owner.md")
+        with open(mine, "w") as f:
+            f.write("# The owner, everywhere\nSimple and robust.\n")
+        env = dict(os.environ, REEF_OWNER_PROFILE=mine)
+        r = subprocess.run([sys.executable, RUN, "contract", "--repo", d], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("seeded reef/owner.md", r.stdout)
+        self.assertEqual(open(os.path.join(d, "reef", "owner.md")).read(), open(mine).read())
+        with open(os.path.join(d, "reef", "owner.md"), "a") as f:
+            f.write("Project: exact money.\n")
+        subprocess.run([sys.executable, RUN, "contract", "--repo", d], capture_output=True, text=True, env=env)
+        self.assertIn("Project: exact money.", open(os.path.join(d, "reef", "owner.md")).read(), "an existing project profile is never overwritten")
+
+
 class ProxyApproval(unittest.TestCase):
     def setUp(self):
         self.d = project()
