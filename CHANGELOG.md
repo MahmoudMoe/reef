@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The guard's context warning no longer approves a dispatch** (the owner's go, 2026-10-21). Between
+  `caps.context_warn` and the ceiling the guard warned the model on an agent dispatch and also answered
+  `permissionDecision: allow`, which approved the dispatch past the session's own permission checks. It now adds
+  only the warning text. Found while tracing row 3's loop merge, refused by auto mode as self-approval (that one is
+  the owner's permission rule, not a guard change). Budget unchanged.
 - **No finding left unfiled, no result typed by hand** (the owner's go after an audit, 2026-10-21). In graph mode
   `settle` read the hunter's report and printed only READY/FAIL — its NEW-ROW and NOTED lines reached no one; settle
   now prints each, with the command that files it. The release security pass filed its BLOCKERs and HIGHs only; each of
