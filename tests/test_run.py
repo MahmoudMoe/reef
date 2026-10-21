@@ -21,6 +21,7 @@ lines = open(plan).read().splitlines()
 step, rest = (lines[0] if lines else "none"), lines[1:]
 open(plan, "w").write("\n".join(rest))
 open(os.path.join(os.getcwd(), ".fake-calls"), "a").write(step + "\n")
+open(os.path.join(os.getcwd(), ".fake-env"), "w").write(os.environ.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", "unset"))
 lp = os.path.join(os.getcwd(), ".reef", "loop.json")
 st = {"active": True, "wait": None, "stop": None, "parked": None, "hashes": []}
 kind, _, arg = step.partition(":")
@@ -161,6 +162,16 @@ class Loop(unittest.TestCase):
         self.assertIn("→ Hunter 1204", out)
         self.assertIn("← Hunter 1204 plan round 2: PASS", out, "a new line shows up as it is written")
         self.assertEqual(calls(self.d), [], "watch starts no session")
+
+    def test_a_session_waits_hours_not_ten_minutes_for_its_background_workflow(self):
+        # night 2026-10-21: `claude -p` exited ten idle minutes after the last turn and killed the graph building 1201/1202
+        self.assertEqual(run(self.d, ["stop:x"]).returncode, 0)
+        self.assertEqual(open(os.path.join(self.d, ".fake-env")).read(), "10800000")
+        open(os.path.join(self.d, ".fake-plan"), "w").write("stop:x")
+        env = dict(os.environ, PATH=os.path.join(self.d, ".bin") + os.pathsep + os.environ["PATH"], CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS="0")
+        env.pop("REEF_CLAUDE", None)
+        subprocess.run([sys.executable, RUN, "--repo", self.d], capture_output=True, text=True, env=env)
+        self.assertEqual(open(os.path.join(self.d, ".fake-env")).read(), "0", "a value the owner set wins")
 
     def test_a_second_runner_is_refused(self):
         os.makedirs(os.path.join(self.d, ".reef", "run"), exist_ok=True)

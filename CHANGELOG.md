@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **A headless session keeps its workflow alive** (the trial night, 2026-10-21; the owner's go): the session launched
+  the graph for 1201 and 1202, ended its turn, and `claude -p` exited exactly ten minutes later, killing both
+  implementers mid-build (Claude Code's run record: `killed`). Claude Code waits for background agents and workflows
+  only 10 idle minutes after the last turn by default; the runner now starts every session with
+  `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` = 3 hours (documented, Claude Code 2.1.182+; the clock restarts on every
+  background result; a value the owner set wins). Verified with a real headless session whose workflow ran past ten
+  minutes after its last turn. `reef-queue.py footnote` no longer adds a second date to a decision its author already
+  dated (⁵⁴ read "(2026-10-21) (2026-10-21)"). tests/size-budget.json: `script_lines` 11,140 → 11,147.
 - **The runner shows its progress** (the owner's go, 2026-10-21: "I cannot see any progress" through an hour of a
   silent night session). `reef-run.py` reads the session's `stream-json` events and prints one line per step: an agent
   or workflow starting (`→ Hunter 1203 plan round 2 (reef:loophole-hunter)`), its hand-back verdict (`← …: FAIL`), the

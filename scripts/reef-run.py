@@ -36,6 +36,10 @@ LIVE = os.path.join(RUN_DIR, "live.log")
 # the commands that decide or merge — every other Bash call is noise in the live view
 KEY_BASH = re.compile(r"reef-approval\.py --proxy|reef-queue\.py footnote|reef-record |gh pr (create|merge)|git merge |reef-loop\.py wait")
 NIGHT_DIR = os.path.join(".reef", "night")
+# `claude -p` waits for background agents and workflows after the last turn only 10 idle minutes by default, then exits
+# and kills them (night 2026-10-21: 1201 and 1202 cut off mid-build, the run record `killed`). Documented knob
+# (code.claude.com/docs/en/headless, Claude Code 2.1.182+); the clock restarts on every background result.
+BG_WAIT_MS = "10800000"
 NIGHT_PROMPT = (" SUPER REEF NIGHT (.reef/night/contract.md, approved by the owner; /reef-night has the rules): every owner decision "
                 "INSIDE the contract goes to reef:mahmoud (model roles.proxy), never to questions.md. A plan approval: Mahmoud writes "
                 "its report, you `cp` it to .reef/ci-local/report-mahmoud-<slug>.md, then `python3 scripts/reef-approval.py --proxy "
@@ -95,7 +99,8 @@ def session(root, prompt, mode, say=None):
     t0 = time.time()
     try:
         p = subprocess.Popen([claude, "-p", prompt, "--permission-mode", mode, "--output-format", "stream-json", "--verbose"],
-                             cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                             cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                             env=dict(os.environ, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=os.environ.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", BG_WAIT_MS)))
     except FileNotFoundError:
         die(f"`{claude}` is not on the PATH — install Claude Code, or set REEF_CLAUDE")
     out, raw, names, verdicts = None, [], {}, {}

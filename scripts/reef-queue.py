@@ -228,7 +228,9 @@ def cmd_footnote(root, text, row_id):
     n = max(marks, default=0) + 1
     mark = str(n).translate(SUP)
     import datetime
-    line = f"{mark} {text.strip()} ({datetime.date.today().isoformat()})"
+    text = text.strip()
+    # a decision already dated by its author keeps one date (night 2026-10-21: ⁵⁴ read "(2026-10-21) (2026-10-21)")
+    line = f"{mark} {text}" + ("" if re.search(r"\(\d{4}-\d{2}-\d{2}\)$", text) else f" ({datetime.date.today().isoformat()})")
     if "## Footnotes" in q:
         head, _, tail = q.partition("## Footnotes")
         tail = tail.rstrip("\n") + "\n" + line + "\n"
