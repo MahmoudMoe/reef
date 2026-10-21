@@ -192,6 +192,9 @@ class Lessons(unittest.TestCase):
         self.assertIn("security, privacy, money or data loss, which is always a NEW-ROW however unlikely", text)
         for p in (("skills", "reef-task", "SKILL.md"), ("skills", "reef-plan", "SKILL.md"), ("skills", "reef-review", "SKILL.md"), ("agents", "mahmoud.md")):
             self.assertIn("reef-queue.py note", read(*p), p)
+        # the release security pass's NEW-ROWs had no filing line: a security finding "not this release's" was dropped
+        self.assertIn("each `NEW-ROW` becomes a found row, `reef-queue.py add-row --source found` — a security finding is never a note",
+                      read("skills", "reef-loop", "SKILL.md"))
 
     def test_hunter_ranks_by_cost_and_stops(self):
         text = read("agents", "loophole-hunter.md")
