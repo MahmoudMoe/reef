@@ -436,6 +436,45 @@ class GuardPassRecordDoesNotStaleTheStamp(unittest.TestCase):
         self.assertIn("hunter: STALE 7", r.stdout)
 
 
+class HostInput(unittest.TestCase):
+    """0.7 (the owner, 2026-10-21: Reef beyond Claude Code): another host's adapter sends one normalized input, marked
+    `reef_host`; the guard translates it to the payload it already checks. The caller is required: without it every
+    call would be the main session's, and a judge's write would pass the reviewer lock unseen."""
+
+    def setUp(self):
+        self.d = project({"gates": {"test": "true"}, "roles": {"author": "opus"}},
+                         {"007-demo.md": task_text(7, "demo", "full", "design")})
+
+    def host(self, **fields):
+        return guard({"reef_host": "opencode", "cwd": self.d, **fields})
+
+    def test_a_missing_caller_or_an_unmapped_tool_is_refused(self):
+        r = self.host(tool="shell", command="git status")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("`agent`", r.stderr)
+        self.assertEqual(self.host(tool="shell", command="git status", agent="").returncode, 2)
+        r = self.host(tool="patch", agent="main", path="a.py")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("patch", r.stderr)
+
+    def test_the_caller_reaches_the_reviewer_lock_and_the_authoring_check(self):
+        self.assertEqual(self.host(tool="shell", command="git status", agent="main").returncode, 0)
+        r = self.host(tool="shell", command="git commit -m x", agent="reef:verifier", agent_id="a1")
+        self.assertEqual(r.returncode, 2, "a judge's commit through a host adapter is still a judge's commit")
+        self.assertEqual(self.host(tool="shell", command="git commit -m x", agent="main").returncode, 0, "the main session is not locked")
+        hb = ".reef/ci-local/handback-701.md"
+        self.assertEqual(self.host(tool="write", path=hb, content="RUN: x", agent="main").returncode, 2, "the main session never authors a hand-back")
+        r = self.host(tool="write", path=hb, content="RUN: x", agent="reef:implementer", agent_id="a2")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.host(tool="edit", path=hb, old="a", new="RUN: x", agent="main").returncode, 2)
+
+    def test_a_dispatch_is_checked_like_the_agent_tool(self):
+        prompt = "REEF-TASK: " + os.path.join(self.d, "tasks", "007-demo.md")
+        r = self.host(tool="dispatch", subagent="reef:implementer", model="sonnet", prompt=prompt, agent="main")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("roles.author", r.stderr)
+
+
 class ReviewerLock(unittest.TestCase):
     """1.3: agent_type from the payload decides; a judge never mutates."""
 

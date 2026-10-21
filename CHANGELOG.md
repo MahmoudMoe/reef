@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The guard takes another host's input, and the caller is required** (the owner's go, 2026-10-21: Reef beyond
+  Claude Code, phase 1 of `docs/design/portability-plan.md`). An adapter for another host sends one normalized input
+  (`reef_host`, `tool`: shell/write/edit/dispatch, `agent`, `cwd`, the tool's fields); the guard translates it to the
+  payload its checks already read, so there is no second check path. Without `agent` the input is refused: a missing
+  caller would make every call the main session's, and a judge's write would pass the reviewer lock unseen. An
+  unmapped tool is refused too. The Claude Code path is unchanged. Role aliases, also in the go, moved to phase 2:
+  on Claude Code they needed resolving in the guard, `reef-attempt`, the plan check and five skills' prose for no
+  gain until a second host exists. tests/size-budget.json raised: `script_lines` 11,243 → 11,269.
 - **The guard's context warning no longer approves a dispatch** (the owner's go, 2026-10-21). Between
   `caps.context_warn` and the ceiling the guard warned the model on an agent dispatch and also answered
   `permissionDecision: allow`, which approved the dispatch past the session's own permission checks. It now adds
