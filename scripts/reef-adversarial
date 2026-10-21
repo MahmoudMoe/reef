@@ -50,22 +50,12 @@ ROUND = re.compile(r"\bround[= ](\d+)\b|\(round (\d+)\)", re.I)
 
 
 def plan_rounds_cap(task_path):
-    """hunter.plan_rounds from the nearest .reef/config.json above the task file (default 2; 0 = no cap)."""
-    d = os.path.dirname(os.path.abspath(task_path))
-    for _ in range(12):
-        cfg = os.path.join(d, ".reef", "config.json")
-        if os.path.isfile(cfg):
-            try:
-                with open(cfg, encoding="utf-8") as f:
-                    h = (json.load(f).get("hunter") or {})
-                return int(h.get("plan_rounds", 2) or 0)
-            except Exception:
-                return 2
-        nd = os.path.dirname(d)
-        if nd == d:
-            break
-        d = nd
-    return 2
+    """hunter.plan_rounds (default 2; 0 = no cap) from the loop policy's home, the MAIN checkout's config
+    (2026-10-21: row 4's plan lives in its worktree, whose copy kept the old cap; the owner was asked to edit two files)."""
+    try:
+        return int((policy_config(task_path).get("hunter") or {}).get("plan_rounds", 2) or 0)
+    except Exception:
+        return 2
 
 
 def config_near(path):
@@ -86,11 +76,9 @@ def config_near(path):
     return None, {}
 
 
-def guard_pass_mode(path):
-    """hunter.guard_pass: `task` (default; the hunter's guard pass per design/critical task, the pre-commit requires it to
-    close) or `feature` (one pass on the feature's merged diff before the GREEN record — 2026-10-18: two judges cost
-    96k on a 20-line task; the hunter's floor is paid once per feature instead). Loop policy has ONE home: the MAIN
-    checkout's config (a worktree's copy predates the owner's edit until its next merge of the base)."""
+def policy_config(path):
+    """Loop policy has ONE home: the MAIN checkout's config (a worktree's copy predates the owner's edit until its next
+    merge of the base); the nearest config when there is no other checkout."""
     root, cfg = config_near(path)
     if root:
         try:
@@ -101,7 +89,14 @@ def guard_pass_mode(path):
                     cfg = json.load(f)
         except Exception:
             pass
-    return str((cfg.get("hunter") or {}).get("guard_pass", "task") or "task").strip().lower()
+    return cfg
+
+
+def guard_pass_mode(path):
+    """hunter.guard_pass: `task` (default; the hunter's guard pass per design/critical task, the pre-commit requires it to
+    close) or `feature` (one pass on the feature's merged diff before the GREEN record — 2026-10-18: two judges cost
+    96k on a 20-line task; the hunter's floor is paid once per feature instead). Read from `policy_config`."""
+    return str((policy_config(path).get("hunter") or {}).get("guard_pass", "task") or "task").strip().lower()
 
 
 def plan_pass_tiers(path):
