@@ -1,6 +1,16 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The hunter's round cap stops rounds, not passes** (the owner's go, 2026-10-21: "fix why this hunter thing keeps
+  coming"). qassimha's R4 rollup passed the hunter on round 3 and `reef-adversarial` refused to record it above
+  `hunter.plan_rounds` 2; the cap's own message pointed to `--decided`, which refused a plan the hunter had never
+  passed; the only exit was a config change the guard rightly keeps from the loop, so it landed on the owner. A FAIL
+  was already refused at every round, so the cap check could only ever discard a PASS. Now: a PASS is recorded at any
+  round (with a notice above the cap); a FAIL at or above the cap gets the cap message, the owner's decision at the
+  gate; `--decided` on a plan the hunter never passed needs the owner's ruling as a footnote in the main checkout's
+  queue (with a pass on record it works as before). The cap's meaning moves from "no record above the cap" to "no
+  further round after a FAIL at the cap". Not changed: the guard still lets a hunter round above the cap be
+  dispatched. tests/size-budget.json raised: `script_lines` 11,283 → 11,305.
 - **`reef-update --commit` commits what reef-init rewrote in place** (the owner's go, 2026-10-21). qassimha's update
   rewrote AGENTS.md with the bullets rule (Reef's untouched rendering, updated in place) and committed only the
   manifest and the scripts; AGENTS.md sat modified. The commit now also takes a tracked managed file whose manifest
