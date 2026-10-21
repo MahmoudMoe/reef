@@ -486,6 +486,26 @@ class ReviewerLock(unittest.TestCase):
             self.assertEqual(json.load(f)["tier"], "full")
 
 
+class PlanPassLeavesNoMarker(unittest.TestCase):
+    def test_a_hunter_on_a_pending_task_is_the_plan_pass_and_writes_no_marker(self):
+        # 2026-10-21 (qassimha row 12): failed plan passes left verifying:1202/1204 "in flight" for hours
+        d = project({"gates": {"test": "true"}}, {"007-demo.md": task_text(7, "demo", "critical", "design")})
+        plan_check(d)
+        approve(d, "demo")
+        marker = os.path.join(d, ".reef", "verifying", "7")
+        r = dispatch(d, "reef:loophole-hunter", "REEF-TASK: tasks/007-demo.md\npass=plan")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(marker), "the plan pass locks nothing and leaves nothing")
+        tp = os.path.join(d, "tasks", "007-demo.md")
+        with open(tp) as f:
+            t = f.read()
+        with open(tp, "w") as f:
+            f.write(t.replace("status: pending", "status: in-progress"))
+        r = dispatch(d, "reef:loophole-hunter", "REEF-TASK: tasks/007-demo.md\npass=guard")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.path.exists(marker), "the guard pass on code still marks the task being judged")
+
+
 class Deadline(unittest.TestCase):
     """1.4: a hung guard denies before the host's timeout."""
 

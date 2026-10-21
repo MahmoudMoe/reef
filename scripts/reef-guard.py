@@ -1006,6 +1006,11 @@ def _check_dispatch(tool_input, payload):
                      "the model and the verifying marker from that line")
             path = m.group(1) if os.path.isabs(m.group(1)) else os.path.join(cwd, m.group(1))
             fm, _ = read_frontmatter(path)
+            # a hunter on a task no implementer has started is the PLAN pass: it reads plan files, there is no tree to
+            # lock, and a failed pass is never recorded — its marker showed `in flight: verifying:<id>` until it went
+            # stale (2026-10-21, qassimha row 12: 1202 and 1204)
+            if "loophole-hunter" in sub and str(fm.get("status") or "pending").strip() == "pending":
+                return
             write_marker(troot, sub, "verifying", {"id": fm.get("id", "?"), "task": os.path.abspath(path), "tier": tier})
         return
     m = re.search(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", prompt, re.M)

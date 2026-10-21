@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Night-mode fixes before the first real night** (the owner's yes, 2026-10-21): a hunter dispatched on a task no
+  implementer has started (`status: pending`) is the PLAN pass, and the guard writes no `.reef/verifying/<id>` for it —
+  a failed pass is never recorded, so its marker showed `in flight: verifying:1202, 1204` for hours on the trial; the
+  runner counts only markers newer than `loop.inflight_stale_minutes`, the tick's own rule, so a leftover marker no
+  longer stops it with "work in flight". **A personal profile** (`~/.reef/owner.md`, or `REEF_OWNER_PROFILE`):
+  `reef-run.py contract` seeds a project's missing `reef/owner.md` from it, so night mode works from a project's first
+  day; an existing project profile is never overwritten. tests/size-budget.json raised to `prose_words` 18,693, `script_lines` 11,005.
 - **The 0.6-fingerprint compatibility code is gone** (consolidation PR C; precondition the owner's `/reef-doctor`
   on the trial, 2026-10-21: "every approval and review record in the current digest form"). Removed: `reef-plan-check.py
   --legacy-digest` and `--migrate-records`, the LEGACY branches of `--verify-stamp` (stamp, approval, review, hunter),

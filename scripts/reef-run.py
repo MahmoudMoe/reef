@@ -78,14 +78,23 @@ def loop_state(root):
 
 
 def in_flight(root):
-    """In-flight and verifying markers in any checkout (the tick's own source)."""
+    """In-flight and verifying markers in any checkout, newer than loop.inflight_stale_minutes (90) — the tick's own
+    rule: an older marker is a returned agent, not running work (2026-10-21: row 12's leftover markers would have stopped
+    the runner with "work in flight" while nothing ran)."""
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            stale = int(((json.load(f).get("loop") or {}).get("inflight_stale_minutes", 90)) or 90)
+    except (OSError, ValueError, AttributeError):
+        stale = 90
     r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True)
     roots = [l[len("worktree "):].strip() for l in r.stdout.splitlines() if l.startswith("worktree ")] or [root]
-    ids = []
+    ids, now = [], time.time()
     for d in roots:
         for kind in ("inflight", "verifying"):
             p = os.path.join(d, ".reef", kind)
-            ids += [f for f in (os.listdir(p) if os.path.isdir(p) else []) if not f.startswith(".")]
+            for f in (os.listdir(p) if os.path.isdir(p) else []):
+                if not f.startswith(".") and now - os.path.getmtime(os.path.join(p, f)) < stale * 60:
+                    ids.append(f)
     return sorted(set(ids))
 
 
@@ -127,9 +136,20 @@ def night_ok(root):
     return True, ""
 
 
+def personal_profile():
+    """The owner's profile across projects (REEF_OWNER_PROFILE, else ~/.reef/owner.md): who they are everywhere, so a
+    new project's first night does not start from nothing (the owner, 2026-10-21)."""
+    return os.environ.get("REEF_OWNER_PROFILE") or os.path.join(os.path.expanduser("~"), ".reef", "owner.md")
+
+
 def cmd_contract(root, src):
     import shutil
     os.makedirs(os.path.join(root, NIGHT_DIR), exist_ok=True)
+    mine, theirs = os.path.join(root, "reef", "owner.md"), personal_profile()
+    if not os.path.isfile(mine) and os.path.isfile(theirs):
+        os.makedirs(os.path.dirname(mine), exist_ok=True)
+        shutil.copyfile(theirs, mine)
+        print(f"owner profile: seeded reef/owner.md from {theirs} — Mahmoud adds this project's decisions; you approve both with the night")
     if src:
         shutil.copyfile(src, os.path.join(root, NIGHT_DIR, "contract.md"))
     dg = night_digest(root)
