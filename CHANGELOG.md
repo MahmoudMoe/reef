@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Bullets, not paragraphs** (the owner's go, 2026-10-21: "the planning, spec, queue write-up is too big … be
+  concise even if you sacrifice grammar"). The seven agents that write English (implementer, verifier, hunter,
+  plan reviewer, planner, security, Mahmoud) carry one rule beside the Terse rule: every file they write is one fact
+  per bullet, fragments over sentences, grammar optional, nothing restated; the structured lines the scripts parse
+  (`RUN:`, `RULE AC<n>`, `VERDICT`, Proof rows, frontmatter) stay exact. The AGENTS.md template says the same for
+  the orchestrator's queue rows, journal entries and handoff, keeping the owner's footnotes verbatim; the spec and
+  task templates ask for bullets instead of "two or three sentences" and "one paragraph". The mechanic writes no
+  prose and is unchanged. A project whose AGENTS.md differs from the rendering gets it as a proposal to accept.
+  Also the test for the loop merge's bare command (`ReviewSkill`), whose reef-review line was committed on GitHub
+  at 848ef47 without a test or a budget raise; main's size test was red from that commit until this PR.
+  tests/size-budget.json raised: `prose_words` 18,952 → 19,349 (this rule 315, the reef-review line 82).
 - **The docs for two hosts, step A** (the owner's go, 2026-10-21; `docs/design/docs-two-hosts-plan.md`). Host facts
   have one home: the README's new `## Hosts` table, Claude Code supported and OpenCode planned, not built. The site
   reads that table at page load like the Settings table (a Hosts section and nav link; with the fetch failing it links

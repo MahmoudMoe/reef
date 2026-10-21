@@ -4,7 +4,7 @@ Row: <queue row id>
 Slug: <feature-slug>
 
 ## Intent
-<two or three sentences: who gets what, end to end, through every layer. Sentences under 25 words.>
+<bullets: who gets what, end to end, one layer per bullet; fragments fine, under 25 words each.>
 
 ## Grill
 - Q: <the question the codebase could not answer> — A: <the owner's answer, verbatim>

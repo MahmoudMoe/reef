@@ -16,7 +16,7 @@ last_failure_sig: ""
 # NNNnn — <title>
 
 ## Scope
-<one paragraph: what changes, through every layer it needs. Sentences under 25 words.>
+<bullets: what changes, one layer per bullet; fragments fine, under 25 words each.>
 
 ## Decision
 <!-- design/critical tasks: the HUMAN writes this in their own words before implementation. A migration task adds a `Rollback: <how>` line. The implementer refuses a design task with an empty Decision. -->
