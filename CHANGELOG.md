@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`reef-update --commit` commits what reef-init rewrote in place** (the owner's go, 2026-10-21). qassimha's update
+  rewrote AGENTS.md with the bullets rule (Reef's untouched rendering, updated in place) and committed only the
+  manifest and the scripts; AGENTS.md sat modified. The commit now also takes a tracked managed file whose manifest
+  entry reef-init moved, when it had no uncommitted change before the run: never a new file, never an owner's edit.
+  The printed accept line named `scripts/reef-init.py`, which a project does not carry; it now names the plugin's
+  `reef-init.py --root <repo>`. tests/size-budget.json raised: `script_lines` 11,266 → 11,283.
 - **A judge's scratchpad under `~/.claude/jobs/<id>/tmp` is scratch** (the owner's go, 2026-10-21). qassimha's
   session put its scratchpad there; the guard took only `/tmp`, `/private/tmp` and `/var/folders` as scratch, so the
   plan reviewer's report was refused as a project write twice and the orchestrator copied it out of the reviewer's

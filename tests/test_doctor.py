@@ -224,5 +224,45 @@ class Update(unittest.TestCase):
         self.assertEqual(json.loads(git(d, "show", "HEAD:.reef/config.json").stdout)["caps"]["attempts"], 5)
 
 
+    def test_a_managed_file_reef_init_updates_in_place_is_committed_and_an_owner_edit_never_is(self):
+        # 2026-10-21 (qassimha): the update rewrote AGENTS.md with a new rule and committed only the manifest and the
+        # scripts; AGENTS.md sat modified and uncommitted. The printed accept line named scripts/reef-init.py, which a
+        # project does not have.
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        clone = self.plugin_clone()
+        d = project()
+        with open(os.path.join(d, "package.json"), "w") as f:
+            json.dump({"name": "demo", "scripts": {"test": "true"}}, f)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "stack")
+        update = lambda: subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--commit"], capture_output=True, text=True, env=env)
+        r = update()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "the owner commits the first rendering")
+
+        def new_rule(word):
+            tp = os.path.join(clone, "templates", "project", "AGENTS.md")
+            with open(tp) as f:
+                t = f.read()
+            with open(tp, "w") as f:
+                f.write(t.replace("Point, don't narrate.", f"Point, don't narrate. {word}.", 1))
+            git(clone, "commit", "-qam", word); git(clone, "push", "-q", "origin", "main")
+
+        new_rule("RULE-ONE")
+        r = update()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("RULE-ONE", git(d, "show", "HEAD:AGENTS.md").stdout, "the rewritten AGENTS.md is in Reef's commit")
+        self.assertEqual(git(d, "status", "--porcelain", "--", "AGENTS.md").stdout.strip(), "", "nothing left uncommitted")
+        # the owner's uncommitted edit is never swept into Reef's commit, whatever reef-init does with the file
+        with open(os.path.join(d, "AGENTS.md"), "a") as f:
+            f.write("\nThe owner's own line.\n")
+        new_rule("RULE-TWO")
+        r = update()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("The owner's own line.", git(d, "show", "HEAD:AGENTS.md").stdout)
+        self.assertIn("The owner's own line.", open(os.path.join(d, "AGENTS.md")).read())
+        self.assertNotIn("python3 scripts/reef-init.py --accept", r.stdout, "a project has no scripts/reef-init.py")
+        if "proposal: AGENTS.md" in r.stdout:
+            self.assertRegex(r.stdout, r"python3 \S*reef-plugin-main\.\w+/scripts/reef-init\.py --root \S+ --accept AGENTS\.md")
+
 if __name__ == "__main__":
     unittest.main()
