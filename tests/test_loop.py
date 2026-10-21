@@ -528,6 +528,8 @@ class ContextCeiling(unittest.TestCase):
         r = self.dispatch(d, self.transcript(d, 7000))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("additionalContext", r.stdout, "between warn and ceiling the hook warns the model")
+        out = json.loads(r.stdout)["hookSpecificOutput"]
+        self.assertNotIn("permissionDecision", out, "a warning adds context; it never approves the dispatch")
         self.assertEqual(self.dispatch(d, self.transcript(d, 1000)).returncode, 0)
         r = self.dispatch(d, os.path.join(d, "nope.jsonl"))
         self.assertEqual(r.returncode, 0)
