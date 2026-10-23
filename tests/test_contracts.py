@@ -155,6 +155,20 @@ class BulletsNotParagraphs(unittest.TestCase):
             self.assertNotIn("two or three sentences", text, t)
 
 
+class NightLooks(unittest.TestCase):
+    """2026-10-23 (qassimha): every night kept the preview look for the owner (AGENTS.md: "the look of his own product"),
+    so a row blocked on a look waited all night. The owner: Mahmoud may approve a preview look by default, logged, undoable."""
+
+    def test_a_preview_look_is_delegated_by_default_and_logged_as_mahmouds_footnote(self):
+        skill = read("skills", "reef-night", "SKILL.md")
+        self.assertIn("A preview look is delegated by default", skill)
+        self.assertIn("only a footnote or a profile line keeping a named look", skill)
+        agent = read("agents", "mahmoud.md")
+        self.assertIn("A design look is yours at night by default", agent)
+        self.assertIn("writes it as your footnote (the owner undoes it by editing that footnote)", agent)
+        self.assertIn("anything the owner has explicitly kept for themselves in a footnote", agent, "a named keep still holds")
+
+
 class SizeBudget(unittest.TestCase):
     """0.7 (the owner, 2026-10-20: "is Reef creating technical debt?"): config keys, skill and agent prose, and script lines
     grew with every fix and nothing was removed. tests/size-budget.json holds the ceiling; a PR that grows a number
