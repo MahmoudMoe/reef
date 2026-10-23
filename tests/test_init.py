@@ -63,7 +63,8 @@ class CopiedScripts(unittest.TestCase):
     """2026-10-18: /reef-graph on the trial project found no scripts/reef-graph-run.py — the script shipped in the
     plugin, the skill ran it as `python3 scripts/reef-graph-run.py`, and reef-init's SCRIPTS list never named it."""
     # these run from the plugin (hooks and the plugin-side commands), never from a project copy
-    PLUGIN_RESIDENT = {"reef-guard.py", "reef-approval.py", "reef-init.py", "reef-update.py", "reef-doctor.py", "reef-guard-profile.py"}
+    # reef-approval.py is both: the hook runs the plugin's copy, a night's --proxy runs the project's (2026-10-23)
+    PLUGIN_RESIDENT = {"reef-guard.py", "reef-init.py", "reef-update.py", "reef-doctor.py", "reef-guard-profile.py", "reef-opencode.py"}
 
     def scripts_list(self):
         src = read(ROOT, "scripts/reef-init.py")
@@ -72,7 +73,10 @@ class CopiedScripts(unittest.TestCase):
     def test_every_script_a_skill_runs_from_the_project_is_copied(self):
         import glob
         refs = {}
-        for f in glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md")) + glob.glob(os.path.join(ROOT, "agents", "*.md")):
+        # 2026-10-23: the runner's night prompt told the orchestrator `python3 scripts/reef-approval.py --proxy`, and no project
+        # had it — the prompts the runner sends are instructions too
+        for f in glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md")) + glob.glob(os.path.join(ROOT, "agents", "*.md")) + \
+                [os.path.join(ROOT, "scripts", "reef-run.py")]:
             with open(f, encoding="utf-8") as h:
                 t = h.read()
             # `scripts/reef-x` with nothing before `scripts/`: a project path. `${CLAUDE_PLUGIN_ROOT}/scripts/…` is the plugin's.
@@ -84,6 +88,17 @@ class CopiedScripts(unittest.TestCase):
         self.assertIn("reef-graph-run.py", copied)
         for n in copied:
             self.assertTrue(os.path.isfile(os.path.join(ROOT, "scripts", n)), f"SCRIPTS names {n}, which the plugin does not ship")
+
+    def test_init_copies_reef_approval_and_its_proxy_runs_from_the_project(self):
+        d = node_project(tempfile.mkdtemp(prefix="reef-init-scripts."))
+        r = init(d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        p = os.path.join(d, "scripts", "reef-approval.py")
+        self.assertTrue(os.path.isfile(p), "the night prompt's `scripts/reef-approval.py --proxy` must exist in the project")
+        r = subprocess.run([sys.executable, p, "--proxy", "--feature", "x", "--report", ".reef/ci-local/report-mahmoud-x.md"],
+                           capture_output=True, text=True, cwd=d)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("no night is running", r.stdout, "the project copy runs and refuses outside a night")
 
     def test_init_copies_reef_graph_run(self):
         d = node_project(tempfile.mkdtemp(prefix="reef-init-scripts."))
