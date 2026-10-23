@@ -424,6 +424,7 @@ def check_segment(seg, depth=0, next_op=";", pipefail=False):
     check_guard_files(seg, CTX)
     check_reviewer_lock(seg, CTX)
     check_forge_merge(seg, CTX)
+    check_approval_cli(seg)
     check_release_pr(seg, CTX)
     if next_op in ("|", "|&") and not pipefail and is_gate(seg):
         deny(f"gate {' '.join(seg[:3])!r} piped into another command — the pipe reports the LAST "
@@ -537,6 +538,22 @@ def check_release_pr(seg, ctx):
     deny(f"release PR into {release} at {head[:12]}: no PASS security record for that commit — dispatch reef:security on "
          f"`git diff {release}...{base}`, then `scripts/reef-record security PASS --report <its report>` (a base that moved "
          f"since the pass is audited again)")
+
+
+def check_approval_cli(seg):
+    """The plan and night approvals are the owner's: the AskUserQuestion hook, or `reef-approval.py --owner` in the owner's
+    own terminal (OpenCode). An agent runs the script only with --proxy (a delegated night); piping a made-up answered
+    question into it would approve a plan nobody approved (2026-10-21: allowed until now)."""
+    i = 0
+    while i < len(seg) and (ENV_ASSIGN.match(seg[i]) or seg[i] in PREFIX_WORDS or seg[i].startswith("-")):
+        i += 1
+    if i < len(seg) and re.match(r"python[0-9.]*$", os.path.basename(seg[i])):
+        i += 1
+        while i < len(seg) and seg[i].startswith("-"):
+            i += 1
+    if i < len(seg) and os.path.basename(seg[i]) == "reef-approval.py" and "--proxy" not in seg[i + 1:]:
+        deny("reef-approval.py records the OWNER's approval: the AskUserQuestion hook, or `reef-approval.py --owner "
+             "\"<question>\"` run by the owner in their own terminal — an agent runs it only with --proxy, during a night")
 
 
 def check_forge_merge(seg, ctx):

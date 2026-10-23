@@ -5,6 +5,9 @@ Writes .reef/approvals/<feature>.json = {digest16, approved_at, files} only when
 is answered exactly `Approve` and the 16 hex equal the current digest (reef-plan-check.py --digest); a timeout
 (afkTimeoutMs), another label or a stale digest writes nothing. Always exit 0; the guard enforces the record.
 Usage: cat payload.json | reef-approval.py [--root DIR]
+       reef-approval.py --owner "Approve plan <feature> at <digest16>?" | "Approve night <date> at <digest16>?"
+         the owner, in their own terminal, where the AskUserQuestion hook does not exist (OpenCode); the guard refuses
+         an agent running this script, except --proxy during a night
 """
 import json
 import os
@@ -200,11 +203,19 @@ def main(argv):
     root = None
     if "--root" in argv:
         root = argv[argv.index("--root") + 1]
-    try:
-        payload = json.load(sys.stdin)
-    except Exception:
-        print("reef-approval: no JSON payload — nothing written")
-        return 0
+    owner = "--owner" in argv
+    if owner:
+        q = (argv[argv.index("--owner") + 1] if argv.index("--owner") + 1 < len(argv) else "").strip()
+        if not (QUESTION.match(q) or NIGHT_Q.match(q)):
+            print('usage: reef-approval.py --owner "Approve plan <feature> at <digest16>?" | "Approve night <date> at <digest16>?"')
+            return 2
+        payload = {"tool_name": "AskUserQuestion", "cwd": os.getcwd(), "tool_response": {"answers": {q: "Approve"}}}
+    else:
+        try:
+            payload = json.load(sys.stdin)
+        except Exception:
+            print("reef-approval: no JSON payload — nothing written")
+            return 0
     if payload.get("tool_name") != "AskUserQuestion":
         return 0
     resp = payload.get("tool_response") or {}
@@ -273,7 +284,7 @@ def main(argv):
         wrote += 1
     if not wrote and not answers:
         print("reef-approval: no answers in the payload — nothing written")
-    return 0
+    return 1 if owner and not wrote else 0
 
 
 if __name__ == "__main__":
