@@ -40,6 +40,8 @@ if kind not in ("probe-deny", "probe-write"):
     json.dump(st, open(lp, "w"))
 def ev(**e): print(json.dumps(e), flush=True)
 ev(type="system", subtype="init", session_id="x")
+ev(type="assistant", message="a plain string where an object was expected")   # 2026-10-23: this shape killed a night
+ev(type="user", message={"content": "plain text content"})
 ev(type="system", subtype="task_started", tool_use_id="t1", description="Hunter 1203 plan round 2", subagent_type="reef:loophole-hunter")
 ev(type="assistant", parent_tool_use_id="t1", message={"content": [{"type": "text", "text": "a sub-agent's own words"},
    {"type": "tool_use", "name": "SubagentHandback", "input": {"message": "BLOCKER: threat-model row\nVERDICT: FAIL"}}]})

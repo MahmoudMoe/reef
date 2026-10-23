@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **One odd stream event no longer kills the runner** (2026-10-23, qassimha's night: `AttributeError: 'str' object
+  has no attribute 'get'` in `steps`, two minutes in; the runner died and its headless session ran on unwatched,
+  with no night marker, so Mahmoud's approvals would be refused). `steps` skips a `message` or a content entry that
+  is not an object, and the session loop turns any parse error into one live line instead of dying, on Claude Code
+  and OpenCode. tests/size-budget.json raised: `script_lines` 11,620 → 11,631.
 - **Mahmoud approves a preview look at night by default** (the owner's go, 2026-10-23: "not a night mode, a lot
   of intervention"). Every qassimha night kept the look for the owner, since the project's AGENTS.md says "the look
   of his own product", and a row blocked on a look waited all night. The night skill now delegates a preview look by
