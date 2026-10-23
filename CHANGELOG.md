@@ -1,6 +1,19 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Reef installs into OpenCode** (the owner's go, 2026-10-23: "work on finalizing open code"; portability phase 2,
+  part 1). `scripts/reef-opencode.py install` writes `.opencode/`: the guard plugin (caller from `chat.params`, the
+  normalized input of #93, any non-zero exit or a timeout blocks, a tool not known to be read-only goes to the guard),
+  `reef:<name>` agents from `agents/*.md` with `roles.<role>` as their model and `edit: deny` on every judge, links to
+  the skills, `/reef-*` commands, and host notes read through `opencode.json` `instructions`. It warns on a role that is
+  no provider/model id and on a tier table that varies a role's model (one agent file, one model). The plugin lives
+  inside the script so the size budget and the code-needs-a-test check see it. Where no approval hook exists the owner
+  approves in their own terminal: `reef-approval.py --owner "Approve plan <slug> at <digest16>?"` (or the night
+  question) takes the hook's own path. And a hole closed on both hosts: piping a made-up answered question into
+  `reef-approval.py` approved a plan, and the guard let any agent run it; now an agent runs it only with `--proxy`.
+  The host notes give a judge's scratch by its literal path: a live run's `mkdir -p $TMPDIR/opencode/reef` was
+  refused, since the guard cannot read a variable. tests/size-budget.json raised: `script_lines` 11,334 → 11,559 (the
+  installer and plugin 197, the owner command and guard rule 28).
 - **A night contract is for one night** (the owner's go, 2026-10-21). `reef-run.py --night` checked only the
   contract's digest: last night's approval (rows 3 and 12, both closed since) still passed at 21:23, and the night ran
   one 29-second session and waited. `night_ok`, used by the runner and by the proxy's approval, now also refuses an
