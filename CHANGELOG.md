@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **A project carries `scripts/reef-approval.py`** (the owner's go, 2026-10-23). The night prompt tells the
+  orchestrator to record Mahmoud's plan approval with `python3 scripts/reef-approval.py --proxy`, but reef-init never
+  copied that script into a project: qassimha's night contract had to name the plugin's copy, and without it the found
+  rows would have stopped at approval. reef-init now copies it (the hook still runs the plugin's copy), and the test
+  that every project path a skill names is copied also reads the runner's prompts. tests/size-budget.json raised:
+  `script_lines` 11,618 → 11,620.
 - **The docs for two hosts, step B** (the owner's go, 2026-10-23). The README's Hosts table fills OpenCode's column:
   status "early: built and verified live; no feature built on it yet", the install (`reef-init.py --root .`, then
   `reef-opencode.py install`), `provider/model` roles, the plugin guard, a new row for plan and night approval (the
