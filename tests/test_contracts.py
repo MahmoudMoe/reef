@@ -99,7 +99,7 @@ class GateLineIsComputed(unittest.TestCase):
 class DocsForTwoHosts(unittest.TestCase):
     """0.7 (the owner, 2026-10-21: instructions for Claude Code and OpenCode): host facts have one home, the README's
     `## Hosts` table; the site fetches it; the Arabic manual links it; the ledger says which rules carry to another
-    host. OpenCode stays "planned" until its adapter passes the guard probe."""
+    host. OpenCode's status names what is proven: the adapter live, no feature built on it yet (2026-10-23)."""
 
     def table(self, heading):
         md = read("README.md")
@@ -110,7 +110,7 @@ class DocsForTwoHosts(unittest.TestCase):
         rows = self.table("Hosts")
         self.assertEqual(rows[0], ["", "Claude Code", "OpenCode"])
         status = dict((r[0], r[1:]) for r in rows[1:])["Status"]
-        self.assertEqual(status, ["supported", "planned, not built"], "OpenCode is planned until its probe passes")
+        self.assertEqual(status, ["supported", "early: built and verified live; no feature built on it yet"], "OpenCode's status says what is and is not proven")
 
     def test_every_ledger_row_says_which_host_enforces_it(self):
         md = read("README.md")

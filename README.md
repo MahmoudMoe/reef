@@ -82,22 +82,24 @@ reviewed commit when you want the tree.
 ## Hosts
 
 Reef runs inside an agent host: the CLI that runs its skills, dispatches its agents and calls its guard before every
-command. Claude Code is supported today. OpenCode is planned
-([the plan](docs/design/portability-plan.md)): nothing in its column is an instruction until its adapter passes the
-guard probe.
+command. Claude Code is supported. OpenCode is in early support ([the plan](docs/design/portability-plan.md),
+[the live check](docs/perf/opencode-e2e-2026-10-23.md)): the adapter is built and its guard, runner and one loop
+iteration are verified live, but no feature has been built and merged on it yet. `<plugin>` below is a clone of this
+repository.
 
 | | Claude Code | OpenCode |
 |---|---|---|
-| Status | supported | planned, not built |
-| Install | `/plugin marketplace add MahmoudMoe/reef`, then `/plugin install reef@mahmoudmoe` | planned |
-| Start a command | `/reef-loop`, `/reef-plan <row>` and the rest, in the session | planned |
-| Models | Claude: `opus`, `sonnet`, `fable` | planned: any provider OpenCode reaches, Claude by API key |
-| The model per role | `roles.*` and `tiers.<tier>.roles`, passed on each dispatch and checked by the guard | planned: written into each agent's file |
-| The guard | `hooks/hooks.json` runs it before every shell, edit and dispatch call | planned: a plugin that runs the same guard |
-| At the context ceiling | `/clear`, then the next command the handoff names | planned |
-| The headless runner | `python3 scripts/reef-run.py` (headless sessions) | planned |
+| Status | supported | early: built and verified live; no feature built on it yet |
+| Install | `/plugin marketplace add MahmoudMoe/reef`, then `/plugin install reef@mahmoudmoe` | `python3 <plugin>/scripts/reef-init.py --root .`, then `python3 <plugin>/scripts/reef-opencode.py install`, in the project |
+| Start a command | `/reef-loop`, `/reef-plan <row>` and the rest, in the session | the same commands, in an OpenCode session in the project |
+| Models | Claude: `opus`, `sonnet`, `fable` | any provider OpenCode reaches: every `roles.*` value is a `provider/model` id; the main session's model is `opencode.json` `model` |
+| The model per role | `roles.*` and `tiers.<tier>.roles`, passed on each dispatch and checked by the guard | written into each `reef:<name>` agent file and checked by the guard; a tier table may not vary a role's model (one file, one model) |
+| The guard | `hooks/hooks.json` runs it before every shell, edit and dispatch call | `.opencode/plugins/reef-guard.js` runs the same guard before every bash, write, edit and task call |
+| Plan and night approval | the question in the session, captured by a hook | the owner, in their own terminal: `python3 <plugin>/scripts/reef-approval.py --owner "<the question>"` |
+| At the context ceiling | `/clear`, then the next command the handoff names | a fresh session; the ceiling is not measured |
+| The headless runner | `python3 scripts/reef-run.py` (headless sessions) | `python3 scripts/reef-run.py --host opencode`, after `probe --host opencode` |
 | Graph mode | one background workflow per graph | not available: each task is its own dispatch (`graph.mode: chat`) |
-| The honesty ledger | every row holds | only the rows marked `portable` carry over |
+| The honesty ledger | every row holds | the `portable` rows hold; the six `Claude Code` rows do not |
 
 <p align="center"><img src="assets/divider-rain.svg" alt="" width="100%"></p>
 
@@ -316,8 +318,8 @@ Task|Agent · Edit|Write|MultiEdit; PostToolUse AskUserQuestion; Stop; SessionSt
 Classes: **code** decides on structured state the agent cannot author · **tripwire** matches command text (a blocklist
 over a shell surface is never complete; CI is the wall) · **prose** lives in a skill or agent file. Every `scripts/reef-*`
 carries `# CLASS:` in its header and `tests/test_contracts.py` ties each row below to a script of that class.
-Host: **portable** when a script, git or the guard's checks enforce the rule, which another host reaches through its
-adapter (none is built yet) · **Claude Code** when it needs a hook event or a payload only Claude Code sends.
+Host: **portable** when a script, git or the guard's checks enforce the rule, which OpenCode reaches through its
+adapter (`scripts/reef-opencode.py`) · **Claude Code** when it needs a hook event or a payload only Claude Code sends.
 
 <details>
 <summary><strong>The ledger</strong>, rule by rule</summary>

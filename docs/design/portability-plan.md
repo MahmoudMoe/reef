@@ -68,6 +68,10 @@ Behaviour on Claude stays the same; each item has a test.
    boundary, not on Claude's own path.
 
 ### Phase 2 — the OpenCode adapter (only after phase 0 passes)
+**Done 2026-10-23** (#101, #102; `docs/perf/opencode-e2e-2026-10-23.md`): the guard plugin, the agent files, the skill
+links, the commands, the host notes, the owner's approval command and the runner's OpenCode mode, verified live on
+1.19.3. Two choices differ from the bullets below: no role aliases (role values are `provider/model` ids the installer
+writes into the agent files), and the skills keep Claude Code's words (the host notes translate them).
 - **Guard:** an OpenCode plugin that calls `reef-guard.py` with the normalized input and blocks on deny. Move what a
   glob can say into OpenCode's declarative permissions per agent; keep the script for what it cannot.
   The plugin blocks on **any** non-zero exit or a timeout, not only exit 2, as `hooks.json` does with
