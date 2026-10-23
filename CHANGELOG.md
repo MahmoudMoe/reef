@@ -11,8 +11,9 @@
   approves in their own terminal: `reef-approval.py --owner "Approve plan <slug> at <digest16>?"` (or the night
   question) takes the hook's own path. And a hole closed on both hosts: piping a made-up answered question into
   `reef-approval.py` approved a plan, and the guard let any agent run it; now an agent runs it only with `--proxy`.
-  tests/size-budget.json raised: `script_lines` 11,334 → 11,552 (the installer and plugin 190, the owner command and
-  guard rule 28).
+  The host notes give a judge's scratch by its literal path: a live run's `mkdir -p $TMPDIR/opencode/reef` was
+  refused, since the guard cannot read a variable. tests/size-budget.json raised: `script_lines` 11,334 → 11,559 (the
+  installer and plugin 197, the owner command and guard rule 28).
 - **A night contract is for one night** (the owner's go, 2026-10-21). `reef-run.py --night` checked only the
   contract's digest: last night's approval (rows 3 and 12, both closed since) still passed at 21:23, and the night ran
   one 29-second session and waited. `night_ok`, used by the runner and by the proxy's approval, now also refuses an

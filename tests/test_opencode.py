@@ -60,6 +60,10 @@ class Install(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(d, ".opencode", "commands", "reef.md")))
         host = read(d, ".opencode", "reef-host.md")
         self.assertIn(f"python3 {ROOT}/scripts/reef-approval.py --owner", host)
+        # 2026-10-23, live: `mkdir -p $TMPDIR/opencode/reef` was refused — the guard cannot read a variable; the path is literal
+        scratch = os.path.join(tempfile.gettempdir(), "opencode", "reef")
+        self.assertIn(f"mkdir -p {scratch}", host)
+        self.assertNotIn("$TMPDIR/", host, "never given as a path")
         self.assertEqual(json.loads(read(d, "opencode.json"))["instructions"], [".opencode/reef-host.md"])
         gi = read(d, ".gitignore")
         r = install(d)

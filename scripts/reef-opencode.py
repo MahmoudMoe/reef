@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 
 ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "plan_reviewer", "loophole-hunter": "adversary",
            "mechanic": "mechanic", "security": "security", "planner": "planner", "mahmoud": "proxy"}
@@ -76,7 +77,8 @@ The skills are written in Claude Code's words. Here they mean:
 - **`/clear`** means: end this session; the owner starts a fresh one, which reads the handoff head and one tick.
 - **Monitor, ScheduleWakeup, SendMessage** do not exist: poll by re-running the command, and dispatch a fresh agent with the
   earlier one's file path instead of resuming it.
-- **The scratchpad** for a judge's report is `$TMPDIR/opencode/reef/` (create it); the orchestrator copies the file with `cp`.
+- **The scratchpad** for a judge's report is `{scratch}/` — create it with `mkdir -p {scratch}` and write there by that
+  literal path (the guard cannot read a variable such as `$TMPDIR`, so it refuses it); the orchestrator copies the file with `cp`.
 - The Stop hook and the session-start tick are not here: run `python3 scripts/reef-loop.py tick` at the start of a session.
 '''
 
@@ -96,6 +98,11 @@ def frontmatter(text):
         if sep and not line.startswith((" ", "#")):
             fm[k.strip()] = v.strip()
     return fm, m.group(2)
+
+
+def scratch_dir():
+    """A judge's scratch, under the temp dir (the guard's scratch and OpenCode's own allowed temp directory, not realpath'd)."""
+    return os.path.join(tempfile.gettempdir(), "opencode", "reef")
 
 
 def write(path, text):
@@ -151,7 +158,7 @@ def install(repo, plugin):
         if fn.endswith(".md"):
             name = fn if fn == "reef.md" else "reef-" + fn
             write(os.path.join(oc, "commands", name), open(os.path.join(plugin, "commands", fn), encoding="utf-8").read())
-    write(os.path.join(oc, "reef-host.md"), HOST.replace("{plugin}", plugin))
+    write(os.path.join(oc, "reef-host.md"), HOST.replace("{plugin}", plugin).replace("{scratch}", scratch_dir()))
     conf = os.path.join(repo, "opencode.json")
     if os.path.isfile(os.path.join(repo, "opencode.jsonc")):
         warnings.append('opencode.jsonc is yours: add ".opencode/reef-host.md" to its "instructions"')
