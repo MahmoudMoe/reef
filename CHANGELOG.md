@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **Mahmoud approves a preview look at night by default** (the owner's go, 2026-10-23: "not a night mode, a lot
+  of intervention"). Every qassimha night kept the look for the owner, since the project's AGENTS.md says "the look
+  of his own product", and a row blocked on a look waited all night. The night skill now delegates a preview look by
+  default (the approved contract is the owner delegating it); Mahmoud judges it from the preview's code against the
+  spec, the footnotes and the profile, it is written as his footnote, and the owner undoes it by editing that
+  footnote. A footnote or profile line keeping a named look still holds it back. tests/size-budget.json raised:
+  `prose_words` 19,349 → 19,458.
 - **A project carries `scripts/reef-approval.py`** (the owner's go, 2026-10-23). The night prompt tells the
   orchestrator to record Mahmoud's plan approval with `python3 scripts/reef-approval.py --proxy`, but reef-init never
   copied that script into a project: qassimha's night contract had to name the plugin's copy, and without it the found
