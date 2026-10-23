@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **A night drives every ready row of the batch, found ones too** (the owner's go, 2026-10-23). Queue rule 1, a
+  planned row before a found one, made `reef-queue.py ready` hide every found row while a planned one was ready: the
+  tick never offered a found row, qassimha's 89 found rows waited, and a night with its planned rows blocked had
+  nothing to do. Now `ready --with-found` lists every ready row, planned first; at night (`.reef/night/active`) the
+  tick uses it and keeps only the contract's `Rows:`, so found rows the contract names move and nothing outside it
+  does; `reef-run.py contract` warns of a ready row the contract leaves out; the night skill drafts `Rows:` from it by
+  default. By day rule 1 is unchanged. tests/size-budget.json raised: `prose_words` 19,458 → 19,508, `script_lines`
+  11,631 → 11,656.
 - **One odd stream event no longer kills the runner** (2026-10-23, qassimha's night: `AttributeError: 'str' object
   has no attribute 'get'` in `steps`, two minutes in; the runner died and its headless session ran on unwatched,
   with no night marker, so Mahmoud's approvals would be refused). `steps` skips a `message` or a content entry that

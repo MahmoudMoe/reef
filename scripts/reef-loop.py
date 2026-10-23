@@ -174,7 +174,17 @@ def tick(root):
     scripts = os.path.join(root, "scripts")
     py = sys.executable
     stale = int((cfg.get("loop") or {}).get("inflight_stale_minutes", 90) or 90)
-    rc_q, q_ready = run([py, os.path.join(scripts, "reef-queue.py"), "ready", "--repo", root], root)
+    # a night (2026-10-23): rule 1's planned-before-found hid every found row while a planned one was ready, so a
+    # contract naming found rows never moved them; at night the contract's Rows are what is driven, found ones too
+    night = None
+    if os.path.isfile(os.path.join(root, ".reef", "night", "active")):
+        try:
+            with open(os.path.join(root, ".reef", "night", "contract.md"), encoding="utf-8") as f:
+                m = re.search(r"^Rows:\s*(.+)$", f.read(), re.M)
+            night = set(re.findall(r"\d+", m.group(1))) if m else set()
+        except OSError:
+            night = set()
+    rc_q, q_ready = run([py, os.path.join(scripts, "reef-queue.py"), "ready", "--repo", root] + (["--with-found"] if night is not None else []), root)
     rc_s, q_status = run([py, os.path.join(scripts, "reef-queue.py"), "status", "--repo", root], root)
     rc_g, g_ready = run([py, os.path.join(scripts, "reef-graph.py"), "ready", "--json", "--root", root], root)
     try:
@@ -193,6 +203,8 @@ def tick(root):
     dispatch_now, awaiting = plan_gate(root, scripts, py, dispatch_now)
     rows = [l.split("\t") for l in q_status.splitlines() if "\t" in l]
     to_plan = [l.split("\t") for l in q_ready.splitlines() if "\t" in l and l.split("\t")[1] == "queued"]
+    if night is not None:
+        to_plan = [r for r in to_plan if r[0] in night]
     to_close = [r for r in rows if len(r) > 1 and r[1] == "done"]
     building = [r for r in rows if len(r) > 1 and r[1] == "building"]
     prs = []

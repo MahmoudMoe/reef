@@ -103,6 +103,14 @@ class TonightOnly(unittest.TestCase):
         self.assertIn("every row of the contract (12) is closed", r.stderr)
 
 
+class ContractNamesTheReadyRows(unittest.TestCase):
+    def test_the_contract_warns_of_a_ready_row_it_leaves_out(self):
+        d = project()   # rows 12 and 3 ready; the contract names 12
+        r = subprocess.run([sys.executable, RUN, "contract", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("WARN ready rows not in tonight's contract, which the night will not touch: 3", r.stdout)
+
+
 class PersonalProfile(unittest.TestCase):
     def test_a_new_projects_first_night_starts_from_the_owners_personal_profile(self):
         # 2026-10-21, the owner: "this means I cannot start night mode at the beginning of the project!"

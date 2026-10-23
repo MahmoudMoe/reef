@@ -168,6 +168,11 @@ class NightLooks(unittest.TestCase):
         self.assertIn("writes it as your footnote (the owner undoes it by editing that footnote)", agent)
         self.assertIn("anything the owner has explicitly kept for themselves in a footnote", agent, "a named keep still holds")
 
+    def test_the_contract_names_every_ready_row_found_ones_too(self):
+        skill = read("skills", "reef-night", "SKILL.md")
+        self.assertIn("by default every ready row of the current batch, planned and found (`python3 scripts/reef-queue.py ready --with-found`", skill)
+        self.assertIn("at night the tick drives these rows and no others", skill)
+
 
 class SizeBudget(unittest.TestCase):
     """0.7 (the owner, 2026-10-20: "is Reef creating technical debt?"): config keys, skill and agent prose, and script lines
