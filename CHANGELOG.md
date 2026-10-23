@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The docs for two hosts, step B** (the owner's go, 2026-10-23). The README's Hosts table fills OpenCode's column:
+  status "early: built and verified live; no feature built on it yet", the install (`reef-init.py --root .`, then
+  `reef-opencode.py install`), `provider/model` roles, the plugin guard, a new row for plan and night approval (the
+  owner's `reef-approval.py --owner`), the runner's `--host opencode`; the ledger's `portable` now names the adapter.
+  The site and the Arabic manual say the same, and the manual's install step gains the OpenCode commands. Both
+  plans mark the step done. Cut: the site's host switch on the install box (the Hosts table already shows both).
+  Docs only; budget unchanged.
 - **The runner drives OpenCode** (the owner's go, 2026-10-23; portability phase 2, part 2). `reef-run.py --host
   opencode` runs each session as `opencode run --format json --command reef-loop <the runner's guidance>`; its live
   lines come from OpenCode's events (a `task` call arrives once, completed, with the sub-agent's verdict; the

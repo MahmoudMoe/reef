@@ -60,7 +60,7 @@ builds the slots now and fills them when each phase passes:
 | Step | When | Files | Size |
 |---|---|---|---|
 | A. Neutral wording, the hosts table with Claude Code filled and OpenCode "planned", the ledger's Hosts column, the site fetch | Now, after this plan's go | README, `docs/index.html`, `site.js`, the Arabic manual, one contract test | About 300 words added, most of them the table |
-| B. Fill OpenCode's column, the Arabic install section, the site switch's second tab | After phase 2 passes the probe | Same files | One table column, one Arabic section |
+| B. Fill OpenCode's column, the Arabic install section, the site switch's second tab | Done 2026-10-23, without the switch: the site's Hosts table already shows both columns | Same files | One table column, one Arabic section |
 | C. The measured verdict and its numbers | After phase 3 | README status, `docs/perf/` | A few lines |
 
 Docs words are not in the size budget (`prose_words` counts skills and agents only), but the owner's rule against
