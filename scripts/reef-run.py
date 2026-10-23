@@ -77,11 +77,14 @@ def steps(ev, names, verdicts):
     if kind == "system" and sub_ == "task_notification":
         tid = ev.get("tool_use_id")
         return [f"← {names.get(tid, 'a task')}: {verdicts.pop(tid, None) or ev.get('status') or 'ended'}"]
-    blocks = (ev.get("message") or {}).get("content")
+    msg = ev.get("message")
+    blocks = msg.get("content") if isinstance(msg, dict) else None
     if kind != "assistant" or not isinstance(blocks, list):
         return []
     out = []
     for b in blocks:
+        if not isinstance(b, dict):
+            continue
         if parent:
             if b.get("type") == "tool_use" and b.get("name") == "SubagentHandback":
                 m = re.search(r"VERDICT:\s*(\S+)", str((b.get("input") or {}).get("message", "")))
@@ -137,7 +140,11 @@ def session_opencode(root, prompt, say=None):
             cost += float(part.get("cost") or 0)
         if ev.get("type") == "text" and str(part.get("text") or "").strip():
             last = str(part["text"])
-        for text in (oc_steps(ev) if say else []):
+        try:
+            lines = oc_steps(ev) if say else []
+        except Exception as e:
+            lines = [f"(an event the runner could not read: {type(e).__name__})"]
+        for text in lines:
             say(text)
     p.wait()
     return {"session_id": sid, "total_cost_usd": round(cost, 6), "result": last or "".join(raw)[-2000:],
@@ -168,7 +175,11 @@ def session(root, prompt, mode, say=None):
             continue
         if ev.get("type") == "result":
             out = ev
-        for text in (steps(ev, names, verdicts) if say else []):
+        try:
+            lines = steps(ev, names, verdicts) if say else []
+        except Exception as e:   # 2026-10-23: one event of an unexpected shape killed the runner mid-night
+            lines = [f"(an event the runner could not read: {type(e).__name__})"]
+        for text in lines:
             say(text)
     p.wait()
     out = dict(out) if out else {"result": "".join(raw)[-2000:]}
