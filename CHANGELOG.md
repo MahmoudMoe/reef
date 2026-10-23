@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The runner drives OpenCode** (the owner's go, 2026-10-23; portability phase 2, part 2). `reef-run.py --host
+  opencode` runs each session as `opencode run --format json --command reef-loop <the runner's guidance>`; its live
+  lines come from OpenCode's events (a `task` call arrives once, completed, with the sub-agent's verdict; the
+  orchestrator's words; a decision or merge command), its cost from the summed `step_finish` costs, its session id
+  from the events. The probe and its gate are per host (`probe --host opencode`), so a Claude Code GATE OK never lets
+  OpenCode loop; the waiting line names the host to answer in. Verified live on OpenCode 1.19.3: GATE OK, and one
+  `/reef-loop` iteration that ended in an honest owner wait (`docs/perf/opencode-e2e-2026-10-23.md`).
+  tests/size-budget.json raised: `script_lines` 11,559 → 11,618.
 - **Reef installs into OpenCode** (the owner's go, 2026-10-23: "work on finalizing open code"; portability phase 2,
   part 1). `scripts/reef-opencode.py install` writes `.opencode/`: the guard plugin (caller from `chat.params`, the
   normalized input of #93, any non-zero exit or a timeout blocks, a tool not known to be read-only goes to the guard),

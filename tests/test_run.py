@@ -52,6 +52,33 @@ ev(type="result", result=result, session_id="s-" + str(len(open(os.path.join(os.
 """
 
 
+FAKE_OC = r"""#!/usr/bin/env python3
+import json, os, sys
+open(os.path.join(os.getcwd(), ".fake-argv"), "a").write(json.dumps(sys.argv[1:]) + "\n")
+plan = os.path.join(os.getcwd(), ".fake-plan")
+lines = open(plan).read().splitlines()
+step = lines[0] if lines else "none"
+open(plan, "w").write("\n".join(lines[1:]))
+kind, _, arg = step.partition(":")
+lp = os.path.join(os.getcwd(), ".reef", "loop.json")
+text = "done"
+if kind == "wait":
+    json.dump({"active": True, "wait": arg, "stop": None, "parked": None, "hashes": []}, open(lp, "w"))
+elif kind == "probe-deny":
+    text = "The write was refused: reef-guard: reef-guard DENY: writing under .reef/approvals/ by hand"
+def ev(t, **part): print(json.dumps({"type": t, "timestamp": 1, "sessionID": "ses_oc1", "part": part}), flush=True)
+ev("step_start")
+ev("text", text="Row 5: dispatching the verifier for 501.\nmore")
+ev("tool_use", tool="task", state={"status": "completed", "input": {"description": "Verifier 501", "prompt": "p", "subagent_type": "reef:verifier"},
+   "output": "<task_result>RUN: agent=verifier\nVERDICT: PASS</task_result>"})
+ev("tool_use", tool="bash", state={"status": "completed", "input": {"command": "python3 scripts/reef-approval.py --proxy --feature f --report r", "description": "Record Mahmoud's approval of row 5"}})
+ev("tool_use", tool="bash", state={"status": "completed", "input": {"command": "ls -la", "description": "noise"}})
+ev("step_finish", reason="tool-calls", cost=0.01, tokens={"input": 10, "output": 1})
+ev("text", text=text)
+ev("step_finish", reason="stop", cost=0.02, tokens={"input": 5, "output": 1})
+"""
+
+
 def project():
     d = tempfile.mkdtemp(prefix="reef-run.")
     subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
@@ -61,6 +88,8 @@ def project():
     os.makedirs(b)
     open(os.path.join(b, "claude"), "w").write(FAKE)
     os.chmod(os.path.join(b, "claude"), 0o755)
+    open(os.path.join(b, "opencode"), "w").write(FAKE_OC)
+    os.chmod(os.path.join(b, "opencode"), 0o755)
     return d
 
 
@@ -74,6 +103,36 @@ def run(d, plan, *args):
 def calls(d):
     p = os.path.join(d, ".fake-calls")
     return open(p).read().splitlines() if os.path.exists(p) else []
+
+
+class OnOpenCode(unittest.TestCase):
+    """0.7 (portability phase 2): `--host opencode` runs each session as `opencode run --command reef-loop --format json`;
+    the probe and its gate are the host's own."""
+
+    def test_the_probe_gates_the_host_and_a_session_streams_its_steps_and_cost(self):
+        d = project()
+        r = run(d, ["wait:owner x"], "--host", "opencode")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no GATE OK for --permission-mode opencode", r.stderr, "a Claude Code gate is not OpenCode's")
+        r = run(d, ["probe-deny"], "probe", "--host", "opencode")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(json.load(open(os.path.join(d, ".reef", "run", "gate.json")))["mode"], "opencode")
+        open(os.path.join(d, ".reef", "questions.md"), "w").write("- row 5: the look? — recommended: approve\n")
+        r = run(d, ["wait:owner: row 5 look"], "--host", "opencode")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("run /reef-loop in OpenCode to answer them", r.stdout)
+        argv = [json.loads(l) for l in open(os.path.join(d, ".fake-argv"))][-1]
+        self.assertEqual(argv[:5], ["run", "--format", "json", "--command", "reef-loop"])
+        self.assertTrue(argv[5].startswith("a reef-run iteration"), "the command carries the skill; the message is its arguments")
+        live = open(os.path.join(d, ".reef", "run", "live.log")).read()
+        self.assertIn("Row 5: dispatching the verifier for 501.", live)
+        self.assertNotIn("more", live)
+        self.assertIn("↔ Verifier 501 (reef:verifier): PASS", live)
+        self.assertIn("· Record Mahmoud's approval of row 5", live)
+        self.assertNotIn("noise", live)
+        rec = [json.loads(l) for l in open(os.path.join(d, ".reef", "run", "run.log"))][-1]
+        self.assertEqual((rec["session"], rec["cost_usd"]), ("ses_oc1", 0.03))
+        self.assertEqual(run(d, [], "--host", "codex").returncode, 1)
 
 
 class Probe(unittest.TestCase):
