@@ -9,7 +9,9 @@ Usage (the owner's terminal, in the project's main checkout):
   reef-run.py probe [--repo DIR] [--permission-mode auto]   once per machine and mode: one headless session tries a
       forbidden write; GATE OK only when reef-guard denied it and no file exists (fail closed — a headless session the
       guard does not reach would be a way around every rule)
-  reef-run.py [--repo DIR] [--max-iterations 10] [--permission-mode auto] [--night]
+  reef-run.py [--repo DIR] [--max-iterations 10] [--permission-mode auto] [--night] [--host opencode]
+  --host opencode: each session is `opencode run --command reef-loop --format json` (scripts/reef-opencode.py install
+               first); the probe and the gate are per host (`probe --host opencode`)
   reef-run.py watch [--repo DIR]   the live steps of the run in progress (any terminal; Ctrl-C to leave)
   reef-run.py contract [--from FILE]   (super Reef) install tonight's contract into .reef/night/contract.md and print
       the night digest (contract + reef/owner.md) and the exact question /reef-night asks: `Approve night <date> at <16 hex>?`
@@ -92,9 +94,61 @@ def steps(ev, names, verdicts):
     return out
 
 
+def oc_steps(ev):
+    """The live lines one `opencode run --format json` event is worth (shapes: docs/perf/opencode-probe-2026-10-21.md): a
+    task call arrives once, completed, with the sub-agent's output; the orchestrator's words; a decision or merge command."""
+    part = ev.get("part") or {}
+    if ev.get("type") == "text" and str(part.get("text") or "").strip():
+        return [str(part["text"]).strip().splitlines()[0][:160]]
+    if ev.get("type") != "tool_use":
+        return []
+    state = part.get("state") or {}
+    i = state.get("input") or {}
+    if part.get("tool") == "task":
+        m = re.search(r"VERDICT:\s*(\S+)", str(state.get("output") or ""))
+        return [f"↔ {i.get('description') or 'a task'} ({i.get('subagent_type') or 'task'}): {m.group(1) if m else state.get('status') or 'ended'}"]
+    if part.get("tool") == "bash" and KEY_BASH.search(str(i.get("command") or "")):
+        return ["· " + str(i.get("description") or i["command"])[:140]]
+    return []
+
+
+def session_opencode(root, prompt, say=None):
+    """One headless OpenCode session (`opencode run --format json`): /reef-loop runs as its command; returns the session id,
+    the summed step cost and the last words, the shape `session` returns."""
+    oc = os.environ.get("REEF_OPENCODE", "opencode")
+    msg = ["--command", "reef-loop", prompt[len("/reef-loop"):].lstrip(" —")] if prompt.startswith("/reef-loop") else [prompt]
+    t0 = time.time()
+    try:
+        p = subprocess.Popen([oc, "run", "--format", "json"] + msg, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    except FileNotFoundError:
+        die(f"`{oc}` is not on the PATH — install OpenCode (npm install -g opencode-ai), or set REEF_OPENCODE")
+    raw, sid, cost, last = [], "", 0.0, ""
+    for line in p.stdout:
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            raw.append(line)
+            continue
+        if not isinstance(ev, dict):
+            continue
+        sid = sid or str(ev.get("sessionID") or "")
+        part = ev.get("part") or {}
+        if ev.get("type") == "step_finish":
+            cost += float(part.get("cost") or 0)
+        if ev.get("type") == "text" and str(part.get("text") or "").strip():
+            last = str(part["text"])
+        for text in (oc_steps(ev) if say else []):
+            say(text)
+    p.wait()
+    return {"session_id": sid, "total_cost_usd": round(cost, 6), "result": last or "".join(raw)[-2000:],
+            "_rc": p.returncode, "_seconds": round(time.time() - t0, 1)}
+
+
 def session(root, prompt, mode, say=None):
     """One headless Claude Code session in the project, streamed: each event's live lines go to `say`; returns the last
-    `result` event (session_id, total_cost_usd, result), or {"result": <raw output>}."""
+    `result` event (session_id, total_cost_usd, result), or {"result": <raw output>}. Mode `opencode`: an OpenCode one."""
+    if mode == "opencode":
+        return session_opencode(root, prompt, say)
     claude = os.environ.get("REEF_CLAUDE", "claude")
     t0 = time.time()
     try:
@@ -424,7 +478,7 @@ def cmd_run(root, mode, cap, night=False):
                 continue
             if wait:
                 q = os.path.join(root, ".reef", "questions.md")
-                print(f"reef-run: waiting on you — {wait}" + (f"\n  your questions: {q} — run /reef-loop in Claude Code to answer them" if os.path.isfile(q) else ""))
+                print(f"reef-run: waiting on you — {wait}" + (f"\n  your questions: {q} — run /reef-loop in {'OpenCode' if mode == 'opencode' else 'Claude Code'} to answer them" if os.path.isfile(q) else ""))
                 return 2
             if flying:
                 # a session that returns with work in flight would start it twice next time; Bash background work is
@@ -452,6 +506,11 @@ def main(argv):
         repo = args[args.index("--repo") + 1]
     if "--permission-mode" in args:
         mode = args[args.index("--permission-mode") + 1]
+    if "--host" in args:
+        host = args[args.index("--host") + 1]
+        if host not in ("claude", "opencode"):
+            die(f"--host {host!r}: claude or opencode")
+        mode = "opencode" if host == "opencode" else mode
     if "--max-iterations" in args:
         cap = int(args[args.index("--max-iterations") + 1])
     root = main_checkout(repo)
