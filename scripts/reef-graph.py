@@ -422,8 +422,10 @@ def cmd_lock(root, resource, timeout, command):
     always in force: a stuck holder is reported (exit 75), never waited for forever."""
     cfg = read_config(root)
     n = slots_for(cfg, resource)
-    base = os.path.join(tempfile.gettempdir(),
-                        f"reef-slot-{hashlib.sha1(os.path.abspath(root).encode()).hexdigest()}-{resource}")
+    # keyed on the MAIN checkout: a task worktree and the main checkout share one resource (2026-10-24, the trial:
+    # keyed on the folder, a shared test database was used twice at once)
+    key = os.path.realpath(main_checkout(root) or root)
+    base = os.path.join(tempfile.gettempdir(), f"reef-slot-{hashlib.sha1(key.encode()).hexdigest()}-{resource}")
     deadline = time.monotonic() + timeout
     handles = [open(f"{base}-{i}", "a") for i in range(n)]
     try:

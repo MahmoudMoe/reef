@@ -2,7 +2,8 @@
   "gates": {
     "fast": "",
     "full": "",
-    "timeout_s": 1200
+    "timeout_s": 1200,
+    "resources": []
   },
   "caps": {
     "attempts": 3,

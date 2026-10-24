@@ -247,6 +247,7 @@ Every cap, model, branch name and path Reef uses is a key in this one file, writ
 | Key | Default | Effect |
 |---|---|---|
 | **`gates.timeout_s`** | `1200` | a gate past this many seconds is killed with its process group and exits 124 (0 = none) — 2026-10-18: a leaked dev server held the graph-mode workflow three hours |
+| **`gates.resources`** | `[]` | resources a gate run holds for its whole run, in the main checkout and every worktree (`reef-graph.py lock`, `resources.<name>.slots`), so two runs never share a test database; agents run their own test commands on one under the same lock |
 | `gates.fast` / `gates.full` / `gates.extra` / **`gates.release`** | `""` / stack test / `{}` / c4 drift + gitleaks + the stack's audit (new project; proposed on upgrade) | commit gate / verify, review, CI / other gates / release-branch gates (`reef-ci-local.sh --release`; a missing tool is exit 77 = skipped = exit 2) |
 | `caps.attempts` | `3` | fix rounds per task, and per item on its rollup |
 | **`plan.max_acs`** | `0` (warn above 8) | the criteria a task may carry; set `8` at a batch boundary and `reef-plan-check` fails a bigger task (split it). `0` in the template because `reef-init` adds new keys to an existing project's config, and a running batch may hold an approved 21-criterion task. |

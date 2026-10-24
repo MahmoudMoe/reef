@@ -52,6 +52,22 @@ TIMEOUT=1200
 if [ -f .reef/config.json ]; then
   TIMEOUT=$(python3 -c "import json;g=json.load(open('.reef/config.json')).get('gates',{});print(int(g.get('timeout_s',1200) or 0))" 2>/dev/null || echo 1200)
 fi
+# 0.7.2: gates.resources (default none) — the gate holds each named resource for its whole run, in the main checkout and
+# every worktree (reef-graph.py lock, keyed on the main checkout), so two runs never share a test database (2026-10-24,
+# the trial: a gate went red while a verifier's run used the same database). Waiting for the resource counts toward
+# the timeout too, so the limit doubles while one is held.
+RES=''
+if [ -f .reef/config.json ] && [ -f scripts/reef-graph.py ]; then
+  RES=$(python3 -c "import json,re;r=json.load(open('.reef/config.json')).get('gates',{}).get('resources') or [];print(' '.join(x for x in r if isinstance(x,str) and re.fullmatch(r'[A-Za-z0-9._-]+',x)))" 2>/dev/null || true)
+fi
+if [ -n "$RES" ]; then
+  REEF_GATE_CMD=$CMD; export REEF_GATE_CMD
+  WAIT=$(( TIMEOUT > 0 ? TIMEOUT : 21600 ))
+  CMD='sh -c "$REEF_GATE_CMD"'
+  for r in $RES; do CMD="python3 scripts/reef-graph.py lock $r --timeout $WAIT -- $CMD"; done
+  [ "$TIMEOUT" -gt 0 ] && TIMEOUT=$(( TIMEOUT * 2 ))
+  echo "reef-gate ($MODE): holds $RES while it runs (gates.resources)" >&2
+fi
 run_gate() {   # run_gate <command line> [tee log]: the exit code of the gate, or 124 on a hang past gates.timeout_s
   if [ "$TIMEOUT" -le 0 ] || ! command -v python3 >/dev/null 2>&1; then sh -c "$1"; return $?; fi
   python3 - "$1" "$TIMEOUT" "${2:-}" <<'PY'

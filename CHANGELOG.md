@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **A gate run holds the project's shared resources** (the owner's go, 2026-10-24, item 1). On the trial a full gate went
+  red on three tests while a verifier's test run used the same test database; re-run alone it passed 273/273. New
+  `gates.resources` (default none): the gate holds each named resource for its whole run through `reef-graph.py lock`,
+  and its timeout doubles to cover the wait. The lock's slots are now keyed on the main checkout, so a task worktree and
+  the main checkout share one resource (they each had their own). The implementer, the verifier and the hunter run their
+  own test commands on such a resource under the same lock. tests/size-budget.json raised: `config_keys` 91 → 92,
+  `prose_words` 20,292 → 20,385, `script_lines` 12,522 → 12,540.
 - **An existing project's queue survives `/reef-assess`** (the owner's go, 2026-10-24; found while preparing AI coach).
   `reef-init` treated any repository without a Reef config as new and moved its queue to issues; `/reef-assess` then
   appended its converted specs' rows to the queue file, numbered from 1, where issues mode no longer reads them. Now:

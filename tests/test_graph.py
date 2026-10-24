@@ -246,6 +246,21 @@ class Lock(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         holder.wait(timeout=10)
 
+    def test_a_task_worktree_shares_the_main_checkouts_slots(self):
+        # 2026-10-24 (the trial): the slots were keyed on the folder the command ran in, so a task worktree and the main
+        # checkout each had their own and a shared test database was used twice at once
+        config(self.d, resources={"db": {"slots": 1}})
+        g = lambda *a: subprocess.run(["git", "-C", self.d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
+        g("init", "-q", "-b", "main"); g("add", "-A"); g("commit", "-qm", "c")
+        wt = os.path.join(self.d, ".reef", "worktrees", "101")
+        g("worktree", "add", "-q", wt)
+        holder = subprocess.Popen([sys.executable, GRAPH, "lock", "db", "--root", self.d, "--",
+                                   sys.executable, "-c", "import time; time.sleep(4)"])
+        time.sleep(0.8)
+        r = graph("lock", "db", "--root", wt, "--timeout", "0.5", "--", "true")
+        self.assertEqual(r.returncode, 75, "the worktree waits for the main checkout's holder: " + r.stderr)
+        holder.wait(timeout=10)
+
     def test_command_exit_code_propagates(self):
         config(self.d, resources={})
         r = graph("lock", "x", "--root", self.d, "--timeout", "1", "--", "sh", "-c", "exit 7")
