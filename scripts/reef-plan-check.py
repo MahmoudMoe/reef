@@ -34,6 +34,8 @@ COMPLEXITY = {"mech", "design"}
 EFFORT = {"low", "medium", "high"}
 VERIFY = {"judge", "gate-only"}
 TIER = {"light", "full", "design", "critical"}   # effort matched to risk; mech <=> light (design §4); 0.6 adds critical
+KIND = {"refactor"}   # 0.7.2 (ai-coach, item 15): an optional task kind with its own deterministic proof (reef-converge)
+SPLITS_RE = re.compile(r"^[^,\s]+(,\s*[^,\s]+)*\s+under\s+\d+\s+lines$")   # no comma inside a path: unambiguous (CodeQL py/redos)
 TIER_ORDER = ["light", "full", "design", "critical"]
 REQUIRED = ["id", "feature", "status", "complexity", "effort", "blocked-by", "verify", "attempts"]
 # Test-name conventions across the stacks reef-init advertises. Left/right anchored so
@@ -795,6 +797,13 @@ def main():
             errs.append(f"touches {tl} forces tier {forced}, declared {declared} (a tier only gets heavier)")
         if "migration" in tl and not re.search(r"^Rollback:\s*\S", section(text, "Decision") or "", re.M):
             errs.append("touches migration requires a `Rollback:` line in ## Decision")
+        # 0.7.2 (ai-coach, item 15): a refactor task names the file(s) it splits and the size they end under; behaviour is
+        # shown preserved by reef-converge (no assertion line of an existing test changes; the full gate green)
+        kind = (fm.get("kind") or "").strip()
+        if kind and kind not in KIND:
+            errs.append(f"kind={kind!r} not in {sorted(KIND)}")
+        if kind == "refactor" and not SPLITS_RE.match((fm.get("splits") or "").strip()):
+            errs.append("kind: refactor needs `splits: <file>[, <file>] under <N> lines` — the file(s) it splits and the size they end under")
         fdir = folder_of.get(path)
         if fdir and fm.get("feature") != os.path.basename(fdir):
             errs.append(f"feature: {fm.get('feature')!r} inside the folder of {os.path.basename(fdir)!r}")

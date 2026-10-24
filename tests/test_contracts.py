@@ -253,6 +253,12 @@ class AssessMeasures(unittest.TestCase):
         self.assertIn("module boundaries and lint baseline read from those counts", skill)
 
 
+class RefactorKind(unittest.TestCase):
+    def test_the_implementer_keeps_a_refactors_tests(self):
+        # 0.7.2 (ai-coach, item 15): a refactor task's behaviour-preservation proof is deterministic, the agent is told the rule
+        self.assertIn("A `kind: refactor` task preserves behaviour: no assertion line of an existing test changes", read("agents", "implementer.md"))
+
+
 class RollupNoPlanHunter(unittest.TestCase):
     def test_the_review_skill_says_a_rollup_gets_no_plan_pass(self):
         self.assertIn("A rollup gets no hunter plan pass, whatever its tier", read("skills", "reef-review", "SKILL.md"))
