@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://mahmoudmoe.github.io/reef/"><img alt="website" src="https://img.shields.io/badge/website-mahmoudmoe.github.io%2Freef-0E7C7B?style=flat-square"></a>
-  <img alt="version" src="https://img.shields.io/badge/version-0.6.0-D94F35?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-0.7.0-D94F35?style=flat-square">
   <img alt="claude code" src="https://img.shields.io/badge/claude_code-plugin-182B33?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-4A5E66?style=flat-square">
   <a href="https://github.com/MahmoudMoe/reef/actions/workflows/ci.yml"><img alt="selftests" src="https://github.com/MahmoudMoe/reef/actions/workflows/ci.yml/badge.svg?branch=main"></a>
@@ -421,16 +421,15 @@ and never runs in CI; its fixture replay does.
 
 ### Status and what is next
 
-Reef 0.6.0 is the released version. 0.7 is unreleased and in daily use on a trial project; every entry under "0.7
-(unreleased)" in `CHANGELOG.md` names the first contact that caused it, and `docs/perf/2026-10-18.md` holds the
-measurements. Shipped on the way to 0.7 (`docs/design/workflow-v2.md`): the owner's gate last, after the hunter and
+Reef 0.7.0 is the released version, in daily use on a trial project; every entry under "0.7.0" in `CHANGELOG.md` names
+the first contact that caused it, and `docs/perf/` holds the measurements. What 0.7 brought (`docs/design/workflow-v2.md`): the owner's gate last, after the hunter and
 the plan reviewer run in parallel on the draft; a lean planner; tasks capped by criteria; graph mode (`/reef-graph`,
 gated by a probe of the guard); one command to update (`reef-update.py`), one screen to diagnose (`/reef-doctor`), a
 map of the tree and a status page; found-row triage; the cost of every task in the record; defaults sized like the
 field (word budgets off, the hunter's guard pass once per feature); the outer runner (`reef-run.py`: the loop in fresh
 headless sessions, so you are not the restart button); the release's security pass as a recorded verdict the release
-PR needs; `/reef-pentest` against the running app; and super Reef, one delegated night under Mahmoud, your proxy,
-inside a contract you approve once.
+PR needs; `/reef-pentest` against the running app; super Reef, one delegated night under Mahmoud, your proxy, inside a
+contract you approve once, started by `/reef-night` itself; and OpenCode in early support (`scripts/reef-opencode.py`).
 
 Open: a release drill to `main` through the whole chain, a live capture of the AskUserQuestion payload, a sonnet
 author for the `light` tier once an author eval exists.

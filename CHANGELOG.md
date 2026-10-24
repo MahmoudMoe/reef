@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.7 (unreleased)
+## 0.7.0 — the delegated night, the outer runner, the security pass, OpenCode in early support
+- **0.7.0** (the owner's go, 2026-10-24): `plugin.json`, the marketplace, `reef-init`'s version, the README badge, the site
+  and the manual read 0.7.0; `migrations/0.6.0-to-0.7.0.py` is a no-change step so `.reef/version` walks to 0.7.0
+  with no gap; the site's changelog card, the manual's lead and the reef-init skill name 0.7.0 too. The size budget is
+  unchanged. Everything below shipped in 0.7.
 - **A review rollup gets no plan hunter** (the owner's go, 2026-10-24, item 4 option A). qassimha's R4 rollup, the
   feature review's findings, took three hunter plan rounds before its fix could start, and the round cap landed on the
   owner. `reef-adversarial` `plan_pass_tiers` returns no tier for a rollup file (`R<NN>-…`), so the guard does not
