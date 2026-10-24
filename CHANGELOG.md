@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **`/reef-run`: the runner from Claude Code, and a clean stop** (the owner's go, 2026-10-24: "a command for the
+  runner instead of the terminal"). A long session moved to the background had run the trial's loop for three days near
+  its context ceiling, unwatched. `/reef-run` shows a live runner or starts one detached (the probe first when the mode
+  has none), and `/reef-run stop` runs the new `reef-run.py stop`: a request the runner reads between sessions, so it
+  never kills a headless session mid-merge; a fresh run clears an old request. Before, `reef-run.py stop` was an unknown
+  word and started a runner. tests/size-budget.json raised: `prose_words` 19,994 → 20,194, `script_lines` 12,330 → 12,357.
 - **One orchestrator at a time** (the owner's go, 2026-10-24). A terminal session and a background one, forked by
   Claude Code from an older conversation, ran the trial project's loop together and collided on develop; only the
   runner held a lock. The guard now lets the first main session that dispatches an agent or writes the loop's state
