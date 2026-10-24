@@ -9,7 +9,7 @@
   found: not on sh's PATH". (3) 220 of 517 test files were listed as "guard tests" because "never" or "rules" appeared in their
   first 30 lines: a guard test is now one whose NAME says so or whose docblock's first lines forbid something. (4) A second
   `measure` counted `.reef/proposed/.dependency-cruiser.cjs` as product code: Reef's own `.reef/` (and `.git/`) are never
-  product. tests/size-budget.json: unchanged (nothing grew).
+  product. tests/size-budget.json raised: `script_lines` 14,107 → 14,118.
 
 ## 0.7.2 — the first adoption on an existing project: measure, recalibrate safely, adopt whole, deterministic checks
 - **0.7.2** (the owner's go, 2026-10-25): `plugin.json`, the marketplace, `reef-init`'s version, the README badge and status,
