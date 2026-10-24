@@ -696,6 +696,10 @@ def check_git(args):
         elif sub == "merge" and a == "--no-verify":
             # note: merge -n is --no-stat, NOT --no-verify — only the long form is a bypass
             deny("git merge --no-verify skips the pre-merge-commit gate")
+        elif sub == "push" and a == "--no-verify" and has_prepush_hook(CTX.get("cwd") or os.getcwd()):
+            # push -n is --dry-run, NOT --no-verify — only the long form is a bypass; with no .githooks/pre-push at the
+            # command's git root there is nothing to skip (ai-coach, 2026-10-24: its push guard chained into that hook)
+            deny("git push --no-verify skips .githooks/pre-push, this repository's push gate (fix what it refuses instead)")
         elif sub == "stash":
             action = next((t for t in args[j:] if not t.startswith("-")), "push")
             if action not in STASH_READ_ONLY:
@@ -710,6 +714,15 @@ def check_git(args):
     if sub == "stash":
         deny("git stash (bare = push): ONE stash stack serves every worktree — commit to the task "
              "branch (the gate must pass) or open another worktree")
+
+
+def has_prepush_hook(cwd):
+    """`.githooks/pre-push` at the git root of the command's directory (0.7.2): the one hook a push can skip."""
+    try:
+        top = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        top = ""
+    return bool(top) and os.path.isfile(os.path.join(top, ".githooks", "pre-push"))
 
 
 def check_git_config(seg):
