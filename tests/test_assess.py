@@ -92,6 +92,11 @@ class Measure(unittest.TestCase):
         self.assertIn("| `src/lib/big.ts` | 900 | `kind: refactor` · `splits: src/lib/big.ts under 800 lines` |", rec)
         r = subprocess.run([sys.executable, RECAL, "measure", "--json", "--repo", d], capture_output=True, text=True)
         self.assertEqual(open(os.path.join(d, "reef", "day-zero.md")).read().count("## Measured"), 1, "a second run replaces the section")
+        # ai-coach, 2026-10-25: 220 of 517 tests matched "never" somewhere in their first lines; only a name or a docblock counts
+        write(d, "tests/plans.test.ts", "import { it } from 'vitest';\n\n\nit('a plan is never longer than 12 weeks', () => {});\n")
+        write(d, "tests/no-direct-db.test.ts", "import { it } from 'vitest';\n")
+        m = json.loads(subprocess.run([sys.executable, RECAL, "measure", "--json", "--repo", d], capture_output=True, text=True).stdout)
+        self.assertEqual(m["guard_tests"], ["tests/aimed-writes.test.ts", "tests/no-direct-db.test.ts"], "a test body's 'never' is not a guard; a guard-shaped name is")
 
     def test_assess_exclude_and_large_file_are_the_owners(self):
         d = self.fixture({"assess": {"exclude": ["src/lib/big.ts"], "large_file": 3}})

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.3 (unreleased)
+- **Four adoption defects from the first real run of 0.7.2** (ai-coach, 2026-10-25). (1) `main`, the release branch, was reported
+  "in flight under the old loop" because the word sat in `docs/loop/queue-archive.md`: the check now skips `branches.base` and
+  `branches.release` and matches a branch name only inside an OPEN row of an old queue (or the old handoff), never anywhere in a
+  file. (2) When the scratch apply of `plan --measure` failed, every gate still ran on the unchanged worktree and the table meant
+  nothing: the measure now stops there, prints the apply's reason and skips the gates; an exit 127 is labelled "command not
+  found: not on sh's PATH". (3) 220 of 517 test files were listed as "guard tests" because "never" or "rules" appeared in their
+  first 30 lines: a guard test is now one whose NAME says so or whose docblock's first lines forbid something. (4) A second
+  `measure` counted `.reef/proposed/.dependency-cruiser.cjs` as product code: Reef's own `.reef/` (and `.git/`) are never
+  product. tests/size-budget.json raised: `script_lines` 14,107 → 14,118.
+
 ## 0.7.2 — the first adoption on an existing project: measure, recalibrate safely, adopt whole, deterministic checks
 - **0.7.2** (the owner's go, 2026-10-25): `plugin.json`, the marketplace, `reef-init`'s version, the README badge and status,
   the site and the manual read 0.7.2; `migrations/0.7.1-to-0.7.2.py` is a no-change step so `.reef/version` walks to 0.7.2
