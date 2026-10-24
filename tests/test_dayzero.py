@@ -556,3 +556,74 @@ class InstructionLayer(unittest.TestCase):
         self.assertIn("## Carried over from CLAUDE-CODE-PROMPT.md", claude_md)
         self.assertTrue(os.path.isfile(os.path.join(d, "docs", "coaching-model.md")), "a document only CLAUDE.md names stays in place")
         self.assertEqual(git(d, "status", "--porcelain").strip(), "", "one commit")
+
+
+class WholeAdoption(unittest.TestCase):
+    """0.7.2 (ai-coach, 2026-10-24, item 18): the plan covers the whole adoption — the old queue's open rows become Reef rows, the
+    second handoff is merged into HANDOFF.md, readers are repointed, holds are named, and the hand-off line says complete or
+    partial; an old loop with work in flight refuses the migration and names the branch."""
+
+    OLD_QUEUE = ("# Loop queue\n\n| id | item | status |\n|---|---|---|\n| 1 | M1 schema | done |\n| 2 | M2 api | open |\n"
+                 "| 3 | M3 ui | in progress |\n")
+
+    def fixture(self, in_flight=False):
+        d = fixture_repo()
+        write(d, "docs/loop/queue.md", self.OLD_QUEUE + ("| 4 | M4 billing | in progress (feat/m4-billing) |\n" if in_flight else ""))
+        write(d, "HANDOFF-FRESH.md", "# Handoff (fresh)\n\n## Where things stand\nnothing merges into develop until promotion 11\n\n## Next\nM2 api\n")
+        write(d, "package.json", json.dumps({"name": "x", "scripts": {"check:queue": "test -f docs/loop/queue.md", "loop:start": "node scripts/loop.js start"}}))
+        write(d, "scripts/loop.js", "// the old loop\n")
+        write(d, ".claude/commands/loop-start.md", "Start the loop: read HANDOFF-FRESH.md and docs/loop/queue.md, then /loop-start.\n")
+        write(d, "AGENTS.md", "# proj\n\n## Process\nRead HANDOFF-FRESH.md first. Start with /loop-start.\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "an old loop")
+        if in_flight:
+            git(d, "checkout", "-qb", "feat/m4-billing"); write(d, "src/billing.py", "x = 1\n"); git(d, "add", "-A"); git(d, "commit", "-qm", "wip"); git(d, "checkout", "-q", "main")
+        return d
+
+    def recal(self, d, *a):
+        return subprocess.run([sys.executable, RECAL, *a, "--repo", d], capture_output=True, text=True)
+
+    def test_the_measured_plan_migrates_everything_and_the_hand_off_says_complete(self):
+        d = self.fixture()
+        r = self.recal(d, "plan", "--measure")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("ADOPTION REFUSED", r.stdout)
+        plan = json.loads(open(os.path.join(d, ".reef", "recalibration.json")).read())
+        by = {e["path"]: e for e in plan["entries"]}
+        self.assertEqual(by["docs/loop/queue.md"]["action"], "convert-queue")
+        self.assertEqual(by["HANDOFF-FRESH.md"]["action"], "merge-handoff")
+        self.assertEqual(by[".claude/commands/loop-start.md"]["action"], "archive")
+        a = plan["adoption"]
+        self.assertEqual(a["old_queues"], {"docs/loop/queue.md": {"rows": 3, "open": 2}})
+        self.assertEqual([h["file"] + ":" + str(h["line"]) for h in a["holds"]], ["HANDOFF-FRESH.md:4"])
+        self.assertEqual(a["old_scripts"], {"loop:start": "node scripts/loop.js start"})
+        self.assertIn({"reader": "package.json", "target": "docs/loop/queue.md", "action": "repoint", "new": "reef/queue.md"}, a["readers"])
+        self.assertIn("| check:queue | 0 |", r.stdout, "the scratch apply repointed the reader: the gate is green after the move")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "plan")
+        r = self.recal(d, "--apply")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("hand-off: Reef's tree is complete", r.stdout)
+        self.assertIn("hold: HANDOFF-FRESH.md:4 — nothing merges into develop until promotion 11", r.stdout)
+        queue = open(os.path.join(d, "reef", "queue.md")).read()
+        self.assertIn("M2 api (from docs/loop/queue.md row 2)", queue)
+        self.assertIn("M3 ui (from docs/loop/queue.md row 3)", queue)
+        self.assertNotIn("M1 schema", queue, "a closed row stays in the archived file")
+        self.assertFalse(os.path.isfile(os.path.join(d, "docs", "loop", "queue.md")))
+        self.assertIn("## Carried over from HANDOFF-FRESH.md", open(os.path.join(d, "HANDOFF.md")).read())
+        self.assertFalse(os.path.isfile(os.path.join(d, "HANDOFF-FRESH.md")))
+        self.assertIn('"check:queue": "test -f reef/queue.md"', open(os.path.join(d, "package.json")).read(), "the reader was repointed")
+        self.assertFalse(os.path.isfile(os.path.join(d, ".claude", "commands", "loop-start.md")))
+        self.assertNotIn("/loop-start", open(os.path.join(d, "AGENTS.md")).read())
+        self.assertEqual(git(d, "status", "--porcelain").strip(), "", "one commit")
+
+    def test_work_in_flight_under_the_old_loop_refuses_and_names_the_branch_until_parked(self):
+        d = self.fixture(in_flight=True)
+        r = self.recal(d, "plan")
+        self.assertIn("ADOPTION REFUSED: branch feat/m4-billing is in flight under the old loop (claimed by docs/loop/queue.md)", r.stdout)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "plan")
+        r = self.recal(d, "--apply")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("feat/m4-billing (claimed by docs/loop/queue.md)", r.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(d, "docs", "loop", "queue.md")), "nothing moved")
+        r = self.recal(d, "--apply", "--park-in-flight")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("parked: finish branch feat/m4-billing under Reef", open(os.path.join(d, "reef", "queue.md")).read())
