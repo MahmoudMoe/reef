@@ -22,7 +22,7 @@ last_failure_sig: ""
 <!-- at most 8 ranges you read while planning, one per bullet: `path:start-end` (symbol) — why. The implementer starts here. -->
 
 ## Decision
-<!-- design/critical tasks: the HUMAN writes this in their own words before implementation. A migration task adds a `Rollback: <how>` line. The implementer refuses a design task with an empty Decision. -->
+<!-- design/critical tasks: the HUMAN writes this in their own words before implementation. A migration task adds a `Rollback: <how>` line. The implementer refuses a design task with an empty Decision. A behaviour-preserving split is `kind: refactor` with `splits: <file>[, <file>] under <N> lines` in the frontmatter; reef-converge then checks that no existing test's assertion line changes. -->
 
 ## Acceptance Criteria
 - AC-1 (FR-1): <one declarative sentence, under 50 words, no test name, no command — the proof is in the table below>

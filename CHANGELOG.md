@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **A `refactor` task kind with a behaviour-preservation proof** (ai-coach, 2026-10-24, item 15). ai-coach's largest
+  product files need splitting, and a split's only promise is that nothing changes; Reef had no way to state or check
+  that. Optional frontmatter `kind: refactor` with `splits: <file>[, <file>] under <N> lines`: `reef-plan-check`
+  refuses a refactor task without the files it splits and the size they end under (and any other `kind`); `reef-converge`
+  adds the deterministic criterion — in the branch's diff against `branches.base` no EXISTING test file changes an
+  assertion line (`expect(`, `assert`, `should`; moved lines and imports allowed, new test files allowed, renamed paths
+  followed), and the full gate is green. The implementer's brief says the rule; the task template names the field.
+  Rows from the measure's findings (items 10 and 14) are created with this kind. tests/size-budget.json raised: `prose_words` 20,992 → 21,020, `script_lines` 13,338 → 13,388.
 - **Big files only shrink: the size ratchet** (ai-coach, 2026-10-24, item 14). Nothing stopped a 2,000-line file from
   growing. `reef-structure --sizes` reads `reef/size-baseline.json` (written by `reef-recalibrate measure`: product
   files only, the same excludes — tests, declarations, generated and data directories, `assess.exclude`): a baselined
