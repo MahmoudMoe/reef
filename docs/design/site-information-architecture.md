@@ -98,7 +98,7 @@ form and not another.
 | A ledger row | nothing: the site links the ledger and does not show it |
 | A new command or skill | the situation chooser and the pipeline detail in `docs/index.html` |
 | A README heading rename ("Settings") | the matching heading text in `site.js` (`TABLE_HEADINGS`) |
-| The Arabic manual | kept at the same workflow as the README and the site (0.6 tree, the 0.7 gate-last flow, graph mode, the doctor, the updater); it names 0.7.0 as the release |
+| The Arabic manual | kept at the same workflow as the README and the site (0.6 tree, the 0.7 gate-last flow, graph mode, the doctor, the updater); it names 0.7.1 as the release |
 
 ## 6. Deployment
 

@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://mahmoudmoe.github.io/reef/"><img alt="website" src="https://img.shields.io/badge/website-mahmoudmoe.github.io%2Freef-0E7C7B?style=flat-square"></a>
-  <img alt="version" src="https://img.shields.io/badge/version-0.7.0-D94F35?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-0.7.1-D94F35?style=flat-square">
   <img alt="claude code" src="https://img.shields.io/badge/claude_code-plugin-182B33?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-4A5E66?style=flat-square">
   <a href="https://github.com/MahmoudMoe/reef/actions/workflows/ci.yml"><img alt="selftests" src="https://github.com/MahmoudMoe/reef/actions/workflows/ci.yml/badge.svg?branch=main"></a>
@@ -425,7 +425,8 @@ and never runs in CI; its fixture replay does.
 
 ### Status and what is next
 
-Reef 0.7.0 is the released version, in daily use on a trial project; every entry under "0.7.0" in `CHANGELOG.md` names
+Reef 0.7.1 is the released version, in daily use on a trial project: it moved the queue onto the project's GitHub issues
+and lets one session hold a project's loop. Every entry under "0.7.1" and "0.7.0" in `CHANGELOG.md` names
 the first contact that caused it, and `docs/perf/` holds the measurements. What 0.7 brought (`docs/design/workflow-v2.md`): the owner's gate last, after the hunter and
 the plan reviewer run in parallel on the draft; a lean planner; tasks capped by criteria; graph mode (`/reef-graph`,
 gated by a probe of the guard); one command to update (`reef-update.py`), one screen to diagnose (`/reef-doctor`), a
