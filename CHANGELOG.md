@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **The one-orchestrator hold belongs to a process, not a session id** (ai-coach, 2026-10-25; the owner's go). After
+  `/clear` the same Claude process carries a new session id and was refused by its own hold for 30 minutes; a session that
+  ended without `reef-loop.py wait` held the project as long, and the owner had to `unlock` by hand. The guard now records
+  the holder's process (the hook's parent) in `.reef/run/orchestrator.json`: a hold from the same process is the same owner
+  and is re-keyed to the new session; a hold whose process has ended holds nothing; a hold from another live process is
+  still refused, now naming the pid. A hold written before this change (no pid) keeps the 30-minute rule.
+  tests/test_lock.py `OneOrchestrator`. tests/size-budget.json raised: `script_lines` 14,086 → 14,107.
 - **The design tier reaches the project's real sensitive code** (ai-coach, 2026-10-24, item 22). `tiers.design.paths`
   (auth, crypto, secrets, migrations globs) matched 0 of the 21 files that hold access control, tenant isolation and money
   (`session-access.ts`, `visibility*.ts`, `scoped-client*.ts`, `*tenant*`, `usage*.ts`, `metering*.ts`,

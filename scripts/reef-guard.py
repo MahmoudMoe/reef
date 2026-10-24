@@ -1174,15 +1174,36 @@ def check_one_orchestrator(payload, cwd):
     except (OSError, ValueError):
         held = {}
     age = time.time() - float(held.get("at") or 0)
-    if held.get("session") and held["session"] != sid and age < HOLD_MINUTES * 60:
-        deny(f"another Claude session ({held['session'][:8]}, its last loop action {int(age // 60)} min ago) holds this "
-             f"project's loop: one orchestrator at a time. Stop that session (`claude agents`), wait until it has been idle "
-             f"{HOLD_MINUTES} min, or take over: `python3 scripts/reef-loop.py unlock`")
+    # 0.7.2 (ai-coach, 2026-10-25): the hold belongs to a PROCESS, not a session id. After /clear the same Claude process carries a
+    # new session id and was refused by its own hold for 30 minutes; a session that ended without `reef-loop.py wait` held it as
+    # long. The hook's parent is the Claude process: the same pid is the same owner, a dead pid holds nothing. A hold written
+    # before this change (no pid) keeps the old 30-minute rule.
+    me = os.getppid()
+    try:
+        held_pid = int(held.get("pid") or 0)
+    except (TypeError, ValueError):
+        held_pid = 0
+    other = held.get("session") and held["session"] != sid and age < HOLD_MINUTES * 60
+    if other and (not held_pid or (held_pid != me and process_alive(held_pid))):
+        deny(f"another Claude session ({held['session'][:8]}, its last loop action {int(age // 60)} min ago"
+             + (f", process {held_pid} alive" if held_pid else "") + ") holds this project's loop: one orchestrator at a time. "
+             f"Stop that session (`claude agents`), wait until it has been idle {HOLD_MINUTES} min, or take over: "
+             "`python3 scripts/reef-loop.py unlock`")
     os.makedirs(os.path.dirname(p), exist_ok=True)
     tmp = f"{p}.{os.getpid()}"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"session": sid, "at": time.time()}, f)
+        json.dump({"session": sid, "at": time.time(), "pid": me}, f)
     os.replace(tmp, p)
+
+
+def process_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def context_for(payload):
