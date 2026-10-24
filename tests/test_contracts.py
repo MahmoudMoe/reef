@@ -235,6 +235,16 @@ class AssessNeedsInit(unittest.TestCase):
         self.assertLess(skill.index("run /reef-init first"), skill.index("## 1. Understand"), "the prerequisite is step 0, before any reading")
 
 
+class InitKeepsYours(unittest.TestCase):
+    def test_on_an_existing_project_the_skill_recommends_the_projects_files_and_measures_before_an_accept(self):
+        # 0.7.2 (ai-coach, 2026-10-24, item 8): Reef's renderings, accepted, broke 62 tests in 11 files
+        skill = read("skills", "reef-init", "SKILL.md")
+        self.assertIn('On an existing project the recommended answer for every proposed file is "keep yours"; before recommending an accept, '
+                      "run `gates.full` with that proposal applied in a scratch worktree and report the result", skill)
+        self.assertIn("When the project keeps its own ci.yml, name the missing Reef release step (`sh scripts/reef-ci-local.sh --ci --release`); "
+                      "when its AGENTS.md lacks the `.reef/**` exclusions, say so.", skill)
+
+
 class RollupNoPlanHunter(unittest.TestCase):
     def test_the_review_skill_says_a_rollup_gets_no_plan_pass(self):
         self.assertIn("A rollup gets no hunter plan pass, whatever its tier", read("skills", "reef-review", "SKILL.md"))
