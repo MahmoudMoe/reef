@@ -83,6 +83,21 @@ def stop_hook(d, **extra):
     return subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True)
 
 
+class NightRows(unittest.TestCase):
+    """2026-10-23: at night the tick drives the contract's rows, found ones included, and no row outside the contract."""
+
+    def test_a_contracts_found_row_is_planned_at_night_and_never_by_day(self):
+        d = project()
+        write(d, "reef/queue.md", "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n"
+                                  "| 1 | first | | planned | 1 | |\n| 2 | second | 1 | planned | 1 | |\n| 3 | a found hole | | found | 1 | |\n")
+        self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["rows_to_plan"], [], "by day rule 1 holds: row 1 is building")
+        write(d, ".reef/night/contract.md", "# Night\nRows: 1, 3\n")
+        write(d, ".reef/night/active", "{}")
+        self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["rows_to_plan"], ["3"])
+        write(d, ".reef/night/contract.md", "# Night\nRows: 1\n")
+        self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["rows_to_plan"], [], "a row outside the contract is not the night's")
+
+
 class Tick(unittest.TestCase):
     def test_merge_unblocks_a_task_in_the_next_tick_and_output_is_capped(self):
         d = project()

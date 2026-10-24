@@ -387,6 +387,16 @@ class Queue(unittest.TestCase):
         self.assertIn("2\tqueued", out)
         self.assertNotIn("1\t", out)
 
+    def test_with_found_lists_the_found_rows_after_the_planned_ones(self):
+        # 2026-10-23 (qassimha): 89 found rows, none ever ready while a planned row was — a night's contract needs them
+        d = qrepo()
+        out = queue(d, "ready", "--with-found").stdout.splitlines()
+        ids = [l.split("\t")[0] for l in out]
+        self.assertIn("3", ids, "the found row is listed")
+        self.assertLess(ids.index("1"), ids.index("3"), "planned first")
+        self.assertNotIn("2", ids, "dependencies still hold")
+        self.assertNotIn("4", ids, "the batch still holds")
+
     def test_archived_dependency_counts_as_done(self):
         d = qrepo()
         write(d, "docs/queue-archive.md", "| Id | Item | Depends |\n|---|---|---|\n| 0 | old | |\n")

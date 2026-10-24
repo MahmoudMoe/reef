@@ -468,7 +468,7 @@ def cmd_status(root):
     return 0
 
 
-def cmd_ready(root, all_batches):
+def cmd_ready(root, all_batches, with_found=False):
     _, text, rows, archived, _ = load(root)
     batch = current_batch(text)
     by_id = {r["Id"]: r for r in rows}
@@ -476,9 +476,10 @@ def cmd_ready(root, all_batches):
              and all(is_done(d, by_id, archived) for d in r["_depends"])
              and (all_batches or batch is None or r.get("Batch", "") == batch)]
     planned = [r for r in ready if r.get("Source", "").lower() == "planned"]
-    for r in (planned or ready):
+    # --with-found (a night, 2026-10-23): the found rows too, after the planned ones — the contract names what is driven
+    for r in (planned + [r for r in ready if r not in planned] if with_found else (planned or ready)):
         print(f"{r['Id']}\t{r['_status']}\t{r.get('Source', '')}\t{r.get('Item', '')[:70]}")
-    if ready and not planned:
+    if ready and not planned and not with_found:
         print("note: no planned row is ready — only found rows; the loop stops and escalates rather than falling through", file=sys.stderr)
     return 0
 
@@ -658,12 +659,12 @@ def main(argv):
         argv = argv[:i] + argv[i + 2:]
     root = repo_root(repo)
     if not argv:
-        die("usage: reef-queue.py status|ready [--all]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids>|triage [--count]|note <text> [--row ID]|promote-note n<k> [--batch N]|set-batch ID N|drop-row ID --reason <text> [--repo DIR]")
+        die("usage: reef-queue.py status|ready [--all] [--with-found]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids>|triage [--count]|note <text> [--row ID]|promote-note n<k> [--batch N]|set-batch ID N|drop-row ID --reason <text> [--repo DIR]")
     cmd = argv[0]
     if cmd == "status":
         return cmd_status(root)
     if cmd == "ready":
-        return cmd_ready(root, "--all" in argv)
+        return cmd_ready(root, "--all" in argv, "--with-found" in argv)
     if cmd == "check":
         return cmd_check(root)
     if cmd == "adr-number":

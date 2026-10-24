@@ -340,6 +340,15 @@ def queue_open_rows(root):
         return None
 
 
+def ready_rows(root):
+    """Every ready row of the current batch, planned and found (reef-queue.py ready --with-found)."""
+    q = os.path.join(root, "scripts", "reef-queue.py")
+    if not os.path.isfile(q):
+        q = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-queue.py")
+    r = subprocess.run([sys.executable, q, "ready", "--with-found", "--repo", root], capture_output=True, text=True)
+    return [l.split("\t")[0] for l in r.stdout.splitlines() if "\t" in l]
+
+
 def personal_profile():
     """The owner's profile across projects (REEF_OWNER_PROFILE, else ~/.reef/owner.md): who they are everywhere, so a
     new project's first night does not start from nothing (the owner, 2026-10-21)."""
@@ -361,6 +370,9 @@ def cmd_contract(root, src):
         die("no .reef/night/contract.md, or no reef/owner.md — /reef-night drafts both")
     print(f"night digest: {dg}")
     print(f"rows: {', '.join(night_rows(root)) or '-'}")
+    left = [r for r in ready_rows(root) if r not in night_rows(root)]
+    if left:
+        print(f"WARN ready rows not in tonight's contract, which the night will not touch: {', '.join(left)} — add them, or say why not")
     print(f"question: Approve night {time.strftime('%Y-%m-%d')} at {dg[:16]}?")
     return 0
 
