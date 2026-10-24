@@ -1029,6 +1029,18 @@ def _check_dispatch(tool_input, payload):
             # lock, and a failed pass is never recorded — its marker showed `in flight: verifying:<id>` until it went
             # stale (2026-10-21, qassimha row 12: 1202 and 1204)
             if "loophole-hunter" in sub and str(fm.get("status") or "pending").strip() == "pending":
+                # 2026-10-24: a round above the cap was dispatched, paid for, and only then refused by reef-adversarial;
+                # the round is the prompt's `pass=plan round=<n>` (the plan skill writes it), the cap the main checkout's
+                rm = re.search(r"\bround[= ](\d+)\b|\(round (\d+)\)", prompt, re.I)
+                rnd = int(rm.group(1) or rm.group(2)) if rm else 1
+                try:
+                    cap = int((read_config(main_checkout(task_root(path, cwd))).get("hunter") or {}).get("plan_rounds", 2) or 0)
+                except (TypeError, ValueError):
+                    cap = 2
+                if cap and rnd > cap:
+                    deny(f"hunter plan round {rnd} > hunter.plan_rounds {cap}: the plan gets no further hunter round — an open hole "
+                         f"is the owner's decision at the gate (`reef-adversarial <task> plan --decided <mark>` on his footnote), "
+                         f"or an AC whose Proof row the code proves")
                 return
             write_marker(troot, sub, "verifying", {"id": fm.get("id", "?"), "task": os.path.abspath(path), "tier": tier})
         return

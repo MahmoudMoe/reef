@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The guard refuses a hunter round above the cap before it runs** (the owner's go, 2026-10-24). `reef-adversarial`
+  refused a plan report above `hunter.plan_rounds` only after the round had been dispatched and paid for. A plan-pass
+  hunter's prompt now carries `pass=plan round=<n>` (the plan skill says so), and the guard refuses the dispatch when
+  n is above the main checkout's cap, pointing to the owner's gate. A tripwire: the round is the orchestrator's label.
+  tests/size-budget.json raised: `prose_words` 19,567 → 19,592, `script_lines` 11,770 → 11,782.
 - **A dispatch marks the plan's own copy of a task** (the owner's go, 2026-10-24). qassimha's 502 re-dispatch named
   the task file inside its task worktree, so the guard and the graph runner marked that copy in-progress; the feature
   worktree's copy, which the tick reads, stayed pending, so the tick offered 502 again after it was built, and the two

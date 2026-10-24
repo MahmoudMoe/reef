@@ -205,6 +205,11 @@ class NightDocs(unittest.TestCase):
         self.assertNotIn("ثم <code>python3 scripts/reef-run.py --night</code>", ar)
 
 
+class HunterRoundInThePrompt(unittest.TestCase):
+    def test_the_plan_skill_writes_the_round_the_guard_reads(self):
+        self.assertIn("A plan-pass hunter's prompt carries `pass=plan round=<n>`", read("skills", "reef-plan", "SKILL.md"))
+
+
 class SizeBudget(unittest.TestCase):
     """0.7 (the owner, 2026-10-20: "is Reef creating technical debt?"): config keys, skill and agent prose, and script lines
     grew with every fix and nothing was removed. tests/size-budget.json holds the ceiling; a PR that grows a number
