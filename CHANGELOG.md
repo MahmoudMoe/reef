@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`/reef-night` starts the night itself** (the owner's go, 2026-10-24: "why don't I have /reef-night instead of a
+  manual thing in the terminal?"). `reef-run.py --detach` runs every check first (a refusal prints to the caller),
+  then leaves the session that started it (fork, `setsid`, fork; output to `.reef/run/runner.out`) and returns the
+  runner's pid, so the runner outlives that Claude session or terminal; `reef-run.py status` shows running or not,
+  the night, the last steps and the last session, from anywhere. The night skill runs `--night --detach` on the
+  owner's Approve and hands over. One orchestrator: the runner's sessions carry `REEF_RUNNER`, and while a live runner
+  holds the lock the Stop hook no longer demands that any other session dispatch the ready work. Proved live: a real
+  `claude -p` session in auto mode ran the command and exited after 13 s, and the runner worked on. tests/size-budget.json
+  raised: `prose_words` 19,508 → 19,567, `script_lines` 11,656 → 11,724.
 - **A night drives every ready row of the batch, found ones too** (the owner's go, 2026-10-23). Queue rule 1, a
   planned row before a found one, made `reef-queue.py ready` hide every found row while a planned one was ready: the
   tick never offered a found row, qassimha's 89 found rows waited, and a night with its planned rows blocked had

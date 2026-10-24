@@ -107,6 +107,33 @@ def calls(d):
     return open(p).read().splitlines() if os.path.exists(p) else []
 
 
+class Detach(unittest.TestCase):
+    """2026-10-24 (the owner: why a manual terminal step instead of /reef-night?): --detach returns at once after every
+    check, the runner works on in its own process session, and `status` shows it."""
+
+    def test_a_refusal_prints_to_the_caller_and_a_detached_run_finishes_on_its_own(self):
+        d = project()
+        r = run(d, [], "--detach")
+        self.assertEqual(r.returncode, 1, "no gate: refused before detaching, to the caller")
+        self.assertIn("no GATE OK", r.stderr)
+        self.assertEqual(run(d, ["probe-deny"], "probe").returncode, 0)
+        r = run(d, ["stop:done"], "--detach")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertRegex(r.stdout, r"detached \(pid \d+\)")
+        log = os.path.join(d, ".reef", "run", "run.log")
+        for _ in range(150):
+            if os.path.isfile(log) and '"stop": "done"' in open(log).read() and not os.path.exists(os.path.join(d, ".reef", "run", "lock")):
+                break
+            time.sleep(0.2)
+        self.assertIn('"stop": "done"', open(log).read(), "the detached runner ran its session to the end")
+        self.assertTrue(os.path.isfile(os.path.join(d, ".reef", "run", "runner.out")))
+        s = run(d, [], "status")
+        self.assertEqual(s.returncode, 0, s.stderr)
+        self.assertIn("reef-run: not running; no night active", s.stdout)
+        self.assertIn("session ended: stop 'done'", s.stdout)
+        self.assertIn("ended on: done", s.stdout)
+
+
 class OnOpenCode(unittest.TestCase):
     """0.7 (portability phase 2): `--host opencode` runs each session as `opencode run --command reef-loop --format json`;
     the probe and its gate are the host's own."""

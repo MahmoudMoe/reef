@@ -76,11 +76,13 @@ def loop(d, *args, env=None):
     return subprocess.run([sys.executable, LOOP, *args, "--repo", d], capture_output=True, text=True, env=e)
 
 
-def stop_hook(d, **extra):
+def stop_hook(d, env=None, **extra):
     payload = {"hook_event_name": "Stop", "cwd": d, "stop_hook_active": False,
                "last_assistant_message": "in flight: - / waiting on: - / next: /reef-task", "background_tasks": [], "session_crons": []}
     payload.update(extra)
-    return subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True)
+    e = {k: v for k, v in os.environ.items() if k != "REEF_RUNNER"}
+    e.update(env or {})
+    return subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True, env=e)
 
 
 class NightRows(unittest.TestCase):
@@ -96,6 +98,26 @@ class NightRows(unittest.TestCase):
         self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["rows_to_plan"], ["3"])
         write(d, ".reef/night/contract.md", "# Night\nRows: 1\n")
         self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["rows_to_plan"], [], "a row outside the contract is not the night's")
+
+
+class RunnerDrives(unittest.TestCase):
+    """2026-10-24: /reef-night starts the runner detached; while it holds the lock the chat session hands over — its Stop
+    hook no longer demands it dispatch the ready work beside the runner — and the runner's own sessions still must."""
+
+    def test_a_live_runner_releases_the_chat_and_still_holds_its_own_sessions(self):
+        d = project()
+        write(d, ".reef/loop.json", json.dumps({"active": True, "wait": None, "stop": None, "parked": None, "hashes": []}))
+        r = stop_hook(d)
+        self.assertEqual(r.returncode, 2, "no runner: the idle check holds: " + r.stderr)
+        write(d, ".reef/run/lock", str(os.getpid()))
+        write(d, ".reef/loop.json", json.dumps({"active": True, "wait": None, "stop": None, "parked": None, "hashes": []}))
+        r = stop_hook(d)
+        self.assertEqual(r.returncode, 0, "a live runner drives the loop; the chat hands over: " + r.stderr)
+        r = stop_hook(d, env={"REEF_RUNNER": "1"})
+        self.assertEqual(r.returncode, 2, "the runner's own session still may not idle: " + r.stderr)
+        write(d, ".reef/run/lock", "999999")
+        write(d, ".reef/loop.json", json.dumps({"active": True, "wait": None, "stop": None, "parked": None, "hashes": []}))
+        self.assertEqual(stop_hook(d).returncode, 2, "a dead runner's lock releases nobody")
 
 
 class Tick(unittest.TestCase):
