@@ -275,6 +275,16 @@ class AdoptionHandOff(unittest.TestCase):
         self.assertIn("The plan refuses while the old loop has work in flight", skill)
 
 
+class SecurityPerItem(unittest.TestCase):
+    def test_a_design_or_critical_tasks_review_dispatches_the_security_agent(self):
+        # 0.7.2 (ai-coach, 2026-10-24, item 22): the release pass alone reached the sensitive code once per release
+        skill = read("skills", "reef-review", "SKILL.md")
+        self.assertIn("a task of tier `design` or `critical` — dispatches `reef:security` (model `roles.security`) on that feature diff before the GREEN record", skill)
+        self.assertIn("`review.security_per_item: off` in `.reef/config.json` opts a project out", skill)
+        with open(os.path.join(ROOT, "templates", "config.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["review"]["security_per_item"], "on", "the default is on; the project opts out")
+
+
 class RollupNoPlanHunter(unittest.TestCase):
     def test_the_review_skill_says_a_rollup_gets_no_plan_pass(self):
         self.assertIn("A rollup gets no hunter plan pass, whatever its tier", read("skills", "reef-review", "SKILL.md"))

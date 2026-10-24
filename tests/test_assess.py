@@ -243,3 +243,37 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(b["stack"], "python")
         self.assertTrue(os.path.isfile(os.path.join(d, b["adr_draft"])))
         self.assertIn("An ADR draft only", open(os.path.join(d, "reef", "recalibration.md")).read())
+
+
+class SensitiveCode(unittest.TestCase):
+    """0.7.2 (ai-coach, 2026-10-24, item 22): tiers.design.paths matched none of the 21 files holding access control, tenant isolation
+    and money. The measure lists sensitive files by content with file:line and the plan proposes the globs, each with its match count."""
+
+    DEFAULTS = ["**/auth/**", "**/crypto/**", "**/secrets/**", "migrations/**", "prisma/migrations/**", "alembic/**"]
+
+    def test_sensitive_files_are_listed_and_the_proposed_globs_cover_them_while_the_defaults_do_not(self):
+        d = Measure().fixture({"tiers": {"design": {"paths": self.DEFAULTS}}})
+        write(d, "src/lib/visibility.ts", "export async function scope(tx, tenant) {\n  await tx.$executeRaw`select set_config('app.tenant', ${tenant}, true)`;\n}\n")
+        write(d, "src/lib/metering.ts", "// metering\nexport const meterUsage = (userId: string) => quota.check(userId);\n")
+        write(d, "src/app/api/sign-in/route.ts", "import { signIn } from 'next-auth/react';\nexport const POST = () => signIn();\n")
+        write(d, "src/lib/format.ts", "export const fmt = (n: number) => n.toFixed(2);\n")
+        write(d, "reef/architecture/threat-model.md", "# Threat model\n| T1 | tenant data leak | src/lib/visibility.ts scopes every query |\n")
+        m = json.loads(subprocess.run([sys.executable, RECAL, "measure", "--json", "--repo", d], capture_output=True, text=True).stdout)
+        by = {s["file"]: s for s in m["sensitive"]}
+        self.assertEqual(sorted(by), ["src/app/api/sign-in/route.ts", "src/lib/metering.ts", "src/lib/visibility.ts"], "format.ts and big.ts are not sensitive")
+        self.assertIn({"kind": "RLS or tenant scoping", "line": 2}, by["src/lib/visibility.ts"]["kinds"])
+        self.assertIn({"kind": "named by the threat model", "line": 2}, by["src/lib/visibility.ts"]["kinds"])
+        self.assertIn({"kind": "payment, usage, metering or cap", "line": 2}, by["src/lib/metering.ts"]["kinds"], "the comment line never counts")
+        self.assertIn({"kind": "sensitive path", "line": 0}, by["src/app/api/sign-in/route.ts"]["kinds"])
+        dp = m["design_paths"]
+        self.assertEqual(dp["covered_by_current"], [], "the default globs alone match none of them")
+        import fnmatch
+        for f in by:
+            self.assertTrue(any(fnmatch.fnmatch(f, g) or (g.endswith("/**") and f.startswith(g[:-3] + "/")) for g in dp["proposed"]), (f, dp["proposed"]))
+        self.assertEqual(dp["counts"]["src/app/api/sign-in/route.ts"], 1)
+        self.assertEqual(dp["counts"]["**/auth/**"], 0)
+        rec = open(os.path.join(d, "reef", "recalibration.md")).read()
+        self.assertIn("## Proposed tiers.design.paths", rec)
+        self.assertIn("| `src/app/api/sign-in/route.ts` | 1 | **add** |", rec)
+        self.assertIn("RLS or tenant scoping (src/lib/visibility.ts:2)", rec)
+        self.assertIn("### Sensitive code, by content", open(os.path.join(d, "reef", "day-zero.md")).read())

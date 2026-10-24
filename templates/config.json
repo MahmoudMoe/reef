@@ -42,7 +42,8 @@
   },
   "review": {
       "diff_review": "off",
-      "split_lines": 4000
+      "split_lines": 4000,
+      "security_per_item": "on"
   },
   "plan": {
     "max_acs": 0,

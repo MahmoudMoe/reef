@@ -1,6 +1,19 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **The design tier reaches the project's real sensitive code** (ai-coach, 2026-10-24, item 22). `tiers.design.paths`
+  (auth, crypto, secrets, migrations globs) matched 0 of the 21 files that hold access control, tenant isolation and money
+  (`session-access.ts`, `visibility*.ts`, `scoped-client*.ts`, `*tenant*`, `usage*.ts`, `metering*.ts`,
+  `app/api/sign-in/**`): a change there ran as an ordinary `full` task, and Reef's security agent ran once per release
+  while the project's own loop reviewed each risky item. Now (1) `reef-recalibrate measure` lists sensitive files BY
+  CONTENT, Observed with file:line — session, cookie or token handling; `set_config`, RLS and tenant scoping; permission
+  predicates; payment, usage, metering or cap code; secret reads; sign-in routes; and the files
+  `reef/architecture/threat-model.md` names as mitigations; (2) the plan's `## Proposed tiers.design.paths` shows today's
+  globs and the exact globs to add (a directory when it is mostly sensitive, else the file), each with the count of files
+  it matches from `git ls-files`; the owner approves it with the plan and edits `.reef/config.json` — the apply never
+  writes it; (3) `/reef-review` dispatches `reef:security` (model `roles.security`) on the feature diff of a `design` or
+  `critical` task before the GREEN record, opt-out per project with `review.security_per_item: off` (new key, default
+  `on`). tests/size-budget.json raised: `config_keys` 95 → 96, `prose_words` 21,165 → 21,227, `script_lines` 13,999 → 14,086.
 - **Recalibration keeps the project's existing ADR numbers** (ai-coach, 2026-10-24, item 21). 193 numbered ADRs in
   `docs/adr/`, cited 456 times as `ADR NNNN` in src and scripts, would each have taken a new number after the highest
   existing one, breaking every citation: every `convert-adr` took `nxt`. An ADR whose filename already carries a
