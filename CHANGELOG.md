@@ -1,6 +1,21 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **The project's instruction layer no longer points agents at the old process** (ai-coach, 2026-10-24, item 19).
+  `CLAUDE.md`, `AGENTS.md` and `CLAUDE-CODE-PROMPT.md` told every session to read `HANDOFF-FRESH.md` and
+  `docs/loop/queue.md` first, start with `/loop-start`, close with `npm run loop:close`, number ADRs with `loop:adr`, route
+  models by their own table and run up to 15 agents; after adoption a fresh session obeyed them, not Reef. Two causes:
+  the reference search excluded every `*.md`, so the files agents read first never counted as readers; and when the owner
+  kept their own AGENTS.md nothing reconciled its process sections. Now (1) `CLAUDE*.md`, `AGENTS.md`, `GEMINI.md`,
+  `.cursorrules`, `.github/copilot-instructions.md`, `.claude/commands/**` and `.claude/agents/**` are readers (a
+  document only they name is kept, "referenced by CLAUDE.md"); (2) the plan writes `reef/instruction-layer.md`: per file
+  every pointer to a process document and every conflicting rule (start and close commands, ADR numbering, round and
+  agent caps, model routing, handoff file) with file:line — Observed — and flags a duplicate CLAUDE file; (3) each such
+  file's rewrite is proposed under `.reef/proposed/` and applied in the recalibration's one commit: product content
+  verbatim, process sections replaced by one pointer to Reef's tree, another tool's `<!-- BEGIN:… -->` block byte-identical,
+  the duplicate merged into the primary and archived; (4) a project rule that contradicts a Reef default ("there is
+  deliberately no linter") is surfaced, never overridden. Outside an approved recalibration init's never-overwrite rule
+  still holds. tests/size-budget.json raised: `script_lines` 13,526 → 13,701.
 - **`reef-structure` accepts the layout `reef-init` itself chose** (ai-coach, 2026-10-24, item 17). After init and assess
   the check reported about 700 lines, `docs/adr/` among them — the ADR home init had written into `.reef/config.json`
   (`paths.adr: docs/adr`): init picks the legacy layout for a project with `.specify/`, `docs/queue.md` or `docs/adr`,

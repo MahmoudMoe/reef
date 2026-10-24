@@ -72,7 +72,10 @@ def referenced_by(root, rel):
     # document, which made every document "kept" on a second run — 0.7 dogfood) nor from logs and evidence dumps
     r = subprocess.run(["git", "-C", root, "grep", "-l", "-F", "--", rel, "--", ":!*.md", ":!.reef/**", ":!*.log", ":!*.txt"],
                        capture_output=True, text=True)
-    return [l for l in r.stdout.splitlines() if l]
+    refs = [l for l in r.stdout.splitlines() if l]
+    # item 19: the files agents read first are readers too (they were excluded with every other *.md)
+    r = subprocess.run(["git", "-C", root, "grep", "-l", "-F", "--", rel, "--", *INSTRUCTION_GLOBS], capture_output=True, text=True)
+    return refs + [l for l in r.stdout.splitlines() if l and l not in refs and l != rel]
 
 
 _DIR_READERS = {}
@@ -95,6 +98,8 @@ def directory_readers(root, rel):
             for n in needles:
                 r = subprocess.run(["git", "-C", root, "grep", "-l", "-E", "--", n, "--", ":!*.md", ":!.reef/**", ":!*.log", ":!*.txt", ":!*.lock", ":!package-lock.json"],
                                    capture_output=True, text=True)
+                hits += [l for l in r.stdout.splitlines() if l and l not in hits]
+                r = subprocess.run(["git", "-C", root, "grep", "-l", "-E", "--", n, "--", *INSTRUCTION_GLOBS], capture_output=True, text=True)
                 hits += [l for l in r.stdout.splitlines() if l and l not in hits]
             _DIR_READERS[d] = (d, hits)
         d, hits = _DIR_READERS[d]
@@ -126,12 +131,151 @@ def beside_asset_licence(root, rel):
     return any(LICENCE_RE.match(n) for n in names) and any(n.lower().endswith(ASSET_EXT) for n in names)
 
 
+# ---------------------------------------------------------------- the instruction layer (0.7.2, ai-coach 2026-10-24, item 19)
+# CLAUDE.md, AGENTS.md and CLAUDE-CODE-PROMPT.md told every session to read HANDOFF-FRESH.md and docs/loop/queue.md first, start
+# with /loop-start, close with `npm run loop:close`, number ADRs with loop:adr, route models by their own table, run up to 15
+# agents. After adoption a fresh session obeyed those files, not Reef: two harnesses. The files agents read first are readers
+# too, their process rules are listed with file:line, and their rewrite is part of the approved recalibration.
+INSTRUCTION_GLOBS = ("CLAUDE*.md", "AGENTS.md", "GEMINI.md", ".cursorrules", ".github/copilot-instructions.md", ".claude/commands/**", ".claude/agents/**")
+INSTRUCTION_FILE = re.compile(r"^(CLAUDE[^/]*\.md|AGENTS\.md|GEMINI\.md|\.cursorrules|\.github/copilot-instructions\.md|\.claude/(commands|agents)/.+)$")
+RULE_KINDS = (("start command", re.compile(r"(?i)\b(start|begin|open)\b.*(/[a-z][\w:-]*(start|loop|session)|npm run loop:|loop:start)|(/loop-start|loop:start)\b")),
+              ("close command", re.compile(r"(?i)(/[a-z][\w:-]*close|loop:close|npm run loop:close|\bclose\b.*\bwith\b.*\bloop)")),
+              ("ADR numbering", re.compile(r"(?i)(loop:adr|number(ing)?\s+(the\s+)?ADRs?|ADR\s+numbers?\s+(come|are|from))")),
+              ("round or agent cap", re.compile(r"(?i)\b(up to|at most|max(imum)?( of)?)\s+\d+\s+(agents?|rounds?|retries|attempts|parallel)")),
+              ("model routing", re.compile(r"(?i)\b(opus|sonnet|haiku|gpt-?\d|o\d-mini|gemini-\d|route\w* (the )?models?|model routing)\b")),
+              ("handoff file", re.compile(r"HANDOFF[-_][\w-]*\.md|handoff[-_][\w-]*\.md")),
+              ("queue or constitution outside Reef", re.compile(r"(?i)(docs/loop/|\.specify/memory/constitution\.md|\.specify/constitution\.md|docs/loop/queue\.md)")))
+OUTRANKS = re.compile(r"(?i)\b(deliberately|on purpose|by design|intentionally)\b.*\b(no|not|never|without)\b|\b(no|never adopt a?)\s+(linter|formatter|orm|framework)\b")
+PATH_IN_TEXT = re.compile(r"(?<![\w/])((?:[\w.-]+/)*[\w.-]+\.md)\b")
+
+
+def instruction_files(root):
+    out = []
+    for rel in git(root, "ls-files", "-co", "--exclude-standard", check=False).splitlines():
+        if INSTRUCTION_FILE.match(rel) and rel != "HANDOFF.md":
+            out.append(rel)
+    return sorted(out)
+
+
+def instruction_layer(root, documents, moving=frozenset()):
+    """Per instruction file: every pointer to a process document (a path that exists and is not README/LICENSE-like), every process
+    rule that conflicts with Reef's, each with file:line — Observed; duplicates (two CLAUDE files) and rules that outrank Reef's
+    defaults flagged."""
+    docs = set(documents)
+    layer = []
+    for rel in instruction_files(root):
+        text = read(os.path.join(root, rel))
+        pointers, rules, outranks = [], [], []
+        in_foreign = False
+        for n, line in enumerate(text.splitlines(), 1):
+            if re.match(r"\s*<!-- BEGIN:[\w.-]+ -->", line):
+                in_foreign = True
+            if in_foreign:
+                if re.match(r"\s*<!-- END:[\w.-]+ -->", line):
+                    in_foreign = False
+                continue   # another tool's block is not the project's process
+            for m in PATH_IN_TEXT.finditer(line):
+                p = m.group(1).lstrip("./")
+                if p in docs and p != rel and os.path.basename(p) not in KEEP and not LICENCE_RE.match(os.path.basename(p)):
+                    pointers.append((n, p, p in moving))   # a pointer to a document the plan moves is a process pointer to retire
+            for kind, rx in RULE_KINDS:
+                if rx.search(line):
+                    rules.append((n, kind, line.strip()[:160]))
+                    break
+            if OUTRANKS.search(line):
+                outranks.append((n, line.strip()[:160]))
+        layer.append({"file": rel, "pointers": pointers, "rules": rules, "outranks": outranks})
+    claude = [e["file"] for e in layer if re.match(r"^CLAUDE[^/]*\.md$", e["file"])]
+    primary = "CLAUDE.md" if "CLAUDE.md" in claude else (claude[0] if claude else None)   # the canonical name wins
+    return {"files": layer, "duplicates": [c for c in claude if c != primary], "primary": primary}
+
+
+POINTER_PARA = ("Process: this project runs on Reef. Read `HANDOFF.md` first, then `AGENTS.md`; the queue is read through "
+                "`python3 scripts/reef-queue.py ready`, work runs through `/reef-plan` → `/reef-task` → `/reef-review`, ADRs are numbered "
+                "on the base at merge (`reef-queue.py adr-number`), models and caps come from `.reef/config.json`. "
+                "(The earlier process rules of this section were retired by the Reef recalibration; see `reef/instruction-layer.md`.)\n")
+
+
+def rewrite_instruction(text, entry):
+    """The file with its process sections replaced by one pointer: product content kept verbatim, foreign blocks byte-identical,
+    a section is "process" when a listed pointer or rule sits in it."""
+    hits = {n for n, _, moves in entry["pointers"] if moves} | {n for n, _, _ in entry["rules"]}   # a pointer to a kept document stays
+    if not hits:
+        return text
+    lines = text.splitlines(keepends=True)
+    out, i, n_lines = [], 0, len(lines)
+    # sections start at a heading (or at line 1); a foreign block is copied whole wherever it starts
+    bounds = [i for i, l in enumerate(lines) if re.match(r"#{1,6}\s", l)]
+    starts = sorted(set([0] + bounds))
+    for si, s in enumerate(starts):
+        e = starts[si + 1] if si + 1 < len(starts) else n_lines
+        sec = lines[s:e]
+        sec_nums = set(range(s + 1, e + 1))
+        if not (sec_nums & hits):
+            out += sec
+            continue
+        head = [sec[0]] if re.match(r"#{1,6}\s", sec[0]) else []
+        body = sec[len(head):]
+        kept = []   # foreign blocks inside a process section survive byte for byte
+        j = 0
+        while j < len(body):
+            if re.match(r"\s*<!-- BEGIN:[\w.-]+ -->", body[j]):
+                k = j
+                while k < len(body) and not re.match(r"\s*<!-- END:[\w.-]+ -->", body[k]):
+                    k += 1
+                kept += body[j:k + 1]
+                j = k + 1
+            else:
+                j += 1
+        out += head + [POINTER_PARA, "\n"] + kept
+    return "".join(out)
+
+
+def render_layer(layer, rewrites):
+    lines = ["# The instruction layer — what the agents read first", "",
+             "Written by `reef-recalibrate plan` (Observed: file:line). Every pointer to a process document and every process rule that "
+             "conflicts with Reef's; the rewrite of each file is part of the approved recalibration (its diff under `.reef/proposed/`), "
+             "product content kept verbatim, another tool's block byte-identical, duplicates merged into one file.", ""]
+    if not layer["files"]:
+        return "\n".join(lines + ["No instruction file found (CLAUDE*.md, AGENTS.md, GEMINI.md, .cursorrules, copilot-instructions, .claude/commands, .claude/agents).", ""])
+    for e in layer["files"]:
+        lines += [f"## `{e['file']}`" + (" — DUPLICATE of the primary CLAUDE file (merged into it, then archived)" if e["file"] in layer["duplicates"] else ""), ""]
+        lines += [f"- pointer → `{p}` ({e['file']}:{n})" + (" — the document moves: retired by the rewrite" if moves else " — kept, the pointer stays") for n, p, moves in e["pointers"]] or ["- no pointer to a process document"]
+        lines += [f"- rule, {kind}: `{txt}` ({e['file']}:{n})" for n, kind, txt in e["rules"]] or ["- no process rule that conflicts with Reef's"]
+        lines += [f"- **outranks a Reef default** (surfaced, never overridden): `{txt}` ({e['file']}:{n})" for n, txt in e["outranks"]]
+        rw = next((r for r in rewrites if r["file"] == e["file"]), None)
+        lines += [f"- rewrite proposed: `{rw['proposed']}` ({rw['sections']} section(s) → one pointer, {rw['foreign']} foreign block(s) kept byte-identical)" if rw else "- nothing to rewrite", ""]
+    return "\n".join(lines) + "\n"
+
+
+def propose_rewrites(root, layer):
+    """Each instruction file with a pointer or a rule gets its rewritten text under .reef/proposed/<file>; the plan carries the list.
+    Nothing in the tree changes until --apply, under the approved plan."""
+    out = []
+    for e in layer["files"]:
+        if not (e["pointers"] or e["rules"]):
+            continue
+        text = read(os.path.join(root, e["file"]))
+        new = rewrite_instruction(text, e)
+        if new == text:
+            continue
+        p = os.path.join(root, ".reef", "proposed", e["file"])
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(new)
+        out.append({"file": e["file"], "proposed": os.path.relpath(p, root), "sections": new.count(POINTER_PARA),
+                    "foreign": len(re.findall(r"<!-- BEGIN:[\w.-]+ -->", new))})
+    return out
+
+
 def classify(root, rel, text, served, unmerged=None):
     base = os.path.basename(rel)
     if base in KEEP:
         return "keep", "project file (README, LICENSE, CONTRIBUTING, SECURITY, CHANGELOG, CODEOWNERS)"
     if LICENCE_RE.match(base):
         return "keep", "a licence (kept wherever it is, under any name)"
+    if INSTRUCTION_FILE.match(rel):
+        return "keep", "the instruction layer (rewritten in place by the plan; a duplicate CLAUDE file is merged, then archived)"
     if beside_asset_licence(root, rel):
         return "keep", "beside an asset's licence (fonts, images, binaries)"
     if unmerged and rel in unmerged:
@@ -235,7 +379,9 @@ def build_plan(root):
             entry["archive"] = f"reef/archive/{date}/{rel}"
         plan.append(entry)
     hist = cmd_history(root)
-    return {"date": date, "entries": plan, "history": hist, "create": ["reef/constitution.md", "reef/queue.md", "reef/journal.md", "reef/glossary.md",
+    layer = instruction_layer(root, files, {e["path"] for e in plan if e["action"] != "keep"})
+    rewrites = propose_rewrites(root, layer)
+    return {"date": date, "entries": plan, "history": hist, "instruction_layer": layer, "rewrites": rewrites, "create": ["reef/constitution.md", "reef/queue.md", "reef/journal.md", "reef/glossary.md",
                                                                      "reef/architecture/", "reef/features/README.md", f"reef/archive/{date}/", "reef/archive/README.md"]}
 
 
@@ -251,6 +397,14 @@ def render_plan(plan):
                 "convert-feature": f"reef/features/{e.get('feature', '')}/SPEC.md (+ queue row, + archive)",
                 "merge-glossary": "reef/glossary.md (+ archive)", "archive": e.get("archive", ""), "keep": "—"}[e["action"]]
         lines.append(f"| {e['action']} | `{e['path']}` | {dest} | {e['reason']} |")
+    rw = plan.get("rewrites") or []
+    lay = plan.get("instruction_layer") or {"files": [], "duplicates": []}
+    lines += ["", "## Instruction layer (reef/instruction-layer.md)", "",
+              f"{len(lay['files'])} file(s) the agents read first; {len(rw)} rewrite(s) proposed under `.reef/proposed/` and applied with this plan "
+              "(process sections → one pointer to Reef's tree; product content and other tools' blocks kept byte for byte); "
+              + (f"duplicates merged into `{lay.get('primary')}`: {', '.join('`' + d + '`' for d in lay['duplicates'])}" if lay["duplicates"] else "no duplicate CLAUDE file"), ""]
+    lines += [f"- rewrite `{r['file']}` ← `{r['proposed']}` ({r['sections']} section(s), {r['foreign']} foreign block(s) kept) — read the diff first: "
+              f"`git diff --no-index {r['file']} {r['proposed']}`" for r in rw]
     h = plan["history"]
     lines += ["", "## How it was pushed (derived)", "",
               f"- branches: {', '.join(h['branches']) or 'none'} → `branches.base` {h['derived']['branches.base']}, `branches.release` {h['derived']['branches.release']}, `merge.by` {h['derived']['merge.by']}",
@@ -314,6 +468,8 @@ def cmd_plan(root, measure=False):
     plan_json = os.path.join(root, ".reef", "recalibration.json")
     with open(plan_json, "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
+    with open(os.path.join(root, "reef", "instruction-layer.md"), "w", encoding="utf-8") as f:
+        f.write(render_layer(plan["instruction_layer"], plan["rewrites"]))
     text = render_plan(plan)
     if measure:
         block, worst = measure_plan(root, plan_json)
@@ -801,6 +957,25 @@ def cmd_apply(root, list_path, commit):
         with open(gp, "a", encoding="utf-8") as f:
             f.write("\n".join(gloss_terms) + "\n")
         touched.append(os.path.relpath(gp, root))
+    # item 19: the instruction layer's rewrites, in this same commit; a duplicate CLAUDE file is merged into the primary and archived
+    lay = plan.get("instruction_layer") or {}
+    for rw in plan.get("rewrites") or []:
+        src = os.path.join(root, rw["proposed"])
+        if os.path.isfile(src) and os.path.isfile(os.path.join(root, rw["file"])):
+            with open(os.path.join(root, rw["file"]), "w", encoding="utf-8") as f:
+                f.write(read(src))
+            touched.append(rw["file"])
+            index.append(f"| `{rw['file']}` | `{rw['file']}` (rewritten) | instruction layer: process sections → one pointer to Reef's tree |")
+    for dup in lay.get("duplicates") or []:
+        if os.path.isfile(os.path.join(root, dup)) and lay.get("primary") and os.path.isfile(os.path.join(root, lay["primary"])):
+            with open(os.path.join(root, lay["primary"]), "a", encoding="utf-8") as f:
+                f.write(f"\n\n## Carried over from {dup}\n\n" + re.sub(r"^# .*\n", "", read(os.path.join(root, dup)), count=1))
+            arch = f"reef/archive/{date}/{dup}"
+            os.makedirs(os.path.dirname(os.path.join(root, arch)), exist_ok=True)
+            git(root, "mv", dup, arch)
+            moved[dup] = arch
+            touched.append(lay["primary"])
+            index.append(f"| `{dup}` | `{arch}` | a second CLAUDE file, merged into {lay['primary']} |")
     for c in plan.get("create", []):
         if c.endswith("/"):
             os.makedirs(os.path.join(root, c), exist_ok=True)
