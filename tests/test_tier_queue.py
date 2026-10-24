@@ -165,6 +165,23 @@ class JournalStatuses(unittest.TestCase):
         self.assertIn("AC status 'maybe'", r.stdout)
 
 
+class JournalNotesInParentheses(unittest.TestCase):
+    def test_a_note_in_parentheses_is_not_a_status(self):
+        # 2026-10-24, the trial (twice): "AC1…AC5 achieved (AC3, AC4 rendered on the server by their Proof tests, not a
+        # browser)" read "rendered" as a status, and the agent rewrote the honest caveat as "achieved via server-rendered HTML"
+        d = qrepo()
+        write(d, ".reef/version", "0.7.0\n")
+        write(d, "tasks/101-a.md", "---\nid: 101\nfeature: 1\nstatus: done\n---\n")
+        head = "# Journal\n\n| Task | Implementer | Verifier | Attempts | Result | ACs | Escaped defects |\n|---|---|---|---|---|---|---|\n"
+        write(d, "docs/journal.md", head + "| 101 | opus | opus | 0 | PASS | AC1…AC5 achieved (AC3, AC4 rendered on the server by their Proof tests, not a browser) | none |\n")
+        r = queue(d, "check")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        write(d, "docs/journal.md", head + "| 101 | opus | opus | 0 | PASS | AC-1 achieved (by hand); AC-2 maybe | none |\n")
+        r = queue(d, "check")
+        self.assertEqual(r.returncode, 1, "a status outside the parentheses is still checked")
+        self.assertIn("AC status 'maybe'", r.stdout)
+
+
 class BatchLineWithFootnote(unittest.TestCase):
     def test_a_footnote_marker_on_the_batch_line_is_not_part_of_the_number(self):
         # first contact (2026-10-17): the owner's decision to skip the release was footnoted on the line — "Current batch: 2²⁶" read as batch "2²⁶"

@@ -751,7 +751,9 @@ def cmd_check(root):
                 continue
             if ac_col is None or len(cells) <= ac_col or re.fullmatch(r"-+", cells[ac_col] or "-"):
                 continue
-            for m in re.finditer(r"\bAC-?\d+\s+([a-z-]+)", cells[ac_col]):
+            # a note in parentheses is not a status (2026-10-24, the trial, twice: "(AC3, AC4 rendered on the server …)"
+            # read "rendered" as one, and the agent rewrote an honest caveat as "achieved")
+            for m in re.finditer(r"\bAC-?\d+\s+([a-z-]+)", re.sub(r"\([^()]*\)", " ", cells[ac_col])):
                 st = m.group(1)
                 if st not in ("not-verified", "partially-verified", "achieved", "contradicted"):
                     msg = f"journal: AC status {st!r} is not one of not-verified | partially-verified | achieved | contradicted"

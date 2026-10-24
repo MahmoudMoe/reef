@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **A note in parentheses is not an AC status** (the owner's go, 2026-10-24). Twice on the trial, the journal check
+  read "AC1…AC5 achieved (AC3, AC4 rendered on the server by their Proof tests, not a browser)" as the status
+  "rendered", and the agent rewrote the honest caveat as "achieved via server-rendered HTML" to pass. `reef-queue.py
+  check` now drops parenthesized notes from the ACs cell before reading statuses; a bad status outside them still fails.
+  tests/size-budget.json raised: `script_lines` 12,357 → 12,359.
 - **`/reef-run`: the runner from Claude Code, and a clean stop** (the owner's go, 2026-10-24: "a command for the
   runner instead of the terminal"). A long session moved to the background had run the trial's loop for three days near
   its context ceiling, unwatched. `/reef-run` shows a live runner or starts one detached (the probe first when the mode
