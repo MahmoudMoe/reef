@@ -107,7 +107,7 @@ def detect(root):
     """Stack facts the templates need. Only what the files say; nothing guessed is a gate."""
     has = lambda *p: os.path.isfile(os.path.join(root, *p))
     facts = {"name": os.path.basename(os.path.abspath(root)), "stack": "unknown", "test": "", "fast": "",
-             "build": "", "install": "", "ecosystem": "", "setup_steps": ""}
+             "build": "", "install": "", "setup": "", "ecosystem": "", "setup_steps": ""}
     if has("package.json"):
         try:
             with open(os.path.join(root, "package.json"), encoding="utf-8") as f:
@@ -115,6 +115,12 @@ def detect(root):
         except Exception:
             pkg = {}
         scripts = pkg.get("scripts", {}) if isinstance(pkg, dict) else {}
+        deps = {**(pkg.get("dependencies") or {}), **(pkg.get("devDependencies") or {})} if isinstance(pkg, dict) else {}
+        # worktree.setup (0.7.2, ai-coach 2026-10-24): a task worktree needs the GENERATED code too — a stale Prisma client
+        # and .next types failed ~14 test files for reasons unrelated to the task. The project's `generate` script, else
+        # Prisma's generator when Prisma is a dependency; never `scripts.setup` or anything that migrates a database.
+        facts["setup"] = ("npm ci && npm run generate" if "generate" in scripts
+                          else "npm ci && npx prisma generate" if "prisma" in deps or "@prisma/client" in deps else "npm ci")
         facts.update(stack="node", ecosystem="npm", install="npm ci",
                      test="npm test" if "test" in scripts else "",
                      build="npm run build" if "build" in scripts else "",
@@ -131,6 +137,7 @@ def detect(root):
     elif has("go.mod"):
         facts.update(stack="go", ecosystem="gomod", install="go mod download", test="go test ./...", build="go build ./...",
                      setup_steps="      - uses: actions/setup-go@v5\n        with:\n          go-version: stable\n")
+    facts["setup"] = facts["setup"] or facts["install"]   # the other stacks: install is the whole setup
     facts["setup_steps"] = facts["setup_steps"] + AUDIT_SETUP.get(facts["stack"], "") + GITLEAKS_SETUP
     # Dependabot: the stack's package entry only when there IS a stack — an unknown stack used to render the
     # github-actions ecosystem twice (first contact, 2026-10-16)
@@ -270,7 +277,7 @@ def project_config(existing, facts):
     cfg["paths"]["tasks"] = lay["tasks"]
     if lay["features"]:
         cfg["paths"]["features"] = lay["features"]
-    cfg["worktree"]["setup"] = facts["install"]
+    cfg["worktree"]["setup"] = facts["setup"]
     # the tier table (models per role, effort, light allowlist) and the writing caps come from the
     # plugin's templates/config.json — one home; nothing is restated here
 
