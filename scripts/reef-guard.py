@@ -1041,6 +1041,7 @@ def _check_dispatch(tool_input, payload):
         path = os.path.join(cwd, path)
     if not os.path.isfile(path):
         deny(f"REEF-TASK file not found: {path}")
+    path = load_graph_module().plan_home(path)   # a task worktree's copy: its feature worktree's is the plan (2026-10-24)
     root = task_root(path, cwd)
     if os.path.abspath(root) != os.path.abspath(cwd) and not tier:
         check_role_model(sub, tool_input, root)
