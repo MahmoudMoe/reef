@@ -119,6 +119,18 @@ def detect(root):
         # worktree.setup (0.7.2, ai-coach 2026-10-24): a task worktree needs the GENERATED code too — a stale Prisma client
         # and .next types failed ~14 test files for reasons unrelated to the task. The project's `generate` script, else
         # Prisma's generator when Prisma is a dependency; never `scripts.setup` or anything that migrates a database.
+        # gates.fast (0.7.2, ai-coach 2026-10-24, item 4): the project's own quick checks, each only when present, never
+        # invented — it stayed "" and every commit ran the full suite (66 s)
+        fast = []
+        if "lint" in scripts:
+            fast.append("npm run lint")
+        if "typecheck" in scripts:
+            fast.append("npm run typecheck")
+        elif "typescript" in deps and has("tsconfig.json"):
+            fast.append("npx tsc --noEmit")
+        if "vitest" in deps:
+            fast.append("npx vitest run --changed")
+        facts["fast"] = " && ".join(fast)
         facts["setup"] = ("npm ci && npm run generate" if "generate" in scripts
                           else "npm ci && npx prisma generate" if "prisma" in deps or "@prisma/client" in deps else "npm ci")
         facts.update(stack="node", ecosystem="npm", install="npm ci",
@@ -263,6 +275,7 @@ def project_config(existing, facts):
     config: a key the project already has is never changed (the human may have tuned it)."""
     with open(os.path.join(PLUGIN, "templates", "config.json"), encoding="utf-8") as f:
         cfg = json.load(f)
+    cfg["gates"]["fast"] = facts["fast"]
     cfg["gates"]["full"] = facts["test"]
     cfg["gates"]["extra"] = {"build": facts["build"]} if facts["build"] else {}
     cfg["gates"]["release"] = release_gates(facts)
