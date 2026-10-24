@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **The site, the Arabic manual and the README describe the issues queue** (the owner's go, 2026-10-24, batch A item 4):
+  a row as an issue titled `[<id>]`, a batch as a milestone, the `p1`/`p2`/`p3` labels, `admit`, triage with
+  `set-priority`/`demote`, the journal copied at the row's close, `queue.home` and `queue.batch_max`. Docs only.
 - **`scripts/__pycache__/` is ignored** (the owner's go, 2026-10-24, batch A item 3). The Python byte-code of the copied
   scripts showed up untracked in every `git status` of the trial project; `reef-init` appends the line, so a refresh or
   `reef-update` adds it to an existing project. Size budget unchanged.
