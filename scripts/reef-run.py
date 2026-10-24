@@ -14,6 +14,7 @@ Usage (the owner's terminal, in the project's main checkout):
                first); the probe and the gate are per host (`probe --host opencode`)
   reef-run.py watch [--repo DIR]   the live steps of the run in progress (any terminal; Ctrl-C to leave)
   reef-run.py status [--repo DIR]  one look: running or not, the night, the last steps and the last session
+  reef-run.py stop [--repo DIR]    (0.7.1) the running runner ends after its current session (never mid-merge)
   --detach: after every check passes, the runner leaves the session that started it (its own process session,
             output to .reef/run/runner.out) and the command returns at once, so /reef-night can start the night
   reef-run.py contract [--from FILE]   (super Reef) install tonight's contract into .reef/night/contract.md and print
@@ -482,6 +483,22 @@ def detach(root):
     os.dup2(fd, 2)
 
 
+def cmd_stop(root):
+    """The owner stops a running runner (0.7.1, /reef-run): a request the runner reads between sessions, so a headless
+    session is never killed halfway through a merge."""
+    try:
+        with open(os.path.join(root, RUN_DIR, "lock"), encoding="utf-8") as f:
+            pid = int(f.read().strip() or 0)
+        os.kill(pid, 0)
+    except (OSError, ValueError):
+        print("reef-run: no runner is running")
+        return 1
+    with open(os.path.join(root, RUN_DIR, "stop-request"), "w", encoding="utf-8") as f:
+        f.write(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + "\n")
+    print(f"reef-run: stop requested — the runner (pid {pid}) ends after its current session")
+    return 0
+
+
 def cmd_status(root):
     """Running or not (the lock's process), the night, the last live lines, the last session's record."""
     try:
@@ -541,6 +558,9 @@ def cmd_run(root, mode, cap, night=False, detached=False):
             f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": night_digest(root)[:16]}))
     live = os.path.join(root, LIVE)
     open(live, "w", encoding="utf-8").close()
+    stop_req = os.path.join(root, RUN_DIR, "stop-request")
+    if os.path.exists(stop_req):
+        os.unlink(stop_req)   # a request from before this run is not about this run
     i = 0
 
     def say(text):
@@ -566,6 +586,11 @@ def cmd_run(root, mode, cap, night=False, detached=False):
             say("session ended: " + (f"wait {wait!r}" if wait else f"stop {stop!r}" if stop else f"parked {parked!r}" if parked
                                      else f"in flight {flying}" if flying else "no wait recorded")
                 + f" · {out.get('_seconds')} s" + (f" · ${cost:.2f}" if isinstance(cost, (int, float)) else ""))
+            if os.path.exists(stop_req):
+                os.unlink(stop_req)
+                say("stopped on the owner's request (reef-run.py stop)")
+                print("reef-run: stopped on the owner's request")
+                return 0
             if stop:
                 print(f"reef-run: the loop stopped — {stop}")
                 return 0
@@ -620,6 +645,8 @@ def main(argv):
         return cmd_watch(root)
     if args[:1] == ["status"]:
         return cmd_status(root)
+    if args[:1] == ["stop"]:
+        return cmd_stop(root)
     if args[:1] == ["probe"]:
         return cmd_probe(root, mode)
     if args[:1] == ["contract"]:

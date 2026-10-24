@@ -29,6 +29,9 @@ result = "done"
 if kind == "wait": st["wait"] = arg
 elif kind == "stop": st["stop"] = arg
 elif kind == "park": st["parked"] = arg
+elif kind == "ownerstop":   # the owner runs `reef-run.py stop` from another terminal while this session works
+    st["wait"] = "/clear requested"
+    open(os.path.join(os.getcwd(), ".reef", "run", "stop-request"), "w").write("x")
 elif kind == "flight":
     os.makedirs(os.path.join(os.getcwd(), ".reef", "inflight"), exist_ok=True)
     open(os.path.join(os.getcwd(), ".reef", "inflight", arg), "w").write("{}")
@@ -201,6 +204,25 @@ class Loop(unittest.TestCase):
         self.assertEqual([x["iteration"] for x in log], [1, 2, 3])
         self.assertEqual(log[0]["session"], "s-1")
         self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "run", "lock")), "the lock is released")
+
+    def test_the_owner_stops_a_running_runner_after_its_current_session(self):
+        # 2026-10-24 (the owner: a command for the runner instead of the terminal): /reef-run starts it detached; stopping
+        # it must not kill a headless session halfway through a merge, so `stop` asks and the runner ends between sessions
+        r = run(self.d, [], "stop")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no runner is running", r.stdout)
+        lock = os.path.join(self.d, ".reef", "run", "lock")
+        open(lock, "w").write(str(os.getpid()))
+        r = run(self.d, [], "stop")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("ends after its current session", r.stdout)
+        os.unlink(lock)
+        r = run(self.d, ["none"], "--max-iterations", "1")
+        self.assertNotIn("owner's request", r.stdout, "a request left from before this run is cleared at its start")
+        r = run(self.d, ["ownerstop", "wait:/clear requested", "wait:/clear requested"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(calls(self.d)[-1], "ownerstop", "no session after the request")
+        self.assertIn("stopped on the owner's request", r.stdout)
 
     def test_stop_park_work_in_flight_and_the_cap(self):
         self.assertEqual(run(self.d, ["stop:batch 2 released"]).returncode, 0)
