@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # CLASS: code
 """Reef record — a review verdict bound to the FORGE-reported commit, or a plan review verdict bound to the plan's digest.
-Usage: reef-record <feature> <verdict> [--pr <number|url|branch>] [--root DIR]
+Usage: reef-record <feature> <verdict> [--pr <number|url|branch>] [--report FILE] [--root DIR]
+  (0.7.1) GREEN/PASS needs --report: the reviewer's report naming the PR head (its first 12 hex) and its `VERDICT:` line
        reef-record plan-review <feature> <PASS|FAIL> [--report FILE] [--root DIR]
        reef-record security <PASS|FAIL> --report FILE [--root DIR]
   security (0.7) writes .reef/review/security-<sha12>.json = {kind, head, base, verdict, report_sha256, recorded_at}: the
@@ -182,11 +183,13 @@ def main(argv):
         return cmd_plan_review(argv[1:])
     if argv and argv[0] == "security":
         return cmd_security(argv[1:])
-    pr, root, pos = None, None, []
+    pr, root, pos, report = None, None, [], None
     i = 0
     while i < len(argv):
         if argv[i] == "--pr":
             pr = argv[i + 1]; i += 2
+        elif argv[i] == "--report":
+            report = argv[i + 1]; i += 2
         elif argv[i] == "--root":
             root = argv[i + 1]; i += 2
         else:
@@ -209,10 +212,25 @@ def main(argv):
     tree = gh("api", f"repos/{m.group(1)}/{m.group(2)}/git/commits/{sha}", "--jq", ".tree.sha", cwd=cwd)
     if not re.fullmatch(r"[0-9a-f]{40}", tree):
         die(f"gh api returned no tree sha for {sha}: {tree!r}")
-    d = os.path.join(main_checkout(cwd), ".reef", "review")
-    os.makedirs(d, exist_ok=True)
     rec = {"sha": sha, "tree": tree, "verdict": verdict.upper(), "base": base, "pr": int(m.group(3)),
            "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    if verdict.upper() in ("GREEN", "PASS"):
+        # 2026-10-24, the trial: the guard said "re-review and re-record", and a re-record with no review followed. The
+        # record now carries the review: the report's VERDICT and the head it reviewed, bound by its hash.
+        if not report or not os.path.isfile(report):
+            die("a GREEN record carries its reviewer's report: --report <file> with `HEAD: <sha12>` and `VERDICT: GREEN`")
+        raw = open(report, "rb").read()
+        text = raw.decode("utf-8", "replace")
+        v = re.search(r"^VERDICT:[ \t]*(GREEN|PASS|FAIL)\b", text, re.M)
+        if not v or v.group(1) == "FAIL":
+            die(f"{report} says VERDICT: {v.group(1) if v else '(none)'} — the record carries the reviewer's verdict, never another")
+        if sha[:12] not in text:
+            h = re.search(r"^HEAD:[ \t]*([0-9a-f]{7,40})", text, re.M)
+            die(f"the report reviewed {h.group(1)[:12] if h else 'no named head'}, not the PR head {sha[:12]} — review the head, then record")
+        import hashlib
+        rec["report_sha256"] = hashlib.sha256(raw).hexdigest()
+    d = os.path.join(main_checkout(cwd), ".reef", "review")
+    os.makedirs(d, exist_ok=True)
     with open(os.path.join(d, f"{feature}.json"), "w", encoding="utf-8") as f:
         json.dump(rec, f, indent=1)
         f.write("\n")

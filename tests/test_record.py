@@ -76,8 +76,16 @@ class _Repo:
         e.update(kw)
         return e
 
-    def record(self, verdict="GREEN", **kw):
-        return subprocess.run([sys.executable, RECORD, "demo", verdict, "--root", self.d], capture_output=True, text=True, env=self.env(**kw))
+    def record(self, verdict="GREEN", report="ok", **kw):
+        """A GREEN/PASS record carries its reviewer's report (2026-10-24): the VERDICT line and the head it reviewed."""
+        args = [sys.executable, RECORD, "demo", verdict, "--root", self.d]
+        if report and verdict in ("GREEN", "PASS"):
+            p = os.path.join(self.tmp, "review.md")
+            head = git(self.d, "rev-parse", "feat")[:12] if report != "old-head" else "0123456789ab"
+            with open(p, "w") as f:
+                f.write(f"RUN: agent=acceptance feature=demo\nHEAD: {head}\n" + ("VERDICT: FAIL\n" if report == "fail" else f"VERDICT: {verdict}\n"))
+            args += ["--report", p]
+        return subprocess.run(args, capture_output=True, text=True, env=self.env(**kw))
 
     def merge(self, cmd="gh pr merge 7 --squash --delete-branch", **kw):
         payload = {"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": cmd}}
@@ -163,6 +171,57 @@ class ForgeMerge(_Repo, unittest.TestCase):
         r = self.merge()
         self.assertEqual(r.returncode, 2)
         self.assertIn("not an ancestor", r.stderr)
+
+    def test_green_carries_its_reviewers_report(self):
+        # 2026-10-24, the trial: the guard refused a merge ("re-review and re-record"), and the orchestrator re-recorded
+        # GREEN at the new head with no review. A GREEN record now carries the report that names the head it reviewed.
+        r = self.record(report=None)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("carries its reviewer's report", r.stderr)
+        r = self.record(report="old-head")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("reviewed 0123456789ab, not the PR head", r.stderr)
+        r = self.record(report="fail")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("says VERDICT: FAIL", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "review", "demo.json")))
+        r = self.record()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(self.d, ".reef", "review", "demo.json")) as f:
+            self.assertRegex(json.load(f)["report_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_a_conflicted_base_merge_that_leaves_the_feature_unchanged_carries_over(self):
+        # both sides appended to the journal, as parallel features do: the merge conflicts, the resolution keeps both
+        # lines, and the feature's own change is byte-for-byte the one reviewed — no re-record needed
+        for branch, line in (("main", "| base row |\n"), ("feat", "| feature row |\n")):
+            git(self.d, "checkout", "-q", branch)
+            with open(os.path.join(self.d, "journal.md"), "a") as f:
+                f.write("# Journal\n" if branch == "main" else "")
+            if branch == "main":
+                git(self.d, "add", "journal.md"); git(self.d, "commit", "-qm", "journal")
+                git(self.d, "checkout", "-q", "feat"); git(self.d, "merge", "-q", "--no-edit", "main")
+                git(self.d, "checkout", "-q", "main")
+            with open(os.path.join(self.d, "journal.md"), "a") as f:
+                f.write(line)
+            if branch == "main":   # the base also brings another feature's code, so the move is not claims-only
+                with open(os.path.join(self.d, "other.py"), "w") as f:
+                    f.write("z = 9\n")
+                git(self.d, "add", "other.py")
+            git(self.d, "commit", "-qam", f"{branch} journal row")
+        self.record()
+        subprocess.run(["git", "-C", self.d, "merge", "-q", "--no-edit", "main"], capture_output=True)
+        with open(os.path.join(self.d, "journal.md"), "w") as f:
+            f.write("# Journal\n| base row |\n| feature row |\n")
+        git(self.d, "add", "journal.md")
+        git(self.d, "commit", "-qm", "merge main, both journal rows kept")
+        r = self.merge()
+        self.assertEqual(r.returncode, 0, f"the feature's own diff is the reviewed one: {r.stderr}")
+        with open(os.path.join(self.d, "app.py"), "a") as f:
+            f.write("y = 3\n")
+        git(self.d, "commit", "-q", "--amend", "-a", "--no-edit")
+        r = self.merge()
+        self.assertEqual(r.returncode, 2, "code slipped into the merge resolution: re-review")
+        self.assertIn("moved since the GREEN record", r.stderr)
 
     def test_gh_failure_or_slowness_denies(self):
         self.record()

@@ -556,12 +556,26 @@ def check_approval_cli(seg):
              "\"<question>\"` run by the owner in their own terminal — an agent runs it only with --proxy, during a night")
 
 
+def same_feature_change(cwd, base_tip, reviewed, head):
+    """The feature's own change, against the base each commit sits on, is the same before and after: the patch-id of a
+    zero-context diff (no line numbers, no context lines), so rows both sides appended to one file still compare equal."""
+    def pid(tip):
+        mb = subprocess.run(["git", "merge-base", base_tip, tip], cwd=cwd, capture_output=True, text=True).stdout.strip()
+        d = subprocess.run(["git", "diff", "-U0", mb, tip], cwd=cwd, capture_output=True, text=True).stdout if mb else ""
+        p = subprocess.run(["git", "patch-id", "--stable"], cwd=cwd, input=d, capture_output=True, text=True).stdout.split()
+        return p[0] if d and p else None
+    a = pid(reviewed)
+    return a is not None and a == pid(head)
+
+
 def check_forge_merge(seg, ctx):
     """merge.by: loop — `gh pr merge` / `gh api …/pulls/N/merge` only when a PASS/GREEN review record
     (.reef/review/<feature>.json, written by scripts/reef-record from the forge's own view) names the PR's
     current head. A head that moved since the record merges only when the record is still an ancestor and
     either `git merge-tree --write-tree <recorded> <base tip>` equals the forge's tree (a clean base merge)
-    or every commit since is claims-only. A rebase, a code push after GREEN, a slow or failing gh: DENY."""
+    or every commit since is claims-only, or (0.7.1) the feature's own change is the reviewed one (a base merge whose
+    conflict, a journal both sides appended to, was resolved without touching it). A rebase, a code push after GREEN, a
+    slow or failing gh: DENY."""
     i = 0
     while i < len(seg) and (ENV_ASSIGN.match(seg[i]) or seg[i] in PREFIX_WORDS or seg[i].startswith("-") or seg[i].isdigit()):
         i += 1
@@ -616,6 +630,8 @@ def check_forge_merge(seg, ctx):
             mt = subprocess.run(["git", "merge-tree", "--write-tree", rec["sha"], base_tip], cwd=cwd, capture_output=True, text=True)
             if mt.returncode == 0 and mt.stdout.strip().splitlines()[:1] == [forge_tree]:
                 return   # the only change since the review is a clean merge of the base
+            if same_feature_change(cwd, base_tip, rec["sha"], head):
+                return   # the base moved in, the feature's own change did not
         claims = load_plugin_module("reef-claims.py", "reef_claims")
         try:
             import io, contextlib
