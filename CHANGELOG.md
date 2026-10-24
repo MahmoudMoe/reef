@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **SQL injection has a deterministic check** (ai-coach, 2026-10-24, item 12). Only the security agent's judgment stood
+  between an `$executeRawUnsafe` and the release; `gates.release` had gitleaks and the stack audit, nothing for
+  injection. (A) A release gate per stack, proposed on upgrade like the other release gates and written for a new
+  project: `command -v semgrep >/dev/null 2>&1 || exit 77; semgrep scan --config p/owasp-top-ten --config p/<stack>
+  --error` (`p/typescript`, `p/python`, `p/rust`, `p/golang`); the CI template installs semgrep like gitleaks; a missing
+  scanner is exit 77, which `reef-ci-local` reports as a skip, never a pass. (B) `reef-structure --raw-sql` (node +
+  Prisma, for `gates.extra`) fails on `$queryRawUnsafe`/`$executeRawUnsafe` in a file outside `assess.raw_sql_allow` —
+  the files the measure found holding one, a baseline, not a cleanup — with comment lines ignored; the measure's
+  proposal reuses the project's own equivalent guard test when it has one instead of adding this. tests/size-budget.json raised: `script_lines` 13,076 → 13,157.
 - **A draft decision record on adopting a project that runs its own loop** (ai-coach, 2026-10-24, item 11; design only).
   Init wrote `docs/queue.md` and `HANDOFF.md` beside ai-coach's `docs/loop/queue.md` and `HANDOFF-FRESH.md`: two
   queues, two handoffs. `docs/design/existing-loop-adoption.md` lists the detection signals (`docs/loop/`, `HANDOFF*.md`,

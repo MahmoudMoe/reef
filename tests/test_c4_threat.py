@@ -222,10 +222,16 @@ class SecurityGatesAsProposals(unittest.TestCase):
         cfg = json.loads(open(os.path.join(d, ".reef", "config.json")).read())
         self.assertEqual(cfg["gates"]["release"], {"c4": "python3 scripts/reef-c4.py --diff",
                                                    "secret-scan": "command -v gitleaks >/dev/null 2>&1 || exit 77; gitleaks detect --source . --log-opts=--all --no-banner",
-                                                   "audit": "npm audit --audit-level=high"})
+                                                   "audit": "npm audit --audit-level=high",
+                                                   # 0.7.2 (ai-coach, item 12): a deterministic injection scan per stack
+                                                   "injection": "command -v semgrep >/dev/null 2>&1 || exit 77; semgrep scan --config p/owasp-top-ten --config p/typescript --error"})
         ci = open(os.path.join(d, ".github", "workflows", "ci.yml")).read()
         self.assertIn("--ci --release", ci)
         self.assertIn("gitleaks", ci)
+        self.assertIn("pip install semgrep", ci, "CI installs the scanner like gitleaks")
+        env = dict(os.environ, PATH=tempfile.mkdtemp(prefix="reef-nosemgrep."))   # a PATH without semgrep (and without anything else)
+        r = subprocess.run(["/bin/sh", "-c", cfg["gates"]["release"]["injection"]], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 77, "semgrep missing is a SKIP (77), never a pass")
         # an existing 0.5 project: gates.extra untouched, release gates only PROPOSED
         d5 = tempfile.mkdtemp(prefix="reef-init-sec5.")
         write(d5, "pyproject.toml", "[project]\nname='y'\n")

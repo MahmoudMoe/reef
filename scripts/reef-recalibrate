@@ -416,8 +416,36 @@ def render_measured(m):
     return "\n".join(lines) + "\n"
 
 
+RAW_GUARD = re.compile(r"raw|sql|unsafe|inject", re.I)
+
+
+def raw_sql_proposal(m):
+    """Item 12's proposal (0.7.2): the files holding an Unsafe raw query today become `assess.raw_sql_allow` — a baseline, not a
+    cleanup — and `reef-structure --raw-sql` joins gates.extra; when the project already has a guard test about raw SQL,
+    that test is named instead of a new gate."""
+    if not m.get("raw_sql"):
+        return None
+    allow = sorted({f for v in m["raw_sql"].values() for f in v["files"]})
+    reuse = [g for g in m.get("guard_tests") or [] if RAW_GUARD.search(os.path.basename(g))]
+    return {"allow": allow, "reuse": reuse, "gate": "python3 scripts/reef-structure --raw-sql"}
+
+
+def render_raw_sql(p):
+    if p is None:
+        return "## Proposed gate — raw SQL\n\nNot measured for this stack (node + Prisma only); nothing proposed.\n"
+    lines = ["## Proposed gate — raw SQL (node + Prisma)", ""]
+    if p["reuse"]:
+        lines += [f"The project already guards raw SQL: {', '.join('`' + g + '`' for g in p['reuse'])} — reuse it (keep it in `gates.full`); no new gate is proposed."]
+    else:
+        lines += ["On approval the owner adds to `.reef/config.json`: `assess.raw_sql_allow: " + json.dumps(p["allow"]) +
+                  "` (today's files with an Unsafe raw query — a baseline, not a cleanup) and to `gates.extra`: `\"raw-sql\": \"" + p["gate"] +
+                  "\"`. Day one is green; a new `$queryRawUnsafe`/`$executeRawUnsafe` outside those files fails."]
+    return "\n".join(lines) + "\n"
+
+
 def cmd_measure(root, as_json):
     m = measure(root)
+    m["raw_sql_proposal"] = raw_sql_proposal(m)
     if as_json:
         print(json.dumps(m, indent=1))
     dz = os.path.join(root, "reef", "day-zero.md")
@@ -438,6 +466,9 @@ def cmd_measure(root, as_json):
     rtext = read(rp) if os.path.isfile(rp) else f"# Recalibration — {m['date']}\n\n"
     rsec = re.search(r"^## Proposed rows \(refactor\)\n.*?(?=^## |\Z)", rtext, re.M | re.S)
     rtext = rtext[:rsec.start()] + prop + rtext[rsec.end():] if rsec else rtext.rstrip("\n") + "\n\n" + prop
+    qsec = re.search(r"^## Proposed gate — raw SQL.*?\n.*?(?=^## |\Z)", rtext, re.M | re.S)
+    qprop = render_raw_sql(m["raw_sql_proposal"])
+    rtext = rtext[:qsec.start()] + qprop + rtext[qsec.end():] if qsec else rtext.rstrip("\n") + "\n\n" + qprop
     with open(rp, "w", encoding="utf-8") as f:
         f.write(rtext)
     if not as_json:

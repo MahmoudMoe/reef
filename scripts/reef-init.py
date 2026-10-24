@@ -64,6 +64,11 @@ AUDITS = {"node": "npm audit --audit-level=high",
           "rust": "command -v cargo-audit >/dev/null 2>&1 || exit 77; cargo audit",
           "go": "command -v govulncheck >/dev/null 2>&1 || exit 77; govulncheck ./..."}
 GITLEAKS_GATE = "command -v gitleaks >/dev/null 2>&1 || exit 77; gitleaks detect --source . --log-opts=--all --no-banner"
+# 0.7.2 (ai-coach, 2026-10-24, item 12): injection had no deterministic check — only the security agent's judgment. A release
+# gate per stack; semgrep missing is exit 77 (skipped, never success), installed by the CI template like gitleaks.
+SEMGREP = {"node": "p/typescript", "python": "p/python", "rust": "p/rust", "go": "p/golang"}
+SEMGREP_GATE = "command -v semgrep >/dev/null 2>&1 || exit 77; semgrep scan --config p/owasp-top-ten --config {pack} --error"
+SEMGREP_SETUP = "      - run: pip install semgrep\n"
 AUDIT_SETUP = {"python": "      - run: pip install pip-audit\n", "rust": "      - run: cargo install cargo-audit --locked\n",
                "go": "      - run: go install golang.org/x/vuln/cmd/govulncheck@latest\n"}
 GITLEAKS_SETUP = ("      - name: gitleaks (the history secret scan)\n        run: |\n          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz "
@@ -150,7 +155,7 @@ def detect(root):
         facts.update(stack="go", ecosystem="gomod", install="go mod download", test="go test ./...", build="go build ./...",
                      setup_steps="      - uses: actions/setup-go@v5\n        with:\n          go-version: stable\n")
     facts["setup"] = facts["setup"] or facts["install"]   # the other stacks: install is the whole setup
-    facts["setup_steps"] = facts["setup_steps"] + AUDIT_SETUP.get(facts["stack"], "") + GITLEAKS_SETUP
+    facts["setup_steps"] = facts["setup_steps"] + AUDIT_SETUP.get(facts["stack"], "") + GITLEAKS_SETUP + (SEMGREP_SETUP if facts["stack"] in SEMGREP else "")
     # Dependabot: the stack's package entry only when there IS a stack — an unknown stack used to render the
     # github-actions ecosystem twice (first contact, 2026-10-16)
     facts["dependabot_stack_entry"] = (
@@ -267,6 +272,8 @@ def release_gates(facts):
     g = {"c4": "python3 scripts/reef-c4.py --diff", "secret-scan": GITLEAKS_GATE}
     if facts["stack"] in AUDITS:
         g["audit"] = AUDITS[facts["stack"]]
+    if facts["stack"] in SEMGREP:
+        g["injection"] = SEMGREP_GATE.format(pack=SEMGREP[facts["stack"]])
     return g
 
 
@@ -489,7 +496,7 @@ def run(root, facts, dry):
             with open(prop, "w", encoding="utf-8") as f:
                 json.dump({"gates": {"release": release_gates(facts)}}, f, indent=2)
                 f.write("\n")
-        w.proposed.append((".reef/config.json gates.release", "+ " + json.dumps(release_gates(facts)) + "\n  (release gates: C4 drift, history secret scan, dependency audit — add to gates.release when the tools are installed; a missing tool is exit 77 = skipped, and reef-ci-local reports a skip as exit 2, not success)\n"))
+        w.proposed.append((".reef/config.json gates.release", "+ " + json.dumps(release_gates(facts)) + "\n  (release gates: C4 drift, history secret scan, dependency audit, injection scan — add to gates.release when the tools are installed; a missing tool is exit 77 = skipped, and reef-ci-local reports a skip as exit 2, not success)\n"))
     if existing is not None and merged == existing:
         w.skipped.append(".reef/config.json")
     else:

@@ -169,3 +169,20 @@ class Assess(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RawSqlProposal(unittest.TestCase):
+    """0.7.2 (ai-coach, 2026-10-24, item 12): the measure seeds `assess.raw_sql_allow` from today's Unsafe files (a baseline) and
+    proposes the raw-SQL gate — or names the project's own guard test instead when it has one."""
+
+    def test_the_proposal_seeds_the_allow_list_or_reuses_a_guard_test(self):
+        d = Measure().fixture()
+        m = json.loads(subprocess.run([sys.executable, RECAL, "measure", "--json", "--repo", d], capture_output=True, text=True).stdout)
+        self.assertEqual(m["raw_sql_proposal"], {"allow": ["src/lib/db.ts"], "reuse": [], "gate": "python3 scripts/reef-structure --raw-sql"})
+        rec = open(os.path.join(d, "reef", "recalibration.md")).read()
+        self.assertIn('`assess.raw_sql_allow: ["src/lib/db.ts"]`', rec)
+        self.assertIn('"raw-sql": "python3 scripts/reef-structure --raw-sql"', rec)
+        write(d, "tests/raw-sql-guard.test.ts", "/** Forbids Unsafe raw queries outside lib/db. */\n")
+        m = json.loads(subprocess.run([sys.executable, RECAL, "measure", "--json", "--repo", d], capture_output=True, text=True).stdout)
+        self.assertEqual(m["raw_sql_proposal"]["reuse"], ["tests/raw-sql-guard.test.ts"])
+        self.assertIn("reuse it (keep it in `gates.full`); no new gate is proposed", open(os.path.join(d, "reef", "recalibration.md")).read())
