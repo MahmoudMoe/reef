@@ -171,5 +171,8 @@
   "assess": {
     "exclude": [],
     "large_file": 800
+  },
+  "structure": {
+    "new_file_lines": 400
   }
 }

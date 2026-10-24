@@ -377,3 +377,44 @@ class RawSqlCheck(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("src/new.ts:2: an Unsafe raw query outside assess.raw_sql_allow", r.stdout)
         self.assertNotIn("src/legacy.ts", r.stdout)
+
+
+class SizeRatchet(unittest.TestCase):
+    """0.7.2 (ai-coach, 2026-10-24, item 14): `reef-structure --sizes` — a baselined file may not grow, a new file may not be born
+    over structure.new_file_lines, shrinking lowers the baseline in the same run; tests and i18n are ignored."""
+
+    def project(self):
+        d = tempfile.mkdtemp(prefix="reef-sizes.")
+        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        write(d, ".reef/config.json", json.dumps({"structure": {"new_file_lines": 400}}))
+        write(d, "src/a.ts", "a\n" * 10)
+        write(d, "reef/size-baseline.json", json.dumps({"generated": "2026-10-24", "large_file": 800, "files": {"src/a.ts": 10}}))
+        git(d, "add", "-A"); git(d, "commit", "-qm", "baseline")
+        return d
+
+    def sizes(self, d):
+        return subprocess.run([sys.executable, STRUCT, "--sizes", "--repo", d], capture_output=True, text=True)
+
+    def test_grow_is_red_new_big_file_is_red_shrink_lowers_the_baseline_tests_and_i18n_ignored(self):
+        d = self.project()
+        self.assertEqual(self.sizes(d).returncode, 0, "nothing changed: green")
+        write(d, "src/a.ts", "a\n" * 12)
+        r = self.sizes(d)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("src/a.ts: 12 lines, over its baseline of 10", r.stdout)
+        write(d, "src/a.ts", "a\n" * 10)
+        write(d, "src/new.ts", "b\n" * 401)
+        r = self.sizes(d)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("src/new.ts: a new file of 401 lines, over structure.new_file_lines (400)", r.stdout)
+        os.remove(os.path.join(d, "src", "new.ts"))
+        write(d, "src/ok.ts", "b\n" * 400)
+        write(d, "tests/huge.test.ts", "t\n" * 1000)
+        write(d, "src/i18n/ar.ts", "x\n" * 3000)
+        write(d, "src/a.ts", "a\n" * 8)
+        r = self.sizes(d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("1 baseline(s) lowered", r.stdout)
+        self.assertEqual(json.load(open(os.path.join(d, "reef", "size-baseline.json")))["files"], {"src/a.ts": 8})
+        write(d, "src/a.ts", "a\n" * 9)
+        self.assertEqual(self.sizes(d).returncode, 1, "the ratchet: 9 is over the lowered baseline of 8")
