@@ -119,6 +119,36 @@ def feature(d, slug="csv-export-for-orders", spec=SPEC, tasks=None):
     return os.path.join(d, base)
 
 
+class JournalAtClose(unittest.TestCase):
+    """2026-10-24, the trial: two features both appended to the journal, their PRs conflicted on it, and a hand-resolved
+    conflict led to a GREEN re-recorded with no review. A feature branch never edits the journal: each task's journal
+    block sits in its task file's Log, and `reef-queue.py journal <slug>` copies them on the base at the row's close."""
+
+    def test_the_close_copies_each_tasks_block_once(self):
+        d = project()
+        block = "<!-- journal -->\n| Task | Result |\n|---|---|\n| 1201-write-csv | PASS |\n- **Verified, and how**: the gate.\n<!-- /journal -->\n"
+        feature(d, tasks={"1201-write-csv.md": TASK_NEW + "- attempt 1 PASS\n" + block,
+                          "1202-two-decimals.md": TASK_NEW.replace("id: 1201", "id: 1202").replace("# 1201", "# 1202")})
+        write(d, "docs/journal.md", "# Journal\n")
+        q = lambda: subprocess.run([sys.executable, QUEUE, "journal", "csv-export-for-orders", "--repo", d], capture_output=True, text=True)
+        r = q()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("journal: 1 block(s) appended", r.stdout)
+        j = open(os.path.join(d, "docs", "journal.md")).read()
+        self.assertIn("| 1201-write-csv | PASS |", j)
+        self.assertNotIn("<!-- journal -->", j, "the markers stay in the task file")
+        self.assertIn("journal: 0 block(s) appended, 1 already there", q().stdout)
+        self.assertEqual(open(os.path.join(d, "docs", "journal.md")).read(), j, "a second close appends nothing")
+        self.assertEqual(subprocess.run([sys.executable, QUEUE, "journal", "no-such-feature", "--repo", d], capture_output=True, text=True).returncode, 1)
+
+    def test_the_task_skill_never_edits_the_journal_on_a_feature_branch(self):
+        task = open(os.path.join(ROOT, "skills", "reef-task", "SKILL.md"), encoding="utf-8").read()
+        loop = open(os.path.join(ROOT, "skills", "reef-loop", "SKILL.md"), encoding="utf-8").read()
+        self.assertIn("never edit `paths.runlog` on a feature branch", task)
+        self.assertIn("<!-- journal -->", task)
+        self.assertIn("reef-queue.py journal <slug>", loop)
+
+
 class ReadFirst(unittest.TestCase):
     # 2026-10-24, the owner's go (the read-first trial): implementers spent a median 17.5 tool calls exploring before
     # their first edit (38 qassimha runs). The planner lists the ranges it read; the check proves each one is real.

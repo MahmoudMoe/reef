@@ -27,6 +27,8 @@ Usage:
                                                  `→ row <id>` — a note is never deleted; prints the row id
   reef-queue.py set-batch ID N [--repo DIR]                (0.7) move a row to batch N (a promotion; footnote the reason)
   reef-queue.py drop-row ID --reason "<text>" [--repo DIR] (0.7) delete a queued row (rule 7) and record the reason as a footnote
+  reef-queue.py journal <slug> [--repo DIR]     (0.7.1) on the base at the row's close: every task's `<!-- journal -->`
+                                                block from its task file's Log appended to paths.runlog once
   reef-queue.py index [--repo DIR]              (0.6) regenerate <paths.features>/README.md: feature, row, batch,
                                                 status, task counts, ADRs — never hand-edited
   reef-queue.py close ID --pr N [--repo DIR]               (0.7.1, issues) close the row's issue as completed, "merged in #N"
@@ -927,6 +929,29 @@ def cmd_adr_number(root):
     return 0
 
 
+JOURNAL_BLOCK = re.compile(r"<!-- journal -->\n(.*?)\n?<!-- /journal -->", re.S)
+
+
+def cmd_journal(root, slug):
+    """A feature branch never edits the journal (2026-10-24, the trial: two features appended to it, their PRs conflicted,
+    and a hand-resolved conflict ended in a GREEN re-recorded with no review). Each task's block waits in its task file's
+    Log; the row's close, on the base, copies them in task order. Idempotent: a block already there is skipped."""
+    cfg = config(root)
+    fdir = feature_folders(root, cfg).get(slug)
+    if not fdir:
+        die(f"no feature folder {slug!r}", 1)
+    files = sorted(os.path.join(dp, f) for sub in ("tasks", os.path.join("tasks", "done")) for dp in [os.path.join(fdir, sub)]
+                   if os.path.isdir(dp) for f in os.listdir(dp) if TASK_NAME_RE.match(f))
+    blocks = [m.group(1).strip() for p in sorted(files, key=os.path.basename) for m in JOURNAL_BLOCK.finditer(read(p))]
+    jpath = os.path.join(root, cfg.get("paths", {}).get("runlog", "docs/journal.md"))
+    text = read(jpath) if os.path.isfile(jpath) else "# Journal\n"
+    new = [b for b in blocks if b not in text]
+    if new:
+        write_text(jpath, text.rstrip("\n") + "\n\n" + "\n\n".join(new) + "\n")
+    print(f"journal: {len(new)} block(s) appended, {len(blocks) - len(new)} already there")
+    return 0
+
+
 def cmd_index(root):
     """<paths.features>/README.md: one page over every feature folder — generated, never hand-edited."""
     cfg = config(root)
@@ -989,6 +1014,8 @@ def main(argv):
         return cmd_adr_number(root)
     if cmd == "index":
         return cmd_index(root)
+    if cmd == "journal" and len(argv) >= 2:
+        return cmd_journal(root, argv[1])
     def opt(name, default=""):
         return argv[argv.index(name) + 1] if name in argv else default
     if cmd == "footnote" and len(argv) >= 2:

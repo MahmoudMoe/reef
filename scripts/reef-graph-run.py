@@ -449,7 +449,7 @@ def cmd_settle(root, results_path):
                 att = re.search(r"attempt=(\d+)/(\d+)", out_a or "")
                 print(f"  attempt counted: {att.group(0) if att else (err_a or out_a).strip().splitlines()[-1][:120] if (err_a or out_a).strip() else rc_a}")
         else:
-            print(f"READY TO MERGE {tid} ({wt}) — /reef-task step 4: commit in the worktree, merge --no-ff into the feature branch, status done, journal row")
+            print(f"READY TO MERGE {tid} ({wt}) — /reef-task step 4: commit in the worktree, merge --no-ff into the feature branch, status done, its journal block in the task's Log")
         for line in found:
             print(line)
         filed = filed or bool(found)
