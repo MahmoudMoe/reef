@@ -35,7 +35,7 @@ EFFORT = {"low", "medium", "high"}
 VERIFY = {"judge", "gate-only"}
 TIER = {"light", "full", "design", "critical"}   # effort matched to risk; mech <=> light (design §4); 0.6 adds critical
 KIND = {"refactor"}   # 0.7.2 (ai-coach, item 15): an optional task kind with its own deterministic proof (reef-converge)
-SPLITS_RE = re.compile(r"^\S+(,\s*\S+)*\s+under\s+\d+\s+lines$")
+SPLITS_RE = re.compile(r"^[^,\s]+(,\s*[^,\s]+)*\s+under\s+\d+\s+lines$")   # no comma inside a path: unambiguous (CodeQL py/redos)
 TIER_ORDER = ["light", "full", "design", "critical"]
 REQUIRED = ["id", "feature", "status", "complexity", "effort", "blocked-by", "verify", "attempts"]
 # Test-name conventions across the stacks reef-init advertises. Left/right anchored so
