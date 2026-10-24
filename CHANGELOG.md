@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **Recalibration keeps the project's existing ADR numbers** (ai-coach, 2026-10-24, item 21). 193 numbered ADRs in
+  `docs/adr/`, cited 456 times as `ADR NNNN` in src and scripts, would each have taken a new number after the highest
+  existing one, breaking every citation: every `convert-adr` took `nxt`. An ADR whose filename already carries a
+  4-digit number is now the same record, `git mv`ed into Reef's ADR home with its text intact and no `Supersedes:`;
+  only unnumbered decision documents are converted and numbered from the next free number, which counts the kept
+  ones. A number clash with an ADR already in Reef's home refuses the apply and names both files; links are rewritten
+  as before. The plan says "the same record, its number kept" on such lines. tests/size-budget.json raised: `script_lines` 13,979 → 13,999.
 - **`add-row` on issues no longer hands out duplicate ids** (ai-coach, 2026-10-24, item 20). Six `add-row` calls in a row
   created issues titled `[3] [3] [4] [4] [5] [5]` with wrong `Depends:`, because the next id came from GitHub's issue
   list, which lags a just-created issue. Now the last allocated id is kept in `.reef/queue.json` under a file lock and

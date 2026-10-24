@@ -283,10 +283,11 @@ class Recalibrate(unittest.TestCase):
         adr = os.path.join(d, "reef", "architecture", "adr", "0001-use-postgres.md")
         self.assertTrue(os.path.isfile(adr))
         text = open(adr).read()
-        self.assertIn(f"Supersedes: reef/archive/{date}/decisions/0001-use-postgres.md", text)
-        self.assertIn("In the context of", text)
+        # 0.7.2 (ai-coach, item 21): a numbered ADR is the same record moved, its number kept — no Supersedes, no archive copy
+        self.assertIn("# 1. Use Postgres", text)
+        self.assertNotIn("Supersedes:", text)
         self.assertTrue(os.path.isfile(os.path.join(d, "reef", "architecture", "adr", "0002-event-bus.md")))
-        self.assertTrue(os.path.isfile(os.path.join(d, "reef", "archive", date, "decisions", "0001-use-postgres.md")))
+        self.assertFalse(os.path.isfile(os.path.join(d, "reef", "archive", date, "decisions", "0001-use-postgres.md")))
         self.assertTrue(os.path.isfile(os.path.join(d, "reef", "archive", date, "ops", "runbook.md")))
         self.assertTrue(os.path.isfile(os.path.join(d, "reef", "features", "export", "SPEC.md")) or any(
             os.path.isfile(os.path.join(d, "reef", "features", f, "SPEC.md")) for f in os.listdir(os.path.join(d, "reef", "features"))))
@@ -627,3 +628,45 @@ class WholeAdoption(unittest.TestCase):
         r = self.recal(d, "--apply", "--park-in-flight")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("parked: finish branch feat/m4-billing under Reef", open(os.path.join(d, "reef", "queue.md")).read())
+
+
+class ExistingAdrNumbersAreKept(unittest.TestCase):
+    """0.7.2 (ai-coach, 2026-10-24, item 21): 193 numbered ADRs cited 456 times would have been renumbered by the apply. A
+    filename that carries a 4-digit number keeps it (the same record, moved); only unnumbered decisions get the next
+    number; a clash with an ADR already in Reef's home refuses the apply and names both files."""
+
+    def project(self, clash=False):
+        d = tempfile.mkdtemp(prefix="reef-adrnum.")
+        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        write(d, ".reef/config.json", json.dumps({"gates": {"full": "true"}, "paths": {"adr": "docs/adr", "queue": "reef/queue.md"}}))
+        write(d, ".reef/version", "0.7.1\n")
+        write(d, "reef/queue.md", "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n")
+        write(d, "docs/adr/0024-x.md", "# ADR 0024 — x\n\n## Status\nAccepted\n\n## Context\nc\n\n## Decision\nd\n\n## Consequences\ne\n")
+        write(d, "decisions/foo.md", "# Foo\n\n## Status\nAccepted\n\n## Context\nc\n\n## Decision\nd\n\n## Consequences\ne\n")
+        write(d, "src/a.py", "# see ADR 0024\n")
+        if clash:
+            write(d, "reef/architecture/adr/0024-other.md", "# ADR 0024 — other\n\n## Status\nAccepted\n\n## Context\nc\n\n## Decision\nd\n\n## Consequences\ne\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "init")
+        run = lambda *a: subprocess.run([sys.executable, RECAL, *a, "--repo", d], capture_output=True, text=True)
+        self.assertEqual(run("plan").returncode, 0)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "plan")
+        return d, run("--apply")
+
+    def test_a_numbered_adr_keeps_its_number_and_an_unnumbered_one_gets_the_next(self):
+        d, r = self.project()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        kept = os.path.join(d, "reef", "architecture", "adr", "0024-x.md")
+        self.assertTrue(os.path.isfile(kept))
+        self.assertEqual(open(kept).read(), "# ADR 0024 — x\n\n## Status\nAccepted\n\n## Context\nc\n\n## Decision\nd\n\n## Consequences\ne\n", "the same record, byte for byte")
+        self.assertFalse(os.path.isfile(os.path.join(d, "docs", "adr", "0024-x.md")))
+        nxt = [f for f in os.listdir(os.path.join(d, "reef", "architecture", "adr")) if f.startswith("0025-")]
+        self.assertEqual(len(nxt), 1, os.listdir(os.path.join(d, "reef", "architecture", "adr")))
+        self.assertIn("Supersedes: reef/archive/", open(os.path.join(d, "reef", "architecture", "adr", nxt[0])).read())
+        self.assertIn("the same record, its number kept", open(os.path.join(d, "reef", "archive", "README.md")).read())
+
+    def test_a_clash_with_reefs_home_refuses_and_names_both(self):
+        d, r = self.project(clash=True)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("ADR number 0024 clashes: docs/adr/0024-x.md and reef/architecture/adr/0024-other.md", r.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(d, "docs", "adr", "0024-x.md")), "nothing moved")
+        self.assertEqual(git(d, "status", "--porcelain").strip(), "")
