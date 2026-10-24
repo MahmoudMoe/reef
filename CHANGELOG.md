@@ -2,13 +2,13 @@
 
 ## 0.7.1 (unreleased)
 - **Read first: the planner hands the implementer its ranges** (the owner's go, 2026-10-24, a trial on one row of his
-  pick). Implementers explored a median 17.5 tool calls before their first edit (38 qassimha runs), reading 54,000
+  pick). Implementers explored a median 17.5 tool calls before their first edit (38 runs on the trial project), reading 54,000
   characters and 15,000 of git history; the planner had already read that code. A task's optional `## Read first` lists
   at most 8 ranges, `path:start-end` (symbol) — why; the plan check fails an entry whose path is missing, outside the
   project or a dependency path, whose range leaves the file, or whose range does not hold its symbol. The implementer
   starts there and reports `extra reads` in its hand-back. Measured against that baseline: extend or drop.
   tests/size-budget.json raised: `prose_words` 19,612 → 19,695, `script_lines` 11,788 → 11,822.
-- **The plan check reads each task's own feature folder** (the owner's go, 2026-10-24). qassimha's row 18 could not
+- **The plan check reads each task's own feature folder** (the owner's go, 2026-10-24). A trial project row could not
   go green: the key check took the folder of the LAST task file (a stale loop variable), so every feature's citations
   were checked against the last-sorted folder, 15 false FAILs on other features' tasks, and a key defined only there
   passed anywhere. Each task now carries its own path into the second loop. Size budget unchanged.
@@ -18,7 +18,7 @@
   and the manual read 0.7.0; `migrations/0.6.0-to-0.7.0.py` is a no-change step so `.reef/version` walks to 0.7.0
   with no gap; the site's changelog card, the manual's lead and the reef-init skill name 0.7.0 too. The size budget is
   unchanged. Everything below shipped in 0.7.
-- **A review rollup gets no plan hunter** (the owner's go, 2026-10-24, item 4 option A). qassimha's R4 rollup, the
+- **A review rollup gets no plan hunter** (the owner's go, 2026-10-24, item 4 option A). The trial project's review rollup, the
   feature review's findings, took three hunter plan rounds before its fix could start, and the round cap landed on the
   owner. `reef-adversarial` `plan_pass_tiers` returns no tier for a rollup file (`R<NN>-…`), so the guard does not
   require its plan pass, and the plan check's hunter line skips it; reef-review says the feature's guard pass (4b) reads
@@ -28,13 +28,13 @@
   hunter's prompt now carries `pass=plan round=<n>` (the plan skill says so), and the guard refuses the dispatch when
   n is above the main checkout's cap, pointing to the owner's gate. A tripwire: the round is the orchestrator's label.
   tests/size-budget.json raised: `prose_words` 19,567 → 19,592, `script_lines` 11,770 → 11,782.
-- **A dispatch marks the plan's own copy of a task** (the owner's go, 2026-10-24). qassimha's 502 re-dispatch named
+- **A dispatch marks the plan's own copy of a task** (the owner's go, 2026-10-24). The trial project's re-dispatch of a task named
   the task file inside its task worktree, so the guard and the graph runner marked that copy in-progress; the feature
-  worktree's copy, which the tick reads, stayed pending, so the tick offered 502 again after it was built, and the two
+  worktree's copy, which the tick reads, stayed pending, so the tick offered the task again after it was built, and the two
   copies' edits stood in the way of the merge. `reef-graph.py` `plan_home` resolves a task worktree's path to the same
   file in its feature worktree; the guard runs every dispatch check on that copy and marks it, and so does the graph
   runner. tests/size-budget.json raised: `script_lines` 11,733 → 11,770.
-- **`--help` is never data** (the owner's go, 2026-10-24). qassimha's loop ran `reef-queue.py footnote --help` and got a
+- **`--help` is never data** (the owner's go, 2026-10-24). The trial project's loop ran `reef-queue.py footnote --help` and got a
   footnote reading "--help", three times; `note -h` would write a note and `add-row --item --help` a row, and
   `reef-loop.py wait --help` would record "--help" as the loop's wait. `reef-queue.py`, `reef-loop.py` and
   `reef-record` now print their usage on `-h`/`--help` anywhere in the arguments and write nothing. The other
@@ -56,19 +56,19 @@
   raised: `prose_words` 19,508 → 19,567, `script_lines` 11,656 → 11,724.
 - **A night drives every ready row of the batch, found ones too** (the owner's go, 2026-10-23). Queue rule 1, a
   planned row before a found one, made `reef-queue.py ready` hide every found row while a planned one was ready: the
-  tick never offered a found row, qassimha's 89 found rows waited, and a night with its planned rows blocked had
+  tick never offered a found row, the trial project's 89 found rows waited, and a night with its planned rows blocked had
   nothing to do. Now `ready --with-found` lists every ready row, planned first; at night (`.reef/night/active`) the
   tick uses it and keeps only the contract's `Rows:`, so found rows the contract names move and nothing outside it
   does; `reef-run.py contract` warns of a ready row the contract leaves out; the night skill drafts `Rows:` from it by
   default. By day rule 1 is unchanged. tests/size-budget.json raised: `prose_words` 19,458 → 19,508, `script_lines`
   11,631 → 11,656.
-- **One odd stream event no longer kills the runner** (2026-10-23, qassimha's night: `AttributeError: 'str' object
+- **One odd stream event no longer kills the runner** (2026-10-23, the trial project's night: `AttributeError: 'str' object
   has no attribute 'get'` in `steps`, two minutes in; the runner died and its headless session ran on unwatched,
   with no night marker, so Mahmoud's approvals would be refused). `steps` skips a `message` or a content entry that
   is not an object, and the session loop turns any parse error into one live line instead of dying, on Claude Code
   and OpenCode. tests/size-budget.json raised: `script_lines` 11,620 → 11,631.
 - **Mahmoud approves a preview look at night by default** (the owner's go, 2026-10-23: "not a night mode, a lot
-  of intervention"). Every qassimha night kept the look for the owner, since the project's AGENTS.md says "the look
+  of intervention"). Every trial project night kept the look for the owner, since the project's AGENTS.md says "the look
   of his own product", and a row blocked on a look waited all night. The night skill now delegates a preview look by
   default (the approved contract is the owner delegating it); Mahmoud judges it from the preview's code against the
   spec, the footnotes and the profile, it is written as his footnote, and the owner undoes it by editing that
@@ -76,7 +76,7 @@
   `prose_words` 19,349 → 19,458.
 - **A project carries `scripts/reef-approval.py`** (the owner's go, 2026-10-23). The night prompt tells the
   orchestrator to record Mahmoud's plan approval with `python3 scripts/reef-approval.py --proxy`, but reef-init never
-  copied that script into a project: qassimha's night contract had to name the plugin's copy, and without it the found
+  copied that script into a project: the trial project's night contract had to name the plugin's copy, and without it the found
   rows would have stopped at approval. reef-init now copies it (the hook still runs the plugin's copy), and the test
   that every project path a skill names is copied also reads the runner's prompts. tests/size-budget.json raised:
   `script_lines` 11,618 → 11,620.
@@ -109,13 +109,13 @@
   refused, since the guard cannot read a variable. tests/size-budget.json raised: `script_lines` 11,334 → 11,559 (the
   installer and plugin 197, the owner command and guard rule 28).
 - **A night contract is for one night** (the owner's go, 2026-10-21). `reef-run.py --night` checked only the
-  contract's digest: last night's approval (rows 3 and 12, both closed since) still passed at 21:23, and the night ran
+  contract's digest: last night's approval (two rows, both closed since) still passed at 21:23, and the night ran
   one 29-second session and waited. `night_ok`, used by the runner and by the proxy's approval, now also refuses an
   approval older than 16 hours ("another night's") and a contract none of whose rows is open in the queue; both say
   "run /reef-night for tonight". The 16 hours run from the owner's approval, so a contract approved in the afternoon
   covers a night until the next morning. tests/size-budget.json raised: `script_lines` 11,305 → 11,334.
 - **The hunter's round cap stops rounds, not passes** (the owner's go, 2026-10-21: "fix why this hunter thing keeps
-  coming"). qassimha's R4 rollup passed the hunter on round 3 and `reef-adversarial` refused to record it above
+  coming"). the trial project's review rollup passed the hunter on round 3 and `reef-adversarial` refused to record it above
   `hunter.plan_rounds` 2; the cap's own message pointed to `--decided`, which refused a plan the hunter had never
   passed; the only exit was a config change the guard rightly keeps from the loop, so it landed on the owner. A FAIL
   was already refused at every round, so the cap check could only ever discard a PASS. Now: a PASS is recorded at any
@@ -124,20 +124,20 @@
   queue (with a pass on record it works as before). The cap's meaning moves from "no record above the cap" to "no
   further round after a FAIL at the cap". Not changed: the guard still lets a hunter round above the cap be
   dispatched. tests/size-budget.json raised: `script_lines` 11,283 → 11,305.
-- **`reef-update --commit` commits what reef-init rewrote in place** (the owner's go, 2026-10-21). qassimha's update
+- **`reef-update --commit` commits what reef-init rewrote in place** (the owner's go, 2026-10-21). The trial project's update
   rewrote AGENTS.md with the bullets rule (Reef's untouched rendering, updated in place) and committed only the
   manifest and the scripts; AGENTS.md sat modified. The commit now also takes a tracked managed file whose manifest
   entry reef-init moved, when it had no uncommitted change before the run: never a new file, never an owner's edit.
   The printed accept line named `scripts/reef-init.py`, which a project does not carry; it now names the plugin's
   `reef-init.py --root <repo>`. tests/size-budget.json raised: `script_lines` 11,266 → 11,283.
-- **A judge's scratchpad under `~/.claude/jobs/<id>/tmp` is scratch** (the owner's go, 2026-10-21). qassimha's
-  session put its scratchpad there; the guard took only `/tmp`, `/private/tmp` and `/var/folders` as scratch, so the
+- **A judge's scratchpad under `~/.claude/jobs/<id>/tmp` is scratch** (the owner's go, 2026-10-21). The trial
+  project's session put its scratchpad there; the guard took only `/tmp`, `/private/tmp` and `/var/folders` as scratch, so the
   plan reviewer's report was refused as a project write twice and the orchestrator copied it out of the reviewer's
   transcript. `is_scratch` now also takes `~/.claude/jobs/<id>/tmp/`; the rest of `~/.claude` and a `..` out of it
   stay writes. tests/size-budget.json raised: `script_lines` 11,264 → 11,266.
 - **The hunter's round cap has one home** (the owner's go, 2026-10-21). `hunter.plan_rounds` was read from the
   config nearest the task file, and a plan's task file lives in its feature worktree, whose copy of the config kept
-  the old cap: row 4's loop asked the owner to raise it in two files. `reef-adversarial` now reads it from the main
+  the old cap: a row's loop asked the owner to raise it in two files. `reef-adversarial` now reads it from the main
   checkout, through one `policy_config` shared with `hunter.guard_pass` (which already did), so the README's claim
   that `hunter.*` is read from the main checkout holds. tests/size-budget.json lowered: `script_lines` 11,269 → 11,264.
 - **Bullets, not paragraphs** (the owner's go, 2026-10-21: "the planning, spec, queue write-up is too big … be
@@ -175,7 +175,7 @@
 - **The guard's context warning no longer approves a dispatch** (the owner's go, 2026-10-21). Between
   `caps.context_warn` and the ceiling the guard warned the model on an agent dispatch and also answered
   `permissionDecision: allow`, which approved the dispatch past the session's own permission checks. It now adds
-  only the warning text. Found while tracing row 3's loop merge, refused by auto mode as self-approval (that one is
+  only the warning text. Found while tracing a loop merge, refused by auto mode as self-approval (that one is
   the owner's permission rule, not a guard change). Budget unchanged.
 - **No finding left unfiled, no result typed by hand** (the owner's go after an audit, 2026-10-21). In graph mode
   `settle` read the hunter's report and printed only READY/FAIL — its NEW-ROW and NOTED lines reached no one; settle
@@ -186,7 +186,7 @@
   results omit was wrong (`generate` skips a task in flight); it now says the tick frees it after
   `loop.inflight_stale_minutes`. tests/size-budget.json raised: `prose_words` 18,884 → 18,952, `script_lines` 11,213 → 11,243.
 - **A finding that may never happen is noted, not queued** (the owner's go, 2026-10-21: found rows outran their
-  closing — 77 of qassimha's 82 open rows were found, 11 from one row's hunters in one night — "I'm worried we drop
+  closing — 77 of the trial project's 82 open rows were found, 11 from one row's hunters in one night — "I'm worried we drop
   important fixes"). The hunter's NEW-ROW is now a hole that WILL happen but is not this item's (a queue row, as
   before); a hole that may never happen is `NOTED: <hole> — possible: <why> — worst case: <…>`, and an uncited finding
   is demoted to NOTED, not NEW-ROW. Anything touching security, privacy, money or data loss is always a NEW-ROW however
@@ -194,10 +194,10 @@
   one whose words name those classes (a backstop: class words only — "token" would make every share-link finding a
   row); `promote-note n<k>` makes one a found row and marks the note `→ row <id>`; a note is never deleted; `triage`
   counts the open notes on its head line. Filing lines in /reef-plan, /reef-task, /reef-review and reef:mahmoud. On
-  last night's rows 78–88: about 4–5 of 11 would have been notes; the security, data and will-happen ones stay rows.
+  last night's 11 found rows: about 4–5 of 11 would have been notes; the security, data and will-happen ones stay rows.
   tests/size-budget.json raised: `prose_words` 18,708 → 18,884, `script_lines` 11,147 → 11,213.
 - **A headless session keeps its workflow alive** (the trial night, 2026-10-21; the owner's go): the session launched
-  the graph for 1201 and 1202, ended its turn, and `claude -p` exited exactly ten minutes later, killing both
+  the graph for two tasks, ended its turn, and `claude -p` exited exactly ten minutes later, killing both
   implementers mid-build (Claude Code's run record: `killed`). Claude Code waits for background agents and workflows
   only 10 idle minutes after the last turn by default; the runner now starts every session with
   `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` = 3 hours (documented, Claude Code 2.1.182+; the clock restarts on every
@@ -253,8 +253,8 @@
   ready row of the batch in one question set before planning, and asks `.reef/questions.md` first. `reef-init` copies
   the runner and gitignores `.reef/run/` and `.reef/questions.md`. tests/size-budget.json raised: `script_lines`
   10,733 → 10,910 (the runner), `prose_words` 17,436 → 17,569.
-- **The hand-back's claims list, told and recorded** (2026-10-20, qassimha 301, the owner's yes): the implementer's
-  definition listed the hand-back's contents without the `Claims:` list the check requires, so 301's hand-back was
+- **The hand-back's claims list, told and recorded** (2026-10-20, the trial project, the owner's yes): the implementer's
+  definition listed the hand-back's contents without the `Claims:` list the check requires, so a task's hand-back was
   rejected and graph mode counted an attempt; it now names the list and its line shape. The rejection message is true in
   both modes (chat: re-dispatch once, no attempt; graph: settle counts one), and the graph's gate step passes the
   rejection's `- ` reasons so settle records them instead of the header. tests/size-budget.json raised: `prose_words`
@@ -279,7 +279,7 @@
   denials across the trial, each a wasted retry turn).
 - **Fix**: recording the hunter's plan pass (`reef-adversarial <task> plan <report>`, or the owner's `--decided` ruling)
   clears the `.reef/verifying/<id>` marker the guard wrote for that hunter, in the task's own checkout and only when it
-  names that task file (2026-10-20, qassimha 302: the tick showed `in flight: verifying:302` for a hunter that had
+  names that task file (2026-10-20, the trial project: the tick showed `in flight: verifying:<id>` for a hunter that had
   returned, until the marker went stale). A code pass keeps the orchestrator's `rm`: the verifier shares that marker.
 - **The plan gate says what you are approving** (2026-10-20, the owner: "Approve plan … at bd8cd330bfb50bfd?" told them
   nothing): `reef-plan-check.py --summary --feature <slug>` prints one line — tasks, criteria, draft ADRs, and the plan
@@ -292,17 +292,17 @@
   deadline and no process groups, and the guard died at its first import; it now stops inside a Reef project with that
   sentence and steps aside in any other project, and `reef-init` refuses before writing anything. (The guard's hook calls
   `python3`; a Windows Python reachable only as `python` never reaches the check, so the README is the first word.)
-- **Fixes from the trial's row 13** (2026-10-20, queue rows 68–70, the owner's yes): (68) a rollup (`R<n>-<slug>.md`) is
+- **Fixes from a trial row's close** (2026-10-20, the owner's yes): (1) a rollup (`R<n>-<slug>.md`) is
   written by `reef-converge`, never planned or stamped, so the plan check keeps its schema, id and graph checks and drops
   the planner's authoring rules (Log last, a human Decision, an FR key, a test name claimed twice); converge writes a
   complete rollup (no placeholders, the feature's own slug in its Proof) and puts each dated `## Converge` section
-  before `## Log` — the trial's two closed rollups failed seven rules, and a red check blocks plan approvals. (69)
+  before `## Log` — the trial's two closed rollups failed seven rules, and a red check blocks plan approvals. (2)
   `settle` records a rejected report's reasons (the `- …` lines under `REJECTED`), not reef-claims' first line, which
-  was a `note:` about word count — 1302's fix round got nothing actionable. (70) each dispatchable task's
+  was a `note:` about word count — a task's fix round got nothing actionable. (3) each dispatchable task's
   `attempts/dispatches` counters are part of the tick's fingerprint, so a graph run that dispatched and failed a task
   between two ticks is progress, not a "no progress" park.
-- **Fixes from the trial's row 11 close** (2026-10-19, queue row 67, the owner's yes to both): `reef-converge` numbers a new
-  rollup after the highest `R<n>` in EVERY feature folder (it counted its own folder, so row 11 took `R1` beside row 2's and
+- **Fixes from another trial row's close** (2026-10-19, the owner's yes to both): `reef-converge` numbers a new
+  rollup after the highest `R<n>` in EVERY feature folder (it counted its own folder, so one feature took `R1` beside another's and
   the tick printed BROKEN; the orchestrator renamed it by hand). `reef-update --commit` commits `.reef/config.json` with
   Reef's files when it was clean before `reef-init` ran and every value it held is unchanged after — keys added only;
   an owner's uncommitted edit, or a value `reef-init` filled, is named and left for the owner (2026-10-18: `graph.mode`
@@ -325,11 +325,11 @@
   `reef-record security <PASS|FAIL> --report` binds the agent's own VERDICT (a PASS with a BLOCKER line is refused) to
   the head of `branches.base`, stored as `head` so it can never stand in for a feature's GREEN; the guard refuses
   `gh pr create` into `branches.release` without a PASS at that exact head.
-- **Fixes from the trial's second graph-mode task** (2026-10-18, qassimha 1103, queue rows 57 and 58): (57) `reef-graph-run settle`
+- **Fixes from the trial's second graph-mode task** (2026-10-18): (1) `reef-graph-run settle`
   counts a red gate as the attempt — the pipeline skips the judges on a red gate, settle added "no verifier verdict" and
   that text suppressed `reef-attempt`, so the orchestrator counted by hand; the gate's failing block (300 chars) is the
   recorded failure and settle prints `attempt counted: attempt=N/cap`; a rejected hand-back on a judged task counts the
-  same way now (it ended the pipeline before the judges; before, only a gate-only task's did). (58) `reef-attempt`'s `## Log` line carries the
+  same way now (it ended the pipeline before the judges; before, only a gate-only task's did). (2) `reef-attempt`'s `## Log` line carries the
   time (`· at <UTC>`), and the tick lists a hand-back under `verify now` only when no failure was recorded after it —
   a hand-back whose gate or judge failed goes back to `dispatch now` (a chat-mode fix round), in graph mode too.
 - **A hung gate ends** (`reef-gate.sh`, `gates.timeout_s` 1200, 0 = none; 2026-10-18: a test waiting on a port it had
@@ -337,7 +337,7 @@
   the gate runs in its own process group under python3 and, past the limit, the group is killed, exit 124, and one
   line names the limit outside the capped failing block (a hung suite's log is hundreds of lines past its first FAIL);
   no green marker. A server a test spawned detached is outside that group and may still hold its port.
-- **Fix** (`reef-c4`, 2026-10-18, qassimha task 1102): every compose service running a third-party image is a container of
+- **Fix** (`reef-c4`, 2026-10-18, the trial project): every compose service running a third-party image is a container of
   the model, proven by the compose file — the generator admitted only a fixed list of names, so the Mailpit mail catcher
   was hand-added to `workspace.dsl` and `--diff` then contradicted it; a service built from the repository or on a bare
   runtime image (the app itself) is still skipped, and a name already detected from the code is not listed twice.
@@ -350,12 +350,12 @@
   is read from the MAIN checkout like `hunter.*` (`chat` = never, `graph` = as auto with a missing gate named BROKEN);
   `tick --json` carries `dispatch_mode`; `generate` skips a chat-mode task and refuses under `chat`.
 - `docs/perf/2026-10-18.md` — batch 2 on the trial measured from the transcripts (unique API turns, never an agent's
-  own report): row 2 by task and by agent run (≈ 25 agent runs, 34 with the review; the hunter's ~40k floor per run;
+  own report): one row by task and by agent run (≈ 25 agent runs, 34 with the review; the hunter's ~40k floor per run;
   the two 145k implementers; the orchestrator's cached reads per session equal to one implementer's), the verifier-FAIL
   drill B4a as 202 ran it on its own (hunter BLOCKER → `attempts: 1` → one-test round → PASS, the fix round re-entered
-  across a `/clear`), task 1102's first graph-mode run with its orchestrator turns beside chat mode's, and the targets the
+  across a `/clear`), a task's first graph-mode run with its orchestrator turns beside chat mode's, and the targets the
   0.7 defaults are judged by (≈ 11 runs per 4-task feature, a task under 80k, round 2's verifier under 40k).
-- **Fix** (`reef-converge`, row 2's review on the trial, 2026-10-18): a Proof cell whose vitest name starts with a runner
+- **Fix** (`reef-converge`, a feature review on the trial, 2026-10-18): a Proof cell whose vitest name starts with a runner
   word (`env defaults to …`) is a test unless what follows reads like an argument; `\|` inside a cell is a literal pipe,
   not a column break; a cell reading `superseded …` or struck through is skipped and listed, never run.
 - **Fix**: `reef-snapshot.sh` re-hashes every entry's content (the scratch index is dated 1980, so git's racy check
@@ -372,9 +372,9 @@
   per finding, the final message is the file path and the verdict.
 - reef-review names where the feature's files are (`<paths.features>/<slug>/` in its worktree) so the review starts by
   reading, not by `find`; the task skill runs `worktree.setup` in the feature worktree after merging a task that changed
-  `package.json`, the lockfile or `prisma/schema.prisma` (2026-10-18: 202's merge failed 28 tests on a Prisma client
+  `package.json`, the lockfile or `prisma/schema.prisma` (2026-10-18: a task's merge failed 28 tests on a Prisma client
   older than its migration until `npm ci`).
-- **Round ≥2 judges what the round changed** (2026-10-18: 202's one-test fix round re-verified all 23 criteria, 31 turns,
+- **Round ≥2 judges what the round changed** (2026-10-18: a one-test fix round re-verified all 23 criteria, 31 turns,
   71k): `reef-attempt` logs the failure's words under `## Log` and, on the next dispatch, prints `rejudge: AC-n, …` —
   the criteria the failure named plus every criterion whose Proof is not a test; the verifier judges those in full and
   CARRIES the rest (its verdict line names round 1's test and the gate's exit 0 on the new snapshot); `reef-claims
@@ -384,7 +384,7 @@
   and exits 0; `REEF_GATE_NO_CACHE=1` forces a run, and the pre-commit always sets it (the hook trusts no marker).
 - **`hunter.guard_pass` is read from the MAIN checkout's config** by `reef-attempt`, `reef-adversarial`, `reef-record` and
   the pre-commit — loop policy has one home, like the queue (2026-10-18: the owner set `feature` on develop; the feature
-  worktree's copy of the config predated it, and 202's fix round dispatched a hunter per task again).
+  worktree's copy of the config predated it, and a fix round dispatched a hunter per task again).
 - The session-start text lists the files behind the tick's ids — each `dispatch now` / `verify now` task's file, its
   worktree and the hand-back and report files found in any checkout — so the fresh orchestrator reads them instead of
   searching (2026-10-18: after every `/clear` the first turn ran `find .` over the repository for the task the tick had
@@ -392,7 +392,7 @@
 - `reef-update` runs the new copy of itself when the pull changed it (2026-10-18: the process is the copy loaded
   before the pull, so the commit-filter fix ran old on the trial's next pull and left `.githooks/pre-commit` and
   `.gitignore` uncommitted once more); once, never a loop.
-- **`hunter.guard_pass: feature`** (2026-10-18: task 204's verifier and hunter cost 96k on 20 lines of code; the hunter's
+- **`hunter.guard_pass: feature`** (2026-10-18: one task's verifier and hunter cost 96k on 20 lines of code; the hunter's
   floor is ~40k per task whatever the diff): the loophole-hunter's guard pass runs ONCE on the feature's merged diff in
   `/reef-review`, before the GREEN record, instead of once per design/critical task. `reef-attempt` prints `guard-pass:
   feature` instead of the `adversary:` line (the task skill and graph-run dispatch no hunter), the pre-commit lets such a
@@ -407,7 +407,7 @@
 - `reef-cost` keeps the standing context (the system prompt, the skill list, the environment: paid on every turn,
   recorded a few times in the transcript, never growth) out of the share table and names it on one line per item
   (2026-10-18: two prompt snapshots and three skill listings read as 55% of "the context", and the orchestrator
-  reported its standing 109k as task 204's cost; the task's growth was 11.5k).
+  reported its standing 109k as that task's cost; the task's growth was 11.5k).
 - The session-start text's `next command:` is `/reef-loop` whenever the tick holds anything the loop acts on (a hand-back
   to verify, a returned-unmerged task, a held feature), not only rows, dispatches and PRs (2026-10-18: with 204 handed
   back it said `/reef-plan <row> or /reef-assess`, and the status line's `next:` echoed it after every reply).
@@ -425,14 +425,14 @@
   leaves a record matching neither form alone (the plan changed), and refuses in a checkout whose own plan-check
   lags the plugin (the guard runs that copy). `--legacy-digest` prints the 0.6 form; the tick holds such a feature
   under `awaiting:` with the command; `reef-doctor` lists them per checkout.
-- **The hunter's plan pass is bound to the approval digest, not inside it** (2026-10-18, qassimha): `adversarial-plan`
+- **The hunter's plan pass is bound to the approval digest, not inside it** (2026-10-18, the trial project): `adversarial-plan`
   sat inside `reef-plan-check`'s digest, so `plan --decided` after Approve (the designed path for a hole open after
   round 2) and a stamp migration voided the approval of a plan nobody had edited. It is now stripped like the guard pass
   and the plan-review record; `--verify-stamp` prints a `hunter:` line per feature (OK / MISSING / STALE / LEGACY with
   the ids and the one command), the tick holds such a task under `awaiting:` with that command instead of listing it
   for a dispatch the guard then denies (202 and 203 reached the gate with stamps their review-round edits had staled;
   nothing named it until the implementer dispatch, past the round cap), and the guard's own check is unchanged.
-- **A stamp written before the cut moved is migrated, not re-hunted** (2026-10-18, qassimha task 204: after the pull the
+- **A stamp written before the cut moved is migrated, not re-hunted** (2026-10-18, the trial project: after the pull the
   guard read its `adversarial-plan` as "the plan changed" and asked for a round the cap forbids — the plan was unchanged;
   the stamp was the 0.6 form that hashed the Reviewer notes). `reef-adversarial <task> plan --migrate` re-stamps only when
   the 0.6-form hash of the file still equals the stamp (the proof nothing moved), consumes no round, records no decision,
@@ -483,13 +483,13 @@
   bounds a task; the tick names the machine review before the approval; the verifier and the hunter run at the same
   time on a finished task.
 - **Evidence is the agent's, never the orchestrator's** (2026-10-17: a hunter report "written from the hand-back" and a
-  1101 hand-back typed "so the next session can verify it"): the guard refuses the main session writing
+  hand-back typed "so the next session can verify it"): the guard refuses the main session writing
   `.reef/ci-local/{handback,report,hunt,plan-review}-*.md` or `.reef/hunt/*.md` by any means but `cp`/`mv` (a sub-agent,
   with an `agent_id`, writes its own); `reef-attempt` prints the `hand-back:` path; implementer, verifier, hunter and
   plan-reviewer definitions make the file the deliverable and the message its path; a missing file means resuming the
   agent, never transcribing it.
 - **The tick sees in-flight work in every worktree**: `.reef/inflight/` and `.reef/verifying/` markers are read from the
-  main checkout and each worktree (reef-attempt runs where the task lives; 2026-10-17: `in flight: -` while 1101 built).
+  main checkout and each worktree (reef-attempt runs where the task lives; 2026-10-17: `in flight: -` while a task built).
 - **`reef:planner`**: a lean agent for drafting and amending plan files (measured 2026-10-17: Reef agents start at ~7k
   context, a general-purpose agent at ~29k); it returns plan-check green. The reef-plan skill dispatches it, never
   general-purpose. Not yet in the guard's model-pin table.
@@ -538,7 +538,7 @@
   AGENTS.md's Boundaries section is a kept block like the owner's decision points, and the first render after a block
   arrives ADOPTS the current section's text into it. First contact (2026-10-17): the refresh after the first feature
   proposed three reverts — the placeholder and the template's Boundaries line over the owner's AGENTS.md, ci.yml without
-  the Postgres service task 103 added, the glossary without the feature's four terms.
+  the Postgres service a task added, the glossary without the feature's four terms.
 - AGENTS.md's **Owner decision points** live in a kept block (`<!-- BEGIN:reef-owner-decisions -->`): a re-render replaces
   the block in place with the owner's current text, never with the template's placeholder (first contact, 2026-10-17).
 - `reef-queue.py`: `Current batch: 2²⁶` is batch 2 — a footnote marker may ride on the line.
@@ -584,7 +584,7 @@
 - **The queue has one home** — `paths.queue` on `branches.base` in the main checkout. `reef-plan-check.py` fails a
   feature branch whose queue (or archive) differs from its fork point with the base; `/reef-plan` commits the grill's
   rows on the base and pushes before it creates `feat/<slug>`; a hunter's NEW-ROW goes there too. First contact
-  (2026-10-16): the roadmap, rows 2–15, lived only on `feat/receipt-upload-skeleton`, and the tick (which reads the
+  (2026-10-16): the roadmap lived only on the first feature branch, and the tick (which reads the
   main checkout) never saw them.
 - `reef-cost.py`: a **Tasks** table — per task (from the `REEF-TASK:` line of every dispatch) the main-session growth
   over its span and the dispatches per role (`implementer ×1, verifier ×2, loophole-hunter ×1`); `--format json` adds
@@ -604,7 +604,7 @@
   review passed (first contact, 2026-10-16: three reviews of one plan, none recorded; a plan edited after a PASS
   carried the same stamp). `/reef-plan-review` saves the agent's report verbatim and records the verdict.
   Upgrading a plan already reviewed: run `scripts/reef-record plan-review <slug> PASS --report <saved report>` once.
-- **First execution on a real project (101 of qassimha, 2026-10-16) — eight follow-ups.**
+- **First execution on a real project (2026-10-16) — eight follow-ups.**
   - `reef-graph.py worktree`: a task worktree lives under the MAIN checkout's `worktree.dir`, never nested inside the
     feature worktree the task file was read from (the nested one's `.next/` was linted by the feature's commit gate).
   - `reef-loop.py tick`: only PRs whose head is under `branches.feature_prefix` (default `feat/`) are the loop's;
