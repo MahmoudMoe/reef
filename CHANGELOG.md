@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **`reef-repo` says why branch protection fails on a private repository** (ai-coach, 2026-10-24, item 7). The protection
+  PUT came back 403 with no explanation; the cause was the GitHub plan, not a permission. On a 403 with
+  `gh api repos/{nwo} --jq .private` true the screen adds: branch protection on a private repository needs GitHub
+  Pro/Team — until then CI and the local gate are the only wall. A public repository keeps the old message. tests/size-budget.json raised: `script_lines` 12,912 → 12,916.
 - **`/reef-assess` stops before `/reef-init` ran** (ai-coach, 2026-10-24, item 5). Assess calls the project's own
   `scripts/reef-recalibrate` and `scripts/reef-structure`, which only init installs, and had no prerequisite step. Step 0:
   `test -f scripts/reef-recalibrate && test -f .reef/config.json` or STOP with "run /reef-init first"; a contract test

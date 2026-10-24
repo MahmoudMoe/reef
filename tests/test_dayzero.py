@@ -27,7 +27,11 @@ if a[:2] == ["repo", "view"]:
     print(json.dumps({"nameWithOwner": "o/r", "visibility": "PRIVATE", "owner": {"login": "o"}})); sys.exit(0)
 if a[:1] == ["api"] and a[1].endswith("/protection") and "-X" not in a:
     sys.exit(0 if print(json.dumps(state["protection"])) is None and state["protection"] else 1)
+if a[:1] == ["api"] and "--jq" in a and a[a.index("--jq") + 1] == ".private":
+    print(state.get("private", "false")); sys.exit(0)
 if a[:1] == ["api"] and "-X" in a and a[a.index("-X") + 1] == "PUT":
+    if state.get("put_403"):
+        print("HTTP 403: Upgrade to GitHub Pro or make this repository public to enable this feature.", file=sys.stderr); sys.exit(1)
     state["protection"] = {"required_pull_request_reviews": {}, "required_status_checks": {"checks": [{"context": "every gate, once"}]},
                            "allow_force_pushes": {"enabled": False}, "allow_deletions": {"enabled": False}}
     json.dump(state, open(os.environ["GH_STATE"], "w")); sys.exit(0)
@@ -85,6 +89,35 @@ class RepoProtection(unittest.TestCase):
         self.assertFalse([c for c in calls if "-X PUT" in c or "-X PATCH" in c or c.startswith("repo create")], f"a second run must issue no write: {calls}")
         self.assertIn("already protected", r.stdout)
         self.assertIn("already enabled", r.stdout)
+
+
+    def repo_run(self, state):
+        tmp = tempfile.mkdtemp(prefix="reef-repo403.")
+        bin_ = os.path.join(tmp, "bin")
+        os.makedirs(bin_)
+        with open(os.path.join(bin_, "gh"), "w") as f:
+            f.write(FAKE_GH)
+        os.chmod(os.path.join(bin_, "gh"), 0o755)
+        d = os.path.join(tmp, "proj")
+        os.makedirs(d)
+        subprocess.run(["git", "init", "-q", d], check=True)
+        write(d, ".reef/config.json", json.dumps({"branches": {"base": "develop", "release": "main"}}))
+        with open(os.path.join(tmp, "state.json"), "w") as f:
+            json.dump(state, f)
+        env = dict(os.environ, PATH=bin_ + os.pathsep + os.environ["PATH"], GH_STATE=os.path.join(tmp, "state.json"), GH_LOG=os.path.join(tmp, "gh.log"))
+        return subprocess.run([sys.executable, REPO, "--repo", d], capture_output=True, text=True, env=env)
+
+    def test_a_403_on_a_private_repository_names_the_plan_a_public_one_the_old_message(self):
+        # 0.7.2 (ai-coach, 2026-10-24): the protection PUT failed with a bare 403 on a private repository; the cause is the
+        # GitHub plan, not a permission — the screen must say so
+        r = self.repo_run({"protection": {}, "push_protection": "enabled", "put_403": True, "private": "true"})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("COULD NOT protect branch main — gh exited 1: HTTP 403", r.stdout)
+        self.assertIn("COULD NOT branch protection on a private repository needs GitHub Pro/Team — until then CI and the local gate are the only wall", r.stdout)
+        r = self.repo_run({"protection": {}, "push_protection": "enabled", "put_403": True, "private": "false"})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("COULD NOT protect branch main — gh exited 1: HTTP 403", r.stdout)
+        self.assertNotIn("GitHub Pro/Team", r.stdout)
 
 
 class ExploreLock(unittest.TestCase):

@@ -54,10 +54,10 @@ def main(argv):
     def act(label, args):
         if dry:
             did.append(f"(dry) {label}: gh {' '.join(args)}")
-            return 0
+            return 0, ""
         rc, out, err = gh(args, repo)
         (did if rc == 0 else could_not).append(f"{label}" + ("" if rc == 0 else f" — gh exited {rc}: {err[:160]}"))
-        return rc
+        return rc, err
 
     rc, out, err = gh(["repo", "view", "--json", "nameWithOwner,visibility,owner"], repo)
     if rc != 0:
@@ -98,8 +98,12 @@ def main(argv):
             with open(tmp, "w", encoding="utf-8") as f:
                 f.write(body)
             try:
-                act(f"protect branch {release}", ["api", "-X", "PUT", f"repos/{nwo}/branches/{release}/protection",
-                                                  "-H", "Accept: application/vnd.github+json", "--input", tmp])
+                rc, err = act(f"protect branch {release}", ["api", "-X", "PUT", f"repos/{nwo}/branches/{release}/protection",
+                                                            "-H", "Accept: application/vnd.github+json", "--input", tmp])
+                # 0.7.2 (ai-coach, 2026-10-24): on a private repository the PUT is a 403 by plan, not by permission
+                if rc != 0 and "403" in err and gh(["api", f"repos/{nwo}", "--jq", ".private"], repo)[1] == "true":
+                    could_not.append("branch protection on a private repository needs GitHub Pro/Team — until then CI and the "
+                                     "local gate are the only wall")
             finally:
                 try:
                     os.unlink(tmp)   # the payload is the call's, not the repository's (first contact: left behind on a 403)
