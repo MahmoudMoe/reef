@@ -191,10 +191,22 @@ def last_failure(task_path):
     return fails[-1].strip() if fails else ""
 
 
+def plan_home(path):
+    """reef-graph.py's plan_home, from this script's own directory: the feature worktree's copy of a task file."""
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader("reef_graph_home", os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-graph.py"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod.plan_home(path)
+
+
 def mark_dispatched(root, task_path, tid, implementer=True):
     """What the guard does on an allowed Task dispatch (reef-guard check_dispatch): the task becomes in-progress, its
     dispatch odometer moves, and .reef/inflight/<id> is written in the main checkout — so the tick, the Stop hook
-    and the reviewer lock see a graph-mode task exactly as a chat-mode one."""
+    and the reviewer lock see a graph-mode task exactly as a chat-mode one. The status goes to the plan's home copy."""
+    task_path = plan_home(task_path)
     with open(task_path, encoding="utf-8", newline="") as f:
         text = f.read()
     m = re.match(r"\A---\r?\n(.*?\r?\n)---\r?\n", text, re.S)

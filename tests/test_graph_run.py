@@ -275,5 +275,41 @@ class Settle(unittest.TestCase):
         self.assertIn("attempts: 1", open(os.path.join(d, "tasks", "101-a.md")).read(), "not counted twice")
 
 
+class PlanHome(unittest.TestCase):
+    """2026-10-24 (qassimha 502): a re-dispatch marked the task worktree's copy of 502 in-progress; the feature worktree's
+    copy, which the tick reads, stayed pending, so the tick offered 502 again and the two copies stood in the way of the
+    merge. The dispatch status goes to the plan's home: the feature worktree's copy."""
+
+    def test_a_task_worktree_path_resolves_to_the_feature_copy_and_is_marked_there(self):
+        import importlib.machinery
+        import importlib.util
+        d = tempfile.mkdtemp(prefix="reef-home.")
+        g = ["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t"]
+        subprocess.run(["git", "init", "-q", "-b", "develop", d], check=True)
+        os.makedirs(os.path.join(d, ".reef"))
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump({"worktree": {"dir": ".reef/worktrees"}}, f)
+        rel = os.path.join("reef", "features", "demo", "tasks", "101-a.md")
+        os.makedirs(os.path.dirname(os.path.join(d, rel)))
+        with open(os.path.join(d, rel), "w") as f:
+            f.write("---\nid: 101\nfeature: demo\nstatus: pending\ndispatches: 0\ntier: full\n---\n# 101\n")
+        subprocess.run(g + ["add", "-A"], check=True, capture_output=True)
+        subprocess.run(g + ["commit", "-qm", "plan"], check=True, capture_output=True)
+        feat, task = os.path.join(d, ".reef", "worktrees", "demo"), os.path.join(d, ".reef", "worktrees", "101")
+        subprocess.run(g + ["worktree", "add", "-q", "-b", "feat/demo", feat], check=True, capture_output=True)
+        subprocess.run(["git", "-C", feat, "worktree", "add", "-q", "-b", "task/101", task], check=True, capture_output=True)
+        loader = importlib.machinery.SourceFileLoader("reef_graph_run_t", os.path.join(ROOT, "scripts", "reef-graph-run.py"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+        self.assertEqual(os.path.realpath(mod.plan_home(os.path.join(task, rel))), os.path.realpath(os.path.join(feat, rel)))
+        self.assertEqual(mod.plan_home(os.path.join(feat, rel)), os.path.join(feat, rel), "the home copy is its own home")
+        self.assertEqual(mod.plan_home(os.path.join(d, rel)), os.path.join(d, rel), "the main checkout's copy is left alone")
+        mod.mark_dispatched(d, os.path.join(task, rel), "101")
+        self.assertIn("status: in-progress", open(os.path.join(feat, rel)).read(), "the feature copy, which the tick reads")
+        self.assertIn("status: pending", open(os.path.join(task, rel)).read(), "the task worktree's copy is never edited")
+        self.assertIn("dispatches: 1", open(os.path.join(feat, rel)).read())
+
+
 if __name__ == "__main__":
     unittest.main()

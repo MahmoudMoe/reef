@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **A dispatch marks the plan's own copy of a task** (the owner's go, 2026-10-24). qassimha's 502 re-dispatch named
+  the task file inside its task worktree, so the guard and the graph runner marked that copy in-progress; the feature
+  worktree's copy, which the tick reads, stayed pending, so the tick offered 502 again after it was built, and the two
+  copies' edits stood in the way of the merge. `reef-graph.py` `plan_home` resolves a task worktree's path to the same
+  file in its feature worktree; the guard runs every dispatch check on that copy and marks it, and so does the graph
+  runner. tests/size-budget.json raised: `script_lines` 11,733 → 11,770.
 - **`--help` is never data** (the owner's go, 2026-10-24). qassimha's loop ran `reef-queue.py footnote --help` and got a
   footnote reading "--help", three times; `note -h` would write a note and `add-row --item --help` a row, and
   `reef-loop.py wait --help` would record "--help" as the loop's wait. `reef-queue.py`, `reef-loop.py` and

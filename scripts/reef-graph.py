@@ -116,6 +116,30 @@ def repo_root(start):
         probe = parent
 
 
+def plan_home(path):
+    """A task file named inside a TASK worktree (<worktree.dir>/<id>/…) has its home in its FEATURE worktree
+    (<worktree.dir>/<feature>/…), where the plan lives and the tick reads it. 2026-10-24 (qassimha 502): a re-dispatch marked
+    the task worktree's copy in-progress; the feature copy stayed pending, so the tick offered 502 again, and the two copies'
+    edits stood in the way of the merge. Any other path, or a home that does not exist, is returned as it is."""
+    p = os.path.abspath(path)
+    root = os.path.dirname(p)
+    while not (os.path.exists(os.path.join(root, ".git")) or os.path.isdir(os.path.join(root, ".reef"))):
+        if os.path.dirname(root) == root:
+            return path
+        root = os.path.dirname(root)
+    try:
+        r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=10)
+        main = next((l[len("worktree "):].strip() for l in r.stdout.splitlines() if l.startswith("worktree ")), "")
+        feature = str(read_frontmatter(p)[0].get("feature") or "")
+    except Exception:
+        return path
+    if not main or not feature or os.path.realpath(main) == os.path.realpath(root):
+        return path
+    wtdir = str((read_config(main).get("worktree") or {}).get("dir") or ".reef/worktrees")
+    home = os.path.join(main, wtdir, feature, os.path.relpath(p, root))
+    return home if os.path.realpath(home) != os.path.realpath(p) and os.path.isfile(home) else path
+
+
 def read_config(root):
     try:
         with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
