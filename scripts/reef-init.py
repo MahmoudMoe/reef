@@ -657,6 +657,8 @@ def main(argv):
             die(f"cannot read grill answers {grill}: {e}")
         grill_facts(answers, facts)
     new = not os.path.isfile(os.path.join(root, ".reef", "config.json"))
+    # a repository with tracked files is an existing project even on its first init (2026-10-24, AI coach)
+    existing = bool(subprocess.run(["git", "-C", root, "ls-files"], capture_output=True, text=True).stdout.strip())
     w = run(root, facts, dry)
     print(f"reef-init ({'dry run, ' if dry else ''}stack: {facts['stack']}, layout: {facts['layout']}, base: {base}, release: {release})")
     if facts.get("constitution"):
@@ -692,12 +694,12 @@ def main(argv):
           f"{len(w.skipped)} skipped, {len(w.proposed)} proposed")
     for line in rails_report(root):
         print("  " + line)
-    for line in ([] if dry else queue_home(root, queue, new)):
+    for line in ([] if dry else queue_home(root, queue, new, existing)):
         print("  " + line)
     return 0
 
 
-def queue_home(root, choice, new):
+def queue_home(root, choice, new, existing=False):
     """0.7.1 (the owner's go, 2026-10-24: no on-device queue unless clearly told): a new project's queue moves to the
     repository's GitHub issues unless the owner chose `--queue file`; an existing one moves only on `--queue issues`."""
     with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
@@ -706,6 +708,9 @@ def queue_home(root, choice, new):
     if choice == "file" or (choice is None and not new):
         return ["queue: a local file (--queue file)"] if choice == "file" else []
     hint = "`python3 scripts/reef-queue.py migrate-to-issues --apply` moves it"
+    if choice is None and existing:
+        # /reef-assess converts the project's specs into rows and writes them to the file: the move waits for it
+        return [f"queue: a local file — an existing project: run /reef-assess first, then {hint}"]
     g = lambda *a: subprocess.run(["git", "-C", root, *a], capture_output=True, text=True).stdout.strip()
     # the project's own repository only: a folder inside another checkout would inherit that checkout's remote
     if os.path.realpath(g("rev-parse", "--show-toplevel") or "/") != os.path.realpath(root) or "github.com" not in g("remote", "get-url", "origin"):

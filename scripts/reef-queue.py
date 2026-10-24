@@ -35,6 +35,9 @@ Usage:
   reef-queue.py admit <issue> [--source planned|found] [--batch N]   (0.7.1, issues) a plain issue becomes the next row
   reef-queue.py demote ID [--repo DIR]                     (0.7.1, issues) a queued found row that may never happen becomes a
                                                  note; its issue closes as not planned; security, privacy, money, data loss refused
+  reef-queue.py next-id [--repo DIR]                       (0.7.1) the next row id, in either mode
+  reef-queue.py import-rows [--apply] [--repo DIR]         (0.7.1, issues) rows another tool wrote into the queue file
+                                                 (reef-recalibrate) become issues, their ids kept; a dry run without --apply
   reef-queue.py set-priority ID p1|p2|p3|none             (0.7.1, issues) the row's priority label; add-row and admit take --priority
   reef-queue.py migrate-to-issues [--apply] [--repo DIR]   (0.7.1) the open rows to the repository's issues; a dry run
                                                  without --apply. Footnotes, notes and the archive stay files
@@ -724,6 +727,10 @@ def cmd_check(root):
     n_cur = sum(1 for r in rows if cur and (r.get("Batch") or "").strip() == cur)
     if bmax and n_cur > bmax:
         print(f"warning: batch {cur} holds {n_cur} open row(s), over queue.batch_max {bmax} — a sprint is 5 to 10 rows")
+    stray = len(file_rows(root)) if issues_mode(cfg) else 0
+    if stray:
+        print(f"warning: {stray} row(s) in {cfg.get('paths', {}).get('queue', 'docs/queue.md')} while the queue is on issues — "
+              "python3 scripts/reef-queue.py import-rows --apply makes them issues")
     for n in sync(root)["unadmitted"] if issues_mode(cfg) else []:
         print(f"warning: #{n} is labelled {LABEL} but its title has no [id] — the owner admits it: reef-queue.py admit {n}")
     bad += structure_errors(root, cfg)
@@ -774,6 +781,60 @@ def cmd_check(root):
             print(f"  - {b}")
         return 1
     print(f"ok: {len(rows)} row(s), {len(archived)} archived, task features all accounted for")
+    return 0
+
+
+def file_rows(root):
+    _, qpath, _ = queue_paths(root)
+    return parse_table(read(qpath)) if os.path.isfile(qpath) else []
+
+
+def cmd_next_id(root):
+    """The next row id in either mode, rows still waiting in the file included (reef-recalibrate numbers its rows here)."""
+    cfg, _, apath = queue_paths(root)
+    if issues_mode(cfg):
+        n = next_id(root, sync(root))
+    else:
+        rows = file_rows(root) + (parse_table(read(apath)) if os.path.isfile(apath) else [])
+        n = max((int(r["Id"]) for r in rows if r["Id"].isdigit()), default=0) + 1
+    print(max([n] + [int(r["Id"]) + 1 for r in file_rows(root) if r["Id"].isdigit()]))
+    return 0
+
+
+def cmd_import_rows(root, apply):
+    """Rows in the queue file while the queue is on issues become issues, ids kept (2026-10-24, AI coach: /reef-assess
+    appends a converted spec's row to the file, inside its one revertable commit)."""
+    cfg, qpath, _ = queue_paths(root)
+    if not issues_mode(cfg):
+        die("import-rows is for queue.home: issues; the file queue already holds its rows", 1)
+    rows = file_rows(root)
+    if not rows:
+        print("nothing to import")
+        return 0
+    snap = sync(root)
+    have = {r["Id"]: r["_issue"] for r in snap["rows"] + snap["closed"] + snap.get("dropped", [])}
+    clash = next((r for r in rows if r["Id"] in have), None)
+    if clash:
+        die(f"row {clash['Id']} is already issue #{have[clash['Id']]} — give the file's row a new id (reef-queue.py next-id)", 1)
+    rel = os.path.relpath(qpath, root)
+    if not apply:
+        print(f"would create {len(rows)} issue(s) from {rel} — a dry run; --apply creates them")
+        return 0
+    ensure_labels(root, *LABELS)
+    for r in sorted(rows, key=lambda r: int(re.match(r"\d+", r["Id"]).group())):
+        title, body = issue_text(r.get("Item", ""), r.get("Depends", ""), r.get("Admitted", ""))
+        src = "found" if (r.get("Source") or "").strip().lower() == "found" else "planned"
+        b = re.match(r"\d+", r.get("Batch", "") or "")
+        gh_write(root, "issue", "create", "--title", f"[{r['Id']}] {title}", "--body", body, "--label", LABEL, "--label", src,
+                 "--milestone", ensure_milestone(root, snap, b.group() if b else (snap["current_batch"] or "1")))
+    out, skip = [], False
+    for line in read(qpath).splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")] if line.strip().startswith("|") else []
+        skip = ("Id" in cells and "Depends" in cells) or (skip and bool(cells))
+        if not skip:
+            out.append(line)
+    write_text(qpath, re.sub(r"\n{3,}", "\n\n", "\n".join(out)) + "\n")
+    print(f"created {len(rows)} issue(s); the rows left {rel}")
     return 0
 
 
@@ -1049,6 +1110,10 @@ def main(argv):
         return cmd_demote(root, argv[1])
     if cmd == "set-priority" and len(argv) >= 3:
         return cmd_set_priority(root, argv[1], argv[2])
+    if cmd == "next-id":
+        return cmd_next_id(root)
+    if cmd == "import-rows":
+        return cmd_import_rows(root, "--apply" in argv)
     if cmd == "migrate-to-issues":
         return cmd_migrate(root, "--apply" in argv)
     if cmd == "drop-row" and len(argv) >= 2 and "--reason" in argv:

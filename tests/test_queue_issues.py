@@ -386,6 +386,18 @@ class InitChoosesTheQueue(Base):
         self.init(inner)
         self.assertEqual(self.home_of(inner), "file", "a folder inside another checkout never takes its remote")
 
+    def test_an_existing_repository_new_to_reef_keeps_a_file_queue_until_assess(self):
+        # 2026-10-24 (AI coach): a repository with history, first set up by Reef, moved to issues at init; /reef-assess then
+        # appended its converted specs' rows to the file, which issues mode no longer reads
+        d = self.fresh("https://github.com/o/coach.git")
+        with open(os.path.join(d, "app.py"), "w") as f:
+            f.write("x = 1\n")
+        subprocess.run(["git", "-C", d, "add", "app.py"], check=True)
+        r = self.init(d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.home_of(d), "file", "an existing repository keeps a file queue at init")
+        self.assertIn("run /reef-assess first, then", r.stdout)
+
     def test_an_existing_project_moves_only_when_asked(self):
         d = self.fresh("https://github.com/o/r.git")
         self.init(d, "--queue", "file")
@@ -399,6 +411,74 @@ class InitChoosesTheQueue(Base):
         self.assertEqual(self.home_of(d), "issues", "a refresh (reef-update) keeps a project on issues")
         self.assertNotIn("PROPOSED reef/queue.md", r.stdout)
         self.assertNotIn("PROPOSED .reef/config.json", r.stdout)
+
+
+class RowsInTheFile(Base):
+    """On issues, rows another tool wrote into the queue file (reef-recalibrate converting an existing project's specs)
+    are named by `check` and moved by `import-rows`, their ids kept; `next-id` is the next id in either mode."""
+
+    def file_rows(self, *rows):
+        with open(os.path.join(self.d, "reef", "queue.md"), "a") as f:
+            f.write("\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n" + "".join(rows))
+
+    def test_next_id_check_and_import_rows(self):
+        self.assertEqual(self.q("next-id").stdout.strip(), "6")
+        self.file_rows("| 6 | export (recalibrated from specs/export/spec.md) | | planned | 1 | |\n",
+                       "| 7 | importer (recalibrated from specs/import/spec.md) | 6 | planned | 1 | |\n")
+        r = self.q("check")
+        self.assertIn("2 row(s) in reef/queue.md while the queue is on issues", r.stdout)
+        r = self.q("import-rows")
+        self.assertIn("would create 2 issue(s)", r.stdout)
+        self.assertEqual(len(self.gh()["issues"]), 5, "a dry run writes nothing")
+        r = self.q("import-rows", "--apply")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.issue(6)["title"], "[6] export (recalibrated from specs/export/spec.md)")
+        self.assertIn("Depends: 6", self.issue(7)["body"])
+        q = open(os.path.join(self.d, "reef", "queue.md")).read()
+        self.assertNotIn("| 6 | export", q)
+        self.assertIn("¹ owner", q, "the footnotes stay")
+        self.assertNotIn("row(s) in reef/queue.md", self.q("check").stdout)
+
+    def test_an_id_that_is_already_an_issue_is_refused(self):
+        self.file_rows("| 3 | clash | | planned | 1 | |\n")
+        r = self.q("import-rows", "--apply")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("row 3 is already issue #12", r.stderr)
+
+
+class RecalibrateOnIssues(Base):
+    """/reef-assess on a project whose queue is on issues: the converted spec's row takes the next id across the issues,
+    and after the move's own commit it becomes an issue; the move stays one revertable commit."""
+
+    def test_a_converted_spec_becomes_an_issue_with_the_next_id(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("dayzero", os.path.join(ROOT, "tests", "test_dayzero.py"))
+        dz = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(dz)
+        d = dz.fixture_repo()
+        cfg = json.load(open(os.path.join(d, ".reef", "config.json")))
+        cfg["queue"] = {"home": "issues"}
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump(cfg, f)
+        with open(os.path.join(d, "reef", "queue.md"), "w") as f:
+            f.write("# Queue\n\n## Footnotes\n")
+        subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "queue on issues"], check=True)
+        env = dict(os.environ, PATH=self.bin + os.pathsep + os.environ.get("PATH", ""), GH_STATE=self.state)
+        recal = lambda *a: subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-recalibrate"), *a, "--repo", d],
+                                          capture_output=True, text=True, env=env)
+        self.assertEqual(recal("plan").returncode, 0)
+        subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], check=True)
+        subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "plan"], check=True)
+        r = recal("--apply")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        made = [i for i in self.gh()["issues"] if "recalibrated from specs/export/spec.md" in i["title"]]
+        self.assertEqual([i["title"][:3] for i in made], ["[6]"], "the next id after every issue, never 1")
+        feat = [f for f in os.listdir(os.path.join(d, "reef", "features")) if os.path.isdir(os.path.join(d, "reef", "features", f))][0]
+        self.assertIn("Row: 6", open(os.path.join(d, "reef", "features", feat, "SPEC.md")).read())
+        self.assertNotIn("| 6 |", open(os.path.join(d, "reef", "queue.md")).read(), "the row left the file")
+        log = subprocess.run(["git", "-C", d, "log", "--format=%s", "-2"], capture_output=True, text=True).stdout
+        self.assertIn("reef recalibration", log)
+        self.assertIn("queue: recalibrated rows moved to issues", log)
 
 
 class ReadersUseTheSnapshot(Base):
