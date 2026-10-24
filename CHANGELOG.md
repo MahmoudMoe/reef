@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **The queue on the project's GitHub issues, part 1: the queue script** (the owner's go, 2026-10-24). `queue.home:
+  issues` makes a row an issue labelled `reef-row`, titled `[<id>] <item>` (Reef's id kept, so task ids, `Row:` lines
+  and footnotes stay valid), its `Depends:` and `Admitted:` in the body, `planned` or `found` as a label; a batch is a
+  milestone `Batch N`, the current batch the lowest open one; a closed issue is archived, one closed as not planned is
+  dropped (its dependents dangle, as in the file queue). Every read syncs `.reef/queue.json` (a failing gh: the last
+  snapshot); every write goes to gh and fails closed. New: `close ID --pr N`, `admit <issue>` (a plain issue becomes
+  the next row), `migrate-to-issues [--apply]`. Footnotes, notes and the archive file stay files. Rehearsed on a copy of
+  the trial project's queue: 92 open rows and the ready list identical before and after. A file-mode project sees no
+  change. tests/size-budget.json raised: `script_lines` 11,822 → 12,054.
 - **Read first: the planner hands the implementer its ranges** (the owner's go, 2026-10-24, a trial on one row of his
   pick). Implementers explored a median 17.5 tool calls before their first edit (38 runs on the trial project), reading 54,000
   characters and 15,000 of git history; the planner had already read that code. A task's optional `## Read first` lists

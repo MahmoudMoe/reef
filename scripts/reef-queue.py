@@ -29,6 +29,14 @@ Usage:
   reef-queue.py drop-row ID --reason "<text>" [--repo DIR] (0.7) delete a queued row (rule 7) and record the reason as a footnote
   reef-queue.py index [--repo DIR]              (0.6) regenerate <paths.features>/README.md: feature, row, batch,
                                                 status, task counts, ADRs — never hand-edited
+  reef-queue.py close ID --pr N [--repo DIR]               (0.7.1, issues) close the row's issue as completed, "merged in #N"
+  reef-queue.py admit <issue> [--source planned|found] [--batch N]   (0.7.1, issues) a plain issue becomes the next row
+  reef-queue.py migrate-to-issues [--apply] [--repo DIR]   (0.7.1) the open rows to the repository's issues; a dry run
+                                                 without --apply. Footnotes, notes and the archive stay files
+  `queue.home: issues` (0.7.1): a row is an issue labelled `reef-row` titled `[<id>] <item>`, its body `Depends:` and
+  `Admitted:` lines, a `found` or `planned` label; a batch is a milestone `Batch N`, the current batch the lowest open one;
+  a closed issue is archived. Every read syncs `.reef/queue.json` first (a failing gh: the last snapshot, said on stderr);
+  every write goes to gh and fails closed.
   `check` also validates (0.6) every feature folder's slug (2-5 kebab-case words, no bare number, no
   generic word) and the structure: a process document outside the layout fails.
 
@@ -179,15 +187,132 @@ def task_states(root, cfg):
     return states
 
 
+ROW_TITLE = re.compile(r"^\[(\d+)\]\s*(.*)$", re.S)
+BATCH_MS = re.compile(r"^Batch (\d+)$")
+LABEL = "reef-row"
+LABELS = {LABEL: "0e8a16", "planned": "1d76db", "found": "fbca04"}
+_SNAPS = {}
+
+
+def issues_mode(cfg):
+    return (cfg.get("queue") or {}).get("home") == "issues"
+
+
+class GhError(Exception):
+    pass
+
+
+def gh(root, *args):
+    try:
+        r = subprocess.run(["gh", *args], cwd=root, capture_output=True, text=True, timeout=int(os.environ.get("REEF_GH_TIMEOUT", "60")))
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise GhError(str(e))
+    if r.returncode != 0:
+        raise GhError((r.stderr or r.stdout).strip()[:300])
+    return r.stdout
+
+
+def gh_write(root, *args):
+    _SNAPS.clear()
+    try:
+        return gh(root, *args)
+    except GhError as e:
+        die(f"gh {' '.join(args[:2])} failed, nothing more written: {e}", 1)
+
+
+def field(body, name):
+    m = re.search(rf"^{name}:[ \t]*(.*)$", body or "", re.M)
+    return m.group(1).strip() if m else ""
+
+
+def batch_of(milestone):
+    m = BATCH_MS.match((milestone or {}).get("title", ""))
+    return m.group(1) if m else ""
+
+
+def sync(root):
+    """The labelled issues and the milestones into .reef/queue.json; a failing gh reads the last snapshot."""
+    if root in _SNAPS:
+        return _SNAPS[root]
+    snap_p = os.path.join(root, ".reef", "queue.json")
+    try:
+        issues = json.loads(gh(root, "issue", "list", "--label", LABEL, "--state", "all", "--limit", "1000",
+                               "--json", "number,title,body,state,stateReason,labels,milestone"))
+        ms = json.loads(gh(root, "api", "repos/{owner}/{repo}/milestones?state=all&per_page=100"))
+    except (GhError, ValueError) as e:
+        if not os.path.isfile(snap_p):
+            die(f"the queue is on issues, gh failed and there is no snapshot: {e}", 1)
+        print(f"reef-queue: gh failed ({e}); reading the last snapshot, .reef/queue.json", file=sys.stderr)
+        return json.loads(read(snap_p))
+    open_b = sorted(int(b) for x in ms for b in [batch_of(x)] if b and x.get("state") == "open")
+    snap = {"current_batch": str(open_b[0]) if open_b else None, "milestones": {x["title"]: x["number"] for x in ms},
+            "rows": [], "closed": [], "dropped": [], "unadmitted": []}
+    for i in issues:
+        m = ROW_TITLE.match((i.get("title") or "").strip())
+        if not m:
+            snap["unadmitted"].append(i["number"])
+            continue
+        b = i.get("body") or ""
+        row = {"Id": m.group(1), "Item": field(b, "Item") or m.group(2).strip(), "Depends": field(b, "Depends"),
+               "Source": "found" if any(lb.get("name") == "found" for lb in i.get("labels") or []) else "planned",
+               "Batch": batch_of(i.get("milestone")), "Admitted": field(b, "Admitted"), "_issue": i["number"]}
+        snap["rows" if i.get("state") == "OPEN" else "dropped" if i.get("stateReason") == "NOT_PLANNED" else "closed"].append(row)
+    os.makedirs(os.path.dirname(snap_p), exist_ok=True)
+    write_text(snap_p, json.dumps(snap, indent=1) + "\n")
+    _SNAPS[root] = snap
+    return snap
+
+
+def row_issue(root, row_id):
+    r = next((x for x in sync(root)["rows"] if x["Id"] == row_id), None)
+    if r is None:
+        die(f"no open row {row_id} among the issues labelled {LABEL}", 1)
+    return str(r["_issue"])
+
+
+def next_id(root, snap):
+    _, _, apath = queue_paths(root)
+    ids = [int(r["Id"]) for r in snap["rows"] + snap["closed"] + snap.get("dropped", [])]
+    ids += [int(r["Id"]) for r in parse_table(read(apath)) if r["Id"].isdigit()] if os.path.isfile(apath) else []
+    return max(ids, default=0) + 1
+
+
+def ensure_labels(root, *names):
+    for n in names:
+        gh_write(root, "label", "create", n, "--force", "--color", LABELS[n])
+
+
+def ensure_milestone(root, snap, batch):
+    t = f"Batch {batch}"
+    if t not in snap["milestones"]:
+        snap["milestones"][t] = json.loads(gh_write(root, "api", "repos/{owner}/{repo}/milestones", "-f", f"title={t}"))["number"]
+    return t
+
+
+def issue_text(item, depends, admitted):
+    """Title and body of a row's issue: the title without footnote marks, cut past 200 characters; the whole Item, marks
+    included, in the body whenever the title differs."""
+    item = " ".join(item.split())
+    plain = re.sub(r"[⁰¹²³⁴⁵⁶⁷⁸⁹]+", "", item).strip()
+    short = plain if len(plain) <= 200 else plain[:197].rsplit(" ", 1)[0] + "…"
+    return short, f"Depends: {depends.strip()}\nAdmitted: {admitted.strip()}\n" + (f"Item: {item}\n" if short != item else "")
+
+
 def load(root):
     cfg = config(root)
-    qpath = os.path.join(root, cfg.get("paths", {}).get("queue", "docs/queue.md"))
-    if not os.path.isfile(qpath):
-        die(f"no queue at {os.path.relpath(qpath, root)} — run /reef-init", 1)
-    text = read(qpath)
     apath = os.path.join(root, os.path.dirname(cfg.get("paths", {}).get("queue", "docs/queue.md")), "queue-archive.md")
     archived = {r["Id"] for r in parse_table(read(apath))} if os.path.isfile(apath) else set()
-    rows = parse_table(text)
+    if issues_mode(cfg):
+        snap = sync(root)
+        text = f"Current batch: {snap['current_batch']}\n" if snap["current_batch"] else ""
+        rows = sorted((dict(r) for r in snap["rows"]), key=lambda r: int(r["Id"]))
+        archived |= {r["Id"] for r in snap["closed"]}
+    else:
+        qpath = os.path.join(root, cfg.get("paths", {}).get("queue", "docs/queue.md"))
+        if not os.path.isfile(qpath):
+            die(f"no queue at {os.path.relpath(qpath, root)} — run /reef-init", 1)
+        text = read(qpath)
+        rows = parse_table(text)
     states = task_states(root, cfg)
     for r in rows:
         st = states.get(r["Id"], [])
@@ -242,7 +367,9 @@ def cmd_footnote(root, text, row_id):
         q = head + "## Footnotes" + tail
     else:
         q = q.rstrip("\n") + "\n\n## Footnotes\n" + line + "\n"
-    if row_id:
+    if row_id and issues_mode(config(root)):
+        gh_write(root, "issue", "comment", row_issue(root, row_id), "--body", line)
+    elif row_id:
         pat = re.compile(rf"^(\|\s*{re.escape(row_id)}\s*\|\s*)(.*?)(\s*\|)", re.M)
         m = pat.search(q)
         if not m:
@@ -254,7 +381,17 @@ def cmd_footnote(root, text, row_id):
 
 
 def add_row(root, item, depends, source, batch, admitted):
-    _, qpath, apath = queue_paths(root)
+    cfg, qpath, apath = queue_paths(root)
+    if issues_mode(cfg):
+        snap = sync(root)
+        new_id, cur = next_id(root, snap), snap["current_batch"] or "1"
+        if batch is None:
+            batch = cur if source == "planned" or admitted else str(int(cur) + 1)   # rule 6
+        title, body = issue_text(item, depends, admitted)
+        ensure_labels(root, LABEL, source)
+        gh_write(root, "issue", "create", "--title", f"[{new_id}] {title}", "--body", body, "--label", LABEL, "--label", source,
+                 "--milestone", ensure_milestone(root, snap, batch))
+        return new_id
     q = read(qpath)
     ids = [int(r["Id"]) for r in parse_table(q) if r["Id"].isdigit()]
     if os.path.isfile(apath):
@@ -342,7 +479,15 @@ def cmd_promote_note(root, nid, batch):
 
 
 def cmd_set_depends(root, row_id, depends):
-    _, qpath, _ = queue_paths(root)
+    cfg, qpath, _ = queue_paths(root)
+    if issues_mode(cfg):
+        n = row_issue(root, row_id)
+        b = json.loads(gh_write(root, "issue", "view", n, "--json", "body"))["body"] or ""
+        line = f"Depends: {depends.strip()}"
+        b = re.sub(r"^Depends:.*$", line, b, count=1, flags=re.M) if re.search(r"^Depends:", b, re.M) else line + "\n" + b
+        gh_write(root, "issue", "edit", n, "--body", b)
+        print(f"{row_id}\tdepends={depends.strip()}")
+        return 0
     q = read(qpath)
     pat = re.compile(rf"^(\|\s*{re.escape(row_id)}\s*\|[^|\n]*\|)([^|\n]*)(\|)", re.M)
     m = pat.search(q)
@@ -418,10 +563,15 @@ def cmd_triage(root, count_only):
 
 
 def cmd_set_batch(root, row_id, batch):
-    _, qpath, _ = queue_paths(root)
-    q = read(qpath)
+    cfg, qpath, _ = queue_paths(root)
     if not re.fullmatch(r"\d+", batch or ""):
         die("batch is a number")
+    if issues_mode(cfg):
+        n = row_issue(root, row_id)
+        gh_write(root, "issue", "edit", n, "--milestone", ensure_milestone(root, sync(root), batch))
+        print(f"{row_id}\tbatch={batch}")
+        return 0
+    q = read(qpath)
     # the row line: Id | Item | Depends | Source | Batch | Admitted
     pat = re.compile(rf"^(\|\s*{re.escape(row_id)}\s*\|(?:[^|\n]*\|){{3}})([^|\n]*)(\|)", re.M)
     m = pat.search(q)
@@ -453,10 +603,11 @@ def cmd_drop_row(root, row_id, reason):
         die(f"row {row_id} is {r['_status']}: only a queued row (no task file) is dropped; a built one is archived by the close-out", 1)
     if not (reason or "").strip():
         die("--reason is the ground, recorded as a footnote (rule 7: deletion is a first-class outcome)")
-    q = read(qpath)
-    lines = q.splitlines()
-    keep = [l for l in lines if not re.match(rf"^\|\s*{re.escape(row_id)}\s*\|", l)]
-    write_text(qpath, "\n".join(keep) + "\n")
+    if issues_mode(config(root)):
+        gh_write(root, "issue", "close", str(r["_issue"]), "--reason", "not planned", "--comment", f"dropped (rule 7): {reason.strip()}")
+    else:
+        keep = [l for l in read(qpath).splitlines() if not re.match(rf"^\|\s*{re.escape(row_id)}\s*\|", l)]
+        write_text(qpath, "\n".join(keep) + "\n")
     cmd_footnote(root, f"row {row_id} deleted (rule 7): {reason.strip()} — was: {r.get('Item', '').strip()[:120]}", None)
     return 0
 
@@ -501,6 +652,8 @@ def cmd_check(root):
     for feat in states:
         if feat and feat not in known:
             bad.append(f"task file(s) with feature: {feat} have no queue row (and none in the archive)")
+    for n in sync(root)["unadmitted"] if issues_mode(cfg) else []:
+        print(f"warning: #{n} is labelled {LABEL} but its title has no [id] — the owner admits it: reef-queue.py admit {n}")
     bad += structure_errors(root, cfg)
     # 0.6 feature folders: Row: in SPEC.md must be a known row; the slug must be the row's feature name
     for slug, fdir in feature_folders(root, cfg).items():
@@ -547,6 +700,77 @@ def cmd_check(root):
             print(f"  - {b}")
         return 1
     print(f"ok: {len(rows)} row(s), {len(archived)} archived, task features all accounted for")
+    return 0
+
+
+def cmd_close(root, row_id, pr):
+    if not issues_mode(config(root)):
+        die("close is for queue.home: issues; the file queue moves the row to its archive (rule 5)", 1)
+    gh_write(root, "issue", "close", row_issue(root, row_id), "--reason", "completed", "--comment", f"merged in #{pr.lstrip('#')}")
+    print(f"{row_id}\tclosed")
+    return 0
+
+
+def cmd_admit(root, number, source, batch):
+    """A plain issue (an idea, triaged) becomes the next row: `[id]` in its title, the labels, its batch's milestone."""
+    if not issues_mode(config(root)):
+        die("admit is for queue.home: issues", 1)
+    snap = sync(root)
+    i = json.loads(gh_write(root, "issue", "view", number.lstrip("#"), "--json", "number,title,labels"))
+    if ROW_TITLE.match(i["title"].strip()):
+        die(f"#{i['number']} is already a row: {i['title']}", 1)
+    new_id, cur = next_id(root, snap), snap["current_batch"] or "1"
+    batch = batch or (cur if source == "planned" else str(int(cur) + 1))
+    ensure_labels(root, LABEL, source)
+    gh_write(root, "issue", "edit", str(i["number"]), "--title", f"[{new_id}] {i['title'].strip()}", "--add-label", LABEL,
+             "--add-label", source, "--milestone", ensure_milestone(root, snap, batch))
+    print(new_id)
+    return 0
+
+
+def cmd_migrate(root, apply):
+    """The file queue's open rows to issues, in id order; labels and milestones first (a batch before the current one
+    closed); the queue file keeps its rules and footnotes, loses its row tables; queue.home becomes issues. A re-run
+    after a failure skips the rows that already have an issue."""
+    cfg, qpath, apath = queue_paths(root)
+    if issues_mode(cfg):
+        die("the queue is already on issues", 1)
+    q = read(qpath)
+    rows, cur = parse_table(q), int(current_batch(q) or 1)
+    num = lambda r: int((re.match(r"\d+", r.get("Batch", "")) or re.match(r"\d+", str(cur))).group())
+    batches = sorted({num(r) for r in rows} | {cur})
+    print(f"{len(rows)} open row(s); milestones {', '.join(f'Batch {b}' for b in batches)} (current: Batch {cur}); labels {LABEL}, planned, found")
+    if not apply:
+        print(f"would create {len(rows)} issue(s) — a dry run; --apply creates them")
+        return 0
+    ensure_labels(root, *LABELS)
+    have = {m.group(1) for i in json.loads(gh_write(root, "issue", "list", "--label", LABEL, "--state", "all", "--limit", "1000",
+                                                     "--json", "number,title")) for m in [ROW_TITLE.match(i["title"])] if m}
+    ms = {x["title"]: x for x in json.loads(gh_write(root, "api", "repos/{owner}/{repo}/milestones?state=all&per_page=100"))}
+    for b in batches:
+        t = f"Batch {b}"
+        if t not in ms:
+            ms[t] = json.loads(gh_write(root, "api", "repos/{owner}/{repo}/milestones", "-f", f"title={t}"))
+        if b < cur and ms[t].get("state") == "open":
+            gh_write(root, "api", "-X", "PATCH", f"repos/{{owner}}/{{repo}}/milestones/{ms[t]['number']}", "-f", "state=closed")
+    made = 0
+    for r in sorted(rows, key=lambda r: int(r["Id"])):
+        if r["Id"] in have:
+            continue
+        title, body = issue_text(r.get("Item", ""), r.get("Depends", ""), r.get("Admitted", ""))
+        src = "found" if (r.get("Source") or "").strip().lower() == "found" else "planned"
+        gh_write(root, "issue", "create", "--title", f"[{r['Id']}] {title}", "--body", body, "--label", LABEL, "--label", src,
+                 "--milestone", f"Batch {num(r)}")
+        made += 1
+    pointer = (f"Rows: this repository's issues labelled `{LABEL}`, titled `[<id>] <item>` (`queue.home: issues`); a batch "
+               "is a milestone, the current batch the lowest open one. This file keeps the rules and the footnotes.")
+    q = re.sub(r"^## Batch \d+[^\n]*\n.*?(?=^## |\Z)", "", q, flags=re.M | re.S)
+    q = re.sub(r"^Current batch:.*$", pointer, q, count=1, flags=re.M) if re.search(r"^Current batch:", q, re.M) else q.replace("\n", f"\n\n{pointer}\n", 1)
+    write_text(qpath, q)
+    cfg.setdefault("queue", {})["home"] = "issues"
+    write_text(os.path.join(root, ".reef", "config.json"), json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
+    print(f"created {made} issue(s); {os.path.relpath(qpath, root)} keeps its rules and footnotes; queue.home: issues — "
+          f"commit both: git add -- {os.path.relpath(qpath, root)} .reef/config.json")
     return 0
 
 
@@ -662,7 +886,7 @@ def main(argv):
         argv = argv[:i] + argv[i + 2:]
     root = repo_root(repo)
     if not argv:
-        die("usage: reef-queue.py status|ready [--all] [--with-found]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids>|triage [--count]|note <text> [--row ID]|promote-note n<k> [--batch N]|set-batch ID N|drop-row ID --reason <text> [--repo DIR]")
+        die("usage: reef-queue.py status|ready [--all] [--with-found]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids>|triage [--count]|note <text> [--row ID]|promote-note n<k> [--batch N]|set-batch ID N|drop-row ID --reason <text>|close ID --pr N|admit <issue>|migrate-to-issues [--apply] [--repo DIR]")
     cmd = argv[0]
     if cmd == "status":
         return cmd_status(root)
@@ -693,6 +917,14 @@ def main(argv):
         return cmd_promote_note(root, argv[1], opt("--batch", None))
     if cmd == "set-batch" and len(argv) >= 3:
         return cmd_set_batch(root, argv[1], argv[2])
+    if cmd == "close" and len(argv) >= 2 and "--pr" in argv:
+        return cmd_close(root, argv[1], opt("--pr"))
+    if cmd == "admit" and len(argv) >= 2:
+        if opt("--source", "planned") not in ("planned", "found"):
+            die("--source is planned or found")
+        return cmd_admit(root, argv[1], opt("--source", "planned"), opt("--batch", None))
+    if cmd == "migrate-to-issues":
+        return cmd_migrate(root, "--apply" in argv)
     if cmd == "drop-row" and len(argv) >= 2 and "--reason" in argv:
         return cmd_drop_row(root, argv[1], opt("--reason"))
     die(f"unknown command {cmd!r}")
