@@ -118,7 +118,11 @@ def guard_pass_mode(path):
 def plan_pass_tiers(path):
     """The tiers whose plan needs the hunter's pass before code: hunter.plan_pass `critical` (default, 0.7 — a design
     task gets the plan reviewer; measured 2026-10-17/18, the plan hunter's rounds were the planning sessions' cost) or
-    `design` (design and critical, the 0.6 behaviour). Read from the MAIN checkout like guard_pass."""
+    `design` (design and critical, the 0.6 behaviour). Read from the MAIN checkout like guard_pass. A review ROLLUP
+    (R<NN>-…) needs none (the owner's go, 2026-10-24: qassimha's R4 took three plan rounds; the feature's guard pass reads
+    its diff before GREEN)."""
+    if re.match(r"R\d+[-.]", os.path.basename(path)):
+        return ()
     root, cfg = config_near(path)
     if root:
         try:

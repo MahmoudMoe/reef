@@ -210,6 +210,11 @@ class HunterRoundInThePrompt(unittest.TestCase):
         self.assertIn("A plan-pass hunter's prompt carries `pass=plan round=<n>`", read("skills", "reef-plan", "SKILL.md"))
 
 
+class RollupNoPlanHunter(unittest.TestCase):
+    def test_the_review_skill_says_a_rollup_gets_no_plan_pass(self):
+        self.assertIn("A rollup gets no hunter plan pass, whatever its tier", read("skills", "reef-review", "SKILL.md"))
+
+
 class SizeBudget(unittest.TestCase):
     """0.7 (the owner, 2026-10-20: "is Reef creating technical debt?"): config keys, skill and agent prose, and script lines
     grew with every fix and nothing was removed. tests/size-budget.json holds the ceiling; a PR that grows a number
