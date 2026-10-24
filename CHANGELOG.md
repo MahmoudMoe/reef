@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **`gates.fast` is no longer always empty** (ai-coach, 2026-10-24, item 4). `reef-init` initialised the fast gate to
+  `""` and nothing set it, so every commit ran the full suite (66 s on ai-coach). For node it is now built from
+  package.json, joined with `&&`, each part only when present: `npm run lint` (`scripts.lint`), `npm run typecheck`
+  (`scripts.typecheck`, else `npx tsc --noEmit` with a `typescript` dependency and a `tsconfig.json`), `npx vitest run
+  --changed` (a `vitest` dependency). Empty when none; never an invented script. A tuned value is never changed.
+  tests/test_init.py `FastGate`. tests/size-budget.json raised: `script_lines` 12,899 → 12,912.
 - **`worktree.setup` generates as well as installs** (ai-coach, 2026-10-24, item 3). Task worktrees got a stale Prisma
   client and `.next` types: about 14 test files failed for reasons unrelated to the task, because `reef-init` set
   `worktree.setup` to the install command alone. For node it is now `npm ci && npm run generate` when `scripts.generate`
