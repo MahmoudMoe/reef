@@ -244,6 +244,38 @@ class KeysCheckedInTheirOwnFolder(unittest.TestCase):
         self.assertIn("cites FR-4 which is not defined in this feature folder", r.stdout)
 
 
+TASK_REFACTOR = TASK_NEW.replace("id: 1201", "id: 1301").replace("attempts: 0\n", "attempts: 0\nkind: refactor\nsplits: src/big.py under 400 lines\n") \
+    .replace("| AC-1 | `test_csv_header_and_rows` |\n| AC-2 | `test_csv_two_decimals` |", "| AC-1 | `true` |\n| AC-2 | `true` |")
+
+
+class RefactorPreservesBehaviour(unittest.TestCase):
+    """0.7.2 (ai-coach, item 15): a `kind: refactor` task's diff may move code and imports, never change an assertion line of an
+    existing test; the full gate must be green. Deterministic, in reef-converge."""
+
+    def branch(self, test_text):
+        d = project(cfg={"gates": {"full": "true"}, "paths": {"features": "reef/features"}, "branches": {"base": "main"}})
+        shutil.copy(os.path.join(ROOT, "scripts", "reef-gate.sh"), os.path.join(d, "scripts", "reef-gate.sh")) if os.path.isdir(os.path.join(d, "scripts")) else (
+            os.makedirs(os.path.join(d, "scripts")), shutil.copy(os.path.join(ROOT, "scripts", "reef-gate.sh"), os.path.join(d, "scripts", "reef-gate.sh")))
+        write(d, "src/big.py", "import os\n\ndef add(a, b):\n    return a + b\n")
+        write(d, "tests/test_big.py", "import os\nfrom src.big import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n    assert add(0, 0) == 0\n")
+        git = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
+        git("add", "-A"); git("commit", "-qm", "base")
+        git("checkout", "-qb", "feat/split")
+        write(d, "tests/test_big.py", test_text)
+        write(d, "src/small.py", "def add(a, b):\n    return a + b\n")
+        git("add", "-A"); git("commit", "-qm", "split")
+        feature(d, tasks={"1301-split-big.md": TASK_REFACTOR})
+        return subprocess.run([sys.executable, CONVERGE, "csv-export-for-orders", "--repo", d, "--base", "main", "--dry-run"], capture_output=True, text=True)
+
+    def test_an_edited_assertion_is_red_and_moved_code_with_new_imports_is_green(self):
+        r = self.branch("import os\nfrom src.small import add\n\n\ndef test_add():\n    assert add(1, 2) == 4\n    assert add(0, 0) == 0\n")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("1301-split-big.md refactor: contradicts — tests/test_big.py changes an assertion line (1 removed, 1 added)", r.stdout)
+        r = self.branch("import sys\nimport os\nfrom src.small import add\n\n\ndef test_add():\n    assert add(0, 0) == 0\n    assert add(1, 2) == 3\n")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Converged", r.stdout)
+
+
 class ProofWritersWarn(unittest.TestCase):
     def test_a_proof_that_writes_files_names_the_mechanic(self):
         # first contact (2026-10-16): the read-only verifier could not run AC-4/AC-10 (they write .env files and delete
