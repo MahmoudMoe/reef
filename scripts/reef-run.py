@@ -53,8 +53,8 @@ NIGHT_PROMPT = (" SUPER REEF NIGHT (.reef/night/contract.md, approved by the own
                 "`python3 scripts/reef-queue.py footnote \"Mahmoud (proxy, night <date>): <decision> — <why>\" --row <id>`. A WAIT "
                 "(outside the contract, or a hard limit): questions.md, and keep the other rows moving.")
 PROMPT = ("/reef-loop — a reef-run iteration: headless, AskUserQuestion does not exist here. Keep every row moving that "
-          "does not need the owner. Do not ask: append each question for the owner to .reef/questions.md, one line each — "
-          "`- row <id>: <the question> — recommended: <your answer>` — the next interactive /reef-loop asks them as ONE set. "
+          "does not need the owner. Do not ask: file each question for the owner with `python3 scripts/reef-queue.py ask "
+          "\"<the question>\" --row <id> --recommended \"<your answer>\"` — the next interactive /reef-loop asks them as ONE set. "
           "At the context ceiling write the handoff and `python3 scripts/reef-loop.py wait \"/clear requested …\"` as usual. "
           "When no row can move without the owner, `python3 scripts/reef-loop.py wait \"owner: <what>\"` and end.")
 

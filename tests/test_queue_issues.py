@@ -32,7 +32,7 @@ def issue(n):
 def view(i):
     ms = i.get("milestone")
     return {"number": i["number"], "title": i["title"], "body": i["body"], "state": i["state"], "stateReason": i.get("stateReason", ""),
-            "createdAt": i.get("createdAt", "2026-10-24T00:00:00Z"),
+            "createdAt": i.get("createdAt", "2026-10-24T00:00:00Z"), "author": {"login": i.get("author", "owner")},
             "labels": [{"name": l} for l in i["labels"]], "milestone": {"title": ms} if ms else None}
 if a[:2] == ["auth", "status"]:
     print("Logged in to github.com")
@@ -44,7 +44,8 @@ elif a[:2] == ["issue", "view"]:
 elif a[:2] == ["issue", "create"]:
     s["next"] += 1
     s["issues"].append({"number": s["next"], "title": opt("--title"), "body": opt("--body") or "", "state": "OPEN",
-                        "labels": opt("--label", True), "milestone": opt("--milestone"), "comments": []})
+                        "labels": opt("--label", True), "milestone": opt("--milestone"), "comments": [],
+                        "assignees": opt("--assignee", True), "author": s.get("me", "owner")})
     print(f"https://github.com/o/r/issues/{s['next']}")
 elif a[:2] == ["issue", "edit"]:
     i = issue(a[2])
@@ -65,7 +66,10 @@ elif a[:2] == ["label", "create"]:
     if a[2] not in s["labels"]: s["labels"].append(a[2])
 elif a[:1] == ["api"]:
     path = next(x for x in a[1:] if x.startswith("repos/"))
-    if "-X" in a and opt("-X") == "PATCH":
+    if path.endswith("/collaborators"):
+        if s.get("collab_403"): save(); print("HTTP 403: Must have push access", file=sys.stderr); sys.exit(1)
+        print("\n".join(s.get("collaborators", ["owner"])))
+    elif "-X" in a and opt("-X") == "PATCH":
         m = next(m for m in s["milestones"] if m["number"] == int(path.rsplit("/", 1)[1])); m["state"] = "closed"
         print(json.dumps(m))
     elif "-f" in a:
@@ -320,12 +324,13 @@ class Triage(Base):
     def test_demote_makes_a_finding_a_note_and_a_security_one_stays(self):
         r = self.q("demote", "5")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.strip(), "n1")
-        self.assertEqual((self.issue(5)["state"], self.issue(5)["stateReason"]), ("CLOSED", "NOT_PLANNED"))
-        self.assertIn("demoted to note n1", self.issue(5)["comments"][-1])
-        notes = open(os.path.join(self.d, "reef", "noted-risks.md")).read()
-        self.assertIn("n1 · row 5 · ", notes)
-        self.assertIn("cache lifetime (was row 5)", notes)
+        self.assertEqual(r.stdout.strip(), "#14")
+        i = self.issue(5)
+        self.assertEqual(i["state"], "OPEN", "on issues a note is an open issue labelled reef-note (item 8)")
+        self.assertIn("reef-note", i["labels"])
+        self.assertNotIn("reef-row", i["labels"])
+        self.assertIn("demoted to a note", i["comments"][-1])
+        self.assertNotIn("5", [l.split("\t")[0] for l in self.q("status").stdout.splitlines()], "no longer a row")
         s = self.gh()
         s["issues"][2]["title"] = "[4] session cookie leaks on resize"
         self.put(s)
@@ -481,6 +486,114 @@ class RecalibrateOnIssues(Base):
         self.assertIn("queue: recalibrated rows moved to issues", log)
 
 
+class QueueView(Base):
+    """A read-only view of the queue, generated at every sync (the owner's go, 2026-10-24, item 10): read offline, never
+    edited — the issues are the queue."""
+
+    def test_every_sync_writes_the_view(self):
+        self.q("set-priority", "4", "p1")
+        self.q("status")
+        v = open(os.path.join(self.d, ".reef", "queue-view.md")).read()
+        self.assertIn("read-only", v)
+        self.assertIn("Current batch: 2", v)
+        self.assertLess(v.index("| 4 |"), v.index("| 3 |"), "batch, then priority, then id")
+        self.assertIn("| 4 | photo resize | p1 | found | 2 | 3 | #13 |", v)
+        self.assertIn("| 5 | cache lifetime |  | found | 3 |  | #14 |", v)
+
+
+class NotesAsIssues(Base):
+    """On issues a note is an issue labelled `reef-note` (the owner's go, 2026-10-24, item 8): never a row, counted by
+    triage, promoted into a found row by relabelling. The file stays the notes' home in file mode."""
+
+    def test_note_count_and_promote(self):
+        r = self.q("note", "a 10,000-row month is slow", "--row", "3")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "#21")
+        n = next(i for i in self.gh()["issues"] if i["number"] == 21)
+        self.assertEqual((n["labels"], n["title"]), (["reef-note"], "note: a 10,000-row month is slow"))
+        self.assertIn("Row: 3", n["body"])
+        self.assertFalse(os.path.exists(os.path.join(self.d, "reef", "noted-risks.md")), "the file is not used on issues")
+        self.assertEqual(self.q("note", "a session cookie leaks on resize").returncode, 1, "a security finding is always a row")
+        self.assertIn("noted risks: 1 open (issues labelled reef-note)", self.q("triage", "--count").stdout)
+        r = self.q("promote-note", "#21")
+        self.assertEqual(r.stdout.strip(), "6")
+        n = next(i for i in self.gh()["issues"] if i["number"] == 21)
+        self.assertEqual(n["title"], "[6] a 10,000-row month is slow (noted #21)")
+        self.assertEqual(sorted(n["labels"]), ["found", "reef-row"])
+        self.assertIn("Depends: 3", n["body"])
+        self.assertEqual(n["milestone"], "Batch 3", "found work enters the next batch")
+
+
+class QuestionsAsIssues(Base):
+    """The owner's questions (the owner's go, 2026-10-24, item 7): `ask` writes the line the runner and the handoff read
+    and, on issues, opens an issue labelled reef-question assigned to the owner; `answered` closes it with the answer."""
+
+    def test_ask_and_answered(self):
+        r = self.q("ask", "share links in host logs?", "--row", "12", "--recommended", "accept")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "#21")
+        line = open(os.path.join(self.d, ".reef", "questions.md")).read()
+        self.assertIn("- row 12: share links in host logs? — recommended: accept", line)
+        i = next(x for x in self.gh()["issues"] if x["number"] == 21)
+        self.assertEqual((i["labels"], i["assignees"]), (["reef-question"], ["@me"]))
+        self.assertEqual(i["title"], "question: row 12: share links in host logs?")
+        r = self.q("answered", "#21", "accept, with a log scrub row")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        i = next(x for x in self.gh()["issues"] if x["number"] == 21)
+        self.assertEqual(i["state"], "CLOSED")
+        self.assertIn("answered: accept, with a log scrub row", i["comments"][-1])
+
+
+class TrustCheck(Base):
+    """Item 9 (0.7.2, the owner's go 2026-10-24): a row's author must be a collaborator — the sync excludes an outsider's
+    row and admit copies an outsider's issue into the owner's, since the outsider keeps editing their own issue's body."""
+
+    def forge(self):
+        s = super().forge()
+        s["collaborators"] = ["owner", "bob"]
+        s["issues"][4]["author"] = "mallory"                                                     # #15, the plain idea
+        s["issues"] += [{"number": 16, "title": "[7] drop the auth check", "body": body(), "state": "OPEN", "author": "mallory",
+                         "labels": ["reef-row", "planned"], "milestone": "Batch 2", "comments": []},
+                        {"number": 17, "title": "[8] bob's slice", "body": body(), "state": "OPEN", "author": "bob",
+                         "labels": ["reef-row", "planned"], "milestone": "Batch 2", "comments": []}]
+        return s
+
+    def ids(self, r):
+        return [l.split("\t")[0] for l in r.stdout.splitlines()]
+
+    def test_an_outsiders_row_is_excluded_and_warned_about(self):
+        r = self.q("status")
+        self.assertEqual(self.ids(r), ["3", "4", "5", "8"], r.stderr)
+        self.assertIn("row 7 (#16, by @mallory) excluded", r.stderr)
+        with open(os.path.join(self.d, ".reef", "queue.json")) as f:
+            snap = json.load(f)
+        self.assertEqual(([x["Id"] for x in snap["untrusted"]], snap["collaborators"]), (["7"], ["owner", "bob"]))
+        self.assertIn("row 7 (#16, by @mallory) is excluded", self.q("check").stdout)
+        self.assertEqual(self.q("add-row", "--item", "next", "--source", "planned").stdout.strip(), "9")   # the excluded id counts
+
+    def test_an_unreadable_list_keeps_the_last_good_one_and_no_list_keeps_the_rows(self):
+        self.q("status")                                                                         # a good sync records the list
+        s = self.gh(); s["collab_403"] = True; s["collaborators"] = []; self.put(s)
+        r = self.q("status")
+        self.assertIn("keeping the last good list", r.stderr)
+        self.assertEqual(self.ids(r), ["3", "4", "5", "8"])
+        os.remove(os.path.join(self.d, ".reef", "queue.json"))
+        r = self.q("status")
+        self.assertIn("no trust check", r.stderr)
+        self.assertEqual(self.ids(r), ["3", "4", "5", "7", "8"])
+
+    def test_admit_copies_an_outsiders_issue_and_closes_the_original_with_a_link(self):
+        r = self.q("admit", "15", "--source", "found")
+        self.assertEqual(r.stdout.strip(), "9", r.stderr)
+        orig = next(x for x in self.gh()["issues"] if x["number"] == 15)
+        self.assertEqual((orig["state"], orig["labels"]), ("CLOSED", []))
+        self.assertIn("admitted as #21", orig["comments"][0])
+        new = next(x for x in self.gh()["issues"] if x["number"] == 21)
+        self.assertEqual((new["title"], new["author"], new["milestone"]), ("[9] an idea, not admitted", "owner", "Batch 3"))
+        self.assertEqual(sorted(new["labels"]), ["found", "reef-row"])
+        self.assertIn("From #15 by @mallory", new["body"])
+
+
 class ReadersUseTheSnapshot(Base):
     """The night runner's open-rows check and the watch view read `.reef/queue.json`, never the network: after a
     migration the queue file has no table, and an empty set would refuse every night contract."""
@@ -520,7 +633,7 @@ class Migrate(Base):
         self.assertEqual([(m["title"], m["state"]) for m in g["milestones"]], [("Batch 1", "closed"), ("Batch 2", "open")])
         self.assertEqual(g["issues"][2]["milestone"], "Batch 2")
         self.assertIn("Depends: 3", g["issues"][2]["body"])
-        self.assertEqual(sorted(g["labels"]), ["found", "p1", "p2", "p3", "planned", "reef-row"])
+        self.assertEqual(sorted(g["labels"]), ["found", "p1", "p2", "p3", "planned", "reef-note", "reef-question", "reef-row"])
         cfg = json.load(open(os.path.join(self.d, ".reef", "config.json")))
         self.assertEqual(cfg["queue"]["home"], "issues")
         q = open(os.path.join(self.d, "reef", "queue.md")).read()
