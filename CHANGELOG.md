@@ -1,6 +1,9 @@
 # Changelog
 
-## 0.7.2 (unreleased)
+## 0.7.2 — the first adoption on an existing project: measure, recalibrate safely, adopt whole, deterministic checks
+- **0.7.2** (the owner's go, 2026-10-25): `plugin.json`, the marketplace, `reef-init`'s version, the README badge and status,
+  the site and the manual read 0.7.2; `migrations/0.7.1-to-0.7.2.py` is a no-change step so `.reef/version` walks to 0.7.2
+  with no gap. The 21 entries below came from one adoption on an existing project (ai-coach), in order, one PR each.
 - **The one-orchestrator hold belongs to a process, not a session id** (ai-coach, 2026-10-25; the owner's go). After
   `/clear` the same Claude process carries a new session id and was refused by its own hold for 30 minutes; a session that
   ended without `reef-loop.py wait` held the project as long, and the owner had to `unlock` by hand. The guard now records

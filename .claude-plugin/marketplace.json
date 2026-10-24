@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Reef: token-frugal agentic coding pipeline \u2014 mechanical retry caps, author/verifier separation, deterministic commit gates.",
-    "version": "0.7.1"
+    "version": "0.7.2"
   },
   "plugins": [
     {
       "name": "reef",
       "source": "./",
       "description": "Reef pipeline: /reef-init (architecture grill), /reef-assess, /reef-explore, /reef-plan, /reef-task, /reef-review, /reef-verify, /reef-plan-review, /reef-c4, /reef-threat, /reef-loop + implementer/verifier/plan-reviewer/loophole-hunter/mechanic agents; four tiers, digest-bound approvals, forge-bound review records, the loop engine, one tree.",
-      "version": "0.7.1",
+      "version": "0.7.2",
       "author": {
         "name": "MahmoudMoe",
         "url": "https://github.com/MahmoudMoe"

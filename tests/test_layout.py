@@ -145,7 +145,7 @@ class Migrations(unittest.TestCase):
         self.assertEqual(cfg["loop"]["no_progress_ticks"], 3)
         self.assertEqual(cfg["paths"]["queue"], "docs/queue.md", "a 0.5 project keeps the 0.5 locations")
         self.assertNotIn("features", cfg["paths"], "the one tree is offered, not imposed")
-        self.assertEqual(open(os.path.join(d, ".reef", "version")).read().strip(), "0.7.1", "the chain walks 0.5 -> 0.6 -> 0.7 -> 0.7.1")
+        self.assertEqual(open(os.path.join(d, ".reef", "version")).read().strip(), "0.7.2", "the chain walks 0.5 -> 0.6 -> 0.7 -> 0.7.1 -> 0.7.2")
         self.assertIn("--layout", r.stdout)
         snapshot = open(os.path.join(d, ".reef", "config.json")).read()
         r = subprocess.run([sys.executable, MIGRATE, "--repo", d], capture_output=True, text=True)
