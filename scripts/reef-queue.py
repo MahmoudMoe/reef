@@ -202,9 +202,11 @@ class GhError(Exception):
     pass
 
 
-def gh(root, *args):
+def gh(root, *args, read=False):
+    """A read (the sync, inside the tick) waits 15 s, then the snapshot answers; a write waits 60 s."""
+    t = os.environ.get("REEF_GH_READ_TIMEOUT", "15") if read else os.environ.get("REEF_GH_TIMEOUT", "60")
     try:
-        r = subprocess.run(["gh", *args], cwd=root, capture_output=True, text=True, timeout=int(os.environ.get("REEF_GH_TIMEOUT", "60")))
+        r = subprocess.run(["gh", *args], cwd=root, capture_output=True, text=True, timeout=int(t))
     except (OSError, subprocess.TimeoutExpired) as e:
         raise GhError(str(e))
     if r.returncode != 0:
@@ -237,8 +239,8 @@ def sync(root):
     snap_p = os.path.join(root, ".reef", "queue.json")
     try:
         issues = json.loads(gh(root, "issue", "list", "--label", LABEL, "--state", "all", "--limit", "1000",
-                               "--json", "number,title,body,state,stateReason,labels,milestone"))
-        ms = json.loads(gh(root, "api", "repos/{owner}/{repo}/milestones?state=all&per_page=100"))
+                               "--json", "number,title,body,state,stateReason,labels,milestone", read=True))
+        ms = json.loads(gh(root, "api", "repos/{owner}/{repo}/milestones?state=all&per_page=100", read=True))
     except (GhError, ValueError) as e:
         if not os.path.isfile(snap_p):
             die(f"the queue is on issues, gh failed and there is no snapshot: {e}", 1)

@@ -6,8 +6,9 @@
   network (after a migration the queue file has no table, and an empty set would refuse every night contract);
   `reef-init` gitignores the snapshot; the config template carries `queue.home: file`; `/reef-loop` closes a row with
   `reef-queue.py close <id> --pr <n>`, leaves an unadmitted issue to the owner's `admit`, and after the release the
-  owner closes the batch's milestone. tests/size-budget.json raised: `config_keys` 89 → 90, `prose_words` 19,695 →
-  19,741, `script_lines` 12,054 → 12,066.
+  owner closes the batch's milestone. A gh read waits 15 s (`REEF_GH_READ_TIMEOUT`), then the snapshot answers; a write
+  waits 60 s. tests/size-budget.json raised: `config_keys` 89 → 90, `prose_words` 19,695 → 19,741, `script_lines`
+  12,054 → 12,068.
 - **The queue on the project's GitHub issues, part 1: the queue script** (the owner's go, 2026-10-24). `queue.home:
   issues` makes a row an issue labelled `reef-row`, titled `[<id>] <item>` (Reef's id kept, so task ids, `Row:` lines
   and footnotes stay valid), its `Depends:` and `Admitted:` in the body, `planned` or `found` as a label; a batch is a

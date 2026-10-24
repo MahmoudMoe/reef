@@ -20,6 +20,8 @@ a = sys.argv[1:]
 s["calls"].append(a)
 def save():
     json.dump(s, open(p, "w"), indent=1)
+if os.environ.get("GH_MODE") == "slow":
+    import time; time.sleep(6)
 if os.environ.get("GH_MODE") == "fail":
     save(); print("HTTP 502", file=sys.stderr); sys.exit(1)
 def opt(name, many=False):
@@ -154,7 +156,8 @@ class Base(unittest.TestCase):
             return json.load(f)
 
     def q(self, *args, mode="ok"):
-        env = dict(os.environ, PATH=self.bin + os.pathsep + os.environ.get("PATH", ""), GH_STATE=self.state, GH_MODE=mode)
+        env = dict(os.environ, PATH=self.bin + os.pathsep + os.environ.get("PATH", ""), GH_STATE=self.state, GH_MODE=mode,
+                   REEF_GH_READ_TIMEOUT="3")
         return subprocess.run([sys.executable, QUEUE, *args, "--repo", self.d], capture_output=True, text=True, env=env)
 
     def issue(self, rid):
@@ -181,6 +184,9 @@ class ReadsFromIssues(Base):
         r = self.q("add-row", "--item", "x", mode="fail")
         self.assertEqual(r.returncode, 1)
         self.assertEqual(len(self.gh()["issues"]), 5, "nothing written")
+        r = self.q("status", mode="slow")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("last snapshot", r.stderr, "a slow gh read gives up after REEF_GH_READ_TIMEOUT")
         os.unlink(os.path.join(self.d, ".reef", "queue.json"))
         self.assertEqual(self.q("status", mode="fail").returncode, 1, "no snapshot, no gh: no queue")
 
