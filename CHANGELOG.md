@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1 (unreleased)
+- **The plan check reads each task's own feature folder** (the owner's go, 2026-10-24). qassimha's row 18 could not
+  go green: the key check took the folder of the LAST task file (a stale loop variable), so every feature's citations
+  were checked against the last-sorted folder, 15 false FAILs on other features' tasks, and a key defined only there
+  passed anywhere. Each task now carries its own path into the second loop. Size budget unchanged.
+
 ## 0.7.0 — the delegated night, the outer runner, the security pass, OpenCode in early support
 - **0.7.0** (the owner's go, 2026-10-24): `plugin.json`, the marketplace, `reef-init`'s version, the README badge, the site
   and the manual read 0.7.0; `migrations/0.6.0-to-0.7.0.py` is a no-change step so `.reef/version` walks to 0.7.0

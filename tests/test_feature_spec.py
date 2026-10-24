@@ -119,6 +119,33 @@ def feature(d, slug="csv-export-for-orders", spec=SPEC, tasks=None):
     return os.path.join(d, base)
 
 
+class KeysCheckedInTheirOwnFolder(unittest.TestCase):
+    # 2026-10-24, qassimha row 18: the key check read the folder of the LAST task file (a stale loop variable), so every
+    # feature's citations were checked against the last-sorted folder: 15 false FAILs on other features' tasks, and a key
+    # defined only in that folder passed anywhere.
+    def two_features(self, first_task):
+        d = project()
+        write(d, "docs/queue.md", "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n"
+              "| 12 | csv export for orders | | planned | 1 | |\n| 13 | zz receipt notes | | planned | 1 | |\n")
+        feature(d, tasks={"1201-write-csv.md": first_task})
+        spec = SPEC.replace("Row: 12", "Row: 13").replace("Slug: csv-export-for-orders", "Slug: zz-receipt-notes")
+        spec = spec.replace("- FR-3 [data]: amounts keep two decimals.\n", "- FR-4 [data]: a note keeps its line breaks.\n")
+        task = TASK_NEW.replace("id: 1201", "id: 1301").replace("feature: csv-export-for-orders", "feature: zz-receipt-notes")
+        task = task.replace("# 1201", "# 1301").replace("(FR-3)", "(FR-4)").replace("test_csv_", "test_notes_")
+        feature(d, slug="zz-receipt-notes", spec=spec, tasks={"1301-keep-notes.md": task})
+        return check(d)
+
+    def test_a_key_defined_in_its_own_folder_passes(self):
+        r = self.two_features(TASK_NEW)
+        self.assertNotIn("not defined in this feature folder", r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_a_key_defined_only_in_another_folder_fails(self):
+        r = self.two_features(TASK_NEW.replace("(FR-3)", "(FR-4)"))
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("cites FR-4 which is not defined in this feature folder", r.stdout)
+
+
 class ProofWritersWarn(unittest.TestCase):
     def test_a_proof_that_writes_files_names_the_mechanic(self):
         # first contact (2026-10-16): the read-only verifier could not run AC-4/AC-10 (they write .env files and delete
