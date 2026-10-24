@@ -418,3 +418,57 @@ class SizeRatchet(unittest.TestCase):
         self.assertEqual(json.load(open(os.path.join(d, "reef", "size-baseline.json")))["files"], {"src/a.ts": 8})
         write(d, "src/a.ts", "a\n" * 9)
         self.assertEqual(self.sizes(d).returncode, 1, "the ratchet: 9 is over the lowered baseline of 8")
+
+
+class RecalibrationSafety(unittest.TestCase):
+    """0.7.2 (ai-coach, 2026-10-24, item 16): the plan keeps documents a tool reads by DIRECTORY, licences anywhere, documents edited
+    on an unmerged branch; `plan --measure` applies the plan in a scratch worktree, runs the gates there and leaves the tree untouched.
+    On ai-coach the full plan moved 735 documents and caused 603 check:docs errors, 4 red tests, an archived font licence and 4 conflicts."""
+
+    def plan(self, d, *a):
+        r = subprocess.run([sys.executable, RECAL, "plan", *a, "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return {e["path"]: e for e in json.loads(open(os.path.join(d, ".reef", "recalibration.json")).read())["entries"]}, r.stdout
+
+    def test_a_directory_a_tool_reads_a_licence_anywhere_and_an_unmerged_edit_are_kept(self):
+        d = fixture_repo()
+        write(d, "package.json", json.dumps({"name": "x", "scripts": {"check:docs": "node scripts/check-docs.js docs/loop/"}}))
+        write(d, "scripts/check-docs.js", "// walks the directory it is given\n")
+        write(d, "docs/loop/queue.md", "# Loop queue\n\n## Decision\nold rows\n\n## Consequences\nx\n")
+        write(d, "docs/loop/notes.md", "# Notes\nTODO later\n")
+        write(d, "public/fonts/OFL.md", "# SIL Open Font License\n## Decision\nthe font's licence text\n## Consequences\nx\n")
+        write(d, "public/fonts/Inter.ttf", "binary")
+        write(d, "public/fonts/README-fonts.md", "# Fonts\n## Runbook\nhow the fonts were built\n")
+        write(d, "docs/legal/LICENSE-images.md", "# Image licence\n## Status\nx\n## Decision\ny\n## Consequences\nz\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "a loop, fonts, licences")
+        git(d, "checkout", "-qb", "wip")
+        write(d, "ops/runbook.md", "# Runbook\nHow to restart the service — edited on wip.\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "wip edit")
+        git(d, "checkout", "-q", "main")
+        by, _ = self.plan(d)
+        self.assertEqual((by["docs/loop/queue.md"]["action"], by["docs/loop/queue.md"]["reason"]), ("keep", "directory docs/loop/ read by package.json"))
+        self.assertEqual(by["docs/loop/notes.md"]["action"], "keep", "every document under a read directory stays")
+        self.assertEqual(by["public/fonts/OFL.md"]["reason"], "a licence (kept wherever it is, under any name)")
+        self.assertEqual(by["docs/legal/LICENSE-images.md"]["action"], "keep")
+        self.assertEqual(by["public/fonts/README-fonts.md"]["reason"], "beside an asset's licence (fonts, images, binaries)")
+        self.assertEqual((by["ops/runbook.md"]["action"], by["ops/runbook.md"]["reason"]), ("keep", "edited on unmerged branch wip"))
+        self.assertEqual(by["notes/ideas.md"]["action"], "archive", "a stray document still moves")
+
+    def test_measure_reports_a_gate_that_reads_a_moved_file_and_leaves_the_tree_untouched(self):
+        d = fixture_repo()
+        cfg = json.loads(open(os.path.join(d, ".reef", "config.json")).read())
+        cfg["gates"]["full"] = "cat ops/runbook.md"     # a gate that reads a document the plan archives (config is not grepped)
+        write(d, ".reef/config.json", json.dumps(cfg))
+        write(d, "package.json", json.dumps({"name": "x", "scripts": {"check:docs": "d=notes; test -f $d/ideas.md || { echo 'error: ideas missing'; exit 1; }"}}))
+        git(d, "add", "-A"); git(d, "rm", "-q", "--cached", ".reef/config.json"); git(d, "commit", "-qm", "a gate on a document; the config untracked, as on a real project")
+        head = git(d, "rev-parse", "HEAD")
+        by, out = self.plan(d, "--measure")
+        self.assertEqual((by["ops/runbook.md"]["action"], by["notes/ideas.md"]["action"]), ("archive", "archive"), "the plan itself still moves them (nothing grep can see names them)")
+        self.assertIn("| gates.full | 1 |", out)
+        self.assertRegex(out, r"\| check:docs \| 1 \| [1-9]\d* \| 0 \|", "exit 1 and at least the script's own error line (npm adds its own)")
+        self.assertIn("this plan leaves a gate red", out)
+        self.assertIn("## Measured cost of this plan", open(os.path.join(d, "reef", "recalibration.md")).read())
+        self.assertTrue(os.path.isfile(os.path.join(d, "ops", "runbook.md")), "the tree here was not touched")
+        self.assertEqual(git(d, "rev-parse", "HEAD"), head)
+        self.assertEqual([l for l in git(d, "status", "--porcelain").splitlines() if not l.endswith(("recalibration.md", "recalibration.json", "instruction-layer.md", ".reef/config.json"))], [], "the plan files and the untracked config are the only change")
+        self.assertEqual(len(git(d, "worktree", "list").splitlines()), 1, "the scratch worktree is gone")

@@ -259,6 +259,14 @@ class RefactorKind(unittest.TestCase):
         self.assertIn("A `kind: refactor` task preserves behaviour: no assertion line of an existing test changes", read("agents", "implementer.md"))
 
 
+class PlanIsMeasuredFirst(unittest.TestCase):
+    def test_the_assess_skill_measures_the_plan_before_the_one_question(self):
+        # 0.7.2 (ai-coach, 2026-10-24, item 16): the owner approved a plan whose cost nobody measured
+        skill = read("skills", "reef-assess", "SKILL.md")
+        self.assertIn("Run `python3 scripts/reef-recalibrate plan --measure` first", skill)
+        self.assertIn("recommend the smallest plan with zero errors; on an existing project \"archive the stray docs, keep folders the project's tools read\" is the default", skill)
+
+
 class RollupNoPlanHunter(unittest.TestCase):
     def test_the_review_skill_says_a_rollup_gets_no_plan_pass(self):
         self.assertIn("A rollup gets no hunter plan pass, whatever its tier", read("skills", "reef-review", "SKILL.md"))
