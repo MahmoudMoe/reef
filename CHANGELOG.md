@@ -1,6 +1,18 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **The recalibration plan no longer moves what the project's tools read** (ai-coach, 2026-10-24, item 16). The full
+  plan moved 735 documents; applied in a scratch worktree it caused 603 `check:docs` errors, 4 red tests, archived a
+  font licence and conflicted with 4 in-flight branches. Four causes, four rules: (a) a reference search by exact path
+  missed every tool that reads a DIRECTORY or a glob — every ancestor directory (`docs/loop/`, `docs/loop`, `specs/`) is
+  now grepped in code, CI and package.json as a directory read (never a file inside it), and a hit keeps every document
+  under it, reason "directory … read by …"; (b) `KEEP` matched exact basenames — any `licen[cs]e|copying|notice|ofl`
+  file anywhere is kept, and so is every document beside an asset's licence (fonts, images, binaries); (c) a document
+  changed on a local branch not merged into `branches.base` is kept, reason "edited on unmerged branch …"; (d)
+  `plan --measure` applies the plan in a scratch worktree, runs `gates.full` and every package.json `check:*` script
+  there, prints exit codes, error lines and red tests into the plan, and removes the worktree — the tree is untouched.
+  The assess skill's one question shows those numbers and recommends the smallest plan with zero errors; on an existing
+  project "archive the stray docs, keep folders the project's tools read" is the default. tests/size-budget.json raised: `prose_words` 21,020 → 21,089, `script_lines` 13,388 → 13,512.
 - **A `refactor` task kind with a behaviour-preservation proof** (ai-coach, 2026-10-24, item 15). ai-coach's largest
   product files need splitting, and a split's only promise is that nothing changes; Reef had no way to state or check
   that. Optional frontmatter `kind: refactor` with `splits: <file>[, <file>] under <N> lines`: `reef-plan-check`
