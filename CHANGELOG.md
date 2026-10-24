@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **The guard pass is counted by tier, and says so** (the owner's go, 2026-10-24). On the trial's row 18 the orchestrator
+  read "a design task" as `complexity: design` (task 1801 was tier full), found the guard pass unrecordable and filed a
+  found row against the project. `/reef-review` now says "a task of tier `design` or `critical` (its `tier:`, not its
+  `complexity:`)", and `reef-adversarial --feature … guard` refuses a feature without one by saying no guard pass is
+  required. tests/size-budget.json raised: `prose_words` 20,194 → 20,203, `script_lines` 12,411 → 12,412.
 - **reef-converge reads a Proof cell as written** (the owner's go, 2026-10-24; the trial's row 18, note n45: four false
   `missing` lines). A note in parentheses after a test name is commentary (backticks inside it allowed; a parenthesis
   inside a backticked command is the command's own); `` `cmd` prints `N` `` runs the command and compares its output

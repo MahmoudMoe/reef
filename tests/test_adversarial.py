@@ -338,7 +338,21 @@ class FeatureGuardPass(unittest.TestCase):
         self.assertNotIn("adversarial-guard", fm_of(self.p3), "nothing stamped when one task refuses")
         r = self.run_in("--feature", "other", "guard", self.report)
         self.assertEqual(r.returncode, 2)
-        self.assertIn("no design/critical task", r.stderr)
+        self.assertIn("no task of tier design or critical", r.stderr)
+
+    def test_complexity_design_at_tier_full_needs_no_guard_pass_and_says_why(self):
+        # 2026-10-24, the trial's row 18: task 1801 was complexity: design, tier: full; the orchestrator read "a design
+        # task" as the complexity, found the pass unrecordable, and filed a found row against the project for it
+        tdir = os.path.join(self.d, "reef", "features", "upload", "tasks")
+        os.makedirs(tdir)
+        with open(os.path.join(tdir, "001-u.md"), "w") as f:
+            f.write("---\nid: 1\nfeature: upload\nstatus: done\ncomplexity: design\ntier: full\nverify: judge\n---\n# u\n")
+        r = self.run_in("--feature", "upload", "guard", self.report)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("its `tier:`, not its `complexity:`", r.stderr)
+        self.assertIn("no guard pass is required", r.stderr)
+        review = open(os.path.join(ROOT, "skills", "reef-review", "SKILL.md"), encoding="utf-8").read()
+        self.assertIn("a task of tier `design` or `critical` (its `tier:`, not its `complexity:`)", review)
 
 
 class PlanRoundCap(unittest.TestCase):

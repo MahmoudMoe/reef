@@ -269,7 +269,8 @@ def main(argv):
             die(f"file not found: {report_path}")
         tasks = guarded_tasks(root, cfg, slug)
         if not tasks:
-            die(f"feature {slug!r} has no design/critical task here — nothing for a guard pass to record")
+            die(f"feature {slug!r} has no task of tier design or critical (its `tier:`, not its `complexity:`) — no guard pass "
+                "is required or recorded; the GREEN record does not ask for one")
         for p, fm in tasks:
             if "adversarial-plan" not in fm:
                 die(f"{os.path.relpath(p, root)}: no adversarial-plan record — the plan pass comes first")
