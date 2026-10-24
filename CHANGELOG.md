@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **`reef-doctor` names a local `.env` the gate reads and CI does not** (ai-coach, 2026-10-24, item 9). Prisma loads the
+  checkout's `.env`; with two keys set, the base branch failed 21 tests that pass in CI, and nothing said why. When
+  `.env` exists and `gates.full` is set, one line names the keys (names only, never values) and the one command to
+  compare: `KEY= … <gates.full>`. No automatic double run. tests/size-budget.json raised: `script_lines` 12,916 → 12,924.
 - **Init recommends the project's own files over Reef's renderings on an existing project** (ai-coach, 2026-10-24,
   item 8). Accepting Reef's ci.yml, AGENTS.md and dependabot.yml broke 62 of ai-coach's tests in 11 files. The skill's
   step 3 now says: on an existing project the recommended answer for every proposed file is "keep yours"; before
