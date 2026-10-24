@@ -71,5 +71,36 @@ class OneOrchestrator(unittest.TestCase):
         self.assertFalse(os.path.exists(self.lock))
 
 
+class GateResources(unittest.TestCase):
+    """`gates.resources` (0.7.1+, the owner's go 2026-10-24): a gate run holds each named resource for its whole run, in the
+    main checkout and in every worktree, so two runs never use one test database at once (the trial: a false red)."""
+
+    def test_two_gate_runs_on_one_resource_never_overlap(self):
+        import shutil, threading
+        d = tempfile.mkdtemp(prefix="reef-res.")
+        g = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
+        os.makedirs(os.path.join(d, "scripts"))
+        for f in ("reef-gate.sh", "reef-snapshot.sh", "reef-graph.py"):
+            shutil.copy(os.path.join(ROOT, "scripts", f), os.path.join(d, "scripts", f))
+        log = os.path.join(d, "..", os.path.basename(d) + ".runs")
+        gate = (f"python3 -c \"import time,sys; f=open(sys.argv[1],'a'); f.write('s %f\\n' % time.time()); f.flush(); "
+                f"time.sleep(1.5); f.write('e %f\\n' % time.time())\" {log}")
+        os.makedirs(os.path.join(d, ".reef"), exist_ok=True)
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"full": gate, "resources": ["db"]}, "resources": {"db": {"slots": 1}}}, f)
+        with open(os.path.join(d, ".gitignore"), "w") as f:
+            f.write(".reef/ci-local/\n.reef/worktrees/\n")
+        g("init", "-q", "-b", "main"); g("add", "-A"); g("commit", "-qm", "c")
+        wt = os.path.join(d, ".reef", "worktrees", "101")
+        g("worktree", "add", "-q", wt)
+        env = dict(os.environ, REEF_GATE_NO_CACHE="1")
+        runs = [threading.Thread(target=lambda c=c: subprocess.run(["sh", "scripts/reef-gate.sh", "full"], cwd=c, env=env,
+                                                                   capture_output=True)) for c in (d, wt)]
+        [t.start() for t in runs]
+        [t.join(60) for t in runs]
+        marks = [(l.split()[0], float(l.split()[1])) for l in open(log)]
+        self.assertEqual([m[0] for m in sorted(marks, key=lambda m: m[1])], ["s", "e", "s", "e"], f"two runs overlapped: {marks}")
+
+
 if __name__ == "__main__":
     unittest.main()
