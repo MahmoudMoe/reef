@@ -170,6 +170,29 @@ def proofs_of(ac_id, p):
     return [(ac_id, body, "cmd" if p.endswith("`") and not TEST_RE.fullmatch(body) and looks_like_command(body) else "test")]
 
 
+ASSERT_RE = re.compile(r"\bexpect\(|\bassert\b|\bshould\b")
+TEST_FILE_RE = re.compile(r"(^|/)(tests?|__tests__|spec)/|\.(test|spec)\.[a-z]+$|(^|/)test_[^/]+\.py$|_test\.(go|py|rs|js|ts)$")
+
+
+def assertion_changes(diff):
+    """Per EXISTING test file in a unified diff: the assertion lines removed and added (whitespace-normalised). A new test
+    file is allowed; a renamed path is the same file; a moved line shows up on both sides (0.7.2, ai-coach, item 15)."""
+    out, cur, new_file = {}, None, False
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            cur = line.split(" b/", 1)[-1]
+            new_file = False
+            continue
+        if line.startswith("new file mode"):
+            new_file = True
+            continue
+        if line.startswith(("+++", "---")) or cur is None or new_file or not TEST_FILE_RE.search(cur):
+            continue
+        if line[:1] in "+-" and ASSERT_RE.search(line[1:]):
+            out.setdefault(cur, ([], []))[0 if line[0] == "-" else 1].append(" ".join(line[1:].split()))
+    return out
+
+
 def test_exists(repo, name):
     r = subprocess.run(["git", "grep", "-l", "-F", "--", name, "--", ":!*.md"], cwd=repo, capture_output=True, text=True)
     hits = [h for h in r.stdout.splitlines() if not h.startswith((".reef/", "reef/", "docs/", "tasks/"))]
@@ -255,6 +278,24 @@ def main(argv):
                     gate = subprocess.run(["sh", os.path.join("scripts", "reef-gate.sh"), "full"], cwd=root, capture_output=True, text=True).returncode
                 if gate != 0:
                     findings.append(f"{label}: contradicts — {proof} exists but the full gate is red (exit {gate})")
+    # 0.7.2 (ai-coach, item 15): a `kind: refactor` task's deterministic criterion — in the branch's diff no existing test
+    # file changes an assertion line (moved code and imports allowed), and the full gate is green
+    refactors = [os.path.basename(p) for p, t in tasks if re.search(r"^kind:\s*refactor\s*$", t, re.M)]
+    if refactors:
+        base_ref = base or str((cfg.get("branches") or {}).get("base", "main") or "main")
+        r = subprocess.run(["git", "diff", "-M", "--unified=0", f"{base_ref}...HEAD"], cwd=root, capture_output=True, text=True)
+        label = f"{refactors[0]} refactor"
+        if r.returncode != 0:
+            findings.append(f"{label}: contradicts — no diff against {base_ref} ({r.stderr.strip()[:80]})")
+        else:
+            for f, (rem, add) in sorted(assertion_changes(r.stdout).items()):
+                if sorted(rem) != sorted(add):
+                    findings.append(f"{label}: contradicts — {f} changes an assertion line ({len(rem)} removed, {len(add)} added); "
+                                    "a refactor preserves behaviour, its tests stay")
+            if gate is None:
+                gate = subprocess.run(["sh", os.path.join("scripts", "reef-gate.sh"), "full"], cwd=root, capture_output=True, text=True).returncode
+            if gate != 0:
+                findings.append(f"{label}: contradicts — the full gate is red (exit {gate}); behaviour is not shown preserved")
     if superseded:
         print(f"{len(superseded)} superseded row(s) skipped (a later task's Proof replaces them):")
         for m_ in superseded:

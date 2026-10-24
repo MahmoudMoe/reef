@@ -154,6 +154,28 @@ class Stacks(unittest.TestCase):
         self.assertEqual(run(tmp).returncode, 0)
 
 
+class RefactorKind(unittest.TestCase):
+    """0.7.2 (ai-coach, item 15): `kind: refactor` names what it splits and the size it ends under; any other kind is refused."""
+
+    def task(self, extra):
+        d = repo(tempfile.mkdtemp(prefix="reef-pc-refactor."))
+        with open(os.path.join(d, "tasks", "001-demo.md")) as f:
+            t = f.read()
+        with open(os.path.join(d, "tasks", "001-demo.md"), "w") as f:
+            f.write(t.replace("attempts: 0\n", "attempts: 0\n" + extra))
+        return run(d)
+
+    def test_a_refactor_task_needs_its_splits_line_and_an_unknown_kind_is_refused(self):
+        r = self.task("kind: refactor\n")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("kind: refactor needs `splits: <file>[, <file>] under <N> lines`", r.stdout)
+        r = self.task("kind: refactor\nsplits: src/lib/interface/ar.ts, src/lib/big.ts under 400 lines\n")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        r = self.task("kind: feature\n")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("kind='feature' not in ['refactor']", r.stdout)
+
+
 class Decoration(unittest.TestCase):
     """Checks that could previously be satisfied without being true."""
 
