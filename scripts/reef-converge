@@ -119,6 +119,11 @@ def proofs(text):
                 out.append((ac_id, p.strip().strip("~").strip(), "superseded"))   # replaced by a later task's row: never run
             elif re.match(r"^\[mechanic\]", p):
                 out.append((ac_id, re.sub(r"^\[mechanic\]\s*", "", p).strip("`").strip(), "mechanic"))
+            elif (p0 := without_notes(p)) != p:
+                rows[ac_id] = p0   # a note in parentheses is commentary (2026-10-24, note n45): read the cell without it
+                out += proofs_of(ac_id, p0)
+            elif re.fullmatch(r"`[^`]+`\s+prints\s+`[^`]*`", p) or not p.startswith("`"):
+                out += proofs_of(ac_id, p)
             elif len(re.findall(r"`[^`]+`", p)) > 1 and not re.sub(r"`[^`]+`|[,;]|\band\b|\s", "", p):
                 # `a`, `b` in one cell is two proofs, each checked (2026-10-24, the trial's row 5 rollup: read as one name)
                 out += [(ac_id, x.strip(), "cmd" if not TEST_RE.fullmatch(x.strip()) and looks_like_command(x) else "test")
@@ -131,6 +136,38 @@ def proofs(text):
             for t in TEST_RE.finditer(ac):
                 out.append((ac_id, t.group(2) or t.group(0), "test"))
     return out
+
+
+def without_notes(p):
+    """The cell without its notes: a parenthesis opened outside backticks, to its matching close (backticks inside it
+    allowed); a parenthesis inside a backticked command is the command's own."""
+    out, depth, code = [], 0, False
+    for ch in p:
+        if ch == "`":
+            code = not code
+        elif not code and ch == "(":
+            depth += 1
+            continue
+        elif not code and ch == ")" and depth:
+            depth -= 1
+            continue
+        if not depth:
+            out.append(ch)
+    return re.sub(r"\s+", " ", "".join(out)).strip()
+
+
+def proofs_of(ac_id, p):
+    """One cell, read as written (2026-10-24, the trial's row 18, note n45): `cmd` prints `N` is a command and its expected
+    output; a cell of prose names no test or command and is listed, never reported missing; else a test or a command."""
+    m = re.fullmatch(r"`([^`]+)`\s+prints\s+`([^`]*)`", p)
+    if m:
+        return [(ac_id, f"{m.group(1)}\0{m.group(2)}", "prints")]
+    if not p.startswith("`"):
+        return [(ac_id, p, "prose")]
+    if len(re.findall(r"`[^`]+`", p)) > 1 and not re.sub(r"`[^`]+`|[,;]|\band\b|\s", "", p):
+        return [(ac_id, x.strip(), "cmd" if not TEST_RE.fullmatch(x.strip()) and looks_like_command(x) else "test") for x in re.findall(r"`([^`]+)`", p)]
+    body = p.strip("`").strip()
+    return [(ac_id, body, "cmd" if p.endswith("`") and not TEST_RE.fullmatch(body) and looks_like_command(body) else "test")]
 
 
 def test_exists(repo, name):
@@ -178,12 +215,23 @@ def main(argv):
         die(f"no task files for feature {feature!r}", 2)
     test_cmd = str((cfg.get("converge") or {}).get("test_cmd", "") or "")
     gate = None
-    findings, mechanic_rows, superseded = [], [], []
+    findings, mechanic_rows, superseded, prose = [], [], [], []
     for path, text in tasks:
         for ac_id, proof, kind in proofs(text):
             label = f"{os.path.basename(path)} {ac_id}"
             if kind == "superseded":
                 superseded.append(f"{label}: {proof}")
+                continue
+            if kind == "prose":
+                prose.append(f"{label}: {proof[:90]}")   # names no test or command: the verifier judged it, converge cannot
+                continue
+            if kind == "prints":
+                cmd, want = proof.split("\0", 1)
+                r = subprocess.run(["sh", "-c", cmd], cwd=root, capture_output=True, text=True)
+                if r.returncode == 127:
+                    findings.append(f"{label}: missing — `{cmd}` (exit 127)")
+                elif r.stdout.strip() != want:
+                    findings.append(f"{label}: contradicts — `{cmd}` prints {r.stdout.strip()[:40]!r}, not {want!r}")
                 continue
             if kind == "mechanic":
                 mechanic_rows.append(f"{label}: `{proof}`")   # writes files: the mechanic runs it, converge never does
@@ -210,6 +258,10 @@ def main(argv):
     if superseded:
         print(f"{len(superseded)} superseded row(s) skipped (a later task's Proof replaces them):")
         for m_ in superseded:
+            print(f"  - {m_}")
+    if prose:
+        print(f"{len(prose)} prose row(s) not run here (they name no test or command — the verifier judged them):")
+        for m_ in prose:
             print(f"  - {m_}")
     if mechanic_rows:
         print(f"{len(mechanic_rows)} [mechanic] row(s) not run here (they write files — the mechanic runs them verbatim):")

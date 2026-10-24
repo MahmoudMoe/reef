@@ -689,6 +689,24 @@ class Converge(unittest.TestCase):
         self.assertIn("contradicts", r.stdout)
         self.assertEqual(len([f for f in os.listdir(os.path.dirname(rollup)) if f.startswith("R")]), 1, "one rollup per feature, appended to")
 
+    def test_a_note_a_printed_value_and_a_prose_cell_are_read_as_written(self):
+        # 2026-10-24, the trial's row 18 (note n45): four false "missing" lines — a test name followed by a note in
+        # parentheses (backticks inside it too), a command whose cell says what it prints, and a cell of plain prose
+        def cells(ac1, ac2):
+            task = TASK_NEW.replace("| AC-1 | `test_csv_header_and_rows` |", f"| AC-1 | {ac1} |").replace("| AC-2 | `test_csv_two_decimals` |", f"| AC-2 | {ac2} |")
+            write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
+            return self.converge()
+        r = cells("`test_csv_header_and_rows` (header first, `id,amount`)", "`python3 -c \"print(1 + 2)\"` prints `3`")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Converged", r.stdout)
+        r = cells("`test_csv_header_and_rows`", "`python3 -c \"print(1 + 2)\"` prints `4`")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("AC-2: contradicts — `python3 -c \"print(1 + 2)\"` prints '3', not '4'", r.stdout)
+        r = cells("`test_csv_header_and_rows`", "both tests above render the header with two decimals")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("1 prose row(s) not run here", r.stdout)
+        self.assertNotIn("missing", r.stdout)
+
     def test_a_cell_with_two_backticked_names_checks_each(self):
         # 2026-10-24, the trial's row 5 rollup: a Proof cell holding two names, `a`, `b`, was read as ONE name
         # ("a`, `b") and reported missing although both tests existed
