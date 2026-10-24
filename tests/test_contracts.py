@@ -267,6 +267,14 @@ class PlanIsMeasuredFirst(unittest.TestCase):
         self.assertIn("recommend the smallest plan with zero errors; on an existing project \"archive the stray docs, keep folders the project's tools read\" is the default", skill)
 
 
+class AdoptionHandOff(unittest.TestCase):
+    def test_the_assess_skill_hands_off_with_the_apply_line_and_never_pushes_before_it(self):
+        # 0.7.2 (ai-coach, 2026-10-24, item 18): assess asked to push and merge without saying the replacement was deferred
+        skill = read("skills", "reef-assess", "SKILL.md")
+        self.assertIn("\"Reef's tree is complete\", or \"partial: N documents outside it — rows #a–#b, blocked by …\" — never ask to push or merge before that line", skill)
+        self.assertIn("The plan refuses while the old loop has work in flight", skill)
+
+
 class RollupNoPlanHunter(unittest.TestCase):
     def test_the_review_skill_says_a_rollup_gets_no_plan_pass(self):
         self.assertIn("A rollup gets no hunter plan pass, whatever its tier", read("skills", "reef-review", "SKILL.md"))

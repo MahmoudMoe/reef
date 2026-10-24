@@ -1,6 +1,21 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **Assess does the whole adoption and says what it did not** (ai-coach, 2026-10-24, item 18). The owner approved a
+  reduced recalibration (32 documents archived); `specs/`, `docs/adr/`, a 909-row old queue and a second handoff stayed
+  because the project's own tools read them, and assess asked to push and merge without saying the replacement was
+  deferred or in what order it had to happen. The plan now carries the adoption as one ordered list — the old queue's
+  open rows become Reef rows (`add-row`, planned) and the file is archived with its closed rows; the old handoff is
+  merged into `HANDOFF.md` under `## Carried over from …` and archived; every reader of a moved document is repointed
+  (an exact path, rewritten in place at apply) or retired (a directory read: a found row with the blocker, the documents
+  under it wait); the old loop's commands and agents are archived and its package scripts listed for the owner; the
+  instruction layer is rewritten (item 19) — all in ONE commit. Precondition, checked by the plan and the apply: the old
+  loop has nothing in flight — an unmerged local branch its queue or handoff names refuses the migration and is named;
+  `--apply --park-in-flight` re-admits each as a Reef row and migrates. `plan --measure` runs the whole adoption in a
+  scratch worktree (item 16d). The apply ends with "hand-off: Reef's tree is complete" or "partial: N documents outside
+  it — rows #a–#b, blocked by …", and names the holds the project's own handoff and runbooks state ("nothing merges into
+  develop until promotion 11"); the skill never asks to push or merge before that line. Ships after item 19, whose
+  instruction-layer functions it uses. tests/size-budget.json raised: `prose_words` 21,089 → 21,165, `script_lines` 13,701 → 13,904.
 - **The project's instruction layer no longer points agents at the old process** (ai-coach, 2026-10-24, item 19).
   `CLAUDE.md`, `AGENTS.md` and `CLAUDE-CODE-PROMPT.md` told every session to read `HANDOFF-FRESH.md` and
   `docs/loop/queue.md` first, start with `/loop-start`, close with `npm run loop:close`, number ADRs with `loop:adr`, route

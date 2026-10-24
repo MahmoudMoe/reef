@@ -231,6 +231,128 @@ def rewrite_instruction(text, entry):
     return "".join(out)
 
 
+# ---------------------------------------------------------------- the whole adoption (0.7.2, ai-coach 2026-10-24, item 18)
+# Assess archived 32 stray documents and handed off; specs/, docs/adr/, a 909-row old queue and a second handoff stayed because the
+# project's own tools read them, and nothing said the replacement was deferred or in what order it had to happen. The plan now
+# covers the whole adoption as one ordered list, checks that the old loop has nothing in flight, migrates in ONE commit, and ends
+# with a hand-off line that says "complete" or "partial: N documents outside it — rows, blocked by …".
+QUEUE_FILE = re.compile(r"(^|/)(queue|backlog)[\w-]*\.md$", re.I)
+OLD_HANDOFF = re.compile(r"^HANDOFF[-_][\w-]+\.md$")
+DONE_STATES = {"done", "closed", "merged", "shipped", "archived", "cancelled", "canceled", "dropped", "released", "complete", "completed"}
+HOLD_RE = re.compile(r"(?i)\b(nothing|no\s+\w+|do not|don't|never)\s+(merges?|push\w*|deploy\w*|releases?|promot\w*)\b.*\b(until|before|while)\b|\b(hold|freeze|frozen|moratorium)\b")
+BRANCH_IN_TEXT = re.compile(r"[\w./-]*[\w-]")
+
+
+def parse_old_queue(text):
+    """Any markdown table with an id-like and a status-like column: the rows, their id, title and whether they are open."""
+    rows, header = [], None
+    for line in text.splitlines():
+        if not line.strip().startswith("|"):
+            header = None
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if header is None:
+            low = [c.lower() for c in cells]
+            if any(c in ("id", "#", "row", "no", "n") for c in low) and any(re.search(r"status|state", c) for c in low):
+                header = low
+            continue
+        if re.fullmatch(r"[-:| ]+", line.strip()):
+            continue
+        if len(cells) < len(header):
+            cells += [""] * (len(header) - len(cells))
+        row = dict(zip(header, cells))
+        rid = next((row[c] for c in header if c in ("id", "#", "row", "no", "n")), "")
+        title = next((row[c] for c in header if re.search(r"item|title|task|description|summary|work", c)), "") or next((v for k, v in row.items() if k not in ("id", "#") and v), "")
+        status = next((row[c] for c in header if re.search(r"status|state", c)), "")
+        rows.append({"id": rid, "title": title, "status": status, "open": status.strip().lower().split(" ")[0] not in DONE_STATES})
+    return rows
+
+
+def adoption_inventory(root, cfg, files, base_branch):
+    paths = cfg.get("paths") or {}
+    reef_queue = str(paths.get("queue", "reef/queue.md"))
+    old_queues, old_handoffs, holds = {}, [], []
+    for rel in files:
+        if rel != reef_queue and not rel.startswith(("reef/", ".reef/")) and QUEUE_FILE.search(rel):
+            rows = parse_old_queue(read(os.path.join(root, rel)))
+            if rows:
+                old_queues[rel] = rows
+        if OLD_HANDOFF.match(rel) or re.search(r"(^|/)HANDOFF[-_][\w-]+\.md$", rel):
+            old_handoffs.append(rel)
+    for rel in old_handoffs + [r for r in files if RUNBOOK.search(r)]:
+        for n, line in enumerate(read(os.path.join(root, rel)).splitlines(), 1):
+            if HOLD_RE.search(line):
+                holds.append({"file": rel, "line": n, "text": line.strip()[:160]})
+    # the precondition: an unmerged local branch the old queue (or the old handoff) names is work in flight under the old loop
+    in_flight = []
+    if subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", f"refs/heads/{base_branch}"], capture_output=True).returncode == 0:
+        texts = {rel: read(os.path.join(root, rel)) for rel in list(old_queues) + old_handoffs}
+        for b in [l.strip() for l in git(root, "branch", "--format=%(refname:short)", check=False).splitlines() if l.strip()]:
+            if b == base_branch or subprocess.run(["git", "-C", root, "merge-base", "--is-ancestor", b, base_branch], capture_output=True).returncode == 0:
+                continue
+            for rel, text in texts.items():
+                if re.search(r"(?<![\w/-])" + re.escape(b) + r"(?![\w/-])", text):
+                    in_flight.append({"branch": b, "claimed_by": rel})
+                    break
+    # the old loop's commands and agents: those that name the old process are Reef's skills' business now
+    old_cmds = []
+    for rel in files:
+        if rel.startswith((".claude/commands/", ".claude/agents/")):
+            text = read(os.path.join(root, rel))
+            if any(rx.search(text) for _, rx in RULE_KINDS) or any(q in text for q in old_queues) or any(h in text for h in old_handoffs):
+                old_cmds.append(rel)
+    scripts = {}
+    pkg_p = os.path.join(root, "package.json")
+    if os.path.isfile(pkg_p):
+        try:
+            scripts = {k: v for k, v in (json.loads(read(pkg_p)).get("scripts") or {}).items() if re.match(r"^(loop|handoff|adr)[:_-]", k)}
+        except ValueError:
+            scripts = {}
+    return {"old_queues": {k: {"rows": len(v), "open": sum(1 for r in v if r["open"])} for k, v in old_queues.items()}, "old_handoffs": old_handoffs,
+            "holds": holds, "in_flight": in_flight, "old_commands": old_cmds, "old_scripts": scripts, "_rows": old_queues}
+
+
+def adoption_readers(root, moving, new_home):
+    """Every reader of a document the adoption moves: a reader naming the exact path is REPOINTED at apply (the string becomes the
+    new home); a reader of its directory cannot be repointed mechanically and is RETIRED — a queue row with the blocker, and the
+    documents under that directory stay until then (the hand-off says "partial")."""
+    readers, blocked = [], {}
+    for rel in sorted(moving):
+        for f in referenced_by(root, rel):
+            if not INSTRUCTION_FILE.match(f):   # the instruction layer is rewritten by item 19, not repointed
+                readers.append({"reader": f, "target": rel, "action": "repoint", "new": new_home.get(rel, "")})
+        for d, hits in directory_readers(root, rel):
+            for f in hits:
+                if not INSTRUCTION_FILE.match(f):
+                    readers.append({"reader": f, "target": rel, "action": "retire", "directory": d})
+                    blocked[rel] = f"{f} reads {d}/"
+    return readers, blocked
+
+
+def render_adoption(a, readers, blocked):
+    lines = ["## Adoption — the whole move, in order", "",
+             "1. old queue(s): open rows → Reef's queue (`reef-queue.py add-row`, source planned), the file archived with its closed rows; "
+             "2. old handoff(s) merged into `HANDOFF.md` under `## Carried over from …`, then archived; 3. every reader of a moved document "
+             "repointed (an exact path) or retired (a directory read: a queue row, the documents wait); 4. open specs → feature folders, closed → "
+             "archive; 5. decisions → Reef's ADR home (numbered ones keep their number); 6. the old loop's commands and agents archived "
+             "(Reef's skills replace them), its package scripts listed for the owner; 7. the instruction layer rewritten (item 19); "
+             "8. `reef-structure --check` joins `gates.extra`. All of it in ONE commit (`git revert` undoes it).", ""]
+    if a["in_flight"]:
+        lines += ["**REFUSED until the old loop has nothing in flight** — unmerged branches its documents claim: " +
+                  ", ".join(f"`{x['branch']}` (claimed by `{x['claimed_by']}`)" for x in a["in_flight"]) +
+                  ". Finish them first, or `--apply --park-in-flight` re-admits each as a Reef row and migrates. Never migrate under a running loop.", ""]
+    lines += [f"- old queue `{q}`: {v['rows']} row(s), {v['open']} open → Reef rows; the file archived" for q, v in a["old_queues"].items()] or ["- no old queue found"]
+    lines += [f"- old handoff `{h}` → merged into HANDOFF.md, archived" for h in a["old_handoffs"]] or ["- no second handoff"]
+    lines += [f"- hold in `{h['file']}:{h['line']}` — `{h['text']}` (outranks Reef's merge default: named in the hand-off)" for h in a["holds"]]
+    lines += [f"- old loop command/agent `{c}` → archived (Reef's skills replace it)" for c in a["old_commands"]]
+    lines += [f"- old loop package script `{k}`: `{v}` — the owner retires it (not touched)" for k, v in a["old_scripts"].items()]
+    for r in readers:
+        lines.append(f"- reader `{r['reader']}` of `{r['target']}`: " + (f"repointed to `{r['new']}`" if r["action"] == "repoint" else f"RETIRE — it reads `{r['directory']}/`; a queue row, the documents under it wait"))
+    if not readers:
+        lines.append("- no reader of a moved document outside the instruction layer")
+    return "\n".join(lines) + "\n"
+
+
 def render_layer(layer, rewrites):
     lines = ["# The instruction layer — what the agents read first", "",
              "Written by `reef-recalibrate plan` (Observed: file:line). Every pointer to a process document and every process rule that "
@@ -359,9 +481,17 @@ def build_plan(root):
     base_branch = str(((json.loads(read(cfg_p)) if os.path.isfile(cfg_p) else {}).get("branches") or {}).get("base", "main") or "main")
     unmerged = unmerged_edits(root, base_branch)
     plan, n, taken = [], 0, set()
+    cfg_all = json.loads(read(cfg_p)) if os.path.isfile(cfg_p) else {}
+    adoption = adoption_inventory(root, cfg_all, files, base_branch)
     for rel in sorted(files):
         text = read(os.path.join(root, rel))
         action, reason = classify(root, rel, text, served, unmerged)
+        if rel in adoption["old_queues"]:
+            action, reason = "convert-queue", f"the old loop's queue: {adoption['old_queues'][rel]['open']} open row(s) → Reef rows, closed rows archived with the file"
+        elif rel in adoption["old_handoffs"]:
+            action, reason = "merge-handoff", "a second handoff: merged into HANDOFF.md, then archived"
+        elif rel in adoption["old_commands"]:
+            action, reason = "archive", "an old loop command or agent — Reef's skills replace it"
         entry = {"path": rel, "action": action, "reason": reason}
         title = (re.search(r"^#\s+(.+)$", text, re.M) or [None, ""])[1] if re.search(r"^#\s+(.+)$", text, re.M) else ""
         if action == "convert-adr":
@@ -379,9 +509,19 @@ def build_plan(root):
             entry["archive"] = f"reef/archive/{date}/{rel}"
         plan.append(entry)
     hist = cmd_history(root)
+    moving = {e["path"] for e in plan if e["action"] != "keep"}
+    new_home = {e["path"]: (str((cfg_all.get("paths") or {}).get("queue", "reef/queue.md")) if e["action"] == "convert-queue" else "HANDOFF.md" if e["action"] == "merge-handoff"
+                            else e.get("archive", "")) for e in plan if e["action"] != "keep"}
+    readers, blocked = adoption_readers(root, moving, new_home)
+    for e in plan:   # a document a retire-reader needs stays until that reader is retired: the hand-off says "partial"
+        if e["path"] in blocked and e["action"] not in ("convert-queue", "merge-handoff"):
+            e["action"], e["reason"], e["blocked_by"] = "keep", f"waits: {blocked[e['path']]} (a retire row is created)", blocked[e["path"]]
+            e.pop("archive", None)
+    adoption.pop("_rows", None)
+    adoption["readers"] = readers
     layer = instruction_layer(root, files, {e["path"] for e in plan if e["action"] != "keep"})
     rewrites = propose_rewrites(root, layer)
-    return {"date": date, "entries": plan, "history": hist, "instruction_layer": layer, "rewrites": rewrites, "create": ["reef/constitution.md", "reef/queue.md", "reef/journal.md", "reef/glossary.md",
+    return {"date": date, "entries": plan, "history": hist, "instruction_layer": layer, "rewrites": rewrites, "adoption": adoption, "create": ["reef/constitution.md", "reef/queue.md", "reef/journal.md", "reef/glossary.md",
                                                                      "reef/architecture/", "reef/features/README.md", f"reef/archive/{date}/", "reef/archive/README.md"]}
 
 
@@ -393,10 +533,14 @@ def render_plan(plan):
     lines += [f"- create `{c}`" for c in plan["create"]]
     lines += ["", "## Documents", "", "| action | path | → | reason |", "|---|---|---|---|"]
     for e in plan["entries"]:
-        dest = {"convert-adr": f"reef/architecture/adr/NNNN-{e.get('adr_slug', '')}.md (+ archive)",
+        dest = {"convert-queue": "open rows → Reef's queue (+ archive)", "merge-handoff": "HANDOFF.md (+ archive)",
+                "convert-adr": f"reef/architecture/adr/NNNN-{e.get('adr_slug', '')}.md (+ archive)",
                 "convert-feature": f"reef/features/{e.get('feature', '')}/SPEC.md (+ queue row, + archive)",
                 "merge-glossary": "reef/glossary.md (+ archive)", "archive": e.get("archive", ""), "keep": "—"}[e["action"]]
         lines.append(f"| {e['action']} | `{e['path']}` | {dest} | {e['reason']} |")
+    if plan.get("adoption"):
+        a = plan["adoption"]
+        lines += ["", render_adoption(a, a.get("readers") or [], {}).rstrip("\n")]
     rw = plan.get("rewrites") or []
     lay = plan.get("instruction_layer") or {"files": [], "duplicates": []}
     lines += ["", "## Instruction layer (reef/instruction-layer.md)", "",
@@ -480,6 +624,8 @@ def cmd_plan(root, measure=False):
     with open(os.path.join(root, "reef", "recalibration.md"), "w", encoding="utf-8") as f:
         f.write(text)
     moving = [e for e in plan["entries"] if e["action"] != "keep"]
+    for x in (plan.get("adoption") or {}).get("in_flight") or []:
+        print(f"ADOPTION REFUSED: branch {x['branch']} is in flight under the old loop (claimed by {x['claimed_by']}) — finish it first, or --apply --park-in-flight")
     print(f"plan written: reef/recalibration.md — {len(moving)} document(s) to convert or move, {len(plan['entries']) - len(moving)} kept")
     return 0
 
@@ -873,11 +1019,15 @@ def cmd_measure(root, as_json):
     return 0
 
 
-def cmd_apply(root, list_path, commit):
+def cmd_apply(root, list_path, commit, park=False):
     plan_path = list_path or os.path.join(root, ".reef", "recalibration.json")
     if not os.path.isfile(plan_path):
         die("no plan — run `reef-recalibrate plan` first (the owner approves reef/recalibration.md)", 1)
     plan = json.loads(read(plan_path))
+    adoption = plan.get("adoption") or {}
+    if adoption.get("in_flight") and not park:
+        die("the old loop has work in flight: " + ", ".join(f"{x['branch']} (claimed by {x['claimed_by']})" for x in adoption["in_flight"]) +
+            " — finish those branches first, or --apply --park-in-flight re-admits each as a Reef row; never migrate under a running loop", 1)
     if list_path and list_path.endswith(".md"):
         die("--list takes the JSON plan (edit the action column of .reef/recalibration.json)", 2)
     date = plan["date"]
@@ -912,9 +1062,37 @@ def cmd_apply(root, list_path, commit):
     index = ["# Archive", "", f"Moved by `scripts/reef-recalibrate --apply` on {date}; undo with `git revert` of that commit. Deleting this directory is a later queue row.", "",
              "| original | new home | reason |", "|---|---|---|"]
     gloss_terms = []
+    queue_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-queue.py")
+    new_rows = []
+
+    def add_row(item, source="planned"):
+        r = subprocess.run([sys.executable, queue_script, "add-row", "--item", item, "--source", source, "--repo", root], capture_output=True, text=True)
+        if r.returncode != 0 or not r.stdout.strip().isdigit():
+            die(f"a Reef row could not be created ({(r.stderr or r.stdout).strip()[:200]}); nothing moved", 1)
+        new_rows.append(int(r.stdout.strip()))
+        return new_rows[-1]
+
+    # rows first, before any move: the old queue's open rows, the parked in-flight branches, the readers to retire
+    for e in entries:
+        if e["action"] == "convert-queue":
+            for row in [r for r in parse_old_queue(read(os.path.join(root, e["path"]))) if r["open"]]:
+                add_row(f"{row['title'][:150]} (from {e['path']} row {row['id']})")
+    for x in adoption.get("in_flight") or [] if park else []:
+        add_row(f"parked: finish branch {x['branch']} under Reef (was in flight under the old loop, claimed by {x['claimed_by']})")
+    retire_rows = {}
+    for rd in [r for r in adoption.get("readers") or [] if r["action"] == "retire"]:
+        key = (rd["reader"], rd["directory"])
+        if key not in retire_rows:
+            retire_rows[key] = add_row(f"retire or repoint {rd['reader']}: it reads {rd['directory']}/; the documents under it move to Reef's tree once it does", "found")
     for e in entries:
         rel, arch = e["path"], e["archive"]
         text = read(os.path.join(root, rel))
+        if e["action"] == "merge-handoff":   # item 18: the old handoff's text under its own heading in HANDOFF.md, the original archived
+            hp = os.path.join(root, "HANDOFF.md")
+            prev = read(hp) if os.path.isfile(hp) else f"# Handoff — {date}\n\nRead this first, then `AGENTS.md`.\n"
+            with open(hp, "w", encoding="utf-8") as f:
+                f.write(prev.rstrip("\n") + f"\n\n## Carried over from {rel} ({date})\n\n" + re.sub(r"^# .*\n", "", text, count=1).strip() + "\n")
+            touched.append("HANDOFF.md")
         os.makedirs(os.path.dirname(os.path.join(root, arch)), exist_ok=True)
         git(root, "mv", rel, arch)
         moved[rel] = arch
@@ -947,7 +1125,22 @@ def cmd_apply(root, list_path, commit):
         elif e["action"] == "merge-glossary":
             gloss_terms += [l for l in text.splitlines() if l.startswith("|") and "---" not in l and not re.match(r"^\|\s*Term\s*\|", l)]
             home = f"reef/glossary.md (original under {arch})"
+        if e["action"] == "convert-queue":
+            home = f"{arch} (open rows → Reef's queue)"
+        elif e["action"] == "merge-handoff":
+            home = f"HANDOFF.md (original under {arch})"
         index.append(f"| `{rel}` | `{home}` | {e['reason']} |")
+    # readers of a moved document that name its exact path are repointed in place (item 18.1); directory readers were retired as rows
+    for rd in adoption.get("readers") or []:
+        if rd["action"] == "repoint" and rd["target"] in moved and rd.get("new"):
+            rp_ = os.path.join(root, rd["reader"])
+            if os.path.isfile(rp_):
+                t = read(rp_)
+                if rd["target"] in t:
+                    with open(rp_, "w", encoding="utf-8") as f:
+                        f.write(t.replace(rd["target"], rd["new"]))
+                    touched.append(rd["reader"])
+                    index.append(f"| `{rd['reader']}` | (repointed) | reader of `{rd['target']}` → `{rd['new']}` |")
     if gloss_terms:
         gp = os.path.join(root, paths.get("glossary", "reef/glossary.md"))
         os.makedirs(os.path.dirname(gp), exist_ok=True)
@@ -1011,6 +1204,16 @@ def cmd_apply(root, list_path, commit):
             print("the rows stay in the queue file: python3 scripts/reef-queue.py import-rows --apply moves them")
     print(f"applied: {len(entries)} document(s) — {sum(1 for e in entries if e['action'] == 'convert-adr')} ADR(s), "
           f"{sum(1 for e in entries if e['action'] == 'convert-feature')} feature folder(s), index at reef/archive/README.md" + (" (committed)" if commit else ""))
+    # the hand-off line (item 18.5): complete, or partial with the rows and their blockers; the holds the project's own documents name
+    waiting = [e for e in plan["entries"] if e.get("blocked_by")]
+    if waiting:
+        ids = sorted(new_rows)
+        print(f"hand-off: partial: {len(waiting)} document(s) outside Reef's tree — rows #{ids[0]}–#{ids[-1]}" if ids else f"hand-off: partial: {len(waiting)} document(s) outside Reef's tree",
+              "— blocked by " + "; ".join(sorted({e['blocked_by'] for e in waiting})))
+    else:
+        print("hand-off: Reef's tree is complete")
+    for h in adoption.get("holds") or []:
+        print(f"hold: {h['file']}:{h['line']} — {h['text']} (outranks Reef's merge default)")
     return 0
 
 
@@ -1032,8 +1235,8 @@ def main(argv):
         return cmd_measure(root, "--json" in argv)
     if argv[:1] == ["--apply"]:
         lst = argv[argv.index("--list") + 1] if "--list" in argv else None
-        return cmd_apply(root, lst, "--no-commit" not in argv)
-    die("usage: reef-recalibrate plan | history | measure [--json] | --apply [--list plan.json] [--no-commit]  [--repo DIR]")
+        return cmd_apply(root, lst, "--no-commit" not in argv, "--park-in-flight" in argv)
+    die("usage: reef-recalibrate plan [--measure] | history | measure [--json] | --apply [--list plan.json] [--no-commit] [--park-in-flight]  [--repo DIR]")
 
 
 if __name__ == "__main__":

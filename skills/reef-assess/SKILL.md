@@ -27,4 +27,4 @@ Then `python3 scripts/reef-recalibrate measure` — counts, not judgments, into 
 4. `python3 scripts/reef-structure --check` passes afterwards and joins `gates.extra` (`"structure"`), so a process document cannot drift back outside the layout.
 
 ## 3. Hand off
-`reef/day-zero.md` lists what is still open; the first queue row is a walking skeleton or the smallest open spec; `/reef-loop` from there. End with `in flight: … / waiting on: …`.
+The apply's last line is the hand-off: "Reef's tree is complete", or "partial: N documents outside it — rows #a–#b, blocked by …" — never ask to push or merge before that line, and name the holds it printed from the project's own handoff and runbooks (a hold outranks Reef's merge default). The plan refuses while the old loop has work in flight (an unmerged branch its queue names): finish those branches first, or `--apply --park-in-flight`. `reef/day-zero.md` lists what is still open; the first queue row is a walking skeleton or the smallest open spec; `/reef-loop` from there. End with `in flight: … / waiting on: …`.
