@@ -58,8 +58,20 @@ def is_process_doc(root, rel):
     return bool(HEADINGS.search(head))
 
 
+def config_homes(root):
+    """The places .reef/config.json `paths.*` names (0.7.2, ai-coach 2026-10-24, item 17): init chose them, so the check accepts
+    them whatever the version — `docs/adr` was flagged on a project whose config said `paths.adr: docs/adr`."""
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            paths = json.load(f).get("paths") or {}
+    except (OSError, ValueError):
+        return None
+    return [str(v).strip().strip("/") for k, v in paths.items() if v and k in ("adr", "queue", "runlog", "glossary", "tasks", "features", "day_zero")]
+
+
 def violations(root):
     is06 = os.path.isfile(os.path.join(root, ".reef", "version"))
+    homes = config_homes(root)
     legacy_ok = ("docs/adr/", "docs/queue", "docs/journal", "docs/day-zero", "docs/glossary", "docs/runlog", "tasks/", ".specify/")
     served = served_dirs(root)
     bad = []
@@ -72,8 +84,10 @@ def violations(root):
             continue
         if any(rel == d or rel.startswith(d + "/") for d in served if d):
             continue
-        if not is06 and rel.startswith(legacy_ok):
-            continue
+        if homes is not None and any(rel == h or rel.startswith(h + "/") for h in homes):
+            continue   # the home the config names, whatever the version
+        if not homes and not is06 and rel.startswith(legacy_ok):
+            continue   # no paths configured: the 0.5 places
         if not is_process_doc(root, rel):
             continue
         if referenced(root, rel):

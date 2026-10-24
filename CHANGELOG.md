@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **`reef-structure` accepts the layout `reef-init` itself chose** (ai-coach, 2026-10-24, item 17). After init and assess
+  the check reported about 700 lines, `docs/adr/` among them — the ADR home init had written into `.reef/config.json`
+  (`paths.adr: docs/adr`): init picks the legacy layout for a project with `.specify/`, `docs/queue.md` or `docs/adr`,
+  but also writes `.reef/version`, and the check accepted the legacy places only without that file. It now reads
+  `paths.*` (adr, queue, runlog, glossary, tasks, features, day_zero) and accepts those locations whatever the
+  version; the hard-coded 0.5 tuple is the fallback only when no paths are configured. tests/size-budget.json raised: `script_lines` 13,512 → 13,526.
 - **The recalibration plan no longer moves what the project's tools read** (ai-coach, 2026-10-24, item 16). The full
   plan moved 735 documents; applied in a scratch worktree it caused 603 `check:docs` errors, 4 red tests, archived a
   font licence and conflicted with 4 in-flight branches. Four causes, four rules: (a) a reference search by exact path
