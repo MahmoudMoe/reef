@@ -42,6 +42,8 @@ class OneOrchestrator(unittest.TestCase):
         self.assertIn("another Claude session (aaaa1111", r.stderr)
         self.assertIn("reef-loop.py unlock", r.stderr)
         self.assertEqual(self.guard("bbbb2222", "gh pr merge 7 --squash").returncode, 2, "a merge is a loop write too")
+        self.assertEqual(self.guard("bbbb2222", "scripts/reef-merge-close tasks/101-x.md --subject s --journal j").returncode, 2,
+                         "a task's merge-close is a loop write too (0.7.2, item 4)")
         self.assertEqual(self.guard("bbbb2222", "git status").returncode, 0, "reading is anyone's")
         self.assertEqual(self.guard("bbbb2222", agent_id="sub-1").returncode, 0, "a subagent belongs to its own session")
         self.assertEqual(self.guard("aaaa1111").returncode, 0, "the holder keeps going")

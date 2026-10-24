@@ -1139,7 +1139,7 @@ def main_checkout(cwd):
 
 
 HOLD_MINUTES = 30
-LOOP_WRITE = re.compile(r"reef-loop\.py\s+tick|gh\s+pr\s+merge|reef-record\b|reef-queue\.py\s+(add-row|close|admit|set-|drop-row|demote|"
+LOOP_WRITE = re.compile(r"reef-loop\.py\s+tick|gh\s+pr\s+merge|reef-record\b|reef-merge-close\b|reef-queue\.py\s+(add-row|close|admit|set-|drop-row|demote|"
                         r"footnote|journal|note|promote-note)|\bgit\s+(merge|push)\b")
 
 

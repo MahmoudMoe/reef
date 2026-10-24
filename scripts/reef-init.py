@@ -51,7 +51,7 @@ SCRIPTS = ["reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.
            "reef-adversarial", "reef-claims.py", "reef-ci-local.sh", "reef-tier.py", "reef-queue.py",
            # 0.6
            "reef-converge", "reef-record", "reef-structure", "reef-recalibrate", "reef-c4.py", "reef-threat.py",
-           "reef-repo", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-migrate", "reef-merge-base",
+           "reef-repo", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-migrate", "reef-merge-base", "reef-merge-close",
            # 0.7 (2026-10-18: /reef-graph on the trial found no scripts/reef-graph-run.py — it was never in this list)
            "reef-graph-run.py", "reef-run.py",
            # 2026-10-23: the night prompt runs `python3 scripts/reef-approval.py --proxy`; no project had it
