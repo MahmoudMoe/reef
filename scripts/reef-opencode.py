@@ -22,8 +22,8 @@ import sys
 import tempfile
 
 ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "plan_reviewer", "loophole-hunter": "adversary",
-           "mechanic": "mechanic", "security": "security", "planner": "planner", "mahmoud": "proxy"}
-JUDGES = ("verifier", "loophole-hunter", "plan-reviewer", "security", "mahmoud")
+           "mechanic": "mechanic", "security": "security", "planner": "planner", "mahmoud": "proxy", "acceptance": "reviewer"}
+JUDGES = ("verifier", "loophole-hunter", "plan-reviewer", "security", "mahmoud", "acceptance")
 IGNORE = [".opencode/plugins/reef-guard.js", ".opencode/agents/reef:*", ".opencode/skills/reef-*", ".opencode/commands/reef*",
           ".opencode/reef-host.md"]
 

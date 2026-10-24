@@ -102,5 +102,29 @@ class GateResources(unittest.TestCase):
         self.assertEqual([m[0] for m in sorted(marks, key=lambda m: m[1])], ["s", "e", "s", "e"], f"two runs overlapped: {marks}")
 
 
+class AcceptanceJudge(unittest.TestCase):
+    """reef:acceptance (0.7.2, the owner's go 2026-10-24, item 6): a read-only judge like the verifier, on roles.reviewer."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-acc.")
+        subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
+        os.makedirs(os.path.join(self.d, ".reef"))
+        with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"full": "true"}, "roles": {"reviewer": "opus"}}, f)
+
+    def guard(self, payload):
+        return subprocess.run([sys.executable, GUARD], input=json.dumps({"cwd": self.d, **payload}), capture_output=True, text=True)
+
+    def test_it_cannot_write_the_project_and_runs_on_roles_reviewer(self):
+        judge = {"agent_type": "reef:acceptance", "agent_id": "a1", "tool_name": "Bash"}
+        self.assertEqual(self.guard({**judge, "tool_input": {"command": "echo GREEN > verdict.md"}}).returncode, 2)
+        self.assertEqual(self.guard({**judge, "tool_input": {"command": "git log -3 && cat SPEC.md"}}).returncode, 0)
+        r = self.guard({"tool_name": "Agent", "tool_input": {"subagent_type": "reef:acceptance", "model": "sonnet", "prompt": "review"}})
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("roles.reviewer", r.stderr)
+        r = self.guard({"tool_name": "Agent", "tool_input": {"subagent_type": "reef:acceptance", "model": "opus", "prompt": "review"}})
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

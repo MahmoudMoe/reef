@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **The acceptance review is a lean judge, not a general-purpose agent** (the owner's go, 2026-10-24, item 6). The
+  feature's acceptance review ran in a general-purpose agent that started at about 17,000 tokens of context, against
+  about 7,500 for Reef's own agents. New `reef:acceptance` (model `roles.reviewer`): read-only like the verifier, it judges
+  the feature against its `SPEC.md` from the user's side, one PASS/FAIL with evidence per FR/SC key, `unrequested` work a
+  finding, and writes a report that opens with `HEAD:`, carries `RUN: agent=acceptance feature=<slug>` and ends with
+  `VERDICT: GREEN | FAIL`, read through `reef-claims.py verdict`. The guard locks it (no project writes, the model from
+  `roles.reviewer`); the OpenCode host maps and judges it the same way; `/reef-review` dispatches it. tests/size-budget.json
+  raised: `prose_words` 20,474 → 20,843.
 - **The orchestrator reads a judge's verdict, not its report** (the owner's go, 2026-10-24, item 5: the trial night's
   orchestrator read 64,000 characters of full judge reports, each re-read at every later step). `reef-claims.py verdict
   <report>` prints the RUN line, the verdict, every BLOCKER, failed criterion, NEW-ROW and NOTED line, and the report's

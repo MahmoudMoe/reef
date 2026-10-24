@@ -92,7 +92,7 @@ import time
 
 DEADLINE = float(os.environ.get("REEF_GUARD_DEADLINE", "8"))
 TIER_ORDER = ["light", "full", "design", "critical"]
-LOCKED_TYPES = ("verifier", "loophole-hunter", "plan-reviewer", "Explore", "security", "mahmoud")
+LOCKED_TYPES = ("verifier", "loophole-hunter", "plan-reviewer", "Explore", "security", "mahmoud", "acceptance")
 AGENT_TYPES = LOCKED_TYPES + ("implementer", "mechanic")
 MUTATING_GIT = {"commit", "add", "rm", "mv", "checkout", "switch", "restore", "reset", "merge", "rebase", "push",
                 "stash", "apply", "am", "cherry-pick", "revert", "clean", "worktree", "submodule", "init", "clone"}
@@ -914,7 +914,7 @@ def check_single_rollup(path, fm):
 # mechanical work. Each project overrides per role; an unset role is not checked.
 ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "plan_reviewer",
            "loophole-hunter": "adversary", "mechanic": "mechanic", "Explore": "mechanic", "security": "security",
-           "planner": "planner", "mahmoud": "proxy"}
+           "planner": "planner", "mahmoud": "proxy", "acceptance": "reviewer"}
 
 
 def read_config(root):
