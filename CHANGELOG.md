@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **A draft decision record on adopting a project that runs its own loop** (ai-coach, 2026-10-24, item 11; design only).
+  Init wrote `docs/queue.md` and `HANDOFF.md` beside ai-coach's `docs/loop/queue.md` and `HANDOFF-FRESH.md`: two
+  queues, two handoffs. `docs/design/existing-loop-adoption.md` lists the detection signals (`docs/loop/`, `HANDOFF*.md`,
+  `.specify/`, `specs/*/spec.md`, loop-like package scripts, instruction files naming them) and the two options — init
+  skips its records and assess migrates, or init writes and assess merges — with a recommendation; the owner decides and
+  the implementation is a later row. No code. tests/size-budget.json: unchanged (nothing grew).
 - **Assess measures architecture instead of scoring it by feel** (ai-coach, 2026-10-24, item 10). `/reef-assess` scored
   "module boundaries" by judgment; nothing was counted. On ai-coach the largest files were tests and an i18n dictionary
   (2,613 lines of data), the `$executeRawUnsafe` hits were mostly comments, the tagged `$queryRaw` calls were
