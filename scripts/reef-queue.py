@@ -32,9 +32,13 @@ Usage:
   reef-queue.py index [--repo DIR]              (0.6) regenerate <paths.features>/README.md: feature, row, batch,
                                                 status, task counts, ADRs — never hand-edited
   reef-queue.py close ID --pr N [--repo DIR]               (0.7.1, issues) close the row's issue as completed, "merged in #N"
-  reef-queue.py admit <issue> [--source planned|found] [--batch N]   (0.7.1, issues) a plain issue becomes the next row
+  reef-queue.py admit <issue> [--source planned|found] [--batch N]   (0.7.1, issues) a plain issue becomes the next row; (0.7.2)
+                                                 one by a non-collaborator is copied into an issue of the owner's and closed with a link
   reef-queue.py demote ID [--repo DIR]                     (0.7.1, issues) a queued found row that may never happen becomes a
                                                  note; its issue closes as not planned; security, privacy, money, data loss refused
+  reef-queue.py ask "<question>" --row ID [--recommended "<answer>"]   (0.7.2) a question for the owner: its line in
+                                                 .reef/questions.md and, on issues, an issue labelled reef-question assigned to the owner
+  reef-queue.py answered <#issue> "<answer>"       (0.7.2, issues) close the question's issue with the owner's answer
   reef-queue.py next-id [--repo DIR]                       (0.7.1) the next row id, in either mode
   reef-queue.py import-rows [--apply] [--repo DIR]         (0.7.1, issues) rows another tool wrote into the queue file
                                                  (reef-recalibrate) become issues, their ids kept; a dry run without --apply
@@ -47,7 +51,8 @@ Usage:
   then id; a found row labelled `p1` counts as planned (the owner promoted it). A found row with no priority label is
   untriaged: `triage` lists them all, `triage --count` exits 1 once one has waited more than 7 days; `check` warns when
   the current batch holds more open rows than `queue.batch_max` (default 10). Every read syncs `.reef/queue.json` first (a failing gh: the last snapshot, said on stderr);
-  every write goes to gh and fails closed.
+  every write goes to gh and fails closed. Every sync reads the collaborators (0.7.2): an open row whose issue's author is
+  not one is excluded and warned about (an unreadable list keeps the last good one; none ever read: no trust check, said).
   `check` also validates (0.6) every feature folder's slug (2-5 kebab-case words, no bare number, no
   generic word) and the structure: a process document outside the layout fails.
 
@@ -201,7 +206,9 @@ def task_states(root, cfg):
 ROW_TITLE = re.compile(r"^\[(\d+)\]\s*(.*)$", re.S)
 BATCH_MS = re.compile(r"^Batch (\d+)$")
 LABEL = "reef-row"
-LABELS = {LABEL: "0e8a16", "planned": "1d76db", "found": "fbca04", "p1": "b60205", "p2": "d93f0b", "p3": "c5def5"}
+LABELS = {LABEL: "0e8a16", "planned": "1d76db", "found": "fbca04", "p1": "b60205", "p2": "d93f0b", "p3": "c5def5",
+          "reef-note": "c2e0c6", "reef-question": "5319e7"}
+NOTE = "reef-note"   # 0.7.2 (item 8): on issues a note is an issue with this label, never a row
 PRIORITIES = ("p1", "p2", "p3")
 _SNAPS = {}
 
@@ -251,16 +258,17 @@ def sync(root):
     snap_p = os.path.join(root, ".reef", "queue.json")
     try:
         issues = json.loads(gh(root, "issue", "list", "--label", LABEL, "--state", "all", "--limit", "1000",
-                               "--json", "number,title,body,state,stateReason,labels,milestone,createdAt", read=True))
+                               "--json", "number,title,body,state,stateReason,labels,milestone,createdAt,author", read=True))
         ms = json.loads(gh(root, "api", "repos/{owner}/{repo}/milestones?state=all&per_page=100", read=True))
     except (GhError, ValueError) as e:
         if not os.path.isfile(snap_p):
             die(f"the queue is on issues, gh failed and there is no snapshot: {e}", 1)
         print(f"reef-queue: gh failed ({e}); reading the last snapshot, .reef/queue.json", file=sys.stderr)
         return json.loads(read(snap_p))
+    collab = collaborators(root, snap_p)
     open_b = sorted(int(b) for x in ms for b in [batch_of(x)] if b and x.get("state") == "open")
     snap = {"current_batch": str(open_b[0]) if open_b else None, "milestones": {x["title"]: x["number"] for x in ms},
-            "rows": [], "closed": [], "dropped": [], "unadmitted": []}
+            "rows": [], "closed": [], "dropped": [], "unadmitted": [], "untrusted": [], "collaborators": collab}
     for i in issues:
         m = ROW_TITLE.match((i.get("title") or "").strip())
         if not m:
@@ -270,12 +278,46 @@ def sync(root):
         row = {"Id": m.group(1), "Item": field(b, "Item") or m.group(2).strip(), "Depends": field(b, "Depends"),
                "Source": "found" if any(lb.get("name") == "found" for lb in i.get("labels") or []) else "planned",
                "Batch": batch_of(i.get("milestone")), "Admitted": field(b, "Admitted"), "_issue": i["number"], "_created": i.get("createdAt", ""),
-               "Priority": next((p for p in PRIORITIES if any(lb.get("name") == p for lb in i.get("labels") or [])), "")}
+               "Priority": next((p for p in PRIORITIES if any(lb.get("name") == p for lb in i.get("labels") or [])), ""),
+               "_author": (i.get("author") or {}).get("login", "")}
+        if i.get("state") == "OPEN" and collab is not None and row["_author"] not in collab:   # 0.7.2, item 9
+            snap["untrusted"].append(row)
+            print(f"reef-queue: row {row['Id']} (#{i['number']}, by @{row['_author']}) excluded: its author is not a collaborator", file=sys.stderr)
+            continue
         snap["rows" if i.get("state") == "OPEN" else "dropped" if i.get("stateReason") == "NOT_PLANNED" else "closed"].append(row)
     os.makedirs(os.path.dirname(snap_p), exist_ok=True)
     write_text(snap_p, json.dumps(snap, indent=1) + "\n")
+    write_view(root, snap)
     _SNAPS[root] = snap
     return snap
+
+
+def collaborators(root, snap_p):
+    """The repository's collaborators (0.7.2, the owner's go 2026-10-24, item 9): the trust check's list. Unreadable (a
+    403: the token lacks push access, or gh is down): the last snapshot's list, said on stderr; none ever read: no check."""
+    try:
+        return gh(root, "api", "repos/{owner}/{repo}/collaborators", "--paginate", "--jq", ".[].login", read=True).split()
+    except GhError as e:
+        last = json.loads(read(snap_p)).get("collaborators") if os.path.isfile(snap_p) else None
+        print(f"reef-queue: collaborators unreadable ({e}); " + ("keeping the last good list" if last is not None else
+              "no trust check: every row's author is taken on trust"), file=sys.stderr)
+        return last
+
+
+def write_view(root, snap):
+    """A read-only view of the queue at every sync (0.7.2, the owner's go 2026-10-24, item 10): read it offline, edit the
+    issues. Gitignored, so it never conflicts and never drifts into a second queue."""
+    import datetime
+    rank = {"p1": 1, "p3": 3}
+    rows = sorted(snap["rows"], key=lambda r: (int(r.get("Batch") or 0), rank.get(r.get("Priority", ""), 2), int(r["Id"])))
+    cell = lambda x: str(x or "").replace("|", "/")
+    lines = ["# Queue — a read-only view", "",
+             f"Generated from the repository's issues by reef-queue.py, {datetime.datetime.now():%Y-%m-%d %H:%M}: edit the issues, "
+             "never this file.", "", f"Current batch: {snap.get('current_batch') or '-'}", "",
+             "| Id | Item | Priority | Source | Batch | Depends | Issue |", "|---|---|---|---|---|---|---|"]
+    lines += [f"| {r['Id']} | {cell(r.get('Item'))[:120]} | {cell(r.get('Priority'))} | {cell(r.get('Source'))} | {cell(r.get('Batch'))} | "
+              f"{cell(r.get('Depends'))} | #{r['_issue']} |" for r in rows]
+    write_text(os.path.join(root, ".reef", "queue-view.md"), "\n".join(lines) + "\n")
 
 
 def row_issue(root, row_id):
@@ -287,7 +329,7 @@ def row_issue(root, row_id):
 
 def next_id(root, snap):
     _, _, apath = queue_paths(root)
-    ids = [int(r["Id"]) for r in snap["rows"] + snap["closed"] + snap.get("dropped", [])]
+    ids = [int(r["Id"]) for r in snap["rows"] + snap["closed"] + snap.get("dropped", []) + snap.get("untrusted", [])]
     ids += [int(r["Id"]) for r in parse_table(read(apath)) if r["Id"].isdigit()] if os.path.isfile(apath) else []
     return max(ids, default=0) + 1
 
@@ -482,6 +524,12 @@ def next_note(root):
 def cmd_note(root, text, row_id):
     import datetime
     text = note_text(text)
+    if issues_mode(config(root)):
+        ensure_labels(root, NOTE)
+        url = gh_write(root, "issue", "create", "--title", f"note: {text[:200]}", "--label", NOTE, "--body",
+                       f"Row: {row_id or '-'}\nNoted: {datetime.date.today().isoformat()}\n\n{text}\n").strip()
+        print("#" + url.rstrip("/").rsplit("/", 1)[-1])
+        return 0
     p, body, n = next_note(root)
     write_text(p, body.rstrip("\n") + f"\n- n{n} · row {row_id or '-'} · {datetime.date.today().isoformat()} · {text}\n")
     print(f"n{n}")
@@ -497,12 +545,33 @@ def cmd_demote(root, row_id):
     if r is None or r["_status"] != "queued":
         die(f"row {row_id} is {'not an open row' if r is None else r['_status']}: only a queued row becomes a note", 1)
     text = note_text(f"{r.get('Item', '').strip()} (was row {row_id})")
+    if issues_mode(config(root)):   # item 8: the row's own issue becomes the note, relabelled
+        ensure_labels(root, NOTE)
+        gh_write(root, "issue", "edit", str(r["_issue"]), "--remove-label", LABEL, "--add-label", NOTE)
+        gh_write(root, "issue", "comment", str(r["_issue"]), "--body", "demoted to a note (may never happen)")
+        print(f"#{r['_issue']}")
+        return 0
     n = next_note(root)[2]
     gh_write(root, "issue", "close", str(r["_issue"]), "--reason", "not planned", "--comment", f"demoted to note n{n} (may never happen)")
     return cmd_note(root, text, row_id)
 
 
 def cmd_promote_note(root, nid, batch):
+    if issues_mode(config(root)):   # item 8: the note's issue becomes a found row, relabelled
+        snap = sync(root)
+        i = json.loads(gh_write(root, "issue", "view", nid.lstrip("#"), "--json", "number,title,body,labels"))
+        if NOTE not in [lb.get("name") for lb in i.get("labels") or []]:
+            die(f"#{i['number']} is not a note (no {NOTE} label)", 1)
+        new_id, cur = next_id(root, snap), snap["current_batch"] or "1"
+        row = field(i.get("body"), "Row")
+        text = re.sub(r"^note:\s*", "", i["title"]).strip()
+        body = (f"Depends: {row}\n" if row and row != "-" else "") + (i.get("body") or "")
+        ensure_labels(root, LABEL, "found")
+        gh_write(root, "issue", "edit", str(i["number"]), "--title", f"[{new_id}] {text} (noted #{i['number']})", "--body", body,
+                 "--remove-label", NOTE, "--add-label", LABEL, "--add-label", "found",
+                 "--milestone", ensure_milestone(root, snap, batch or str(int(cur) + 1)))
+        print(new_id)
+        return 0
     p = notes_path(root)
     body = read(p) if os.path.isfile(p) else ""
     m = re.search(rf"(?m)^- {re.escape(nid)} · row (\S+) · \S+ · (.*)$", body)
@@ -575,8 +644,12 @@ def triage_issues(root, count_only):
     found = [r for r in rows if r.get("Source") == "found"]
     un = [r for r in found if not r.get("Priority")]
     oldest = max((age(r) for r in un), default=0)
+    try:
+        notes = len(json.loads(gh(root, "issue", "list", "--label", NOTE, "--state", "open", "--json", "number", read=True)))
+    except (GhError, ValueError):
+        notes = 0
     print(f"triage: batch {current_batch(text) or '?'} · open found {len(found)} vs planned {len(rows) - len(found)} · untriaged found: "
-          f"{len(un)}" + (f" (oldest {oldest} day(s))" if un else ""))
+          f"{len(un)}" + (f" (oldest {oldest} day(s))" if un else "") + (f" · noted risks: {notes} open (issues labelled {NOTE})" if notes else ""))
     if count_only or not un:
         return 1 if un and (oldest > 7 or not count_only) else 0
     print("\nONE owner question (AskUserQuestion, one entry per row; a priority label is the decision):")
@@ -733,6 +806,9 @@ def cmd_check(root):
               "python3 scripts/reef-queue.py import-rows --apply makes them issues")
     for n in sync(root)["unadmitted"] if issues_mode(cfg) else []:
         print(f"warning: #{n} is labelled {LABEL} but its title has no [id] — the owner admits it: reef-queue.py admit {n}")
+    for r in sync(root).get("untrusted", []) if issues_mode(cfg) else []:
+        print(f"warning: row {r['Id']} (#{r['_issue']}, by @{r['_author']}) is excluded — its author is not a collaborator: "
+              "close its issue, or add-row the item yourself")
     bad += structure_errors(root, cfg)
     # 0.6 feature folders: Row: in SPEC.md must be a known row; the slug must be the row's feature name
     for slug, fdir in feature_folders(root, cfg).items():
@@ -838,6 +914,35 @@ def cmd_import_rows(root, apply):
     return 0
 
 
+def cmd_ask(root, question, row_id, recommended):
+    """A question for the owner (0.7.2, the owner's go 2026-10-24, item 7): the line the runner, the handoff and the next
+    interactive /reef-loop read, and on issues an issue assigned to the owner, so a question reaches them on GitHub too."""
+    q = " ".join(question.split())
+    if not q:
+        die("ask: the question, one line")
+    line = f"- row {row_id or '-'}: {q}" + (f" — recommended: {recommended.strip()}" if recommended.strip() else "")
+    p = os.path.join(root, ".reef", "questions.md")
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+    if not issues_mode(config(root)):
+        print(".reef/questions.md")
+        return 0
+    ensure_labels(root, "reef-question")
+    url = gh_write(root, "issue", "create", "--title", f"question: row {row_id or '-'}: {q[:180]}", "--label", "reef-question",
+                   "--assignee", "@me", "--body", line[2:] + "\n").strip()
+    print("#" + url.rstrip("/").rsplit("/", 1)[-1])
+    return 0
+
+
+def cmd_answered(root, number, answer):
+    if not issues_mode(config(root)):
+        die("answered is for queue.home: issues; the file queue keeps questions in .reef/questions.md", 1)
+    gh_write(root, "issue", "close", number.lstrip("#"), "--reason", "completed", "--comment", f"answered: {answer.strip()}")
+    print(f"#{number.lstrip('#')}\tanswered")
+    return 0
+
+
 def cmd_close(root, row_id, pr):
     if not issues_mode(config(root)):
         die("close is for queue.home: issues; the file queue moves the row to its archive (rule 5)", 1)
@@ -869,14 +974,25 @@ def cmd_admit(root, number, source, batch, priority=""):
     if not issues_mode(config(root)):
         die("admit is for queue.home: issues", 1)
     snap = sync(root)
-    i = json.loads(gh_write(root, "issue", "view", number.lstrip("#"), "--json", "number,title,labels"))
+    i = json.loads(gh_write(root, "issue", "view", number.lstrip("#"), "--json", "number,title,body,labels,author"))
     if ROW_TITLE.match(i["title"].strip()):
         die(f"#{i['number']} is already a row: {i['title']}", 1)
     new_id, cur = next_id(root, snap), snap["current_batch"] or "1"
     batch = batch or (cur if source == "planned" else str(int(cur) + 1))
     ensure_labels(root, LABEL, source, *([priority] if priority else []))
-    gh_write(root, "issue", "edit", str(i["number"]), "--title", f"[{new_id}] {i['title'].strip()}", "--add-label", LABEL,
-             "--add-label", source, *(["--add-label", priority] if priority else []), "--milestone", ensure_milestone(root, snap, batch))
+    ms, author = ensure_milestone(root, snap, batch), (i.get("author") or {}).get("login", "")
+    if snap.get("collaborators") is None or author not in snap["collaborators"]:
+        # 0.7.2 (item 9): an outsider keeps editing their own issue, whose body every reader parses — the row is a copy the
+        # owner authors (the original's text quoted, so none of its lines reads as a field), the original closed with a link
+        title, body = issue_text(i["title"], "", "")
+        body += f"\nFrom #{i['number']} by @{author or '?'}:\n" + "\n".join("> " + l for l in (i.get("body") or "").splitlines()) + "\n"
+        url = gh_write(root, "issue", "create", "--title", f"[{new_id}] {title}", "--body", body, "--label", LABEL, "--label", source,
+                       *(["--label", priority] if priority else []), "--milestone", ms).strip()
+        gh_write(root, "issue", "close", str(i["number"]), "--reason", "not planned",
+                 "--comment", f"admitted as #{url.rstrip('/').rsplit('/', 1)[-1]} (row {new_id}), a copy: its author is not a collaborator")
+    else:
+        gh_write(root, "issue", "edit", str(i["number"]), "--title", f"[{new_id}] {i['title'].strip()}", "--add-label", LABEL,
+                 "--add-label", source, *(["--add-label", priority] if priority else []), "--milestone", ms)
     print(new_id)
     return 0
 
@@ -1110,6 +1226,10 @@ def main(argv):
         return cmd_demote(root, argv[1])
     if cmd == "set-priority" and len(argv) >= 3:
         return cmd_set_priority(root, argv[1], argv[2])
+    if cmd == "ask" and len(argv) >= 2:
+        return cmd_ask(root, argv[1], opt("--row", None), opt("--recommended"))
+    if cmd == "answered" and len(argv) >= 3:
+        return cmd_answered(root, argv[1], argv[2])
     if cmd == "next-id":
         return cmd_next_id(root)
     if cmd == "import-rows":

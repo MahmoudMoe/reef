@@ -1,6 +1,27 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **A queue row's author must be a collaborator** (the owner's go, 2026-10-24, item 9). On a public repository anyone can
+  open an issue, and `admit` turned it into a row in place: the author kept editing their own issue's body, whose `Depends:`,
+  `Admitted:` and `Item:` lines every reader parses. Now `admit` on an issue by a non-collaborator (or when the list is
+  unknown) copies it into an issue of the owner's — the original's text quoted, so none of its lines reads as a field —
+  and closes the original with a link; the sync records each row issue's author, reads the collaborators
+  (`gh api repos/{owner}/{repo}/collaborators`) into the snapshot, excludes an open row by an outsider from the queue and
+  warns about it (`check` too; the id still counts). An unreadable list (a 403: the token lacks push access) keeps the
+  last good one, said on stderr; a repository where none was ever read runs no trust check and says so.
+  tests/size-budget.json raised for items 7 to 10 together: `prose_words` 20,843 → 20,864, `script_lines` 12,602 → 12,722.
+- **A question for the owner is a command, and on issues an issue** (the owner's go, 2026-10-24, item 7). The headless
+  runner's questions were lines appended to `.reef/questions.md` by hand, each session in its own words. `reef-queue.py
+  ask "<question>" --row <id> --recommended "<answer>"` writes the line and, on `queue.home: issues`, opens an issue
+  labelled `reef-question` assigned to the owner; `answered <#n> "<answer>"` closes it with the answer. The runner's prompt
+  and `/reef-loop`'s headless rule use them.
+- **A noted risk is an issue, never a row** (the owner's go, 2026-10-24, item 8). On `queue.home: issues` the noted risks
+  stayed in a file beside a queue that had moved. `note` opens an issue labelled `reef-note`; `demote` relabels the row's
+  own issue to a note; `promote-note #N` relabels the note back into a found row (`Depends` its row, the note's number in
+  the title); `triage` prints the open-note count.
+- **A read-only view of the queue** (the owner's go, 2026-10-24, item 10). With the queue on issues, nothing in the
+  checkout showed it. Every sync writes `.reef/queue-view.md`, a table sorted by batch, priority and id with each row's
+  issue number, gitignored by `reef-init` so it never drifts into a second queue: read it offline, edit the issues.
 - **The acceptance review is a lean judge, not a general-purpose agent** (the owner's go, 2026-10-24, item 6). The
   feature's acceptance review ran in a general-purpose agent that started at about 17,000 tokens of context, against
   about 7,500 for Reef's own agents. New `reef:acceptance` (model `roles.reviewer`): read-only like the verifier, it judges
