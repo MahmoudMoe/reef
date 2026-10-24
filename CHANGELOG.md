@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **`scripts/__pycache__/` is ignored** (the owner's go, 2026-10-24, batch A item 3). The Python byte-code of the copied
+  scripts showed up untracked in every `git status` of the trial project; `reef-init` appends the line, so a refresh or
+  `reef-update` adds it to an existing project. Size budget unchanged.
 - **A feature branch never edits the journal** (the owner's go, 2026-10-24, batch A item 2). On the trial night two
   features both appended to the journal; their PRs conflicted on it, and the hand-resolved conflict ended in a GREEN
   re-recorded with no review. Git's union merge keeps both sides locally and in the guard's `merge-tree`, but GitHub's PR
