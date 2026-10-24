@@ -355,3 +355,25 @@ class Recalibrate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RawSqlCheck(unittest.TestCase):
+    """0.7.2 (ai-coach, 2026-10-24, item 12): `reef-structure --raw-sql` fails on an Unsafe raw query in a file outside
+    `assess.raw_sql_allow` (the measured baseline); an allowed file and a comment line are green."""
+
+    def project(self, files):
+        d = tempfile.mkdtemp(prefix="reef-rawsql.")
+        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        write(d, ".reef/config.json", json.dumps({"assess": {"raw_sql_allow": ["src/legacy.ts"]}}))
+        for rel, text in files.items():
+            write(d, rel, text)
+        return subprocess.run([sys.executable, STRUCT, "--raw-sql", "--repo", d], capture_output=True, text=True)
+
+    def test_a_new_unsafe_call_is_red_an_allowed_file_and_a_comment_are_green(self):
+        r = self.project({"src/legacy.ts": "prisma.$executeRawUnsafe(sql);\n",
+                          "src/ok.ts": "// prisma.$queryRawUnsafe is forbidden\n * also $executeRawUnsafe\nconst r = prisma.$queryRaw`select 1`;\n"})
+        self.assertEqual(r.returncode, 0, r.stdout)
+        r = self.project({"src/legacy.ts": "prisma.$executeRawUnsafe(sql);\n", "src/new.ts": "const x = 1;\nconst r = prisma.$queryRawUnsafe(q);\n"})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("src/new.ts:2: an Unsafe raw query outside assess.raw_sql_allow", r.stdout)
+        self.assertNotIn("src/legacy.ts", r.stdout)
