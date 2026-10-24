@@ -35,7 +35,7 @@ After a GREEN verdict from any step below, the only commit allowed before the ne
 First the mechanical half: `scripts/reef-converge <feature>` executes every Proof row against the branch — `missing` and `contradicts` land on the rollup under the cap; `Converged` means every proof holds. Then the fresh-context review of the feature against its `SPEC.md` (the intent, FR/SC keys — not the task files, which can drift, and not the conversation); `unrequested` work is this review's finding against the spec:
 - Walk the user-visible behavior end to end; run the actual entry point.
 - Question: "would the human who wrote the spec accept this?" List gaps as concrete product issues.
-- Issues found → the feature's rollup (above) → `/reef-task` → re-run this step. Passed → `scripts/reef-record <feature> GREEN --report <copy>`; the reviewer's report opens with `HEAD: <PR head sha12>` and ends with `VERDICT: GREEN|FAIL`.
+- Read the reviewer's report through `python3 scripts/reef-claims.py verdict <report>` (verdict, blockers, failed criteria, new rows, notes). Issues found → the feature's rollup (above) → `/reef-task` → re-run this step. Passed → `scripts/reef-record <feature> GREEN --report <copy>`; the reviewer's report opens with `HEAD: <PR head sha12>` and ends with `VERDICT: GREEN|FAIL`.
 - **What blocks (0.6):** a BLOCKER is only one of four kinds — a regression, an outside-actor code-execution or approval bypass, a correctness bug, or a failed acceptance criterion. Everything else (style, naming, a missing comment, an out-of-scope touch, a weak-but-passing test) is a NIT and never starts a round.
 
 ## 3. Diff review — only when `review.diff_review` is `on` (default `off`)

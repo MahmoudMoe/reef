@@ -17,6 +17,8 @@ Usage:
       (citing its Proof row's test or command when the task has a ## Proof table), evidence per AC
       (a path:line, a test name or a command) on every PASS/FAIL line, and writing.report_words when set
       (0 = unmeasured: warn only). Exit 1 names what is missing.
+  reef-claims.py verdict <report>                               (0.7.2) what the orchestrator reads of a judge's report:
+      RUN, VERDICT, every BLOCKER, failed criterion, NEW-ROW and NOTED line; exit 0 PASS/GREEN · 1 FAIL · 2 no verdict
   reef-claims.py claims-only <base>..<head> [--repo DIR]
   reef-claims.py blocking-fixed <plan-review-report> <since-rev> [--repo DIR]   every BLOCKING path:line changed since <since-rev>
       Exit 0 iff the range, stripped of documentation files and of comment/blank lines, is
@@ -175,6 +177,23 @@ def cmd_handback(repo, path):
         return 1
     print(f"ok: hand-back {words} words, {len(claims)} claim(s)")
     return 0
+
+
+def cmd_verdict(path):
+    """A judge's verdict, not its report (0.7.2, the owner's go 2026-10-24, item 5: the trial night's orchestrator read
+    64,000 characters of full reports, each re-read at every later step). The rest stays in the file for the one blocker
+    whose detail the fix needs."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError as e:
+        die(f"cannot read: {e}")
+    keep = re.compile(r"^(RUN:|REJUDGE:|HEAD:|VERDICT:|BLOCK|NEW-ROW|NOTED)|^\W*AC-?\d+\b.*\bFAIL\b")
+    lines = [l.rstrip() for l in text.splitlines() if keep.search(l.strip()) and not l.strip().startswith("RULE")]
+    print("\n".join(lines) or "(no RUN, VERDICT or BLOCKER line)")
+    print(f"({len(text.splitlines())} lines in {path}: open it only for a blocker's detail)")
+    v = re.search(r"^VERDICT:\s*(\w+)", text, re.M)
+    return 2 if not v else 0 if v.group(1).upper() in ("PASS", "GREEN") else 1
 
 
 def cmd_report(repo, path, task_path):
@@ -431,6 +450,8 @@ def main(argv):
         return cmd_report(repo, argv[1], argv[3])
     if argv[0] == "check" and len(argv) == 3:
         return cmd_check(repo, argv[1], argv[2])
+    if argv[0] == "verdict" and len(argv) == 2:
+        return cmd_verdict(argv[1])
     if argv[0] == "claims-only" and len(argv) == 2:
         return cmd_claims_only(repo, argv[1])
     if argv[0] == "blocking-fixed" and len(argv) == 3:

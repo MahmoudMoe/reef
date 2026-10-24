@@ -119,6 +119,32 @@ def feature(d, slug="csv-export-for-orders", spec=SPEC, tasks=None):
     return os.path.join(d, base)
 
 
+class VerdictSummary(unittest.TestCase):
+    """The orchestrator reads a judge's verdict, not its report (the owner's go, 2026-10-24, item 5: the trial night's
+    orchestrator read 64,000 characters of full reports, each re-read at every later step)."""
+
+    def test_the_summary_keeps_the_verdict_blockers_failures_and_findings(self):
+        d = tempfile.mkdtemp(prefix="reef-verdict.")
+        report = write(d, "r.md", "RUN: agent=verifier task=1201\nRULE AC1: PASS iff the header row; FAIL if not\n"
+                                  "RULE AC2: PASS iff two decimals; FAIL if not\nlong evidence paragraph\n" * 3 +
+                                  "AC1 PASS — test_csv_header_and_rows\nAC2 FAIL — 2.5 printed as 2.5\n"
+                                  "BLOCKER: correctness — amounts lose a decimal (export.py:2)\nNEW-ROW: CSV of refunds\n"
+                                  "NOTED: a 10,000-row month is slow\nVERDICT: FAIL\n")
+        r = subprocess.run([sys.executable, CLAIMS, "verdict", report], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        out = r.stdout
+        for kept in ("RUN: agent=verifier task=1201", "AC2 FAIL", "BLOCKER: correctness", "NEW-ROW: CSV of refunds",
+                     "NOTED: a 10,000-row month", "VERDICT: FAIL"):
+            self.assertIn(kept, out)
+        for dropped in ("RULE AC1", "AC1 PASS", "long evidence paragraph"):
+            self.assertNotIn(dropped, out)
+        self.assertIn("lines in", out, "the full report's path and length, for a blocker's detail")
+        passed = write(d, "p.md", "RUN: agent=verifier task=1201\nAC1 PASS — t\nVERDICT: PASS\n")
+        self.assertEqual(subprocess.run([sys.executable, CLAIMS, "verdict", passed], capture_output=True, text=True).returncode, 0)
+        bare = write(d, "b.md", "no verdict here\n")
+        self.assertEqual(subprocess.run([sys.executable, CLAIMS, "verdict", bare], capture_output=True, text=True).returncode, 2)
+
+
 class JournalAtClose(unittest.TestCase):
     """2026-10-24, the trial: two features both appended to the journal, their PRs conflicted on it, and a hand-resolved
     conflict led to a GREEN re-recorded with no review. A feature branch never edits the journal: each task's journal
