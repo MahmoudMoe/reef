@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **`--help` is never data** (the owner's go, 2026-10-24). qassimha's loop ran `reef-queue.py footnote --help` and got a
+  footnote reading "--help", three times; `note -h` would write a note and `add-row --item --help` a row, and
+  `reef-loop.py wait --help` would record "--help" as the loop's wait. `reef-queue.py`, `reef-loop.py` and
+  `reef-record` now print their usage on `-h`/`--help` anywhere in the arguments and write nothing. The other
+  scripts only read, or refuse a missing file. tests/size-budget.json raised: `script_lines` 11,724 → 11,733.
 - **The docs say how the night works now** (the owner's go, 2026-10-24). The README, the site and the Arabic manual
   still told the owner to start the night by hand in a terminal. All three now say: `/reef-night` starts the runner
   itself, detached; `reef-run.py status` follows it; the contract's rows default to every ready row, found ones

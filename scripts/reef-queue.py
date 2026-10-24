@@ -652,6 +652,9 @@ def cmd_index(root):
 
 
 def main(argv):
+    if "-h" in argv or "--help" in argv:   # 0.7 (2026-10-24): `footnote --help` wrote a footnote reading "--help"
+        print(__doc__.strip())
+        return 0
     repo = "."
     if "--repo" in argv:
         i = argv.index("--repo")
