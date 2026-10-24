@@ -49,6 +49,10 @@ elif a[:2] == ["issue", "edit"]:
     if opt("--body") is not None: i["body"] = opt("--body")
     if opt("--milestone") is not None: i["milestone"] = opt("--milestone")
     i["labels"] += [l for l in opt("--add-label", True) if l not in i["labels"]]
+    for l in opt("--remove-label", True):
+        if l not in s["labels"] and l not in i["labels"]:
+            print(f"could not remove label {l}: not found", file=sys.stderr); save(); sys.exit(1)
+        i["labels"] = [x for x in i["labels"] if x != l]
 elif a[:2] == ["issue", "close"]:
     i = issue(a[2]); i["state"] = "CLOSED"; i["stateReason"] = "NOT_PLANNED" if opt("--reason") == "not planned" else "COMPLETED"
     if opt("--comment"): i["comments"].append(opt("--comment"))
@@ -244,6 +248,43 @@ class WritesToIssues(Base):
         self.assertEqual(i["milestone"], "Batch 3")
 
 
+class Priority(Base):
+    """`p1`/`p2`/`p3` labels order the ready rows (the owner's go, 2026-10-24): priority first (none counts as p2), then
+    planned before found, then id; a found row labelled p1 counts as planned — the owner promoted it."""
+
+    def forge(self):
+        s = super().forge()
+        s["issues"] += [
+            {"number": 16, "title": "[6] polish copy", "body": body(), "state": "OPEN", "labels": ["reef-row", "planned", "p3"],
+             "milestone": "Batch 2", "comments": []},
+            {"number": 17, "title": "[7] session fixation", "body": body(), "state": "OPEN", "labels": ["reef-row", "found", "p1"],
+             "milestone": "Batch 2", "comments": []},
+            {"number": 18, "title": "[8] slow query", "body": body(), "state": "OPEN", "labels": ["reef-row", "found"],
+             "milestone": "Batch 2", "comments": []}]
+        return s
+
+    def ids(self, *args):
+        return [l.split("\t")[0] for l in self.q("ready", *args).stdout.splitlines()]
+
+    def test_priority_orders_the_ready_rows_and_p1_promotes_a_found_row(self):
+        self.assertEqual(self.ids(), ["7", "3", "6"], "p1 found (promoted), then p2 planned, then p3 planned; row 8 waits")
+        self.assertEqual(self.ids("--with-found"), ["7", "3", "8", "6"], "priority before planned-before-found")
+
+    def test_set_priority_and_admit_with_one(self):
+        r = self.q("set-priority", "8", "p1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("p1", self.issue(8)["labels"])
+        self.assertEqual(self.ids()[:2], ["7", "8"])
+        self.q("set-priority", "8", "p3")
+        self.assertEqual(sorted(l for l in self.issue(8)["labels"] if l.startswith("p")), ["p3"], "one priority at a time")
+        self.q("set-priority", "8", "none")
+        self.assertFalse([l for l in self.issue(8)["labels"] if l in ("p1", "p2", "p3")])
+        self.assertEqual(self.q("set-priority", "8", "urgent").returncode, 2)
+        r = self.q("admit", "15", "--source", "found", "--priority", "p1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("p1", next(i for i in self.gh()["issues"] if i["number"] == 15)["labels"])
+
+
 class ReadersUseTheSnapshot(Base):
     """The night runner's open-rows check and the watch view read `.reef/queue.json`, never the network: after a
     migration the queue file has no table, and an empty set would refuse every night contract."""
@@ -283,7 +324,7 @@ class Migrate(Base):
         self.assertEqual([(m["title"], m["state"]) for m in g["milestones"]], [("Batch 1", "closed"), ("Batch 2", "open")])
         self.assertEqual(g["issues"][2]["milestone"], "Batch 2")
         self.assertIn("Depends: 3", g["issues"][2]["body"])
-        self.assertEqual(sorted(g["labels"]), ["found", "planned", "reef-row"])
+        self.assertEqual(sorted(g["labels"]), ["found", "p1", "p2", "p3", "planned", "reef-row"])
         cfg = json.load(open(os.path.join(self.d, ".reef", "config.json")))
         self.assertEqual(cfg["queue"]["home"], "issues")
         q = open(os.path.join(self.d, "reef", "queue.md")).read()
