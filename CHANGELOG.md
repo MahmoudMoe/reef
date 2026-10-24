@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **The morning report counts the night** (the owner's go, 2026-10-24, item 3: "how do I know the factory gets better").
+  A new "night in numbers" table: PRs merged into the base, tasks finished on any branch (a file arriving under
+  `tasks/done/`), the first-pass share (a finished task whose `attempts` stayed 0), the stalls (a wait on the owner, a
+  stop, a park), the cost and the cost per merged row, beside the previous night's from `.reef/night/history.jsonl`, which
+  each report appends to. tests/size-budget.json raised: `prose_words` 20,385 → 20,406, `script_lines` 12,540 → 12,581.
 - **A gate run holds the project's shared resources** (the owner's go, 2026-10-24, item 1). On the trial a full gate went
   red on three tests while a verifier's test run used the same test database; re-run alone it passed 273/273. New
   `gates.resources` (default none): the gate holds each named resource for its whole run through `reef-graph.py lock`,
