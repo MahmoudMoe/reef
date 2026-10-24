@@ -167,5 +167,9 @@
   },
   "converge": {
     "test_cmd": ""
+  },
+  "assess": {
+    "exclude": [],
+    "large_file": 800
   }
 }

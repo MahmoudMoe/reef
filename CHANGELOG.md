@@ -1,6 +1,19 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **Assess measures architecture instead of scoring it by feel** (ai-coach, 2026-10-24, item 10). `/reef-assess` scored
+  "module boundaries" by judgment; nothing was counted. On ai-coach the largest files were tests and an i18n dictionary
+  (2,613 lines of data), the `$executeRawUnsafe` hits were mostly comments, the tagged `$queryRaw` calls were
+  parameterised, and four migrations defined triggers. New `reef-recalibrate measure [--json]` writes `## Measured` into
+  `reef/day-zero.md` (replaced on a re-run): the 10 largest product files (tests, `*.d.ts`, generated and data
+  directories `i18n|locales|interface|translations` left out, plus `assess.exclude`), product vs test LOC, raw SQL by
+  directory as tagged vs Unsafe with comment lines ignored (node/Prisma; other stacks "not measured"), `CREATE
+  FUNCTION`/`CREATE TRIGGER` per migration (Observed; classification is Inferred, by Explore), linter present with its
+  file, and the project's existing guard tests (test files whose name or docblock forbids something) so later gates
+  reuse them. `reef/size-baseline.json` (product files only, the same excludes) is written for the size ratchet. Files
+  over `assess.large_file` (default 800) become candidate `kind: refactor` rows under `## Proposed rows (refactor)` in
+  `reef/recalibration.md` — proposed with the plan, never created. New config keys `assess.exclude`, `assess.large_file`.
+  The assess skill runs it before scoring; a contract test asserts the sentence. tests/size-budget.json raised: `config_keys` 92 → 94, `prose_words` 20,940 → 20,992, `script_lines` 12,924 → 13,076.
 - **`reef-doctor` names a local `.env` the gate reads and CI does not** (ai-coach, 2026-10-24, item 9). Prisma loads the
   checkout's `.env`; with two keys set, the base branch failed 21 tests that pass in CI, and nothing said why. When
   `.env` exists and `gates.full` is set, one line names the keys (names only, never values) and the one command to
