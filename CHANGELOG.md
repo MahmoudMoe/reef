@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **Layer boundaries get a proposed gate with a baseline** (ai-coach, 2026-10-24, item 13). Nothing enforced that a
+  component never imports the database client or that an API route reaches it only through `lib/`. On node,
+  `reef-recalibrate measure` now derives a dependency-cruiser config from the observed layout (the client is the file
+  with `new PrismaClient(`; `tsconfig` path aliases resolved), writes it with today's violations as the known-violations
+  baseline under `.reef/proposed/`, and the plan's `## Proposed gate — boundaries` names the two rules, the baseline's
+  size, and the `gates.extra` line (`npx depcruise … --ignore-known src`) the owner adds on approval — day one is green,
+  only a NEW violation fails, and once a baseline is committed the measure lists what is new since it. Python gets an
+  ADR draft (import-linter) only; other stacks nothing yet. tests/size-budget.json raised: `script_lines` 13,157 → 13,273.
 - **SQL injection has a deterministic check** (ai-coach, 2026-10-24, item 12). Only the security agent's judgment stood
   between an `$executeRawUnsafe` and the release; `gates.release` had gitleaks and the stack audit, nothing for
   injection. (A) A release gate per stack, proposed on upgrade like the other release gates and written for a new
