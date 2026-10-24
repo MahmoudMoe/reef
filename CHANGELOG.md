@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **A feature branch never edits the journal** (the owner's go, 2026-10-24, batch A item 2). On the trial night two
+  features both appended to the journal; their PRs conflicted on it, and the hand-resolved conflict ended in a GREEN
+  re-recorded with no review. Git's union merge keeps both sides locally and in the guard's `merge-tree`, but GitHub's PR
+  merge does not honor it (a 2016 report, unverified today), so the journal moves instead: at the task merge each task's
+  journal block goes into its task file's `## Log` between `<!-- journal -->` markers (the Log is outside the plan digest),
+  and `reef-queue.py journal <slug>` copies every block into `paths.runlog` on the base at the row's close, once.
+  `/reef-task`, `/reef-review`, `/reef-loop` and the graph runner's hint say so. tests/size-budget.json raised:
+  `prose_words` 19,872 → 19,960, `script_lines` 12,232 → 12,259.
 - **A GREEN record carries its review; a base merge that leaves the feature unchanged carries over** (the owner's go,
   2026-10-24). On the trial night a journal conflict moved a PR's head, the guard said "re-review and re-record", and
   the orchestrator re-recorded GREEN with no review. `reef-record <feature> GREEN` now needs `--report`: the reviewer's
