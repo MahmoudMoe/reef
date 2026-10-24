@@ -1138,6 +1138,40 @@ def main_checkout(cwd):
     return task_root(os.path.join(cwd, "x"), cwd)
 
 
+HOLD_MINUTES = 30
+LOOP_WRITE = re.compile(r"reef-loop\.py\s+tick|gh\s+pr\s+merge|reef-record\b|reef-queue\.py\s+(add-row|close|admit|set-|drop-row|demote|"
+                        r"footnote|journal|note|promote-note)|\bgit\s+(merge|push)\b")
+
+
+def check_one_orchestrator(payload, cwd):
+    """One orchestrator at a time (0.7.1, the owner's go 2026-10-24: a terminal session and a background one forked from an
+    older conversation ran one project's loop and collided on develop). The first main session that dispatches an agent
+    or writes the loop's state holds the project; another is refused while the holder acted in the last 30 minutes.
+    `reef-loop.py wait`/`stop` release the hold (the /clear hand-over); `reef-loop.py unlock` is the owner's takeover."""
+    sid = str(payload.get("session_id") or "")
+    if not sid or payload.get("agent_id"):
+        return   # a subagent belongs to its session; no id, nothing to compare
+    root = main_checkout(cwd)
+    if not os.path.isfile(os.path.join(root, ".reef", "config.json")):
+        return
+    p = os.path.join(root, ".reef", "run", "orchestrator.json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            held = json.load(f)
+    except (OSError, ValueError):
+        held = {}
+    age = time.time() - float(held.get("at") or 0)
+    if held.get("session") and held["session"] != sid and age < HOLD_MINUTES * 60:
+        deny(f"another Claude session ({held['session'][:8]}, its last loop action {int(age // 60)} min ago) holds this "
+             f"project's loop: one orchestrator at a time. Stop that session (`claude agents`), wait until it has been idle "
+             f"{HOLD_MINUTES} min, or take over: `python3 scripts/reef-loop.py unlock`")
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    tmp = f"{p}.{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"session": sid, "at": time.time()}, f)
+    os.replace(tmp, p)
+
+
 def context_for(payload):
     """Facts the Bash and Edit checks share, computed once per hook call."""
     cwd = payload.get("cwd") or os.getcwd()
@@ -1398,8 +1432,11 @@ def main():
             CTX.update(context_for(payload))
         except Exception as e:
             deny(f"guard internal error reading its context — failing closed: {e}")
+        if LOOP_WRITE.search(str(tool_input.get("command") or "")):
+            check_one_orchestrator(payload, payload.get("cwd") or os.getcwd())
         check_bash(str(tool_input.get("command") or ""))
     elif tool in ("Task", "Agent"):
+        check_one_orchestrator(payload, payload.get("cwd") or os.getcwd())
         # the ceiling first: a dispatch denied for room must not have written its inflight/verifying marker
         try:
             check_context_ceiling(payload, tool_input)

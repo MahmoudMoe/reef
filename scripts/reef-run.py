@@ -349,6 +349,18 @@ def queue_open_rows(root):
         return None
 
 
+def release_hold(root, sid):
+    """The runner's session is over, so its hold on the loop goes with it (0.7.1): a crashed session that never
+    called `wait` must not block the next one for 30 minutes. Another session's hold is not the runner's to drop."""
+    p = os.path.join(root, ".reef", "run", "orchestrator.json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            if sid and json.load(f).get("session") == sid:
+                os.unlink(p)
+    except (OSError, ValueError):
+        pass
+
+
 def ready_rows(root):
     """Every ready row of the current batch, planned and found (reef-queue.py ready --with-found)."""
     q = os.path.join(root, "scripts", "reef-queue.py")
@@ -542,6 +554,7 @@ def cmd_run(root, mode, cap, night=False, detached=False):
         for i in range(1, cap + 1):
             say("session started" + (" (night)" if night else ""))
             out = session(root, PROMPT + (NIGHT_PROMPT if night else ""), mode, say)
+            release_hold(root, out.get("session_id"))
             st = loop_state(root)
             wait, stop, parked = st.get("wait") or "", st.get("stop") or "", st.get("parked") or ""
             flying = [] if (wait or stop or parked) else in_flight(root)

@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **One orchestrator at a time** (the owner's go, 2026-10-24). A terminal session and a background one, forked by
+  Claude Code from an older conversation, ran the trial project's loop together and collided on develop; only the
+  runner held a lock. The guard now lets the first main session that dispatches an agent or writes the loop's state
+  (the tick, a merge, a record, a queue write, a push) hold the project in `.reef/run/orchestrator.json`; another
+  session is refused while the holder acted in the last 30 minutes, subagents pass. `reef-loop.py wait` and `stop`
+  release the hold (the /clear hand-over), `reef-loop.py unlock` is the owner's takeover, and the runner releases the
+  hold of a session it ran. tests/size-budget.json raised: `prose_words` 19,960 → 19,994, `script_lines` 12,259 → 12,330.
 - **The site, the Arabic manual and the README describe the issues queue** (the owner's go, 2026-10-24, batch A item 4):
   a row as an issue titled `[<id>]`, a batch as a milestone, the `p1`/`p2`/`p3` labels, `admit`, triage with
   `set-priority`/`demote`, the journal copied at the row's close, `queue.home` and `queue.batch_max`. Docs only.
