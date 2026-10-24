@@ -34,7 +34,9 @@ def view(i):
     return {"number": i["number"], "title": i["title"], "body": i["body"], "state": i["state"], "stateReason": i.get("stateReason", ""),
             "createdAt": i.get("createdAt", "2026-10-24T00:00:00Z"),
             "labels": [{"name": l} for l in i["labels"]], "milestone": {"title": ms} if ms else None}
-if a[:2] == ["issue", "list"]:
+if a[:2] == ["auth", "status"]:
+    print("Logged in to github.com")
+elif a[:2] == ["issue", "list"]:
     lab = opt("--label")
     print(json.dumps([view(i) for i in s["issues"] if lab in i["labels"]]))
 elif a[:2] == ["issue", "view"]:
@@ -339,6 +341,64 @@ class Triage(Base):
         r = self.q("check")
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("warning: batch 2 holds 2 open row(s), over queue.batch_max 1", r.stdout)
+
+
+class InitChoosesTheQueue(Base):
+    """A new project's queue is the repository's GitHub issues unless the owner chose a file (the owner's go, 2026-10-24:
+    no on-device queue unless clearly told); with no GitHub remote it stays a file and says how to move; an existing
+    project changes only on --queue issues."""
+    home = "file"
+
+    def init(self, d, *args):
+        env = dict(os.environ, PATH=self.bin + os.pathsep + os.environ.get("PATH", ""), GH_STATE=self.state)
+        return subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-init.py"), "--root", d, *args],
+                              capture_output=True, text=True, env=env)
+
+    def fresh(self, remote=None):
+        d = tempfile.mkdtemp(prefix="reef-qinit.", dir=self.tmp)
+        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        if remote:
+            subprocess.run(["git", "-C", d, "remote", "add", "origin", remote], check=True)
+        return d
+
+    def home_of(self, d):
+        return json.load(open(os.path.join(d, ".reef", "config.json")))["queue"]["home"]
+
+    def test_a_new_project_on_github_starts_on_issues_and_one_without_stays_a_file(self):
+        s = self.forge()
+        s.update(issues=[], milestones=[], next=0)
+        self.put(s)
+        d = self.fresh("https://github.com/o/r.git")
+        r = self.init(d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.home_of(d), "issues")
+        self.assertIn("queue: the repository's GitHub issues", r.stdout)
+        self.assertIn("reef-row", self.gh()["labels"])
+        d = self.fresh()
+        r = self.init(d)
+        self.assertEqual(self.home_of(d), "file")
+        self.assertIn("queue: a local file (no GitHub remote)", r.stdout)
+        d = self.fresh("https://github.com/o/r2.git")
+        self.init(d, "--queue", "file")
+        self.assertEqual(self.home_of(d), "file", "the owner chose a file")
+        inner = os.path.join(self.fresh("https://github.com/o/r3.git"), "sub")
+        os.makedirs(inner)
+        self.init(inner)
+        self.assertEqual(self.home_of(inner), "file", "a folder inside another checkout never takes its remote")
+
+    def test_an_existing_project_moves_only_when_asked(self):
+        d = self.fresh("https://github.com/o/r.git")
+        self.init(d, "--queue", "file")
+        self.init(d)
+        self.assertEqual(self.home_of(d), "file", "a refresh never moves an existing queue")
+        r = self.init(d, "--queue", "issues")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.home_of(d), "issues")
+        r = self.init(d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.home_of(d), "issues", "a refresh (reef-update) keeps a project on issues")
+        self.assertNotIn("PROPOSED reef/queue.md", r.stdout)
+        self.assertNotIn("PROPOSED .reef/config.json", r.stdout)
 
 
 class ReadersUseTheSnapshot(Base):

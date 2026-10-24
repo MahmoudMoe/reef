@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **A new project's queue starts on GitHub issues** (the owner's go, 2026-10-24: no on-device queue unless clearly told).
+  `/reef-init` asks where the queue lives and passes `--queue issues|file`. A new project whose own repository has a
+  GitHub `origin` and a gh login moves to issues at the end of the init (`migrate-to-issues --apply`); without them it
+  stays a file and says how to move later. An existing project moves only on `--queue issues`, so a refresh or
+  `reef-update` never moves a queue; a folder inside another checkout never takes that checkout's remote.
+  tests/size-budget.json raised: `prose_words` 19,790 → 19,813, `script_lines` 12,167 → 12,198.
 - **Triage every finding, weekly and at each batch boundary** (the owner's go, 2026-10-24: 82 found rows piled up behind
   a 10-row batch, and the triage command only flagged rows two batches old). On issues, a found row with no priority
   label is untriaged, and giving it a priority is the decision. `triage` lists every untriaged row by module with four

@@ -592,7 +592,7 @@ def main(argv):
         # the guard, the task graph and the attempt counter need fcntl locks, a signal timer and process groups
         print("reef-init: Reef runs on macOS or Linux; on Windows, run Claude Code inside WSL2 — native Windows lacks the file locks and timers Reef's guard needs; nothing written", file=sys.stderr)
         return 1
-    root, name, base, release, dry, to_accept, to_keep, grill = ".", None, "develop", "main", False, [], [], None
+    root, name, base, release, dry, to_accept, to_keep, grill, queue = ".", None, "develop", "main", False, [], [], None, None
     verbose = "--verbose" in argv
     argv = [a for a in argv if a != "--verbose"]
     i = 0
@@ -613,6 +613,8 @@ def main(argv):
             dry = True; i += 1
         elif a == "--grill":
             grill = argv[i + 1]; i += 2
+        elif a == "--queue" and i + 1 < len(argv) and argv[i + 1] in ("issues", "file"):
+            queue = argv[i + 1]; i += 2
         elif a == "--accept":
             to_accept = argv[i + 1:]; break
         elif a == "--keep":
@@ -654,6 +656,7 @@ def main(argv):
         except Exception as e:
             die(f"cannot read grill answers {grill}: {e}")
         grill_facts(answers, facts)
+    new = not os.path.isfile(os.path.join(root, ".reef", "config.json"))
     w = run(root, facts, dry)
     print(f"reef-init ({'dry run, ' if dry else ''}stack: {facts['stack']}, layout: {facts['layout']}, base: {base}, release: {release})")
     if facts.get("constitution"):
@@ -689,7 +692,35 @@ def main(argv):
           f"{len(w.skipped)} skipped, {len(w.proposed)} proposed")
     for line in rails_report(root):
         print("  " + line)
+    for line in ([] if dry else queue_home(root, queue, new)):
+        print("  " + line)
     return 0
+
+
+def queue_home(root, choice, new):
+    """0.7.1 (the owner's go, 2026-10-24: no on-device queue unless clearly told): a new project's queue moves to the
+    repository's GitHub issues unless the owner chose `--queue file`; an existing one moves only on `--queue issues`."""
+    with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+        if (json.load(f).get("queue") or {}).get("home") == "issues":
+            return []
+    if choice == "file" or (choice is None and not new):
+        return ["queue: a local file (--queue file)"] if choice == "file" else []
+    hint = "`python3 scripts/reef-queue.py migrate-to-issues --apply` moves it"
+    g = lambda *a: subprocess.run(["git", "-C", root, *a], capture_output=True, text=True).stdout.strip()
+    # the project's own repository only: a folder inside another checkout would inherit that checkout's remote
+    if os.path.realpath(g("rev-parse", "--show-toplevel") or "/") != os.path.realpath(root) or "github.com" not in g("remote", "get-url", "origin"):
+        return [f"queue: a local file (no GitHub remote) — {hint} once the repository is on GitHub"]
+    try:
+        logged_in = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True, timeout=30).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        logged_in = False
+    if not logged_in:
+        return [f"queue: a local file (gh is not logged in) — `gh auth login`, then {hint}"]
+    r = subprocess.run([sys.executable, os.path.join(root, "scripts", "reef-queue.py"), "migrate-to-issues", "--apply", "--repo", root],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return [f"queue: stays a local file, the move failed ({(r.stderr or r.stdout).strip()[-200:]}) — {hint}"]
+    return ["queue: the repository's GitHub issues (labelled reef-row, a batch is a milestone) — commit reef/queue.md and .reef/config.json"]
 
 
 RAILS = {"pii": "critical", "money": "critical", "auth": "critical", "migration": "design"}
