@@ -34,19 +34,44 @@ class OneOrchestrator(unittest.TestCase):
     def loop(self, *args):
         return subprocess.run([sys.executable, LOOP, *args, "--repo", self.d], capture_output=True, text=True)
 
+    def hold(self, session, pid, minutes_ago=1):
+        os.makedirs(os.path.dirname(self.lock), exist_ok=True)
+        with open(self.lock, "w") as f:
+            json.dump({"session": session, "at": time.time() - minutes_ago * 60, "pid": pid}, f)
+
     def test_a_second_session_is_refused_while_the_first_holds_the_project(self):
         self.assertEqual(self.guard("aaaa1111").returncode, 0)
-        self.assertEqual(json.load(open(self.lock))["session"], "aaaa1111")
+        held = json.load(open(self.lock))
+        self.assertEqual((held["session"], held["pid"]), ("aaaa1111", os.getpid()), "the hold names the holder's PROCESS (the hook's parent)")
+        # a hold from ANOTHER live process (pid 1 is always alive and never this test): refused
+        self.hold("aaaa1111", 1)
         r = self.guard("bbbb2222")
         self.assertEqual(r.returncode, 2)
         self.assertIn("another Claude session (aaaa1111", r.stderr)
+        self.assertIn("process 1 alive", r.stderr)
         self.assertIn("reef-loop.py unlock", r.stderr)
         self.assertEqual(self.guard("bbbb2222", "gh pr merge 7 --squash").returncode, 2, "a merge is a loop write too")
         self.assertEqual(self.guard("bbbb2222", "scripts/reef-merge-close tasks/101-x.md --subject s --journal j").returncode, 2,
                          "a task's merge-close is a loop write too (0.7.2, item 4)")
         self.assertEqual(self.guard("bbbb2222", "git status").returncode, 0, "reading is anyone's")
         self.assertEqual(self.guard("bbbb2222", agent_id="sub-1").returncode, 0, "a subagent belongs to its own session")
+        self.hold("aaaa1111", 1)
         self.assertEqual(self.guard("aaaa1111").returncode, 0, "the holder keeps going")
+
+    def test_a_hold_belongs_to_a_process_the_clear_case_and_a_dead_holder(self):
+        # 0.7.2 (ai-coach, 2026-10-25): after /clear the same Claude process carries a new session id and was refused by its own
+        # hold for 30 minutes; a session that ended without `reef-loop.py wait` held the project as long
+        self.hold("aaaa1111", os.getpid())                  # the same process as the guard's parent: /clear in the same terminal
+        r = self.guard("bbbb2222")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.load(open(self.lock))["session"], "bbbb2222", "the hold is re-keyed to the new session")
+        dead = subprocess.Popen(["true"]); dead.wait()        # a process that has ended
+        self.hold("cccc3333", dead.pid)
+        self.assertEqual(self.guard("dddd4444").returncode, 0, "a dead holder holds nothing")
+        self.assertEqual(json.load(open(self.lock))["session"], "dddd4444")
+        with open(self.lock, "w") as f:
+            json.dump({"session": "eeee5555", "at": time.time()}, f)   # a hold written before this change: no pid
+        self.assertEqual(self.guard("ffff6666").returncode, 2, "a legacy hold keeps the 30-minute rule")
 
     def test_wait_and_unlock_release_and_an_old_hold_is_taken_over(self):
         self.guard("aaaa1111")
