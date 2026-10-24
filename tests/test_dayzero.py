@@ -472,3 +472,25 @@ class RecalibrationSafety(unittest.TestCase):
         self.assertEqual(git(d, "rev-parse", "HEAD"), head)
         self.assertEqual([l for l in git(d, "status", "--porcelain").splitlines() if not l.endswith(("recalibration.md", "recalibration.json", "instruction-layer.md", ".reef/config.json"))], [], "the plan files and the untracked config are the only change")
         self.assertEqual(len(git(d, "worktree", "list").splitlines()), 1, "the scratch worktree is gone")
+
+
+class StructureHonoursConfigPaths(unittest.TestCase):
+    """0.7.2 (ai-coach, 2026-10-24, item 17): reef-structure accepts the places .reef/config.json paths.* names whatever the
+    version — init adopted docs/adr as the ADR home and the check then flagged every ADR in it."""
+
+    def project(self, adr_home):
+        d = tempfile.mkdtemp(prefix="reef-struct-paths.")
+        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        write(d, ".reef/version", "0.7.1\n")
+        write(d, ".reef/config.json", json.dumps({"paths": {"adr": adr_home, "queue": "docs/queue.md", "runlog": "docs/journal.md"}}))
+        write(d, "docs/adr/0001-x.md", "# ADR 0001 — x\n\n## Status\nAccepted\n\n## Context\nc\n\n## Decision\nd\n")
+        write(d, "docs/queue.md", "# Queue\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "init")
+        return subprocess.run([sys.executable, STRUCT, "--check", "--repo", d], capture_output=True, text=True)
+
+    def test_the_configured_adr_home_is_ok_and_another_one_is_flagged(self):
+        r = self.project("docs/adr")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        r = self.project("reef/architecture/adr")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("docs/adr/0001-x.md: a process document outside the layout", r.stdout)
