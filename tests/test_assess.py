@@ -2,6 +2,7 @@
 ledger/ is a REAL report (four Explore agents on the ledger dogfood project, 2026-10-16); it must pass as written, and
 each way an assess can lie must be caught: a claim with no Observed/Inferred label, an Observed claim with no proving
 path, a harnessability heading whose sum or level does not match its table, a missing dimension, a missing section."""
+import json
 import os
 import shutil
 import subprocess
@@ -25,6 +26,86 @@ def project():
 
 def assess(d):
     return subprocess.run([sys.executable, CLAIMS, "assess", d], capture_output=True, text=True)
+
+
+RECAL = os.path.join(ROOT, "scripts", "reef-recalibrate")
+
+
+def write(d, rel, text):
+    p = os.path.join(d, rel)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+class Measure(unittest.TestCase):
+    """0.7.2 (ai-coach, 2026-10-24, item 10): `reef-recalibrate measure` counts what /reef-assess used to judge by feel. On
+    ai-coach the largest files were tests and an i18n dictionary (2613 lines of data), the `$executeRawUnsafe` hits were
+    mostly comments, and the tagged `$queryRaw` calls were parameterised."""
+
+    def fixture(self, cfg_extra=None):
+        d = project()
+        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        write(d, ".reef/config.json", json.dumps({"paths": {}, **(cfg_extra or {})}))
+        write(d, "package.json", json.dumps({"name": "demo", "dependencies": {"@prisma/client": "6"}}))
+        write(d, ".eslintrc.json", "{}\n")
+        write(d, "src/lib/big.ts", "export const a = 1;\n" * 900)                         # product, over the cap
+        write(d, "src/lib/interface/ar.ts", "export const t = {};\n" * 2613)             # data: excluded
+        write(d, "src/types.d.ts", "declare const x: number;\n" * 50)                      # excluded
+        write(d, "src/lib/db.ts", "import { prisma } from './client';\n"
+                                  "// never use prisma.$executeRawUnsafe here — see the ADR\n"
+                                  " * prisma.$queryRawUnsafe is forbidden too\n"
+                                  "export const one = () => prisma.$queryRaw`select 1`;\n"
+                                  "export const bad = (s: string) => prisma.$executeRawUnsafe(s);\n")
+        write(d, "src/lib/big.test.ts", "import { a } from './big';\n" * 100)            # a test, 100 lines
+        write(d, "tests/aimed-writes.test.ts", "/** Forbids writes outside the aimed tables. */\nimport { it } from 'vitest';\n")
+        write(d, "tests/helpers.ts", "export const h = 1;\n")
+        write(d, "prisma/migrations/0001_x/migration.sql", "CREATE FUNCTION f() RETURNS trigger AS $$ $$;\n"
+                                                          "create or replace function g() returns void as $$ $$;\n"
+                                                          "CREATE TRIGGER t BEFORE INSERT ON x EXECUTE FUNCTION f();\n")
+        write(d, "node_modules/x/index.js", "x\n" * 5000)                                  # generated: excluded
+        return d
+
+    def test_exact_counts_and_the_three_outputs(self):
+        d = self.fixture()
+        r = subprocess.run([sys.executable, RECAL, "measure", "--json", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        m = json.loads(r.stdout)
+        self.assertEqual(m["largest"][0], ["src/lib/big.ts", 900])
+        self.assertNotIn("src/lib/interface/ar.ts", [x[0] for x in m["largest"]], "an i18n dictionary is data, not product")
+        self.assertNotIn("src/types.d.ts", [x[0] for x in m["largest"]])
+        self.assertEqual((m["product"]["files"], m["product"]["loc"]), (2, 905))
+        self.assertEqual((m["tests"]["files"], m["tests"]["loc"]), (3, 103))
+        self.assertEqual(m["raw_sql"], {"src/lib": {"tagged": 1, "unsafe": 1, "files": ["src/lib/db.ts"]}}, "the two comment lines never count")
+        self.assertEqual(m["migrations"], {"prisma/migrations/0001_x/migration.sql": {"functions": 2, "triggers": 1}})
+        self.assertEqual(m["linter"], ".eslintrc.json")
+        self.assertEqual(m["guard_tests"], ["tests/aimed-writes.test.ts"])
+        self.assertEqual(m["large_files"], [["src/lib/big.ts", 900]])
+        dz = open(os.path.join(d, "reef", "day-zero.md")).read()
+        self.assertIn("## Measured", dz)
+        self.assertIn("| 900 | `src/lib/big.ts` |", dz)
+        self.assertIn("| `src/lib` | 1 | 1 |", dz)
+        self.assertEqual(assess(d).returncode, 0, "the harnessability checker still passes with the section appended")
+        base = json.load(open(os.path.join(d, "reef", "size-baseline.json")))
+        self.assertEqual(base["files"], {"src/lib/big.ts": 900, "src/lib/db.ts": 5}, "product files only, same excludes")
+        rec = open(os.path.join(d, "reef", "recalibration.md")).read()
+        self.assertIn("| `src/lib/big.ts` | 900 | `kind: refactor` · `splits: src/lib/big.ts under 800 lines` |", rec)
+        r = subprocess.run([sys.executable, RECAL, "measure", "--json", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(open(os.path.join(d, "reef", "day-zero.md")).read().count("## Measured"), 1, "a second run replaces the section")
+
+    def test_assess_exclude_and_large_file_are_the_owners(self):
+        d = self.fixture({"assess": {"exclude": ["src/lib/big.ts"], "large_file": 3}})
+        r = subprocess.run([sys.executable, RECAL, "measure", "--json", "--repo", d], capture_output=True, text=True)
+        m = json.loads(r.stdout)
+        self.assertEqual(m["largest"], [["src/lib/db.ts", 5]])
+        self.assertEqual(m["large_files"], [["src/lib/db.ts", 5]])
+
+    def test_without_prisma_raw_sql_is_not_measured(self):
+        d = self.fixture()
+        write(d, "package.json", json.dumps({"name": "demo"}))
+        m = json.loads(subprocess.run([sys.executable, RECAL, "measure", "--json", "--repo", d], capture_output=True, text=True).stdout)
+        self.assertIsNone(m["raw_sql"])
+        self.assertIn("not measured", open(os.path.join(d, "reef", "day-zero.md")).read())
 
 
 def edit(d, rel, old, new):

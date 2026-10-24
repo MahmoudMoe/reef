@@ -245,6 +245,14 @@ class InitKeepsYours(unittest.TestCase):
                       "when its AGENTS.md lacks the `.reef/**` exclusions, say so.", skill)
 
 
+class AssessMeasures(unittest.TestCase):
+    def test_the_assess_skill_counts_before_it_scores(self):
+        # 0.7.2 (ai-coach, 2026-10-24, item 10): module boundaries were scored by feel; the largest files were tests and data
+        skill = read("skills", "reef-assess", "SKILL.md")
+        self.assertIn("Then `python3 scripts/reef-recalibrate measure` — counts, not judgments, into `reef/day-zero.md` `## Measured`", skill)
+        self.assertIn("module boundaries and lint baseline read from those counts", skill)
+
+
 class RollupNoPlanHunter(unittest.TestCase):
     def test_the_review_skill_says_a_rollup_gets_no_plan_pass(self):
         self.assertIn("A rollup gets no hunter plan pass, whatever its tier", read("skills", "reef-review", "SKILL.md"))
