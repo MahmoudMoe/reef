@@ -1,6 +1,20 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **A task's merge and close-out is one command** (the owner's go, 2026-10-24, item 4). At every passed task the
+  orchestrator ran eight commands by hand — the commit in the task worktree, the `--no-ff` merge, `status: done`, the
+  `git mv` to `tasks/done/`, the journal block, `worktree.setup` after a lockfile, the worktree and branch removal — each
+  a chance to skip one (2026-10-17: a task under `done/` still in-progress; 2026-10-18: a Prisma client older than its
+  migration until `npm ci`). New `scripts/reef-merge-close <task-file> --subject "<subject>" --journal <file>`, run in the
+  feature worktree: stages every change in the task's worktree (printed; a `.env*`, `.pem` or `.key` file refused — the
+  implementer's worktree holds only its work; the owner may narrow this) and commits with the `Closes-task:` trailer,
+  merges `--no-ff --no-commit`, runs `worktree.setup` first when the merge touches a lockfile (`package.json`, the npm,
+  pnpm, yarn, poetry, uv, Cargo, Go and Bundler lockfiles, `pyproject.toml`, `requirements.txt`, `prisma/schema.prisma`),
+  puts `status: done`, the journal file's text between `<!-- journal -->` markers and the move to `tasks/done/` in that
+  merge commit, then removes the worktree and the branch. A conflict or a gate refusal aborts the merge and restores the
+  task file as it was (exit 2); a re-run resumes from the step left. The guard counts it as a loop write (one orchestrator
+  at a time); `/reef-task` step 4 is the one call under a long Bash timeout. tests/size-budget.json: `prose_words`
+  20,864 → 20,828 (the step got shorter), `script_lines` 12,722 → 12,879.
 - **A queue row's author must be a collaborator** (the owner's go, 2026-10-24, item 9). On a public repository anyone can
   open an issue, and `admit` turned it into a row in place: the author kept editing their own issue's body, whose `Depends:`,
   `Admitted:` and `Item:` lines every reader parses. Now `admit` on an issue by a non-collaborator (or when the list is

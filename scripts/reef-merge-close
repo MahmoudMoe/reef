@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+# CLASS: code
+"""Reef merge-close — a passed task's merge and close-out as ONE command (0.7.2, the owner's go 2026-10-24, item 4).
+Usage: reef-merge-close <task-file> --subject "<commit subject>" --journal <file> [--repo DIR]   (run in the FEATURE worktree)
+In order, each step skipped when already done: (1) in the task's worktree stage every change (printed; a `.env*`, `.pem`
+or `.key` file refused) and commit `<subject>` with the trailer `Closes-task: <id>-<slug>` — the gate tests the index;
+(2) here, `git merge --no-ff --no-commit task/<id>-<slug>`; a lockfile among the merged files runs `worktree.setup` here
+first; (3) in that same merge commit `status: done`, the journal file's text between `<!-- journal -->` markers under the
+task's `## Log`, the task file `git mv`ed to `tasks/done/`; (4) `git worktree remove`, `git branch -d`, `git worktree prune`.
+A conflict or a gate refusal aborts the merge and leaves the tree as it was. Exit 0 closed · 1 usage · 2 refused.
+Why: the orchestrator ran these eight commands by hand at every close, each a chance to skip one (2026-10-17: 103 under
+done/ still in-progress; 2026-10-18: a Prisma client older than its migration failed 28 tests until `npm ci`).
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
+LOCKFILES = {"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "prisma/schema.prisma", "requirements.txt",
+             "pyproject.toml", "poetry.lock", "uv.lock", "Cargo.lock", "go.sum", "Gemfile.lock"}
+SECRET = re.compile(r"(^|/)(\.env[^/]*|[^/]+\.(pem|key))$")
+
+
+def fail(msg, code):
+    print(f"merge-close: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def git(cwd, *args, check=True):
+    r = subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True)
+    if check and r.returncode != 0:
+        fail(f"git {' '.join(args[:2])} failed in {cwd}: {(r.stderr or r.stdout).strip()[:400]}", 1)
+    return r
+
+
+def main_checkout(root):
+    for line in git(root, "worktree", "list", "--porcelain").stdout.splitlines():
+        if line.startswith("worktree "):
+            return line[len("worktree "):].strip()
+    return root
+
+
+def main(argv):
+    def opt(name):
+        return argv[argv.index(name) + 1] if name in argv and argv.index(name) + 1 < len(argv) else None
+    pos = [a for i, a in enumerate(argv) if not a.startswith("--") and (i == 0 or argv[i - 1] not in ("--subject", "--journal", "--repo"))]
+    subject, journal = opt("--subject"), opt("--journal")
+    if len(pos) != 1 or not subject or not journal:
+        fail(__doc__.splitlines()[1], 1)
+    root = os.path.abspath(opt("--repo") or ".")
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+        with open(journal, encoding="utf-8") as f:
+            block = f.read().strip()
+    except (OSError, ValueError) as e:
+        fail(str(e), 1)
+    prefix = str((cfg.get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
+    branch = git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    if not branch.startswith(prefix):
+        fail(f"{branch!r} is not a feature branch ({prefix}…) — run in the feature worktree", 1)
+    task = os.path.abspath(pos[0])
+    name = os.path.basename(task)
+    if not os.path.isfile(task):
+        alt = os.path.join(os.path.dirname(task), "done", name)
+        if not os.path.isfile(alt):
+            fail(f"no task file {pos[0]}", 1)
+        task = alt
+    in_done = os.path.basename(os.path.dirname(task)) == "done"
+    with open(task, encoding="utf-8", newline="") as f:
+        text = f.read()
+    m = FENCE.match(text)
+    if not m:
+        fail(f"{task}: no frontmatter fence — not a reef task file", 1)
+    fm = {}
+    for line in m.group(1).splitlines():
+        if line[:1] not in (" ", "\t", "#") and ":" in line:
+            fm.setdefault(line.split(":", 1)[0].strip(), line.split(":", 1)[1].strip())
+    tid = fm.get("id") or re.match(r"R?\d+", name).group()
+    main_ck = main_checkout(root)
+    wt = os.path.join(main_ck, fm["worktree"]) if fm.get("worktree") else os.path.join(main_ck, str((cfg.get("worktree") or {}).get("dir", ".reef/worktrees")), tid)
+    tbranch = f"task/{tid}-{re.sub(r'^R?\d+-', '', name)[:-3]}"
+    if os.path.isdir(wt):
+        tbranch = git(wt, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    has_branch = git(root, "rev-parse", "-q", "--verify", f"refs/heads/{tbranch}", check=False).returncode == 0
+    dirty = os.path.isdir(wt) and bool(git(wt, "status", "--porcelain").stdout.strip())   # uncommitted work: not merged yet
+    merged = has_branch and not dirty and git(root, "merge-base", "--is-ancestor", tbranch, "HEAD", check=False).returncode == 0
+    if not has_branch and in_done and fm.get("status") == "done":
+        git(root, "worktree", "prune")
+        print(f"merge-close: {name} is already closed (under done/, status done, no branch {tbranch})")
+        return 0
+    if not has_branch:
+        fail(f"no branch {tbranch} and {name} is not closed — nothing to merge", 1)
+    if not merged:
+        if not os.path.isdir(wt):
+            fail(f"no task worktree at {wt} while {tbranch} is unmerged", 1)
+        if dirty:
+            git(wt, "add", "-A")
+            staged = git(wt, "diff", "--cached", "--name-only").stdout.split()
+            bad = [p for p in staged if SECRET.search(p)]
+            if bad:
+                git(wt, "reset", "-q")
+                fail(f"refusing to commit {', '.join(bad)}: a secret-shaped file in the task worktree — remove it, then re-run", 2)
+            print("merge-close: staged in the task worktree: " + ", ".join(staged))
+            r = git(wt, "commit", "-q", "-m", f"{subject}\n\nCloses-task: {tbranch[len('task/'):]}", check=False)
+            if r.returncode != 0:
+                git(wt, "reset", "-q")
+                fail(f"the task worktree's commit was refused by the gate:\n{(r.stdout + r.stderr).strip()[-800:]}", 2)
+        r = git(root, "merge", "--no-ff", "--no-commit", tbranch, check=False)
+        if r.returncode != 0:
+            conflicted = git(root, "diff", "--name-only", "--diff-filter=U", check=False).stdout.split()
+            git(root, "merge", "--abort", check=False)
+            fail(f"CONFLICT in {', '.join(conflicted)} — merge aborted, nothing changed; a code conflict is a decision for a person"
+                 if conflicted else f"`git merge {tbranch}` failed, nothing changed: {(r.stderr or r.stdout).strip()[:400]}", 2)
+        changed = git(root, "diff", "--cached", "--name-only").stdout.split()
+        setup = str((cfg.get("worktree") or {}).get("setup", "") or "")
+        if setup.strip() and any(p in LOCKFILES or os.path.basename(p) in LOCKFILES for p in changed):
+            print(f"merge-close: a lockfile changed — running worktree.setup here first: {setup}")
+            if subprocess.run(["sh", "-c", setup], cwd=root).returncode != 0:
+                git(root, "merge", "--abort", check=False)
+                fail("worktree.setup failed; merge aborted, nothing changed", 2)
+        head = m.group(1)
+        head = re.sub(r"^status:.*$", "status: done", head, count=1, flags=re.M) if re.search(r"^status:", head, re.M) else head + "status: done\n"
+        body = text[m.end():]
+        if block and "<!-- journal -->" not in body:
+            body = body.rstrip("\n") + f"\n\n<!-- journal -->\n{block}\n<!-- /journal -->\n"
+        with open(task, "w", encoding="utf-8", newline="") as f:
+            f.write(text[:m.start(1)] + head + text[m.end(1):m.end()] + body)
+        dest = task if in_done else os.path.join(os.path.dirname(task), "done", name)
+        if not in_done:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            git(root, "mv", task, dest)
+        git(root, "add", dest)
+        r = git(root, "commit", "-q", "-m", f"merge {tbranch}: {subject}\n\nCloses-task: {tbranch[len('task/'):]}", check=False)
+        if r.returncode != 0:
+            git(root, "merge", "--abort", check=False)
+            if dest != task and os.path.exists(dest):
+                os.remove(dest)
+            with open(task, "w", encoding="utf-8", newline="") as f:
+                f.write(text)   # the task file as it was, its uncommitted edits included (the abort restores HEAD's)
+            fail(f"the merge commit was refused by the gate; merge aborted, nothing changed:\n{(r.stdout + r.stderr).strip()[-800:]}", 2)
+        task = dest
+    if os.path.isdir(wt):
+        r = git(root, "worktree", "remove", wt, check=False)
+        if r.returncode != 0:
+            fail(f"{tbranch} is merged but its worktree stays: {r.stderr.strip()[:300]} — fix that and re-run (the rest resumes)", 2)
+    git(root, "branch", "-d", tbranch)
+    git(root, "worktree", "prune")
+    print(f"merge-close: {tbranch} merged into {branch} at {git(root, 'rev-parse', '--short', 'HEAD').stdout.strip()}; "
+          f"{os.path.relpath(task, root)} done; worktree and branch removed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
