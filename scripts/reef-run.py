@@ -333,11 +333,16 @@ NIGHT_HOURS = 16
 
 
 def queue_open_rows(root):
-    """The ids of the queue's open rows (paths.queue; a closed row has moved to the archive), or None if unreadable."""
+    """The ids of the queue's open rows (paths.queue; a closed row has moved to the archive), or None if unreadable.
+    `queue.home: issues` (0.7.1): the rows of the snapshot reef-queue.py syncs, `.reef/queue.json` — no network here."""
     import re
     try:
         with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
-            rel = (json.load(f).get("paths") or {}).get("queue", "docs/queue.md")
+            cfg = json.load(f)
+        if (cfg.get("queue") or {}).get("home") == "issues":
+            with open(os.path.join(root, ".reef", "queue.json"), encoding="utf-8") as f:
+                return {r["Id"] for r in json.load(f).get("rows", [])}
+        rel = (cfg.get("paths") or {}).get("queue", "docs/queue.md")
         with open(os.path.join(root, rel), encoding="utf-8") as f:
             return {m.group(1) for m in re.finditer(r"^\|\s*(\d+)\s*\|", f.read(), re.M)}
     except (OSError, ValueError):
