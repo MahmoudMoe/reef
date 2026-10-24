@@ -184,6 +184,27 @@ class NightStartsItself(unittest.TestCase):
         self.assertNotIn("(in a terminal, in the project; `--max-iterations 2`", skill, "no manual terminal step")
 
 
+class NightDocs(unittest.TestCase):
+    """2026-10-24: the README, the site and the Arabic manual still told the owner to start the night by hand in a terminal
+    after #108 made /reef-night start it; they now say how the night works."""
+
+    def test_the_three_surfaces_say_reef_night_starts_it_and_how_to_follow_it(self):
+        readme = read("README.md")
+        self.assertIn("`/reef-night` starts the runner itself, detached from the session", readme)
+        self.assertIn("`python3 scripts/reef-run.py status` shows it from anywhere", readme)
+        self.assertIn("An approval holds 16 hours", readme)
+        self.assertIn("the API-price equivalent, not a bill", readme)
+        self.assertIn("preview looks — his by default", readme)
+        self.assertNotIn("`/reef-night`, then `python3 scripts/reef-run.py --night`", readme)
+        site = read("docs", "index.html")
+        self.assertIn("it starts the runner itself, detached", site)
+        self.assertNotIn("then <code>python3 scripts/reef-run.py --night</code> works while you sleep", site)
+        ar = read("docs", "manual", "ar", "index.html")
+        self.assertIn("python3 scripts/reef-run.py status", ar)
+        self.assertIn("الموافقة صالحة 16 ساعة", ar)
+        self.assertNotIn("ثم <code>python3 scripts/reef-run.py --night</code>", ar)
+
+
 class SizeBudget(unittest.TestCase):
     """0.7 (the owner, 2026-10-20: "is Reef creating technical debt?"): config keys, skill and agent prose, and script lines
     grew with every fix and nothing was removed. tests/size-budget.json holds the ceiling; a PR that grows a number

@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **The docs say how the night works now** (the owner's go, 2026-10-24). The README, the site and the Arabic manual
+  still told the owner to start the night by hand in a terminal. All three now say: `/reef-night` starts the runner
+  itself, detached; `reef-run.py status` follows it; the contract's rows default to every ready row, found ones
+  too; preview looks are Mahmoud's by default unless a footnote keeps one; an approval holds 16 hours (a new stops
+  row for the refusal); a night draws on a subscription's usage, the logged cost is the API-price equivalent, not a
+  bill, and `caps.batch_tokens` caps it. Docs only; budget unchanged.
 - **`/reef-night` starts the night itself** (the owner's go, 2026-10-24: "why don't I have /reef-night instead of a
   manual thing in the terminal?"). `reef-run.py --detach` runs every check first (a refusal prints to the caller),
   then leaves the session that started it (fork, `setsid`, fork; output to `.reef/run/runner.out`) and returns the
