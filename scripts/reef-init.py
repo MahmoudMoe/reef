@@ -97,7 +97,7 @@ STACK_OPINIONS = {"node": "node.md", "python": "python.md", "rust": "rust.md", "
 GITIGNORE_LINES = [".reef/worktrees/", ".reef/proposed/", ".reef/ci-local/", ".reef/approvals/", ".reef/review/",
                    ".reef/verifying/", ".reef/inflight/", ".reef/loop.json", ".reef/status.html", ".reef/cost/", ".reef/graph/", "tasks/.plan-review.json", ".env",
                    ".reef/hunt/", ".reef/run/", ".reef/questions.md", ".reef/night/", ".reef/queue.json", ".reef/queue-view.md", "scripts/__pycache__/"]   # .reef/run/: reef-run's gate, log and lock; questions.md: the owner's open questions (the handoff reads it). .reef/hunt/: the hunter's own reports: evidence like .reef/ci-local/ (2026-10-18: 12 untracked files in the trial's status)
-VERSION = "0.7.1"   # written to .reef/version; absent = a 0.5 project (every 0.6 check warns instead of failing)
+VERSION = "0.7.2"   # written to .reef/version; absent = a 0.5 project (every 0.6 check warns instead of failing)
 MAKEFILE_TARGET = "\nsetup: ## git hooks (once per clone) — reef\n\tgit config core.hooksPath .githooks\n\tchmod +x .githooks/*\n"
 
 
