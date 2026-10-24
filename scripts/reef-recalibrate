@@ -818,8 +818,10 @@ def measure(root):
             guards.append(rel)
     big = [(rel, n) for rel, n in sorted(product.items(), key=lambda kv: (-kv[1], kv[0])) if n > large]
     stack = "node" if os.path.isfile(pkg_p) else "python" if os.path.isfile(os.path.join(root, "pyproject.toml")) else "other"
+    sensitive = sensitive_files(root, product)
     return {"date": datetime.date.today().isoformat(), "product": {"loc": sum(product.values()), "files": len(product)},
             "boundaries": boundaries(root, product, stack),
+            "sensitive": sensitive, "design_paths": design_paths(root, cfg, sensitive, files),
             "tests": {"loc": sum(tests.values()), "files": len(tests)}, "largest": largest,
             "raw_sql": raw if prisma else None, "raw_sql_note": "" if prisma else "not measured (node + Prisma only; other stacks later)",
             "migrations": migrations, "linter": linter, "guard_tests": guards, "large_file": large, "large_files": big,
@@ -935,6 +937,86 @@ def render_boundaries(b):
     return "\n".join(lines) + "\n"
 
 
+# ---------------------------------------------------------------- the real sensitive code (0.7.2, ai-coach 2026-10-24, item 22)
+# tiers.design.paths (auth, crypto, secrets, migrations globs) matched 0 of the 21 files holding access control, tenant isolation and
+# money (session-access.ts, visibility*.ts, scoped-client*.ts, *tenant*, usage*.ts, metering*.ts, app/api/sign-in/**): a change there
+# ran as an ordinary full task. The measure lists sensitive files BY CONTENT, Observed with file:line, and the plan proposes the
+# exact tiers.design.paths diff with the count of files each glob matches; .reef/config.json stays owner-edited.
+SENSITIVE = (("session, cookie or token handling", re.compile(r"\b(cookies\(\)|setCookie|getSession|getServerSession|useSession|jsonwebtoken|jwt\.(sign|verify)|verifyToken|signToken|sessionStorage|session[-_]?access|refresh[-_]?token)\b", re.I)),
+             ("RLS or tenant scoping", re.compile(r"set_config\(|\bRLS\b|row level security|\btenant[-_]?id\b|\btenantId\b|scoped[-_]?client|forTenant|withTenant|\bvisibility\b", re.I)),
+             ("permission predicate", re.compile(r"\b(can[A-Z]\w+|is(Admin|Owner|Member|Allowed|Authorized|Permitted)|has(Permission|Role|Access)|assert(Role|Permission|Owner|Access)|require(Role|Permission|Auth)|authorize\w*)\b")),
+             ("payment, usage, metering or cap", re.compile(r"\b(stripe|payment\w*|checkout|invoice\w*|metering|meter\w*|usage\w*|quota\w*|billing|credits?|plan[-_]?limit\w*)\b", re.I)),
+             ("secret read", re.compile(r"process\.env\.[A-Z0-9_]*(SECRET|KEY|TOKEN|PASSWORD|PRIVATE)|environ(\.get)?\(?\[?[\"'][A-Z0-9_]*(SECRET|KEY|TOKEN|PASSWORD)|getenv\([\"'][A-Z0-9_]*(SECRET|KEY|TOKEN|PASSWORD)")),
+             ("sign-in route", re.compile(r"\b(signIn|signOut|NextAuth|authOptions|handleLogin|loginHandler)\b")))
+SENSITIVE_PATH = re.compile(r"(^|/)(sign-?in|sign-?up|login|logout|auth|oauth|sso|callback|session|billing|payments?|metering|tenant\w*)(/|\.|-|_|$)", re.I)
+
+
+def sensitive_files(root, product):
+    out = []
+    tm = os.path.join(root, "reef", "architecture", "threat-model.md")
+    tm_lines = {}
+    if os.path.isfile(tm):
+        for n, line in enumerate(read(tm).splitlines(), 1):
+            for m in re.finditer(r"(?<![\w/])((?:[\w.-]+/)+[\w.-]+\.(ts|tsx|js|py|go|rs))\b", line):
+                tm_lines.setdefault(m.group(1), n)
+    for rel in sorted(product):
+        kinds = []
+        if SENSITIVE_PATH.search(rel):
+            kinds.append({"kind": "sensitive path", "line": 0})
+        with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as f:
+            seen = set()
+            for n, line in enumerate(f, 1):
+                s = line.strip()
+                if s.startswith(("//", "*", "/*", "#")):
+                    continue
+                for kind, rx in SENSITIVE:
+                    if kind not in seen and rx.search(s):
+                        kinds.append({"kind": kind, "line": n})
+                        seen.add(kind)
+        if rel in tm_lines:
+            kinds.append({"kind": "named by the threat model", "line": tm_lines[rel]})
+        if kinds:
+            out.append({"file": rel, "kinds": kinds})
+    return out
+
+
+def design_paths(root, cfg, sensitive, all_files):
+    """The exact tiers.design.paths diff: today's globs, which sensitive files they already match, and the globs to add — a directory
+    glob when a directory is mostly sensitive, else the file itself — each with the count of files it matches (git ls-files)."""
+    import fnmatch
+    match = lambda g, rel: fnmatch.fnmatch(rel, g) or (g.endswith("/**") and rel.startswith(g[:-3] + "/")) or (g.startswith("**/") and fnmatch.fnmatch(rel, g[3:]))
+    current = [str(g) for g in (((cfg.get("tiers") or {}).get("design") or {}).get("paths") or [])]
+    files = [s["file"] for s in sensitive]
+    covered = [f for f in files if any(match(g, f) for g in current)]
+    by_dir = {}
+    for f in files:
+        by_dir.setdefault(os.path.dirname(f), []).append(f)
+    proposed = []
+    for d, fs in sorted(by_dir.items()):
+        in_dir = [x for x in all_files if os.path.dirname(x) == d]
+        if len(fs) >= 2 and len(fs) * 2 >= len(in_dir):
+            proposed.append(f"{d}/**")
+        else:
+            proposed += fs
+    proposed = [g for g in proposed if not any(match(c, g) for c in current)]
+    counts = {g: sum(1 for x in all_files if match(g, x)) for g in current + proposed}
+    return {"current": current, "covered_by_current": covered, "proposed": proposed, "counts": counts,
+            "uncovered": [f for f in files if f not in covered]}
+
+
+def render_design_paths(dp, sensitive):
+    lines = ["## Proposed tiers.design.paths (the design tier reaches the real sensitive code)", "",
+             f"{len(sensitive)} sensitive file(s) found by content (below, Observed with file:line); today's globs match {len(dp['covered_by_current'])} of them. "
+             "On approval the owner adds the proposed globs to `.reef/config.json` `tiers.design.paths` (owner-edited, never written by the apply); "
+             "a task there then runs as `design`: the hunter's plan pass, the design-tier judges, and (item 22) the security agent on its diff.", "",
+             "| glob | files it matches | status |", "|---|---|---|"]
+    lines += [f"| `{g}` | {dp['counts'][g]} | today |" for g in dp["current"]]
+    lines += [f"| `{g}` | {dp['counts'][g]} | **add** |" for g in dp["proposed"]] or ["| – | – | nothing to add |"]
+    lines += ["", "| file | why (first hit per kind) |", "|---|---|"]
+    lines += [f"| `{s['file']}` | " + "; ".join(f"{k['kind']} ({s['file']}:{k['line']})" if k["line"] else k["kind"] for k in s["kinds"]) + " |" for s in sensitive] or ["| – | none found |"]
+    return "\n".join(lines) + "\n"
+
+
 def render_measured(m):
     lines = ["## Measured", "",
              f"Counted by `python3 scripts/reef-recalibrate measure` on {m['date']} — Observed, not judged. Tests, `*.d.ts`, generated and "
@@ -951,6 +1033,8 @@ def render_measured(m):
     lines += ["", "### Functions and triggers per migration (Observed; integrity rule or product rule is Inferred, by Explore)", "",
               "| migration | CREATE FUNCTION | CREATE TRIGGER |", "|---|---|---|"]
     lines += [f"| `{rel}` | {v['functions']} | {v['triggers']} |" for rel, v in sorted(m["migrations"].items()) if v["functions"] or v["triggers"]] or ["| – | 0 | 0 |"]
+    lines += ["", "### Sensitive code, by content (Observed; the design tier should reach it — see reef/recalibration.md)", ""]
+    lines += [f"- `{s['file']}`: " + "; ".join(f"{k['kind']} (line {k['line']})" if k["line"] else k["kind"] for k in s["kinds"]) for s in m.get("sensitive") or []] or ["- none found"]
     lines += ["", "### Existing guard tests (reuse before adding a gate)", ""]
     lines += [f"- `{g}`" for g in m["guard_tests"]] or ["- none found"]
     lines += ["", f"### Files over `assess.large_file` ({m['large_file']} lines) — candidate `kind: refactor` rows, proposed in reef/recalibration.md, never created here", ""]
@@ -1014,6 +1098,9 @@ def cmd_measure(root, as_json):
     qsec = re.search(r"^## Proposed gate — raw SQL.*?\n.*?(?=^## |\Z)", rtext, re.M | re.S)
     qprop = render_raw_sql(m["raw_sql_proposal"])
     rtext = rtext[:qsec.start()] + qprop + rtext[qsec.end():] if qsec else rtext.rstrip("\n") + "\n\n" + qprop
+    dsec = re.search(r"^## Proposed tiers\.design\.paths.*?\n.*?(?=^## |\Z)", rtext, re.M | re.S)
+    dprop = render_design_paths(m["design_paths"], m["sensitive"])
+    rtext = rtext[:dsec.start()] + dprop + rtext[dsec.end():] if dsec else rtext.rstrip("\n") + "\n\n" + dprop
     with open(rp, "w", encoding="utf-8") as f:
         f.write(rtext)
     if not as_json:
