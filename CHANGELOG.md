@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **`add-row` on issues no longer hands out duplicate ids** (ai-coach, 2026-10-24, item 20). Six `add-row` calls in a row
+  created issues titled `[3] [3] [4] [4] [5] [5]` with wrong `Depends:`, because the next id came from GitHub's issue
+  list, which lags a just-created issue. Now the last allocated id is kept in `.reef/queue.json` under a file lock and
+  counts like a row's (the snapshot's re-read carries it over); after `issue create` the open rows are re-read and, if
+  another issue carries the same `[id]`, the newer one is retitled to the next free id and the change printed; new
+  `add-rows --file rows.json` creates a chain in one pass, `@prev` in a row's depends resolving to the id just
+  allocated. tests/test_queue_issues.py `RowIds`, with a fake gh whose list lags one create. tests/size-budget.json raised: `script_lines` 13,904 → 13,979.
 - **Assess does the whole adoption and says what it did not** (ai-coach, 2026-10-24, item 18). The owner approved a
   reduced recalibration (32 documents archived); `specs/`, `docs/adr/`, a 909-row old queue and a second handoff stayed
   because the project's own tools read them, and assess asked to push and merge without saying the replacement was
