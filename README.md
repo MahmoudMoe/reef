@@ -301,7 +301,7 @@ scripts/reef-*   .githooks/   .github/workflows/ci.yml      # tooling where git 
 The plugin itself: `skills/` (init, assess, explore, loop, plan, plan-review, task, graph, verify, review, c4, threat, pentest,
 doctor, night) · `commands/` · `agents/` (implementer, verifier, plan-reviewer, loophole-hunter, mechanic, planner, security,
 mahmoud) · `scripts/` (`reef-init.py`, `reef-update.py`, `reef-doctor.py`, `reef-run.py` [probe|contract|watch|--night], `reef-graph-run.py` [probe|generate|settle],
-`reef-migrate`, `reef-loop.py` [tick|start|stop|wait], `reef-handoff`, `reef-gate.sh` [fast|full|--failures],
+`reef-migrate`, `reef-loop.py` [tick|start|stop|wait|unlock], `reef-handoff`, `reef-gate.sh` [fast|full|--failures],
 `reef-attempt`, `reef-guard.py`, `reef-approval.py`, `reef-record`, `reef-graph.py`, `reef-plan-check.py`
 [--rules|--digest|--needs-agent|--verify-stamp], `reef-converge`, `reef-adversarial`, `reef-claims.py`
 [check|--handback|report|claims-only], `reef-tier.py`, `reef-queue.py` [status|ready|check|adr-number|index|footnote|add-row|set-depends|triage|set-batch|drop-row|close|admit|set-priority|demote|journal|migrate-to-issues],
@@ -359,6 +359,7 @@ adapter (`scripts/reef-opencode.py`) · **Claude Code** when it needs a hook eve
 | What happened while nobody was in the room: the tick, tasks by status and attempts, journal rows since a date, found rows, stops, sessions with per-feature growth, rejected judge reports — one screen, no model | `scripts/reef-watch [--since] [--json]` | Claude Code | **code** (a report, not a gate) |
 | `/reef-assess` writes data, not an essay: the observed sections present, every claim `Observed — path:line` or `Inferred`, the harnessability table's five dimensions summing to its heading | `scripts/reef-claims.py assess` (fixture: the real ledger report) | portable | **code** |
 | The queue has one home — `paths.queue` on `branches.base` in the main checkout; a feature branch whose queue differs from its fork point fails the plan check | `reef-plan-check.py` queue-home check; `tests/test_feature_spec.py::QueueHasOneHome` | portable | **code** |
+| One orchestrator at a time: the first session that dispatches or writes the loop's state holds the project, a second is refused while the holder acted in the last 30 minutes; `wait`/`stop` hand it over, `reef-loop.py unlock` takes it over | `reef-guard.py` · `tests/test_lock.py` | portable | **code** |
 | No-progress parking (`loop.no_progress_ticks` identical ticks, nothing in flight) and token budgets (`caps.feature_tokens`, `caps.batch_tokens`) | `scripts/reef-loop.py tick` | portable | **code** |
 | Reports, never raw material: the exit code plus the failing block (`context.failure_lines`), the whole log on disk | `reef-gate.sh --failures`, `reef-ci-local.sh` (truncation inside the gate keeps the exit code) | portable | **code** |
 | Session start under `writing.session_start_tokens`: the handoff head + the tick + the next command, nothing else read | `hooks.json` SessionStart → `reef-loop.py tick --session-start --hook`; `AGENTS.md` ≤ 80 lines and the skills' re-entry sections (contracts) | Claude Code | **code** for the cap, **prose** for what the model then reads |

@@ -2,7 +2,8 @@
 # CLASS: code
 """Reef loop — the loop engine's one read of the world: the TICK.
   reef-loop.py tick [--repo DIR] [--json] [--assert-no-idle] [--session-start [--hook]] [--hash]
-  reef-loop.py start | stop | wait "<reason>" | clear-wait
+  reef-loop.py start | stop | wait "<reason>" | clear-wait | unlock
+  (0.7.1) the guard lets one session hold the loop; `wait` and `stop` release it, `unlock` takes it over for this session
 The next-action set as data under 30 lines (rows to plan, dispatch now, PRs, rows to close, in flight from
 .reef/inflight/ — stale after loop.inflight_stale_minutes = returned — parked, wait, stop). loop.no_progress_ticks
 identical ticks with nothing in flight park the loop; caps.feature_tokens/batch_tokens via reef-cost --live.
@@ -32,6 +33,20 @@ def read(p):
 def root_of(repo):
     r = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=repo, capture_output=True, text=True)
     return r.stdout.strip() or os.path.abspath(repo)
+
+
+def release_hold(root):
+    """One orchestrator at a time (0.7.1): the session holding the loop lets go; returns who held it."""
+    r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True)
+    main = next((l[len("worktree "):].strip() for l in r.stdout.splitlines() if l.startswith("worktree ")), root)
+    p = os.path.join(main, ".reef", "run", "orchestrator.json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            held = json.load(f).get("session", "?")
+        os.unlink(p)
+        return held
+    except (OSError, ValueError):
+        return None
 
 
 def config(root):
@@ -536,17 +551,23 @@ def main(argv):
     if cmd == "stop":
         st.update(active=False)
         save_state(root, st)
+        release_hold(root)
         print("loop: inactive")
         return 0
     if cmd == "wait":
         st["wait"] = " ".join(argv[1:]) or "unspecified"
         save_state(root, st)
+        release_hold(root)   # the /clear hand-over: the next session starts at once
         print(f"loop: waiting — {st['wait']}")
         return 0
     if cmd == "clear-wait":
         st["wait"] = None
         save_state(root, st)
         print("loop: wait cleared")
+        return 0
+    if cmd == "unlock":
+        held = release_hold(root)
+        print(f"loop: unlocked (held by session {held})" if held else "loop: nobody held it")
         return 0
     if cmd != "tick":
         print(f"reef-loop: unknown command {cmd!r}", file=sys.stderr)
