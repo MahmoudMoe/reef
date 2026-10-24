@@ -4,6 +4,8 @@
   reef-recalibrate plan    [--repo DIR]      reef/recalibration.md + .reef/recalibration.json (create/convert/move/keep + reason)
   reef-recalibrate history [--repo DIR]      how it was pushed: branches, commit convention, merge style, tags, CI → derived branches.*
   reef-recalibrate measure [--json] [--repo DIR]   (0.7.2) counts, not judgments, into reef/day-zero.md ## Measured: largest product
+                                             files, …; on node also a dependency-cruiser config + known-violations baseline under
+                                             .reef/proposed/ (layer boundaries, item 13), proposed in reef/recalibration.md
                                              files, product vs test LOC, raw SQL by directory, functions/triggers per migration,
                                              linter, existing guard tests; reef/size-baseline.json; files over assess.large_file
                                              as candidate refactor rows in reef/recalibration.md
@@ -386,11 +388,122 @@ def measure(root):
         if GUARD_NAME.search(os.path.basename(rel)) or GUARD_TEXT.search(head):
             guards.append(rel)
     big = [(rel, n) for rel, n in sorted(product.items(), key=lambda kv: (-kv[1], kv[0])) if n > large]
+    stack = "node" if os.path.isfile(pkg_p) else "python" if os.path.isfile(os.path.join(root, "pyproject.toml")) else "other"
     return {"date": datetime.date.today().isoformat(), "product": {"loc": sum(product.values()), "files": len(product)},
+            "boundaries": boundaries(root, product, stack),
             "tests": {"loc": sum(tests.values()), "files": len(tests)}, "largest": largest,
             "raw_sql": raw if prisma else None, "raw_sql_note": "" if prisma else "not measured (node + Prisma only; other stacks later)",
             "migrations": migrations, "linter": linter, "guard_tests": guards, "large_file": large, "large_files": big,
             "baseline": product}
+
+
+# ---------------------------------------------------------------- boundaries (0.7.2, ai-coach 2026-10-24, item 13)
+# Layer boundaries were not enforced. The measure derives a dependency-cruiser config from the observed layout and writes
+# today's violations as the known-violations baseline, so day one is green and only a NEW violation fails. Proposed under
+# .reef/proposed/, applied by the owner with the plan; the gate is `depcruise --ignore-known`.
+IMPORT_RE = re.compile(r"""(?:^|\n)\s*(?:import\s+(?:[^'"]*?\s+from\s+)?|export\s+[^'"]*?\s+from\s+|const\s+[^=]+=\s*require\()\s*['"]([^'"]+)['"]""")
+BOUNDARY_RULES = (("components-no-db", r"(^|/)components/", "a component never touches the database client"),
+                  ("api-db-through-lib", r"(^|/)app/api/", "a route handler reaches the database only through lib/"))
+
+
+def resolve_import(rel, spec, files, aliases):
+    """A relative or aliased import to a product path in `files`, else None (a package import)."""
+    for alias, target in aliases.items():
+        if spec.startswith(alias):
+            spec = target + spec[len(alias):]
+            break
+    else:
+        if not spec.startswith("."):
+            return None
+        spec = os.path.normpath(os.path.join(os.path.dirname(rel), spec))
+    spec = os.path.normpath(spec)
+    for cand in (spec, *(spec + e for e in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")), *(os.path.join(spec, "index" + e) for e in (".ts", ".tsx", ".js"))):
+        if cand in files:
+            return cand
+    return None
+
+
+def boundaries(root, product, stack):
+    if stack != "node":
+        if stack == "python":
+            draft = os.path.join(root, ".reef", "proposed", "adr-draft-import-boundaries.md")
+            os.makedirs(os.path.dirname(draft), exist_ok=True)
+            with open(draft, "w", encoding="utf-8") as f:
+                f.write("# ADR draft — import boundaries (python)\n\nStatus: Draft\n\nContext: layer boundaries are not enforced. "
+                        "Decision (proposed): `import-linter` with a contract per layer (`[importlinter] root_package = <pkg>`; a `layers` "
+                        "contract listing the layers top-down), run as `gates.extra.boundaries: lint-imports`. Today's violations become "
+                        "the first contract's `ignore_imports`. Consequences: a new cross-layer import fails the gate; the baseline is paid down by rows.\n")
+            return {"stack": stack, "adr_draft": os.path.relpath(draft, root)}
+        return None
+    aliases = {}
+    ts = os.path.join(root, "tsconfig.json")
+    if os.path.isfile(ts):
+        try:
+            paths = (json.loads(re.sub(r"//[^\n]*|/\*.*?\*/", "", read(ts), flags=re.S)).get("compilerOptions") or {}).get("paths") or {}
+            for k, v in paths.items():
+                if k.endswith("/*") and v and str(v[0]).endswith("/*"):
+                    aliases[k[:-1]] = os.path.normpath(str(v[0])[:-1]) + "/"
+        except (ValueError, AttributeError, IndexError):
+            pass
+    if not aliases:
+        aliases = {"@/": "src/"}
+    files = set(product)
+    db_files = sorted(rel for rel in files if rel.endswith((".ts", ".tsx", ".js", ".mjs")) and "new PrismaClient(" in read(os.path.join(root, rel)))
+    known = []
+    for rel in sorted(files):
+        if not rel.endswith((".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")):
+            continue
+        for spec in IMPORT_RE.findall(read(os.path.join(root, rel))):
+            to = resolve_import(rel, spec, files, aliases)
+            hits_db = to in db_files or spec == "@prisma/client"
+            if not hits_db:
+                continue
+            for name, from_re, _ in BOUNDARY_RULES:
+                if re.search(from_re, rel):
+                    known.append({"from": rel, "to": to or "node_modules/@prisma/client", "rule": {"severity": "error", "name": name}})
+    db_re = "|".join(re.escape(p) for p in db_files) or "lib/(prisma|db|client)"
+    config = ("/** generated by `reef-recalibrate measure` from the observed layout — proposed; edit, then move it to the root with the\n"
+              " * known-violations baseline and add `\"boundaries\": \"npx depcruise --config .dependency-cruiser.cjs --ignore-known src\"` to gates.extra */\n"
+              "module.exports = {\n  forbidden: [\n" +
+              "".join(f"    {{ name: '{name}', severity: 'error', comment: '{why}',\n      from: {{ path: '{from_re}' }}, to: {{ path: '({db_re}|node_modules/@prisma/client)' }} }},\n"
+                      for name, from_re, why in BOUNDARY_RULES) +
+              "  ],\n  options: { doNotFollow: { path: 'node_modules' }, tsPreCompilationDeps: true, tsConfig: { fileName: 'tsconfig.json' } },\n};\n")
+    pdir = os.path.join(root, ".reef", "proposed")
+    os.makedirs(pdir, exist_ok=True)
+    with open(os.path.join(pdir, ".dependency-cruiser.cjs"), "w", encoding="utf-8") as f:
+        f.write(config)
+    with open(os.path.join(pdir, ".dependency-cruiser-known-violations.json"), "w", encoding="utf-8") as f:
+        json.dump(known, f, indent=1)
+        f.write("\n")
+    existing = os.path.join(root, ".dependency-cruiser-known-violations.json")
+    new = []
+    if os.path.isfile(existing):
+        try:
+            had = {(k.get("from"), k.get("to"), (k.get("rule") or {}).get("name")) for k in json.loads(read(existing))}
+            new = [k for k in known if (k["from"], k["to"], k["rule"]["name"]) not in had]
+        except (ValueError, AttributeError):
+            new = []
+    return {"stack": stack, "db_files": db_files, "rules": [n for n, _, _ in BOUNDARY_RULES], "known": known, "new": new,
+            "gate": "npx depcruise --config .dependency-cruiser.cjs --ignore-known src"}
+
+
+def render_boundaries(b):
+    if b is None:
+        return "## Proposed gate — boundaries\n\nNo boundary gate is proposed for this stack yet (node: dependency-cruiser; python: an ADR draft).\n"
+    if b["stack"] == "python":
+        return f"## Proposed gate — boundaries (python)\n\nAn ADR draft only: `{b['adr_draft']}` (import-linter). No gate is proposed until the owner decides.\n"
+    lines = ["## Proposed gate — boundaries (node)", "",
+             "Derived from the observed layout; nothing is applied. On approval: move `.reef/proposed/.dependency-cruiser.cjs` and "
+             "`.reef/proposed/.dependency-cruiser-known-violations.json` to the root, `npm i -D dependency-cruiser`, and add to `gates.extra`: "
+             f"`\"boundaries\": \"{b['gate']}\"`. Today's {len(b['known'])} violation(s) are the baseline: day one is green, only a NEW one fails.", "",
+             f"- database client: {', '.join('`' + d + '`' for d in b['db_files']) or 'none found (no `new PrismaClient(`)'}",
+             "- rules: " + "; ".join(f"`{n}` — {why}" for n, _, why in BOUNDARY_RULES), "",
+             "| rule | from | to |", "|---|---|---|"]
+    lines += [f"| {k['rule']['name']} | `{k['from']}` | `{k['to']}` |" for k in b["known"]] or ["| – | none | – |"]
+    if b["new"]:
+        lines += ["", f"**{len(b['new'])} NEW violation(s) since the committed baseline** (`.dependency-cruiser-known-violations.json`): " +
+                  ", ".join(f"`{k['from']}` → `{k['to']}`" for k in b["new"])]
+    return "\n".join(lines) + "\n"
 
 
 def render_measured(m):
@@ -466,6 +579,9 @@ def cmd_measure(root, as_json):
     rtext = read(rp) if os.path.isfile(rp) else f"# Recalibration — {m['date']}\n\n"
     rsec = re.search(r"^## Proposed rows \(refactor\)\n.*?(?=^## |\Z)", rtext, re.M | re.S)
     rtext = rtext[:rsec.start()] + prop + rtext[rsec.end():] if rsec else rtext.rstrip("\n") + "\n\n" + prop
+    bsec = re.search(r"^## Proposed gate — boundaries.*?\n.*?(?=^## |\Z)", rtext, re.M | re.S)
+    bprop = render_boundaries(m["boundaries"])
+    rtext = rtext[:bsec.start()] + bprop + rtext[bsec.end():] if bsec else rtext.rstrip("\n") + "\n\n" + bprop
     qsec = re.search(r"^## Proposed gate — raw SQL.*?\n.*?(?=^## |\Z)", rtext, re.M | re.S)
     qprop = render_raw_sql(m["raw_sql_proposal"])
     rtext = rtext[:qsec.start()] + qprop + rtext[qsec.end():] if qsec else rtext.rstrip("\n") + "\n\n" + qprop

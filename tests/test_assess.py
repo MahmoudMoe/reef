@@ -186,3 +186,60 @@ class RawSqlProposal(unittest.TestCase):
         m = json.loads(subprocess.run([sys.executable, RECAL, "measure", "--json", "--repo", d], capture_output=True, text=True).stdout)
         self.assertEqual(m["raw_sql_proposal"]["reuse"], ["tests/raw-sql-guard.test.ts"])
         self.assertIn("reuse it (keep it in `gates.full`); no new gate is proposed", open(os.path.join(d, "reef", "recalibration.md")).read())
+
+
+class Boundaries(unittest.TestCase):
+    """0.7.2 (ai-coach, 2026-10-24, item 13): the measure proposes a dependency-cruiser config from the observed layout, with
+    today's violations as the known-violations baseline — day one green, only a NEW violation fails."""
+
+    def fixture(self):
+        d = project()
+        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        write(d, ".reef/config.json", json.dumps({"paths": {}}))
+        write(d, "package.json", json.dumps({"name": "demo", "dependencies": {"@prisma/client": "6"}}))
+        write(d, "tsconfig.json", json.dumps({"compilerOptions": {"paths": {"@/*": ["./src/*"]}}}))
+        write(d, "src/lib/prisma.ts", "import { PrismaClient } from '@prisma/client';\nexport const prisma = new PrismaClient();\n")
+        write(d, "src/lib/orders.ts", "import { prisma } from './prisma';\nexport const orders = () => prisma.order.findMany();\n")
+        write(d, "src/components/Button.tsx", "import { prisma } from '@/lib/prisma';\nexport const B = () => prisma;\n")
+        write(d, "src/app/api/x/route.ts", "import { prisma } from '../../../lib/prisma';\nexport const GET = () => prisma;\n")
+        write(d, "src/app/api/y/route.ts", "import { orders } from '@/lib/orders';\nexport const GET = () => orders();\n")
+        return d
+
+    def measure(self, d):
+        r = subprocess.run([sys.executable, RECAL, "measure", "--json", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)["boundaries"]
+
+    def test_todays_violations_are_the_baseline_and_a_new_one_is_listed_as_new(self):
+        d = self.fixture()
+        b = self.measure(d)
+        self.assertEqual(b["db_files"], ["src/lib/prisma.ts"])
+        self.assertEqual([(k["from"], k["to"], k["rule"]["name"]) for k in b["known"]],
+                         [("src/app/api/x/route.ts", "src/lib/prisma.ts", "api-db-through-lib"),
+                          ("src/components/Button.tsx", "src/lib/prisma.ts", "components-no-db")], "lib/orders.ts and the y route are fine")
+        self.assertEqual(b["new"], [])
+        cfg = open(os.path.join(d, ".reef", "proposed", ".dependency-cruiser.cjs")).read()
+        self.assertIn("name: 'components-no-db'", cfg)
+        self.assertIn("src/lib/prisma\\.ts", cfg)
+        self.assertEqual(len(json.load(open(os.path.join(d, ".reef", "proposed", ".dependency-cruiser-known-violations.json")))), 2)
+        rec = open(os.path.join(d, "reef", "recalibration.md")).read()
+        self.assertIn("## Proposed gate — boundaries (node)", rec)
+        self.assertIn("Today's 2 violation(s) are the baseline", rec)
+        self.assertIn('"boundaries": "npx depcruise --config .dependency-cruiser.cjs --ignore-known src"', rec)
+        # the owner adopts the baseline, then a NEW component reaches the client: listed as new, never folded into the baseline
+        shutil.copy(os.path.join(d, ".reef", "proposed", ".dependency-cruiser-known-violations.json"), os.path.join(d, ".dependency-cruiser-known-violations.json"))
+        write(d, "src/components/Table.tsx", "import { PrismaClient } from '@prisma/client';\nexport const T = new PrismaClient();\n")
+        b = self.measure(d)
+        self.assertEqual([(k["from"], k["rule"]["name"]) for k in b["new"]], [("src/components/Table.tsx", "components-no-db")])
+        self.assertIn("1 NEW violation(s) since the committed baseline", open(os.path.join(d, "reef", "recalibration.md")).read())
+
+    def test_python_gets_an_adr_draft_only(self):
+        d = project()
+        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        write(d, ".reef/config.json", "{}")
+        write(d, "pyproject.toml", "[project]\nname = 'x'\n")
+        write(d, "src/x/a.py", "import os\n")
+        b = self.measure(d)
+        self.assertEqual(b["stack"], "python")
+        self.assertTrue(os.path.isfile(os.path.join(d, b["adr_draft"])))
+        self.assertIn("An ADR draft only", open(os.path.join(d, "reef", "recalibration.md")).read())
