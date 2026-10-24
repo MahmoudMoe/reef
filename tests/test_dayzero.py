@@ -473,6 +473,14 @@ class RecalibrationSafety(unittest.TestCase):
         self.assertEqual(git(d, "rev-parse", "HEAD"), head)
         self.assertEqual([l for l in git(d, "status", "--porcelain").splitlines() if not l.endswith(("recalibration.md", "recalibration.json", "instruction-layer.md", ".reef/config.json"))], [], "the plan files and the untracked config are the only change")
         self.assertEqual(len(git(d, "worktree", "list").splitlines()), 1, "the scratch worktree is gone")
+        # ai-coach, 2026-10-25: when the scratch apply itself fails the gates must not run against an unchanged worktree
+        write(d, "docs/loop/queue.md", "# Loop queue\n\n| id | item | status |\n|---|---|---|\n| 9 | wip (feat/wip) | open |\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "an old queue claiming a branch")
+        git(d, "checkout", "-qb", "feat/wip"); write(d, "src/w.py", "x\n"); git(d, "add", "-A"); git(d, "commit", "-qm", "wip"); git(d, "checkout", "-q", "main")
+        _, out = self.plan(d, "--measure")
+        self.assertIn("| apply (scratch) | 1 |", out)
+        self.assertIn("(the apply did not run: ", out)
+        self.assertNotIn("| gates.full |", out, "no gate ran on an unchanged worktree")
 
 
 class StructureHonoursConfigPaths(unittest.TestCase):
@@ -615,6 +623,20 @@ class WholeAdoption(unittest.TestCase):
         self.assertFalse(os.path.isfile(os.path.join(d, ".claude", "commands", "loop-start.md")))
         self.assertNotIn("/loop-start", open(os.path.join(d, "AGENTS.md")).read())
         self.assertEqual(git(d, "status", "--porcelain").strip(), "", "one commit")
+
+    def test_the_release_branch_an_archive_and_a_done_row_never_count_as_in_flight(self):
+        # ai-coach, 2026-10-25: `main` was "in flight" because the word sat in docs/loop/queue-archive.md; a done row naming a branch too
+        d = self.fixture()
+        write(d, "docs/loop/queue-archive.md", "# Archive\n\n| id | item | status |\n|---|---|---|\n| 0 | released to main | done |\n")
+        write(d, "docs/loop/queue.md", self.OLD_QUEUE + "| 4 | M4 old (feat/old-done) | done |\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "archive + a done row")
+        git(d, "checkout", "-qb", "feat/old-done"); write(d, "src/old.py", "x\n"); git(d, "add", "-A"); git(d, "commit", "-qm", "old"); git(d, "checkout", "-q", "main")
+        git(d, "checkout", "-qb", "release-only"); write(d, "src/rel.py", "x\n"); git(d, "add", "-A"); git(d, "commit", "-qm", "rel"); git(d, "checkout", "-q", "main")
+        cfg = json.loads(open(os.path.join(d, ".reef", "config.json")).read()); cfg["branches"] = {"base": "main", "release": "release-only"}
+        write(d, ".reef/config.json", json.dumps(cfg)); git(d, "add", "-A"); git(d, "commit", "-qm", "release branch named")
+        r = self.recal(d, "plan")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("ADOPTION REFUSED", r.stdout, "the release branch, an archive mention and a done row claim nothing")
 
     def test_work_in_flight_under_the_old_loop_refuses_and_names_the_branch_until_parked(self):
         d = self.fixture(in_flight=True)
