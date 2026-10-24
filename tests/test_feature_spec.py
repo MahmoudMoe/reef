@@ -659,6 +659,23 @@ class Converge(unittest.TestCase):
         self.assertIn("contradicts", r.stdout)
         self.assertEqual(len([f for f in os.listdir(os.path.dirname(rollup)) if f.startswith("R")]), 1, "one rollup per feature, appended to")
 
+    def test_a_cell_with_two_backticked_names_checks_each(self):
+        # 2026-10-24, the trial's row 5 rollup: a Proof cell holding two names, `a`, `b`, was read as ONE name
+        # ("a`, `b") and reported missing although both tests existed
+        write(self.d, "tests/export.test.ts", 'import { it } from "vitest";\nit("csv header is written", () => {});\n'
+              'it("csv header keeps its order", () => {});\n')
+        task = TASK_NEW.replace("| AC-1 | `test_csv_header_and_rows` |", "| AC-1 | `csv header is written`, `csv header keeps its order` |") \
+                       .replace("| AC-2 | `test_csv_two_decimals` |", "| AC-2 | `test_csv_two_decimals` and `test_csv_header_and_rows` |")
+        write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
+        r = self.converge()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Converged", r.stdout)
+        write(self.d, "tests/export.test.ts", 'import { it } from "vitest";\nit("csv header is written", () => {});\n')
+        r = self.converge()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("AC-1: missing — test csv header keeps its order does not exist", r.stdout)
+        self.assertNotIn("csv header is written does not exist", r.stdout)
+
     def test_runner_word_names_escaped_pipes_and_superseded_rows(self):
         # 2026-10-18, row 2's review (found row 50): a vitest name starting with `env` ran as a command, a grep with an
         # escaped pipe split the table cell, and a row replaced by task 204's Proof had no way to be skipped

@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **A Proof cell with two names checks each** (the owner's go, 2026-10-24). The trial's row 5 rollup reported a test
+  missing that existed: `reef-converge` read the cell `` `a`, `b` `` as one name, "a`, `b". A cell holding only backticked
+  spans joined by commas, semicolons or "and" is now one proof per span, each a test or a command as before.
+  tests/size-budget.json raised: `script_lines` 12,068 → 12,072.
 - **The queue on the project's GitHub issues, part 2: the readers and the loop** (the owner's go, 2026-10-24). The
   night runner's open-rows check and `reef-watch` read the snapshot `.reef/queue.json` under `queue.home: issues`, no
   network (after a migration the queue file has no table, and an empty set would refuse every night contract);
