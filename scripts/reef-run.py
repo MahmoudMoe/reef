@@ -13,6 +13,9 @@ Usage (the owner's terminal, in the project's main checkout):
   --host opencode: each session is `opencode run --command reef-loop --format json` (scripts/reef-opencode.py install
                first); the probe and the gate are per host (`probe --host opencode`)
   reef-run.py watch [--repo DIR]   the live steps of the run in progress (any terminal; Ctrl-C to leave)
+  reef-run.py status [--repo DIR]  one look: running or not, the night, the last steps and the last session
+  --detach: after every check passes, the runner leaves the session that started it (its own process session,
+            output to .reef/run/runner.out) and the command returns at once, so /reef-night can start the night
   reef-run.py contract [--from FILE]   (super Reef) install tonight's contract into .reef/night/contract.md and print
       the night digest (contract + reef/owner.md) and the exact question /reef-night asks: `Approve night <date> at <16 hex>?`
   --night: a delegated night (/reef-night): refuses without .reef/approvals/night.json at the CURRENT night digest; owner
@@ -161,7 +164,8 @@ def session(root, prompt, mode, say=None):
     try:
         p = subprocess.Popen([claude, "-p", prompt, "--permission-mode", mode, "--output-format", "stream-json", "--verbose"],
                              cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                             env=dict(os.environ, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=os.environ.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", BG_WAIT_MS)))
+                             env=dict(os.environ, REEF_RUNNER="1",
+                                      CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=os.environ.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", BG_WAIT_MS)))
     except FileNotFoundError:
         die(f"`{claude}` is not on the PATH — install Claude Code, or set REEF_CLAUDE")
     out, raw, names, verdicts = None, [], {}, {}
@@ -437,7 +441,58 @@ def cmd_probe(root, mode):
     return 1
 
 
-def cmd_run(root, mode, cap, night=False):
+def detach(root):
+    """--detach (the owner, 2026-10-24: why a manual terminal step?): fork, setsid, fork again, stdio to runner.out. The
+    caller gets the runner's pid and returns; the runner outlives the Claude session or terminal that started it
+    (proved live: a beater started from `claude -p` kept running after that session ended)."""
+    out = os.path.join(root, RUN_DIR, "runner.out")
+    r, w = os.pipe()
+    if os.fork():
+        os.close(w)
+        pid = os.read(r, 32).decode().strip()
+        print(f"reef-run: detached (pid {pid}) — it runs on after this session ends. Follow it: python3 scripts/reef-run.py "
+              f"status (or watch, in a terminal); its output: .reef/run/runner.out")
+        sys.exit(0)
+    os.close(r)
+    os.setsid()
+    if os.fork():
+        os._exit(0)
+    os.write(w, str(os.getpid()).encode())
+    os.close(w)
+    fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    os.dup2(os.open(os.devnull, os.O_RDONLY), 0)
+    os.dup2(fd, 1)
+    os.dup2(fd, 2)
+
+
+def cmd_status(root):
+    """Running or not (the lock's process), the night, the last live lines, the last session's record."""
+    try:
+        with open(os.path.join(root, RUN_DIR, "lock"), encoding="utf-8") as f:
+            pid = int(f.read().strip() or 0)
+        os.kill(pid, 0)
+        state = f"running (pid {pid})"
+    except (OSError, ValueError):
+        state = "not running"
+    night = "a night is active" if os.path.isfile(os.path.join(root, NIGHT_DIR, "active")) else "no night active"
+    print(f"reef-run: {state}; {night}")
+    try:
+        with open(os.path.join(root, LIVE), encoding="utf-8") as f:
+            for line in f.read().splitlines()[-15:]:
+                print("  " + line)
+    except OSError:
+        print("  (no live log yet)")
+    try:
+        with open(os.path.join(root, RUN_DIR, "run.log"), encoding="utf-8") as f:
+            rec = json.loads(f.read().splitlines()[-1])
+        end = rec.get("wait") or rec.get("stop") or rec.get("parked") or ""
+        print(f"last session: {rec.get('at')} · {rec.get('seconds')} s · ${rec.get('cost_usd') or 0:.2f}" + (f" · ended on: {end[:160]}" if end else ""))
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0
+
+
+def cmd_run(root, mode, cap, night=False, detached=False):
     if night:
         ok, why = night_ok(root)
         if not ok:
@@ -457,6 +512,8 @@ def cmd_run(root, mode, cap, night=False):
         die(f"another reef-run (pid {other}) holds {lock} — one runner per checkout")
     except (OSError, ValueError):
         pass
+    if detached:
+        detach(root)   # every refusal above printed to the caller; from here on the runner is on its own
     with open(lock, "w", encoding="utf-8") as f:
         f.write(str(os.getpid()))
     log = os.path.join(root, RUN_DIR, "run.log")
@@ -543,11 +600,13 @@ def main(argv):
     os.makedirs(os.path.join(root, NIGHT_DIR), exist_ok=True)
     if args[:1] == ["watch"]:
         return cmd_watch(root)
+    if args[:1] == ["status"]:
+        return cmd_status(root)
     if args[:1] == ["probe"]:
         return cmd_probe(root, mode)
     if args[:1] == ["contract"]:
         return cmd_contract(root, args[args.index("--from") + 1] if "--from" in args else None)
-    return cmd_run(root, mode, cap, night="--night" in args)
+    return cmd_run(root, mode, cap, night="--night" in args, detached="--detach" in args)
 
 
 if __name__ == "__main__":

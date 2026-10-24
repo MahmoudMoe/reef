@@ -174,6 +174,16 @@ class NightLooks(unittest.TestCase):
         self.assertIn("at night the tick drives these rows and no others", skill)
 
 
+class NightStartsItself(unittest.TestCase):
+    def test_reef_night_starts_the_detached_runner_and_hands_over(self):
+        # 2026-10-24, the owner: "why don't I have /reef-night instead of a manual thing in the terminal?"
+        skill = read("skills", "reef-night", "SKILL.md")
+        self.assertIn("run `python3 scripts/reef-run.py --night --detach` yourself", skill)
+        self.assertIn("`python3 scripts/reef-run.py status`", skill)
+        self.assertIn("do no more loop work in this session", skill)
+        self.assertNotIn("(in a terminal, in the project; `--max-iterations 2`", skill, "no manual terminal step")
+
+
 class SizeBudget(unittest.TestCase):
     """0.7 (the owner, 2026-10-20: "is Reef creating technical debt?"): config keys, skill and agent prose, and script lines
     grew with every fix and nothing was removed. tests/size-budget.json holds the ceiling; a PR that grows a number

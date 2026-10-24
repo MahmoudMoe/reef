@@ -1223,6 +1223,15 @@ def check_stop(payload):
             pass
     if payload.get("background_tasks"):
         return   # sub-agents still running: the world is in flight
+    if not os.environ.get("REEF_RUNNER"):
+        # a live reef-run holds the lock (2026-10-24: /reef-night starts it detached): the runner's own sessions carry
+        # REEF_RUNNER and drive the loop; this one hands over, never a second orchestrator dispatching beside it
+        try:
+            with open(os.path.join(root, ".reef", "run", "lock"), encoding="utf-8") as f:
+                os.kill(int(f.read().strip() or 0), 0)
+            return
+        except (OSError, ValueError):
+            pass
     try:
         r = subprocess.run([sys.executable, loop, "tick", "--assert-no-idle", "--repo", root], capture_output=True, text=True, timeout=DEADLINE - 1)
     except subprocess.TimeoutExpired:
