@@ -399,6 +399,38 @@ def cmd_contract(root, src):
     return 0
 
 
+def night_numbers(root, started, sessions, base):
+    """The night in numbers (0.7.2, the owner's go 2026-10-24: "how do I know the factory gets better"): PRs merged into
+    the base, tasks finished on any branch (their file arrived under tasks/done/), the first-pass share (a finished task
+    whose attempts stayed 0), the stalls (a wait on the owner, a stop, a park) and the cost."""
+    import re
+    g = lambda *a: subprocess.run(["git", "-C", root, *a], capture_output=True, text=True).stdout
+    rows = sum(1 for s in g("log", "--first-parent", f"--since={started}", "--format=%s", base).splitlines()
+               if re.search(r"\(#\d+\)$|^Merge pull request #\d+", s))
+    done, commit = {}, None
+    for line in g("log", "--all", f"--since={started}", "--diff-filter=AR", "--name-only", "--format=@%H").splitlines():
+        if line.startswith("@"):
+            commit = line[1:]
+        elif re.search(r"(^|/)tasks/done/[^/]+\.md$", line):
+            done.setdefault(line.rsplit("/", 1)[-1], (commit, line))
+    first = sum(1 for c, path in done.values() if re.search(r"^attempts:\s*0\s*$", g("show", f"{c}:{path}"), re.M))
+    stalls = sum(1 for x in sessions if (x.get("wait") and not str(x["wait"]).startswith("/clear")) or x.get("stop") or x.get("parked"))
+    return {"rows": rows, "tasks": len(done), "first_pass": first, "stalls": stalls,
+            "cost": round(sum(float(x.get("cost_usd") or 0) for x in sessions), 2)}
+
+
+def numbers_table(now, prev):
+    def cells(n):
+        if not n:
+            return ["–"] * 6
+        share = f"{n['first_pass']}/{n['tasks']} ({round(100 * n['first_pass'] / n['tasks'])}%)" if n["tasks"] else "0/0"
+        per = f"${n['cost'] / n['rows']:.2f}" if n["rows"] else "–"
+        return [str(n["rows"]), str(n["tasks"]), share, str(n["stalls"]), f"${n['cost']:.2f}", per]
+    names = ["Rows merged", "Tasks finished", "First pass", "Stalls (waits on you, stops, parks)", "Cost", "Cost per merged row"]
+    return ["## The night in numbers", "", "| | Tonight | Last night |", "|---|---|---|",
+            *[f"| {k} | {a} | {b} |" for k, a, b in zip(names, cells(now), cells(prev))], ""]
+
+
 def morning_report(root, started, log):
     """Every proxy decision and every merge since `started` — the owner reverses a decision by deleting its record or
     footnote, a merge only by `git revert` on the base branch, so they are listed apart."""
@@ -432,6 +464,15 @@ def morning_report(root, started, log):
     sessions = [json.loads(l) for l in open(log, encoding="utf-8")] if os.path.isfile(log) else []
     tonight = [x for x in sessions if str(x.get("at", "")) >= started]
     cost = sum(float(x.get("cost_usd") or 0) for x in tonight)
+    hist = os.path.join(root, NIGHT_DIR, "history.jsonl")
+    try:
+        prev = json.loads(open(hist, encoding="utf-8").read().splitlines()[-1])
+    except (OSError, ValueError, IndexError):
+        prev = None
+    nums = night_numbers(root, started, tonight, base)
+    lines += numbers_table(nums, prev)
+    with open(hist, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"started": started, **nums}) + "\n")
     lines += [f"Sessions: {len(tonight)} · cost: ${cost:.2f} · log: {os.path.relpath(log, root)}"]
     with open(os.path.join(root, NIGHT_DIR, "report.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")

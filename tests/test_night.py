@@ -199,5 +199,48 @@ class NightRun(unittest.TestCase):
             self.assertIn(h, rep)
 
 
+class NightNumbers(unittest.TestCase):
+    """The morning report counts the night (the owner's go, 2026-10-24, item 3: "how do I know the factory gets better"):
+    rows merged into the base, tasks finished on any branch, the first-pass share, the stalls, the cost and the cost per
+    merged row, beside the previous night's (.reef/night/history.jsonl)."""
+
+    def test_the_report_counts_the_night_beside_the_last_one(self):
+        import importlib.machinery, importlib.util
+        loader = importlib.machinery.SourceFileLoader("reef_run_n", RUN)
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        run = importlib.util.module_from_spec(spec)
+        loader.exec_module(run)
+        d = tempfile.mkdtemp(prefix="reef-nightnum.")
+        g = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
+        os.makedirs(os.path.join(d, ".reef", "night"))
+        os.makedirs(os.path.join(d, ".reef", "run"))
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump({"branches": {"base": "develop"}}, f)
+        g("init", "-q", "-b", "develop")
+        g("commit", "-q", "--allow-empty", "-m", "start")
+        g("checkout", "-qb", "feat/x")
+        tdir = os.path.join(d, "reef", "features", "x", "tasks", "done")
+        os.makedirs(tdir)
+        for name, attempts in (("101-a.md", 0), ("102-b.md", 1)):
+            with open(os.path.join(tdir, name), "w") as f:
+                f.write(f"---\nid: {name[:3]}\nfeature: x\nstatus: done\nattempts: {attempts}\n---\n")
+        g("add", "-A"); g("commit", "-qm", "tasks done")
+        g("checkout", "-q", "develop")
+        g("merge", "-q", "--squash", "feat/x"); g("commit", "-qm", "Feature x (#5)")
+        log = os.path.join(d, ".reef", "run", "run.log")
+        with open(log, "w") as f:
+            f.write(json.dumps({"at": "2099-01-01T00:00:00Z", "cost_usd": 10, "wait": "owner: approve row 12"}) + "\n")
+            f.write(json.dumps({"at": "2099-01-01T01:00:00Z", "cost_usd": 6, "wait": "/clear requested"}) + "\n")
+        run.morning_report(d, "2000-01-01T00:00:00Z", log)
+        rep = open(os.path.join(d, ".reef", "night", "report.md")).read()
+        for row in ("| Rows merged | 1 | – |", "| Tasks finished | 2 | – |", "| First pass | 1/2 (50%) | – |",
+                    "| Stalls (waits on you, stops, parks) | 1 | – |", "| Cost | $16.00 | – |", "| Cost per merged row | $16.00 | – |"):
+            self.assertIn(row, rep)
+        run.morning_report(d, "2000-01-01T00:00:00Z", log)
+        rep = open(os.path.join(d, ".reef", "night", "report.md")).read()
+        self.assertIn("| First pass | 1/2 (50%) | 1/2 (50%) |", rep, "the second night shows the first beside it")
+        self.assertEqual(len(open(os.path.join(d, ".reef", "night", "history.jsonl")).read().splitlines()), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
