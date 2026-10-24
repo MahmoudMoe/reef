@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **The orchestrator reads a judge's verdict, not its report** (the owner's go, 2026-10-24, item 5: the trial night's
+  orchestrator read 64,000 characters of full judge reports, each re-read at every later step). `reef-claims.py verdict
+  <report>` prints the RUN line, the verdict, every BLOCKER, failed criterion, NEW-ROW and NOTED line, and the report's
+  length (exit 0 PASS/GREEN, 1 FAIL, 2 no verdict); `/reef-task`, `/reef-loop`, `/reef-plan` and `/reef-review` read
+  reports through it and open the full file only for a blocker's detail. tests/size-budget.json raised: `prose_words`
+  20,406 → 20,474, `script_lines` 12,581 → 12,602.
 - **The morning report counts the night** (the owner's go, 2026-10-24, item 3: "how do I know the factory gets better").
   A new "night in numbers" table: PRs merged into the base, tasks finished on any branch (a file arriving under
   `tasks/done/`), the first-pass share (a finished task whose `attempts` stayed 0), the stalls (a wait on the owner, a
