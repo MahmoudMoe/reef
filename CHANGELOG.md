@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **`worktree.setup` generates as well as installs** (ai-coach, 2026-10-24, item 3). Task worktrees got a stale Prisma
+  client and `.next` types: about 14 test files failed for reasons unrelated to the task, because `reef-init` set
+  `worktree.setup` to the install command alone. For node it is now `npm ci && npm run generate` when `scripts.generate`
+  exists, else `npm ci && npx prisma generate` when `prisma` or `@prisma/client` is a dependency, else `npm ci`; never
+  `scripts.setup` or anything that migrates a database. An existing value is still never changed (the merge rule).
+  tests/test_init.py `WorktreeSetup`. tests/size-budget.json raised: `script_lines` 12,892 → 12,899.
 - **The guard refuses `git push --no-verify` when the repository has a pre-push hook** (ai-coach, 2026-10-24, item 2).
   ai-coach chained its push guard into `.githooks/pre-push`; any agent could skip it, since the guard caught the bypass on
   commit and merge but not on push. Now the long form is denied when `.githooks/pre-push` exists at the git root of the

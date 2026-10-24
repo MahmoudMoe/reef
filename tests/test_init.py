@@ -186,6 +186,30 @@ class Idempotent(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.d, "AGENTS.md")))
 
 
+class WorktreeSetup(unittest.TestCase):
+    """0.7.2 (ai-coach, 2026-10-24): worktree.setup installs AND generates — a task worktree with a stale Prisma client and
+    .next types failed ~14 test files unrelated to the task. Never the project's `setup` script (it may migrate)."""
+
+    def setup_for(self, pkg):
+        d = tempfile.mkdtemp(prefix="reef-init-wt.")
+        write(d, "package.json", json.dumps({"name": "demo", **pkg}))
+        subprocess.run(["git", "init", "-q", "-b", "develop", d], check=True)
+        self.assertEqual(init(d).returncode, 0)
+        return json.loads(read(d, ".reef/config.json"))["worktree"]["setup"]
+
+    def test_generate_script_then_prisma_then_plain_install(self):
+        self.assertEqual(self.setup_for({"scripts": {"test": "vitest run", "generate": "prisma generate && next typegen"},
+                                         "dependencies": {"@prisma/client": "6"}}), "npm ci && npm run generate")
+        self.assertEqual(self.setup_for({"scripts": {"test": "vitest run"}, "devDependencies": {"prisma": "6"}}), "npm ci && npx prisma generate")
+        self.assertEqual(self.setup_for({"scripts": {"test": "vitest run"}, "dependencies": {"@prisma/client": "6"}}), "npm ci && npx prisma generate")
+        self.assertEqual(self.setup_for({"scripts": {"test": "vitest run"}}), "npm ci")
+
+    def test_a_setup_script_is_never_chosen(self):
+        self.assertEqual(self.setup_for({"scripts": {"test": "t", "setup": "prisma migrate deploy && prisma db seed"}}), "npm ci")
+        self.assertEqual(self.setup_for({"scripts": {"test": "t", "setup": "prisma migrate deploy"}, "devDependencies": {"prisma": "6"}}),
+                         "npm ci && npx prisma generate")
+
+
 class OneHomePerFact(unittest.TestCase):
     """A number that lives in .reef/config.json must not be restated in a generated file."""
 
