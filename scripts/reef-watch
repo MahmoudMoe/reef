@@ -105,6 +105,13 @@ def section_journal(root, cfg, since):
 
 
 def section_queue(root, cfg):
+    if (cfg.get("queue") or {}).get("home") == "issues":   # 0.7.1: the snapshot reef-queue.py syncs
+        try:
+            rows = json.loads(read(os.path.join(root, ".reef", "queue.json"))).get("rows", [])
+        except (OSError, ValueError):
+            return ["queue: issues, no snapshot yet (python3 scripts/reef-queue.py status)"]
+        found = [r for r in rows if r.get("Source") == "found"]
+        return [f"queue: {len(rows)} open row(s) on issues, {len(found)} found" + (": " + "; ".join(r["Item"][:50] for r in found[:3]) if found else "")]
     p = os.path.join(root, (cfg.get("paths") or {}).get("queue", "reef/queue.md"))
     if not os.path.isfile(p):
         return ["queue: none"]

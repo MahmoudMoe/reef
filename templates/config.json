@@ -55,6 +55,9 @@
     "runlog": "docs/runlog.md",
     "queue": "docs/queue.md"
   },
+  "queue": {
+    "home": "file"
+  },
   "invariants": [],
   "graph": {
     "parallel": 10,

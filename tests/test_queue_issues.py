@@ -238,6 +238,26 @@ class WritesToIssues(Base):
         self.assertEqual(i["milestone"], "Batch 3")
 
 
+class ReadersUseTheSnapshot(Base):
+    """The night runner's open-rows check and the watch view read `.reef/queue.json`, never the network: after a
+    migration the queue file has no table, and an empty set would refuse every night contract."""
+
+    def load(self, name):
+        import importlib.machinery, importlib.util
+        loader = importlib.machinery.SourceFileLoader(name.replace("-", "_").replace(".py", ""), os.path.join(ROOT, "scripts", name))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+        return mod
+
+    def test_the_runner_and_the_watch_read_the_snapshot(self):
+        run, watch = self.load("reef-run.py"), self.load("reef-watch")
+        self.assertIsNone(run.queue_open_rows(self.d), "no snapshot yet: unreadable, never an empty queue")
+        self.q("status")
+        self.assertEqual(run.queue_open_rows(self.d), {"3", "4", "5"})
+        self.assertEqual(watch.section_queue(self.d, self.cfg), ["queue: 3 open row(s) on issues, 2 found: photo resize; cache lifetime"])
+
+
 class Migrate(Base):
     home = "file"
 
