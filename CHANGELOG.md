@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **Big files only shrink: the size ratchet** (ai-coach, 2026-10-24, item 14). Nothing stopped a 2,000-line file from
+  growing. `reef-structure --sizes` reads `reef/size-baseline.json` (written by `reef-recalibrate measure`: product
+  files only, the same excludes — tests, declarations, generated and data directories, `assess.exclude`): a baselined
+  file may not grow past its baseline, a new file may not exceed `structure.new_file_lines` (default 400), and a file that
+  shrank lowers its baseline in the same run, to be committed with the change. Only files changed since HEAD are read:
+  2,000 product files with one change take 0.10 s on this machine, so the gate is charged to every tier. It joins
+  `gates.extra` as `"sizes"` once the owner approves it in the recalibration plan; day one is green because the baseline
+  is today's sizes. tests/size-budget.json raised: `config_keys` 94 → 95, `script_lines` 13,273 → 13,338.
 - **Layer boundaries get a proposed gate with a baseline** (ai-coach, 2026-10-24, item 13). Nothing enforced that a
   component never imports the database client or that an API route reaches it only through `lib/`. On node,
   `reef-recalibrate measure` now derives a dependency-cruiser config from the observed layout (the client is the file
