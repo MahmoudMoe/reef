@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.2 (unreleased)
+- **A cached gate shows its evidence; a judge runs the gate once** (the owner's go, 2026-10-24). On the trial night the
+  verifiers ran the gate 25 times across 6 verdicts, 16 of them forced fresh, because a cached run said only "exit 0".
+  The gate now keeps a green run's log beside its marker, with the run's last lines in the marker, and a cached run
+  prints both; the output still streams. The verifier (agent and `reef-verify`) runs the gate once and fresh per verdict,
+  quotes its last lines, and never re-runs a red gate until it passes: it reports it with its log. One fresh run stays:
+  nothing stops an implementer from planting a marker, so a judge does not take a cached green as its own evidence.
+  tests/size-budget.json raised: `prose_words` 20,203 → 20,292, `script_lines` 12,412 → 12,432.
+
 ## 0.7.1 — the queue on GitHub issues, priority and triage, one orchestrator at a time
 - **0.7.1** (the owner's go, 2026-10-24, option 2: the lock, `/reef-run` and the checker fixes first): `plugin.json`,
   the marketplace, `reef-init`'s version, the README badge and status, the site and the manual read 0.7.1;
