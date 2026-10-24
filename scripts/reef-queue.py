@@ -31,11 +31,13 @@ Usage:
                                                 status, task counts, ADRs — never hand-edited
   reef-queue.py close ID --pr N [--repo DIR]               (0.7.1, issues) close the row's issue as completed, "merged in #N"
   reef-queue.py admit <issue> [--source planned|found] [--batch N]   (0.7.1, issues) a plain issue becomes the next row
+  reef-queue.py set-priority ID p1|p2|p3|none             (0.7.1, issues) the row's priority label; add-row and admit take --priority
   reef-queue.py migrate-to-issues [--apply] [--repo DIR]   (0.7.1) the open rows to the repository's issues; a dry run
                                                  without --apply. Footnotes, notes and the archive stay files
   `queue.home: issues` (0.7.1): a row is an issue labelled `reef-row` titled `[<id>] <item>`, its body `Depends:` and
   `Admitted:` lines, a `found` or `planned` label; a batch is a milestone `Batch N`, the current batch the lowest open one;
-  a closed issue is archived. Every read syncs `.reef/queue.json` first (a failing gh: the last snapshot, said on stderr);
+  a closed issue is archived. `ready` orders by priority (`p1`, then none or `p2`, then `p3`), then planned before found,
+  then id; a found row labelled `p1` counts as planned (the owner promoted it). Every read syncs `.reef/queue.json` first (a failing gh: the last snapshot, said on stderr);
   every write goes to gh and fails closed.
   `check` also validates (0.6) every feature folder's slug (2-5 kebab-case words, no bare number, no
   generic word) and the structure: a process document outside the layout fails.
@@ -190,7 +192,8 @@ def task_states(root, cfg):
 ROW_TITLE = re.compile(r"^\[(\d+)\]\s*(.*)$", re.S)
 BATCH_MS = re.compile(r"^Batch (\d+)$")
 LABEL = "reef-row"
-LABELS = {LABEL: "0e8a16", "planned": "1d76db", "found": "fbca04"}
+LABELS = {LABEL: "0e8a16", "planned": "1d76db", "found": "fbca04", "p1": "b60205", "p2": "d93f0b", "p3": "c5def5"}
+PRIORITIES = ("p1", "p2", "p3")
 _SNAPS = {}
 
 
@@ -257,7 +260,8 @@ def sync(root):
         b = i.get("body") or ""
         row = {"Id": m.group(1), "Item": field(b, "Item") or m.group(2).strip(), "Depends": field(b, "Depends"),
                "Source": "found" if any(lb.get("name") == "found" for lb in i.get("labels") or []) else "planned",
-               "Batch": batch_of(i.get("milestone")), "Admitted": field(b, "Admitted"), "_issue": i["number"]}
+               "Batch": batch_of(i.get("milestone")), "Admitted": field(b, "Admitted"), "_issue": i["number"],
+               "Priority": next((p for p in PRIORITIES if any(lb.get("name") == p for lb in i.get("labels") or [])), "")}
         snap["rows" if i.get("state") == "OPEN" else "dropped" if i.get("stateReason") == "NOT_PLANNED" else "closed"].append(row)
     os.makedirs(os.path.dirname(snap_p), exist_ok=True)
     write_text(snap_p, json.dumps(snap, indent=1) + "\n")
@@ -382,7 +386,7 @@ def cmd_footnote(root, text, row_id):
     return 0
 
 
-def add_row(root, item, depends, source, batch, admitted):
+def add_row(root, item, depends, source, batch, admitted, priority=""):
     cfg, qpath, apath = queue_paths(root)
     if issues_mode(cfg):
         snap = sync(root)
@@ -390,9 +394,9 @@ def add_row(root, item, depends, source, batch, admitted):
         if batch is None:
             batch = cur if source == "planned" or admitted else str(int(cur) + 1)   # rule 6
         title, body = issue_text(item, depends, admitted)
-        ensure_labels(root, LABEL, source)
+        ensure_labels(root, LABEL, source, *([priority] if priority else []))
         gh_write(root, "issue", "create", "--title", f"[{new_id}] {title}", "--body", body, "--label", LABEL, "--label", source,
-                 "--milestone", ensure_milestone(root, snap, batch))
+                 *(["--label", priority] if priority else []), "--milestone", ensure_milestone(root, snap, batch))
         return new_id
     q = read(qpath)
     ids = [int(r["Id"]) for r in parse_table(q) if r["Id"].isdigit()]
@@ -425,8 +429,8 @@ def add_row(root, item, depends, source, batch, admitted):
     return new_id
 
 
-def cmd_add_row(root, item, depends, source, batch, admitted):
-    print(add_row(root, item, depends, source, batch, admitted))
+def cmd_add_row(root, item, depends, source, batch, admitted, priority=""):
+    print(add_row(root, item, depends, source, batch, admitted, priority))
     return 0
 
 
@@ -628,9 +632,11 @@ def cmd_ready(root, all_batches, with_found=False):
     ready = [r for r in rows if r["_status"] != "done"
              and all(is_done(d, by_id, archived) for d in r["_depends"])
              and (all_batches or batch is None or r.get("Batch", "") == batch)]
-    planned = [r for r in ready if r.get("Source", "").lower() == "planned"]
+    first = lambda r: r.get("Source", "").lower() == "planned" or r.get("Priority") == "p1"   # a p1 found row: promoted
+    ready.sort(key=lambda r: ({"p1": 1, "p3": 3}.get(r.get("Priority", ""), 2), 0 if first(r) else 1, int(re.match(r"\d+", r["Id"]).group())))
+    planned = [r for r in ready if first(r)]
     # --with-found (a night, 2026-10-23): the found rows too, after the planned ones — the contract names what is driven
-    for r in (planned + [r for r in ready if r not in planned] if with_found else (planned or ready)):
+    for r in (ready if with_found else (planned or ready)):   # ready is in priority order (2026-10-24)
         print(f"{r['Id']}\t{r['_status']}\t{r.get('Source', '')}\t{r.get('Item', '')[:70]}")
     if ready and not planned and not with_found:
         print("note: no planned row is ready — only found rows; the loop stops and escalates rather than falling through", file=sys.stderr)
@@ -713,7 +719,25 @@ def cmd_close(root, row_id, pr):
     return 0
 
 
-def cmd_admit(root, number, source, batch):
+def cmd_set_priority(root, row_id, prio):
+    if prio not in PRIORITIES + ("none",):
+        die("priority is p1, p2, p3 or none")
+    if not issues_mode(config(root)):
+        die("set-priority is for queue.home: issues", 1)
+    r = next((x for x in sync(root)["rows"] if x["Id"] == row_id), None)
+    if r is None:
+        die(f"no open row {row_id} among the issues labelled {LABEL}", 1)
+    args = ["--remove-label", r["Priority"]] if r.get("Priority") and r["Priority"] != prio else []
+    if prio != "none":
+        ensure_labels(root, prio)
+        args += ["--add-label", prio]
+    if args:
+        gh_write(root, "issue", "edit", str(r["_issue"]), *args)
+    print(f"{row_id}\tpriority={prio}")
+    return 0
+
+
+def cmd_admit(root, number, source, batch, priority=""):
     """A plain issue (an idea, triaged) becomes the next row: `[id]` in its title, the labels, its batch's milestone."""
     if not issues_mode(config(root)):
         die("admit is for queue.home: issues", 1)
@@ -723,9 +747,9 @@ def cmd_admit(root, number, source, batch):
         die(f"#{i['number']} is already a row: {i['title']}", 1)
     new_id, cur = next_id(root, snap), snap["current_batch"] or "1"
     batch = batch or (cur if source == "planned" else str(int(cur) + 1))
-    ensure_labels(root, LABEL, source)
+    ensure_labels(root, LABEL, source, *([priority] if priority else []))
     gh_write(root, "issue", "edit", str(i["number"]), "--title", f"[{new_id}] {i['title'].strip()}", "--add-label", LABEL,
-             "--add-label", source, "--milestone", ensure_milestone(root, snap, batch))
+             "--add-label", source, *(["--add-label", priority] if priority else []), "--milestone", ensure_milestone(root, snap, batch))
     print(new_id)
     return 0
 
@@ -891,7 +915,7 @@ def main(argv):
         argv = argv[:i] + argv[i + 2:]
     root = repo_root(repo)
     if not argv:
-        die("usage: reef-queue.py status|ready [--all] [--with-found]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids>|triage [--count]|note <text> [--row ID]|promote-note n<k> [--batch N]|set-batch ID N|drop-row ID --reason <text>|close ID --pr N|admit <issue>|migrate-to-issues [--apply] [--repo DIR]")
+        die("usage: reef-queue.py status|ready [--all] [--with-found]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids>|triage [--count]|note <text> [--row ID]|promote-note n<k> [--batch N]|set-batch ID N|drop-row ID --reason <text>|close ID --pr N|admit <issue>|set-priority ID p1|p2|p3|none|migrate-to-issues [--apply] [--repo DIR]")
     cmd = argv[0]
     if cmd == "status":
         return cmd_status(root)
@@ -911,7 +935,9 @@ def main(argv):
         src = opt("--source", "planned")
         if src not in ("planned", "found"):
             die("--source is planned or found")
-        return cmd_add_row(root, opt("--item"), opt("--depends"), src, opt("--batch", None), opt("--admitted"))
+        if opt("--priority") not in ("",) + PRIORITIES:
+            die("--priority is p1, p2 or p3")
+        return cmd_add_row(root, opt("--item"), opt("--depends"), src, opt("--batch", None), opt("--admitted"), opt("--priority"))
     if cmd == "set-depends" and len(argv) >= 3:
         return cmd_set_depends(root, argv[1], argv[2])
     if cmd == "triage":
@@ -925,9 +951,11 @@ def main(argv):
     if cmd == "close" and len(argv) >= 2 and "--pr" in argv:
         return cmd_close(root, argv[1], opt("--pr"))
     if cmd == "admit" and len(argv) >= 2:
-        if opt("--source", "planned") not in ("planned", "found"):
-            die("--source is planned or found")
-        return cmd_admit(root, argv[1], opt("--source", "planned"), opt("--batch", None))
+        if opt("--source", "planned") not in ("planned", "found") or opt("--priority") not in ("",) + PRIORITIES:
+            die("--source is planned or found; --priority is p1, p2 or p3")
+        return cmd_admit(root, argv[1], opt("--source", "planned"), opt("--batch", None), opt("--priority"))
+    if cmd == "set-priority" and len(argv) >= 3:
+        return cmd_set_priority(root, argv[1], argv[2])
     if cmd == "migrate-to-issues":
         return cmd_migrate(root, "--apply" in argv)
     if cmd == "drop-row" and len(argv) >= 2 and "--reason" in argv:

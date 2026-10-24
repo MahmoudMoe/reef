@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **Priority labels the loop respects** (the owner's go, 2026-10-24: companies rank the backlog, Reef ordered rows by id).
+  On issues, `p1`, `p2` and `p3` labels order `ready`: priority first (none counts as `p2`), then planned before found,
+  then id; a found row labelled `p1` counts as planned, the owner having promoted it. `set-priority ID p1|p2|p3|none`;
+  `add-row` and `admit` take `--priority`; the migration creates the three labels. Rows without a label keep their old
+  order. tests/size-budget.json raised: `prose_words` 19,741 → 19,761, `script_lines` 12,075 → 12,103.
 - **The migration skips the template's placeholder row** (the owner's go, 2026-10-24). On a fresh `/reef-init` project
   with no architecture grill, `migrate-to-issues` made the queue template's `<the first planned row, one line>` issue [1].
   A row whose Item is all angle brackets is skipped and named; a grilled first row (the walking skeleton) still moves.
