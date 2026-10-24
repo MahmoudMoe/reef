@@ -169,6 +169,29 @@ class NativeWindows(unittest.TestCase):
         self.assertEqual(r.returncode, 0, "a Windows user's other projects are not Reef's to block")
 
 
+class PushBypass(unittest.TestCase):
+    """0.7.2 (ai-coach, 2026-10-24): `git push --no-verify` skips `.githooks/pre-push` when the repository has one — ai-coach
+    chained its push guard into that hook. Without the hook there is nothing to skip; `push -n` is --dry-run."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-push.")
+        subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
+
+    def push(self, cmd):
+        return run_guard({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": cmd}})
+
+    def test_the_long_bypass_is_refused_only_when_a_pre_push_hook_exists(self):
+        self.assertEqual(self.push("git push --no-verify").returncode, 0, "no pre-push hook: nothing to skip")
+        os.makedirs(os.path.join(self.d, ".githooks"))
+        with open(os.path.join(self.d, ".githooks", "pre-push"), "w") as f:
+            f.write("#!/bin/sh\nexit 1\n")
+        r = self.push("git push --no-verify origin main")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn(".githooks/pre-push", r.stderr)
+        self.assertEqual(self.push("git push -n origin main").returncode, 0, "push -n is --dry-run, not a bypass")
+        self.assertEqual(self.push("git push origin main").returncode, 0)
+
+
 class BashGuard(unittest.TestCase):
     def test_denies_bypasses(self):
         for cmd in DENY_BASH:

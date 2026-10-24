@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **The guard refuses `git push --no-verify` when the repository has a pre-push hook** (ai-coach, 2026-10-24, item 2).
+  ai-coach chained its push guard into `.githooks/pre-push`; any agent could skip it, since the guard caught the bypass on
+  commit and merge but not on push. Now the long form is denied when `.githooks/pre-push` exists at the git root of the
+  command's directory; without that file it stays allowed (nothing to skip), and `push -n` is `--dry-run`, not a bypass.
+  tests/test_guard.py `PushBypass`. tests/size-budget.json raised: `script_lines` 12,879 → 12,892.
 - **The pre-commit hook no longer takes a stale `REBASE_HEAD` for a rebase in progress** (ai-coach, 2026-10-24, item 1).
   A leftover `.git/REBASE_HEAD` with no rebase running made every commit gate the worktree instead of the index — the
   very mistake the index dance exists to avoid. A running rebase is its directory, `rebase-merge/` or `rebase-apply/`;
