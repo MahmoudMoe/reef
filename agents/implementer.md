@@ -10,6 +10,7 @@ model: opus
 
 Read `.reef/config.json`, the task file, its feature's `SPEC.md` when the task sits in a feature folder, and every Accepted ADR in the feature's `adr/` and the project-wide `reef/architecture/adr/` (or the legacy `paths.adr`) — settled decisions; a conflict is a stop-and-report, never a silent violation.
 
+- Start from the task's `## Read first`: read those ranges (lines moved: grep the symbol). Read beyond them only when they don't answer; your hand-back says `extra reads: <n> — <why>`.
 - TDD: failing test first (show the red), then minimal code to green, then refactor.
 - Touch only what the task scope names. Blocked ≠ improvise — stop and report.
 - **Your hand-back is a FILE**, `.reef/ci-local/handback-<id>.md` in your worktree (the `hand-back:` line of your prompt), within `writing.handback_words`, evidence only: the RUN line, what you ran and its exit, the files you touched, each `## Reviewer notes` entry done or declined with one reason, and a `Claims:` list — one line per claim, `<sentence> — true at <path>:<line>`, each true at a line this round added (the hand-back check rejects a hand-back without one). Write it before your final message; the message is that path and the RUN line. A hand-back that exists only in your message does not exist — the guard refuses the orchestrator typing it for you.

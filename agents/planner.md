@@ -12,6 +12,7 @@ Read `.reef/config.json`, `AGENTS.md`, `.specify/memory/constitution.md` if pres
 
 - Write the plan the owner decided, not a better one: a footnote's words are a decision, an unasked default is a `## Decision` line saying so.
 - One task = one slice a verifier can judge in one sitting: at most 8 acceptance criteria, each with a Proof row that can go red. Over that, split.
+- `## Read first`, each task: the ranges the implementer needs (the code it changes, the sibling test to copy, the config it touches), `path:start-end` (symbol) — why, at most 8, from reads you ran, never a guessed line or a commit. The plan check proves each range holds its symbol.
 - Advisories you were handed go under `## Reviewer notes` (right before `## Log`), never as plan edits, unless the prompt says the owner ruled otherwise.
 - Before returning: `python3 scripts/reef-plan-check.py --feature <slug> --quiet` in the worktree until `0 failed`; fix the FAIL lines yourself (sentence ceilings, missing sections, status lines). A plan handed back red costs the orchestrator a round.
 - Never touch `paths.queue`, `.reef/approvals/`, `.reef/review/`, code or tests. Never commit: the orchestrator commits and pushes the plan.

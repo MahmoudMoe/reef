@@ -119,6 +119,48 @@ def feature(d, slug="csv-export-for-orders", spec=SPEC, tasks=None):
     return os.path.join(d, base)
 
 
+class ReadFirst(unittest.TestCase):
+    # 2026-10-24, the owner's go (the read-first trial): implementers spent a median 17.5 tool calls exploring before
+    # their first edit (38 qassimha runs). The planner lists the ranges it read; the check proves each one is real.
+    SRC = "def helper():\n    return 1\n\n\ndef settle_bill(total):\n    return round(total, 2)\n"
+
+    def run_with(self, entries):
+        d = project()
+        write(d, "src/bill.py", self.SRC)
+        write(d, "node_modules/x/index.js", "settle_bill\n")
+        body = "## Read first\n" + "".join(f"- {e}\n" for e in entries) + "\n## Acceptance Criteria"
+        feature(d, tasks={"1201-write-csv.md": TASK_NEW.replace("## Acceptance Criteria", body, 1)})
+        return check(d)
+
+    def test_ranges_the_planner_read_pass(self):
+        r = self.run_with(["`src/bill.py:5-6` (settle_bill) — the rounding to change", "`src/bill.py:1-2` (helper) — the shape to copy"])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("read first: 2 entries, each range holds its symbol", r.stdout)
+
+    def test_a_task_without_the_section_still_passes(self):
+        r = self.run_with([])
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_an_entry_that_is_not_real_fails(self):
+        cases = {
+            "`src/bill.py:1-2` (settle_bill) — x": "settle_bill is not in src/bill.py:1-2",
+            "`src/bill.py:5-60` (settle_bill) — x": "src/bill.py:5-60 is not a range within its 6 lines",
+            "`src/bill.py:6-5` (settle_bill) — x": "src/bill.py:6-5 is not a range within its 6 lines",
+            "`src/gone.py:1-2` (helper) — x": "src/gone.py does not exist",
+            "`node_modules/x/index.js:1-1` (settle_bill) — x": "node_modules/x/index.js is a dependency or build path",
+            "`../outside.py:1-1` (x) — x": "../outside.py is outside the project",
+            "src/bill.py lines 5-6 — x": "not `path:start-end` (symbol) — why",
+        }
+        for entry, msg in cases.items():
+            with self.subTest(entry=entry):
+                r = self.run_with([entry])
+                self.assertEqual(r.returncode, 1, r.stdout)
+                self.assertIn(msg, r.stdout)
+        r = self.run_with(["`src/bill.py:5-6` (settle_bill) — x"] * 9)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("9 Read first entries > 8", r.stdout)
+
+
 class KeysCheckedInTheirOwnFolder(unittest.TestCase):
     # 2026-10-24, qassimha row 18: the key check read the folder of the LAST task file (a stale loop variable), so every
     # feature's citations were checked against the last-sorted folder: 15 false FAILs on other features' tasks, and a key

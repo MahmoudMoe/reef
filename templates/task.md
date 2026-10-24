@@ -18,6 +18,9 @@ last_failure_sig: ""
 ## Scope
 <bullets: what changes, one layer per bullet; fragments fine, under 25 words each.>
 
+## Read first
+<!-- at most 8 ranges you read while planning, one per bullet: `path:start-end` (symbol) — why. The implementer starts here. -->
+
 ## Decision
 <!-- design/critical tasks: the HUMAN writes this in their own words before implementation. A migration task adds a `Rollback: <how>` line. The implementer refuses a design task with an empty Decision. -->
 
