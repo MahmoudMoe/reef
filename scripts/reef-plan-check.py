@@ -809,7 +809,7 @@ def main():
                 ok(f"{rel}: filename prefix matches id {canon}")
             else:
                 fail(f"{rel}: filename prefix {fname.group(1)}{fname.group(2)} != id {raw_id}")
-        fm["_text"] = text
+        fm["_text"], fm["_path"] = text, path
         tasks[rel] = fm
 
     if not task_files:
@@ -914,7 +914,7 @@ def main():
             fail(f"{rel}: {n_crit} acceptance criteria > plan.max_acs {max_acs} — split the task (one slice a verifier judges in one sitting)")
         elif not max_acs and n_crit > 8:
             print(f"warning: {rel}: {n_crit} acceptance criteria (8 is the slice a verifier judges in one sitting; set plan.max_acs to enforce)")
-        fdir = folder_of.get(path)
+        fdir = folder_of.get(fm["_path"])   # this task's folder (2026-10-24, qassimha row 18: `path` was the last loop's)
         is06 = bool(fdir) or (marker0 is not None and planned_under_06({"planned_under": planned_prev}, fm.get("feature", "")))
         warn = lambda m: print(f"warning: {m}")
         proof = section(text, "Proof")
