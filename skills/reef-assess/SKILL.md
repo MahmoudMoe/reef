@@ -8,6 +8,9 @@ argument-hint: <empty | areas to read first>
 
 Sub-agents here run on the `critical` tier table (`tiers.critical.roles`); the main session is the owner's model. Nothing moves before the owner approves the plan.
 
+## 0. Prerequisite — `/reef-init` ran here
+`test -f scripts/reef-recalibrate && test -f .reef/config.json` or STOP: "run /reef-init first". This skill runs the project's own `scripts/reef-recalibrate` and `scripts/reef-structure`, which only init installs (ai-coach, 2026-10-24: assess ran first and found neither).
+
 ## 1. Understand — four observed sections, every claim with a proving path
 Use `/reef-explore` (one message, N `Explore` agents, each with a file budget, cheapest sources first: configs, CI, lockfiles, `git log --stat`; code samples per directory second) on these questions, then write the answers as **Observed** (file:line or command) or **Inferred**:
 - **How it works** → `reef/architecture/architecture.md`: entry points, runtime, build, data stores, external services, environment variables. Feeds `scripts/reef-c4.py` and `gates.full`.

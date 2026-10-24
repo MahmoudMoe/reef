@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **`/reef-assess` stops before `/reef-init` ran** (ai-coach, 2026-10-24, item 5). Assess calls the project's own
+  `scripts/reef-recalibrate` and `scripts/reef-structure`, which only init installs, and had no prerequisite step. Step 0:
+  `test -f scripts/reef-recalibrate && test -f .reef/config.json` or STOP with "run /reef-init first"; a contract test
+  asserts the sentence and its place before any reading. tests/size-budget.json raised: `prose_words` 20,828 → 20,868.
 - **`gates.fast` is no longer always empty** (ai-coach, 2026-10-24, item 4). `reef-init` initialised the fast gate to
   `""` and nothing set it, so every commit ran the full suite (66 s on ai-coach). For node it is now built from
   package.json, joined with `&&`, each part only when present: `npm run lint` (`scripts.lint`), `npm run typecheck`

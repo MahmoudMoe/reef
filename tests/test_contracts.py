@@ -227,6 +227,14 @@ class HunterRoundInThePrompt(unittest.TestCase):
         self.assertIn("A plan-pass hunter's prompt carries `pass=plan round=<n>`", read("skills", "reef-plan", "SKILL.md"))
 
 
+class AssessNeedsInit(unittest.TestCase):
+    def test_the_assess_skill_stops_before_init_ran(self):
+        # 0.7.2 (ai-coach, 2026-10-24): /reef-assess ran before /reef-init and called project scripts only init installs
+        skill = read("skills", "reef-assess", "SKILL.md")
+        self.assertIn("`test -f scripts/reef-recalibrate && test -f .reef/config.json` or STOP: \"run /reef-init first\"", skill)
+        self.assertLess(skill.index("run /reef-init first"), skill.index("## 1. Understand"), "the prerequisite is step 0, before any reading")
+
+
 class RollupNoPlanHunter(unittest.TestCase):
     def test_the_review_skill_says_a_rollup_gets_no_plan_pass(self):
         self.assertIn("A rollup gets no hunter plan pass, whatever its tier", read("skills", "reef-review", "SKILL.md"))
