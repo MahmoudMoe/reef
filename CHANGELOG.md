@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **Init recommends the project's own files over Reef's renderings on an existing project** (ai-coach, 2026-10-24,
+  item 8). Accepting Reef's ci.yml, AGENTS.md and dependabot.yml broke 62 of ai-coach's tests in 11 files. The skill's
+  step 3 now says: on an existing project the recommended answer for every proposed file is "keep yours"; before
+  recommending an accept, run `gates.full` with that proposal applied in a scratch worktree and report the result; when
+  the project keeps its own ci.yml, name the missing Reef release step (`sh scripts/reef-ci-local.sh --ci --release`);
+  when its AGENTS.md lacks the `.reef/**` exclusions, say so. A contract test asserts both sentences. tests/size-budget.json raised: `prose_words` 20,868 → 20,940.
 - **`reef-repo` says why branch protection fails on a private repository** (ai-coach, 2026-10-24, item 7). The protection
   PUT came back 403 with no explanation; the cause was the GitHub plan, not a permission. On a 403 with
   `gh api repos/{nwo} --jq .private` true the screen adds: branch protection on a private repository needs GitHub
