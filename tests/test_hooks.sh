@@ -295,12 +295,14 @@ t "gate: outside a git repo FAILS LOUDLY" 1
 cd "$TMP"; mkdir -p g2; cd g2; git init -q -b main; git config user.email t@t; git config user.name t
 mkdir -p .reef scripts; cp "$ROOT/scripts/reef-gate.sh" "$ROOT/scripts/reef-snapshot.sh" scripts/; chmod +x scripts/*.sh
 RUNS="$TMP/g2-runs.txt"; : > "$RUNS"
-printf '{"gates": {"test": "echo run >> %s"}}\n' "$RUNS" > .reef/config.json
+printf '{"gates": {"test": "echo run >> %s; echo 7 tests passed"}}\n' "$RUNS" > .reef/config.json
 printf '.reef/ci-local/\n' > .gitignore; echo v1 > f.txt; git add .; git commit -qm c1 >/dev/null 2>&1
 sh scripts/reef-gate.sh >/dev/null 2>&1 && [ "$(wc -l <"$RUNS" | tr -d ' ')" -eq 1 ]
 t "gate cache: the first run on a snapshot runs the gate" 0
 OUT=$(sh scripts/reef-gate.sh 2>/dev/null); [ "$(wc -l <"$RUNS" | tr -d ' ')" -eq 1 ] && printf '%s' "$OUT" | grep -q 'cached'
 t "gate cache: the second run on the same snapshot is cached (gate not run, exit 0, says so)" 0
+printf '%s' "$OUT" | grep -q '7 tests passed' && printf '%s' "$OUT" | grep -q 'ci-local/gate-full-'
+t "gate cache: a cached run shows the green run's last lines and its log (0.7.1: judges re-ran for evidence)" 0
 echo v2 > f.txt
 sh scripts/reef-gate.sh >/dev/null 2>&1 && [ "$(wc -l <"$RUNS" | tr -d ' ')" -eq 2 ]
 t "gate cache: an edited tree runs the gate again" 0

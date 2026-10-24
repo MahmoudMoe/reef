@@ -52,14 +52,25 @@ TIMEOUT=1200
 if [ -f .reef/config.json ]; then
   TIMEOUT=$(python3 -c "import json;g=json.load(open('.reef/config.json')).get('gates',{});print(int(g.get('timeout_s',1200) or 0))" 2>/dev/null || echo 1200)
 fi
-run_gate() {   # run_gate <command line>: the exit code of the gate, or 124 on a hang past gates.timeout_s
+run_gate() {   # run_gate <command line> [tee log]: the exit code of the gate, or 124 on a hang past gates.timeout_s
   if [ "$TIMEOUT" -le 0 ] || ! command -v python3 >/dev/null 2>&1; then sh -c "$1"; return $?; fi
-  python3 - "$1" "$TIMEOUT" <<'PY'
-import os, signal, subprocess, sys
-cmd, limit = sys.argv[1], int(sys.argv[2])
-p = subprocess.Popen(["sh", "-c", cmd], start_new_session=True)
+  python3 - "$1" "$TIMEOUT" "${2:-}" <<'PY'
+import os, signal, subprocess, sys, threading
+cmd, limit, tee = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+p = subprocess.Popen(["sh", "-c", cmd], start_new_session=True,
+                     stdout=subprocess.PIPE if tee else None, stderr=subprocess.STDOUT if tee else None)
+def pump():   # 0.7.1: the output streams as before and is kept, so a cached run can show what the green run said
+    with open(tee, "wb") as f:
+        for chunk in iter(lambda: os.read(p.stdout.fileno(), 65536), b""):
+            sys.stdout.buffer.write(chunk); sys.stdout.buffer.flush(); f.write(chunk)
+t = threading.Thread(target=pump, daemon=True) if tee else None
+if t:
+    t.start()
 try:
-    sys.exit(p.wait(timeout=limit))
+    rc = p.wait(timeout=limit)
+    if t:
+        t.join(10)
+    sys.exit(rc)
 except subprocess.TimeoutExpired:
     try:
         os.killpg(p.pid, signal.SIGKILL)
@@ -79,9 +90,17 @@ if [ -z "${REEF_GATE_NO_CACHE:-}" ] && [ -x scripts/reef-snapshot.sh ] || { [ -z
 fi
 if [ -n "$SNAP" ] && [ -f ".reef/ci-local/gate-$MODE-$SNAP.ok" ]; then
   echo "reef-gate ($MODE): cached — exit 0 on this snapshot ($(printf %s "$SNAP" | cut -c1-12)); the tree is unchanged since that run (REEF_GATE_NO_CACHE=1 forces a run)"
+  # 0.7.1: the evidence comes with it (2026-10-24: judges re-ran the gate about four times a verdict to see a count)
+  [ -s ".reef/ci-local/gate-$MODE-$SNAP.ok" ] && { echo "reef-gate ($MODE): that green run ended:"; sed 's/^/  /' ".reef/ci-local/gate-$MODE-$SNAP.ok"; }
+  [ -f ".reef/ci-local/gate-$MODE-$SNAP.green.log" ] && echo "reef-gate ($MODE): its full log: .reef/ci-local/gate-$MODE-$SNAP.green.log"
   exit 0
 fi
-mark_green() { [ -n "$SNAP" ] || return 0; mkdir -p .reef/ci-local; rm -f .reef/ci-local/gate-"$MODE"-*.ok; : > ".reef/ci-local/gate-$MODE-$SNAP.ok"; }
+mark_green() {   # the marker keeps the green run's last lines, its log is kept beside it (0.7.1)
+  [ -n "$SNAP" ] || return 0; mkdir -p .reef/ci-local; rm -f .reef/ci-local/gate-"$MODE"-*.ok .reef/ci-local/gate-"$MODE"-*.green.log
+  L=".reef/ci-local/gate-$MODE.log"
+  if [ -f "$L" ]; then cp "$L" ".reef/ci-local/gate-$MODE-$SNAP.green.log"; grep -v '^[[:space:]]*$' "$L" | tail -n 3 > ".reef/ci-local/gate-$MODE-$SNAP.ok"
+  else : > ".reef/ci-local/gate-$MODE-$SNAP.ok"; fi
+}
 if [ "$FAILURES" -eq 1 ]; then
   mkdir -p .reef/ci-local
   LOG=.reef/ci-local/gate-$MODE.log
@@ -108,7 +127,8 @@ fi
 # the gate is a shell command line, not an argv list — parse it as the human wrote it
 # (unquoted `exec $CMD` would word-split and glob, mangling quoted args and operators).
 RC=0
-run_gate "$CMD" || RC=$?
+mkdir -p .reef/ci-local
+run_gate "$CMD" ".reef/ci-local/gate-$MODE.log" || RC=$?
 [ "$RC" -eq 0 ] && mark_green
 [ "$RC" -eq 124 ] && echo "reef-gate ($MODE): TIMEOUT after ${TIMEOUT}s — the gate hung and its process group was killed (gates.timeout_s; a server a test spawned detached may still hold its port)"
 exit $RC
