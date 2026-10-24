@@ -475,6 +475,30 @@ class HostInput(unittest.TestCase):
         self.assertIn("roles.author", r.stderr)
 
 
+class HunterRoundCapAtDispatch(unittest.TestCase):
+    """2026-10-24: a hunter plan round above hunter.plan_rounds was dispatched and paid for, and only reef-adversarial
+    refused its report; the guard refuses the dispatch itself."""
+
+    def setUp(self):
+        self.d = project({"gates": {"test": "true"}}, {"007-demo.md": task_text(7, "demo", "critical", "design")})
+        self.task = os.path.join(self.d, "tasks", "007-demo.md")
+
+    def hunt(self, rnd=None):
+        line = f"\npass=plan round={rnd}" if rnd is not None else "\npass=plan"
+        return dispatch(self.d, "reef:loophole-hunter", f"REEF-TASK: {self.task}{line}")
+
+    def test_a_round_above_the_cap_is_refused_before_it_runs(self):
+        self.assertEqual(self.hunt(2).returncode, 0, self.hunt(2).stderr)
+        self.assertEqual(self.hunt().returncode, 0, "no round named: round 1")
+        r = self.hunt(3)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("hunter plan round 3 > hunter.plan_rounds 2", r.stderr)
+        cfg = json.load(open(os.path.join(self.d, ".reef", "config.json")))
+        cfg["hunter"] = {"plan_rounds": 3}
+        json.dump(cfg, open(os.path.join(self.d, ".reef", "config.json"), "w"))
+        self.assertEqual(self.hunt(3).returncode, 0, "the cap is the config's")
+
+
 class ReviewerLock(unittest.TestCase):
     """1.3: agent_type from the payload decides; a judge never mutates."""
 
