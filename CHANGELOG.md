@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **Read first: the planner hands the implementer its ranges** (the owner's go, 2026-10-24, a trial on one row of his
+  pick). Implementers explored a median 17.5 tool calls before their first edit (38 qassimha runs), reading 54,000
+  characters and 15,000 of git history; the planner had already read that code. A task's optional `## Read first` lists
+  at most 8 ranges, `path:start-end` (symbol) — why; the plan check fails an entry whose path is missing, outside the
+  project or a dependency path, whose range leaves the file, or whose range does not hold its symbol. The implementer
+  starts there and reports `extra reads` in its hand-back. Measured against that baseline: extend or drop.
+  tests/size-budget.json raised: `prose_words` 19,612 → 19,695, `script_lines` 11,788 → 11,822.
 - **The plan check reads each task's own feature folder** (the owner's go, 2026-10-24). qassimha's row 18 could not
   go green: the key check took the folder of the LAST task file (a stale loop variable), so every feature's citations
   were checked against the last-sorted folder, 15 false FAILs on other features' tasks, and a key defined only there

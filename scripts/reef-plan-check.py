@@ -135,6 +135,35 @@ def section(text, heading):
     return m.group(1) if m else None
 
 
+READ_FIRST = re.compile(r"`([^`:]+):(\d+)-(\d+)`\s+\(([^)]+)\)\s+[—-]+\s+\S")
+
+
+def read_first_errors(root, body):
+    """`## Read first` (0.7.1, the owner's go 2026-10-24: implementers explored a median 17.5 calls before the first
+    edit): each entry a range the planner read, `path:start-end` (symbol) — why; real, in the project, at most 8."""
+    ents = [l.strip()[1:].strip() for l in body.splitlines() if l.strip().startswith("-")]
+    errs = [f"{len(ents)} Read first entries > 8 (the ranges the task changes or copies)"] if len(ents) > 8 else []
+    for e in ents:
+        m = READ_FIRST.match(e)
+        if not m:
+            errs.append(f"{e[:50]!r} is not `path:start-end` (symbol) — why"); continue
+        rp, a, b, sym = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4).strip()
+        full, top = os.path.realpath(os.path.join(root, rp)), os.path.realpath(root)
+        if not full.startswith(top + os.sep):
+            errs.append(f"{rp} is outside the project")
+        elif {"node_modules", "dist", "build", ".next", ".git", "vendor"} & set(rp.split("/")):
+            errs.append(f"{rp} is a dependency or build path")
+        elif not os.path.isfile(full):
+            errs.append(f"{rp} does not exist")
+        else:
+            lines = open(full, encoding="utf-8", errors="replace").read().splitlines()
+            if not 1 <= a <= b <= len(lines):
+                errs.append(f"{rp}:{a}-{b} is not a range within its {len(lines)} lines")
+            elif sym not in "\n".join(lines[a - 1:b]):
+                errs.append(f"{sym} is not in {rp}:{a}-{b} (cite the range you read)")
+    return len(ents), errs
+
+
 # CommonMark: 0-3 leading spaces is still a sibling list item; 4+ is continuation/code
 BULLET = re.compile(r"^ {0,3}[-*+] +|^ {0,3}\d+[.)] +")
 LOG_HEADING = re.compile(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", re.M)
@@ -916,6 +945,11 @@ def main():
             print(f"warning: {rel}: {n_crit} acceptance criteria (8 is the slice a verifier judges in one sitting; set plan.max_acs to enforce)")
         fdir = folder_of.get(fm["_path"])   # this task's folder (2026-10-24, qassimha row 18: `path` was the last loop's)
         is06 = bool(fdir) or (marker0 is not None and planned_under_06({"planned_under": planned_prev}, fm.get("feature", "")))
+        n_rf, rf_errs = read_first_errors(root, section(text, "Read first") or "")
+        for x in rf_errs:
+            fail(f"{rel}: read first — {x}")
+        if n_rf and not rf_errs:
+            ok(f"{rel}: read first: {n_rf} entries, each range holds its symbol")
         warn = lambda m: print(f"warning: {m}")
         proof = section(text, "Proof")
         proof_rows = {}
