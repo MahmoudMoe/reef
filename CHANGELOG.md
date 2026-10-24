@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **An existing project's queue survives `/reef-assess`** (the owner's go, 2026-10-24; found while preparing AI coach).
+  `reef-init` treated any repository without a Reef config as new and moved its queue to issues; `/reef-assess` then
+  appended its converted specs' rows to the queue file, numbered from 1, where issues mode no longer reads them. Now:
+  `reef-init` moves a first-time repository with tracked files only on `--queue issues` (otherwise it says to run
+  `/reef-assess` first, then `migrate-to-issues`); `reef-queue.py next-id` gives the next id in either mode and
+  `reef-recalibrate` numbers from it; on issues, after the move's own revertable commit, the new `import-rows --apply`
+  makes the rows issues (ids kept, an id that is already an issue refused) in a commit of its own; `check` warns of rows
+  left in the file. tests/size-budget.json raised: `script_lines` 12,432 → 12,522.
 - **A cached gate shows its evidence; a judge runs the gate once** (the owner's go, 2026-10-24). On the trial night the
   verifiers ran the gate 25 times across 6 verdicts, 16 of them forced fresh, because a cached run said only "exit 0".
   The gate now keeps a green run's log beside its marker, with the run's last lines in the marker, and a cached run

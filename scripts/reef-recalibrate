@@ -325,6 +325,13 @@ def cmd_apply(root, list_path, commit):
     if os.path.isfile(queue_path):
         ids = [int(m.group(1)) for m in re.finditer(r"^\|\s*(\d+)\s*\|", read(queue_path), re.M)]
         next_row = (max(ids) + 1) if ids else 1
+    on_issues = (cfg.get("queue") or {}).get("home") == "issues"
+    if on_issues:   # 0.7.1: the rows live on issues, the file holds none: the next id comes from the queue script
+        r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-queue.py"), "next-id",
+                            "--repo", root], capture_output=True, text=True)
+        if r.returncode != 0 or not r.stdout.strip().isdigit():
+            die(f"the queue is on issues and its next id is unknown ({(r.stderr or r.stdout).strip()[:200]}); nothing moved", 1)
+        next_row = int(r.stdout.strip())
     index = ["# Archive", "", f"Moved by `scripts/reef-recalibrate --apply` on {date}; undo with `git revert` of that commit. Deleting this directory is a later queue row.", "",
              "| original | new home | reason |", "|---|---|---|"]
     gloss_terms = []
@@ -352,6 +359,8 @@ def cmd_apply(root, list_path, commit):
                 f.write(to_spec(text, feat, next_row, arch, rel))
             if os.path.isfile(queue_path):
                 with open(queue_path, "a", encoding="utf-8") as f:
+                    if not re.search(r"^\|\s*Id\s*\|.*\bDepends\b", read(queue_path), re.M):   # on issues the file has no table
+                        f.write("\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n")
                     f.write(f"| {next_row} | {feat.replace('-', ' ')} (recalibrated from {rel}) | | planned | 1 | |\n")
                 touched.append(os.path.relpath(queue_path, root))
             next_row += 1
@@ -393,6 +402,17 @@ def cmd_apply(root, list_path, commit):
         git(root, "add", "-A")   # the tree was clean before: everything staged is this apply (the moves are already staged)
         git(root, "-c", "user.email=reef@local", "-c", "user.name=reef", "commit", "-q", "-m",
             f"chore: reef recalibration {date} — {len(entries)} document(s) converted or archived (undo: git revert)")
+    if commit and on_issues and any(e["action"] == "convert-feature" for e in entries):
+        # the move stays one revertable commit; its rows then become issues and leave the file in a commit of their own
+        r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-queue.py"), "import-rows",
+                            "--apply", "--repo", root], capture_output=True, text=True)
+        print(r.stdout.strip() or r.stderr.strip())
+        if r.returncode == 0:
+            git(root, "add", "--", os.path.relpath(queue_path, root))
+            git(root, "-c", "user.email=reef@local", "-c", "user.name=reef", "commit", "-q", "-m",
+                "queue: recalibrated rows moved to issues", check=False)
+        else:
+            print("the rows stay in the queue file: python3 scripts/reef-queue.py import-rows --apply moves them")
     print(f"applied: {len(entries)} document(s) — {sum(1 for e in entries if e['action'] == 'convert-adr')} ADR(s), "
           f"{sum(1 for e in entries if e['action'] == 'convert-feature')} feature folder(s), index at reef/archive/README.md" + (" (committed)" if commit else ""))
     return 0
