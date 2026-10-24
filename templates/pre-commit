@@ -58,9 +58,11 @@ in_place() {
   exit 0
 }
 
-# unborn HEAD or merge/rebase/cherry-pick in progress: touching the worktree is unsafe
+# unborn HEAD or merge/rebase/cherry-pick in progress: touching the worktree is unsafe. A running rebase is its
+# directory (rebase-merge/ or rebase-apply/), never REBASE_HEAD: that file outlives a finished or aborted rebase, and a
+# stale one made every commit gate the worktree instead of the index (ai-coach, 2026-10-24).
 git rev-parse -q --verify HEAD >/dev/null 2>&1 || in_place "first commit"
-if [ -e "$GITDIR/MERGE_HEAD" ] || [ -e "$GITDIR/REBASE_HEAD" ] || [ -e "$GITDIR/CHERRY_PICK_HEAD" ]; then
+if [ -e "$GITDIR/MERGE_HEAD" ] || [ -d "$GITDIR/rebase-merge" ] || [ -d "$GITDIR/rebase-apply" ] || [ -e "$GITDIR/CHERRY_PICK_HEAD" ]; then
   in_place "merge/rebase/cherry-pick in progress"
 fi
 git diff --quiet 2>/dev/null && in_place ""   # worktree == index: nothing to hide
