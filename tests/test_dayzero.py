@@ -494,3 +494,65 @@ class StructureHonoursConfigPaths(unittest.TestCase):
         r = self.project("reef/architecture/adr")
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn("docs/adr/0001-x.md: a process document outside the layout", r.stdout)
+
+
+class InstructionLayer(unittest.TestCase):
+    """0.7.2 (ai-coach, 2026-10-24, item 19): CLAUDE.md, AGENTS.md and CLAUDE-CODE-PROMPT.md pointed every session at the old
+    process. The plan lists each pointer and conflicting rule with file:line, proposes a rewrite that keeps product content and
+    another tool's block byte for byte, merges a duplicate CLAUDE file, and counts those files as readers."""
+
+    FOREIGN = "<!-- BEGIN:nextjs-agent-rules -->\n# Next.js rules\n- never edit .next/\n<!-- END:nextjs-agent-rules -->\n"
+
+    def fixture(self):
+        d = fixture_repo()
+        write(d, "AGENTS.md", "# ai-coach — agents\n\nAn AI coach for runners: Next.js 16, Prisma, Vitest.\n\n## Non-negotiables\n"
+                              "- there is deliberately no linter — adopting one is its own item with an argued ruleset\n\n## Process\n"
+                              "Read HANDOFF-FRESH.md first, then docs/loop/queue.md.\nStart every session with /loop-start and close with `npm run loop:close`.\n"
+                              "Number ADRs with loop:adr. Run up to 15 agents.\n\n" + self.FOREIGN)
+        write(d, "CLAUDE.md", "# Claude notes\n\nThe product: coaching plans.\n\nSee docs/coaching-model.md for the domain model.\n")
+        write(d, "CLAUDE-CODE-PROMPT.md", "# Prompt\n\nAlways read HANDOFF-FRESH.md first.\n")
+        write(d, "HANDOFF-FRESH.md", "# Handoff (fresh)\n## Runbook\nnothing merges into develop until promotion 11\n")
+        write(d, "docs/loop/queue.md", "# Loop queue\n\n| id | item | status |\n|---|---|---|\n| 1 | x | open |\n")
+        write(d, "docs/coaching-model.md", "# Coaching model\n\n## Decision\nperiodisation\n\n## Consequences\nweekly plans\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "the old process in the instruction layer")
+        return d
+
+    def test_pointers_and_rules_are_listed_with_lines_and_a_doc_read_only_by_claude_md_is_kept(self):
+        d = self.fixture()
+        r = subprocess.run([sys.executable, RECAL, "plan", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        plan = json.loads(open(os.path.join(d, ".reef", "recalibration.json")).read())
+        by = {e["path"]: e for e in plan["entries"]}
+        agents = next(e for e in plan["instruction_layer"]["files"] if e["file"] == "AGENTS.md")
+        self.assertIn([9, "HANDOFF-FRESH.md"], [p[:2] for p in agents["pointers"]])
+        self.assertIn([9, "docs/loop/queue.md"], [p[:2] for p in agents["pointers"]])
+        claude = next(e for e in plan["instruction_layer"]["files"] if e["file"] == "CLAUDE.md")
+        self.assertEqual(claude["pointers"], [[5, "docs/coaching-model.md", False]], "a pointer to a KEPT document is listed and stays")
+        self.assertFalse(os.path.exists(os.path.join(d, ".reef", "proposed", "CLAUDE.md")), "nothing to rewrite in CLAUDE.md")
+        kinds = {(n, k) for n, k, _ in agents["rules"]}
+        self.assertIn((10, "start command"), kinds)
+        self.assertIn((11, "ADR numbering"), kinds)
+        self.assertEqual([n for n, _ in agents["outranks"]], [6], "the no-linter rule is surfaced, never overridden")
+        self.assertEqual(plan["instruction_layer"]["duplicates"], ["CLAUDE-CODE-PROMPT.md"])
+        self.assertEqual((by["docs/coaching-model.md"]["action"], by["docs/coaching-model.md"]["reason"]), ("keep", "referenced by CLAUDE.md"))
+        layer = open(os.path.join(d, "reef", "instruction-layer.md")).read()
+        self.assertIn("rule, start command: `Start every session with /loop-start and close with `npm run loop:close`.` (AGENTS.md:10)", layer)
+        self.assertIn("pointer → `HANDOFF-FRESH.md` (AGENTS.md:9)", layer)
+        self.assertIn("DUPLICATE of the primary CLAUDE file", layer)
+        self.assertIn("read the diff first: `git diff --no-index AGENTS.md .reef/proposed/AGENTS.md`", open(os.path.join(d, "reef", "recalibration.md")).read())
+        proposed = open(os.path.join(d, ".reef", "proposed", "AGENTS.md")).read()
+        self.assertIn(self.FOREIGN, proposed, "another tool's block is byte-identical")
+        self.assertIn("An AI coach for runners: Next.js 16, Prisma, Vitest.", proposed, "product content kept verbatim")
+        self.assertIn("there is deliberately no linter", proposed, "the project's rule stays")
+        self.assertNotIn("/loop-start", proposed)
+        self.assertIn("Process: this project runs on Reef. Read `HANDOFF.md` first", proposed)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "plan")
+        r = subprocess.run([sys.executable, RECAL, "--apply", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(open(os.path.join(d, "AGENTS.md")).read(), proposed, "applied in the one commit")
+        self.assertFalse(os.path.isfile(os.path.join(d, "CLAUDE-CODE-PROMPT.md")))
+        claude_md = open(os.path.join(d, "CLAUDE.md")).read()
+        self.assertIn("The product: coaching plans.", claude_md, "product content kept")
+        self.assertIn("## Carried over from CLAUDE-CODE-PROMPT.md", claude_md)
+        self.assertTrue(os.path.isfile(os.path.join(d, "docs", "coaching-model.md")), "a document only CLAUDE.md names stays in place")
+        self.assertEqual(git(d, "status", "--porcelain").strip(), "", "one commit")
