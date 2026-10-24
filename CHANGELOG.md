@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.2 (unreleased)
+- **The pre-commit hook no longer takes a stale `REBASE_HEAD` for a rebase in progress** (ai-coach, 2026-10-24, item 1).
+  A leftover `.git/REBASE_HEAD` with no rebase running made every commit gate the worktree instead of the index — the
+  very mistake the index dance exists to avoid. A running rebase is its directory, `rebase-merge/` or `rebase-apply/`;
+  the hook now tests those. `MERGE_HEAD` and `CHERRY_PICK_HEAD` are read as before. tests/test_hooks.sh: a stale file
+  with a good index and a broken worktree commits the index; a conflicted rebase still gates in place. tests/size-budget.json: unchanged (nothing grew).
 - **A task's merge and close-out is one command** (the owner's go, 2026-10-24, item 4). At every passed task the
   orchestrator ran eight commands by hand — the commit in the task worktree, the `--no-ff` merge, `status: done`, the
   `git mv` to `tasks/done/`, the journal block, `worktree.setup` after a lockfile, the worktree and branch removal — each

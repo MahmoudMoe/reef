@@ -103,6 +103,36 @@ t "resolved merge commits cleanly" 0
 [ "$(git rev-list --parents -1 HEAD | wc -w | tr -d ' ')" = "3" ]
 t "  merge kept BOTH parents (MERGE_HEAD survived)" 0
 
+# a STALE REBASE_HEAD (no rebase running) must not send the gate to the worktree (ai-coach, 2026-10-24: a leftover
+# .git/REBASE_HEAD made every commit gate the worktree instead of the index)
+mkrepo "$TMP/r4b" "sh check.sh"
+printf 'grep -q GOOD f.txt\n' > check.sh
+echo GOOD > f.txt; git add . ; git commit -qm c1 >/dev/null 2>&1
+git rev-parse HEAD > "$(git rev-parse --git-dir)/REBASE_HEAD"   # stale: no rebase-merge/ or rebase-apply/
+echo GOOD-v2 > f.txt; git add f.txt
+echo BROKEN > f.txt                      # worktree is broken; index is good
+git commit -qm c2 >"$TMP/r4b.out" 2>&1
+t "stale REBASE_HEAD, no rebase running: commit accepted — the gate saw the INDEX" 0
+[ "$(git show HEAD:f.txt)" = "GOOD-v2" ]
+t "  committed content is the index" 0
+grep -q 'tested the WORKTREE' "$TMP/r4b.out"; [ $? -ne 0 ]
+t "  no worktree note: the index dance ran" 0
+
+# a REAL rebase in progress (rebase-merge/ exists) still gates in place
+mkrepo "$TMP/r4c" "true"
+echo base > f.txt; git add .; git commit -qm base >/dev/null 2>&1
+git checkout -qb side; echo side > f.txt; git commit -qam side >/dev/null 2>&1
+git checkout -q main; echo main > f.txt; git commit -qam main >/dev/null 2>&1
+git checkout -q side; git rebase main >/dev/null 2>&1   # conflict
+[ -d "$(git rev-parse --git-dir)/rebase-merge" ] || [ -d "$(git rev-parse --git-dir)/rebase-apply" ]
+t "  the conflicted rebase left its directory" 0
+echo resolved > f.txt; git add f.txt
+git commit -qm resolved >"$TMP/r4c.out" 2>&1
+t "conflicted rebase: a commit mid-rebase is accepted" 0
+grep -q 'rebase/cherry-pick in progress' "$TMP/r4c.out"
+t "  gated in place (rebase in progress)" 0
+git rebase --abort >/dev/null 2>&1 || true
+
 # ---------- round-2 data-loss scenarios ----------
 
 # intent-to-add: the index blob is EMPTY; the dance must be skipped, never truncate
