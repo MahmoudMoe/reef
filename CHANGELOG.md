@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7 (unreleased)
+- **A review rollup gets no plan hunter** (the owner's go, 2026-10-24, item 4 option A). qassimha's R4 rollup, the
+  feature review's findings, took three hunter plan rounds before its fix could start, and the round cap landed on the
+  owner. `reef-adversarial` `plan_pass_tiers` returns no tier for a rollup file (`R<NN>-…`), so the guard does not
+  require its plan pass, and the plan check's hunter line skips it; reef-review says the feature's guard pass (4b) reads
+  the rollup's diff before GREEN. tests/size-budget.json raised: `prose_words` 19,592 → 19,612, `script_lines` 11,782 → 11,788.
 - **The guard refuses a hunter round above the cap before it runs** (the owner's go, 2026-10-24). `reef-adversarial`
   refused a plan report above `hunter.plan_rounds` only after the round had been dispatched and paid for. A plan-pass
   hunter's prompt now carries `pass=plan round=<n>` (the plan skill says so), and the guard refuses the dispatch when

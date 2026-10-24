@@ -156,6 +156,18 @@ class GuardRequiresPlanPass(unittest.TestCase):
         self.assertEqual(r.returncode, 2, "hunter.plan_pass design: the 0.6 behaviour")
         self.assertIn("adversarial-plan", r.stderr)
 
+    def test_a_review_rollup_needs_no_plan_pass(self):
+        # the owner's go, 2026-10-24: qassimha's R4 rollup took three hunter plan rounds before its fix could start
+        with open(self.t) as f:
+            text = f.read()
+        r_path = os.path.join(os.path.dirname(self.t), "R01-t.md")
+        with open(r_path, "w") as f:
+            f.write(text.replace("id: 1\n", "id: R01\n").replace("# 1\n", "# R01\n"))
+        os.remove(self.t)
+        r = dispatch(self.d, r_path)
+        self.assertNotIn("adversarial-plan", r.stderr, "a critical rollup is not held for the hunter's plan pass")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
     def test_fresh_pass_allows_edited_plan_denies(self):
         adv(self.t, "plan", write(self.d, "p.txt", REPORT_PASS.format(p="plan")))
         self.assertEqual(dispatch(self.d, self.t).returncode, 0)
