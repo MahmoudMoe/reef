@@ -175,6 +175,9 @@ def cmd_security(argv):
 
 
 def main(argv):
+    if "-h" in argv or "--help" in argv:   # 0.7 (2026-10-24): `footnote --help` wrote a footnote reading "--help"
+        print(__doc__.strip())
+        return 0
     if argv and argv[0] == "plan-review":
         return cmd_plan_review(argv[1:])
     if argv and argv[0] == "security":
