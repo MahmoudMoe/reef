@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **reef-converge reads a Proof cell as written** (the owner's go, 2026-10-24; the trial's row 18, note n45: four false
+  `missing` lines). A note in parentheses after a test name is commentary (backticks inside it allowed; a parenthesis
+  inside a backticked command is the command's own); `` `cmd` prints `N` `` runs the command and compares its output
+  (a different value is `contradicts`); a cell of prose names no test or command and is listed as not run, never
+  reported missing. tests/size-budget.json raised: `script_lines` 12,359 → 12,411.
 - **A note in parentheses is not an AC status** (the owner's go, 2026-10-24). Twice on the trial, the journal check
   read "AC1…AC5 achieved (AC3, AC4 rendered on the server by their Proof tests, not a browser)" as the status
   "rendered", and the agent rewrote the honest caveat as "achieved via server-rendered HTML" to pass. `reef-queue.py
