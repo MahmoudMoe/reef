@@ -1,6 +1,9 @@
 # Changelog
 
-## 0.7.1 (unreleased)
+## 0.7.1 — the queue on GitHub issues, priority and triage, one orchestrator at a time
+- **0.7.1** (the owner's go, 2026-10-24, option 2: the lock, `/reef-run` and the checker fixes first): `plugin.json`,
+  the marketplace, `reef-init`'s version, the README badge and status, the site and the manual read 0.7.1;
+  `migrations/0.7.0-to-0.7.1.py` is a no-change step so `.reef/version` walks to 0.7.1 with no gap.
 - **The guard pass is counted by tier, and says so** (the owner's go, 2026-10-24). On the trial's row 18 the orchestrator
   read "a design task" as `complexity: design` (task 1801 was tier full), found the guard pass unrecordable and filed a
   found row against the project. `/reef-review` now says "a task of tier `design` or `critical` (its `tier:`, not its
