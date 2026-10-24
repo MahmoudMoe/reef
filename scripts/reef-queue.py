@@ -16,6 +16,8 @@ Usage:
                                                  --row puts its mark on that row's Item; prints the mark
   reef-queue.py add-row --item "<text>" [--depends "1, 2"] [--source planned|found] [--batch N] [--admitted "<ground>"]
                                                  (0.7) the next id, in its batch's table (found: next batch by default); prints the id
+  reef-queue.py add-rows --file rows.json [--repo DIR]     (0.7.2) a chain of rows in one pass: a JSON list of {item, depends,
+                                                 source, batch, admitted, priority}; `@prev` in depends is the id just allocated
   reef-queue.py set-depends ID "<ids>" [--repo DIR]        (0.7) replace a row's Depends cell
   reef-queue.py triage [--repo DIR] [--count]              (0.7) rule 7: found rows still queued two batches after they
                                                  entered, grouped by module, with the three outcomes as ONE owner
@@ -62,6 +64,7 @@ file names it as `feature:`), `building` (some task not done), `done` (every tas
 holds `Id` and `Depends`; `Current batch: N` names the batch that may start.
 Exit 0 ok · 1 check failed / nothing to do · 2 usage.
 """
+import fcntl
 import json
 import os
 import re
@@ -266,9 +269,13 @@ def sync(root):
         print(f"reef-queue: gh failed ({e}); reading the last snapshot, .reef/queue.json", file=sys.stderr)
         return json.loads(read(snap_p))
     collab = collaborators(root, snap_p)
+    try:   # the last id this checkout allocated outlives the re-read: GitHub's list lags a just-created issue (item 20)
+        last_id = int(json.loads(read(snap_p)).get("last_id") or 0) if os.path.isfile(snap_p) else 0
+    except (ValueError, TypeError):
+        last_id = 0
     open_b = sorted(int(b) for x in ms for b in [batch_of(x)] if b and x.get("state") == "open")
     snap = {"current_batch": str(open_b[0]) if open_b else None, "milestones": {x["title"]: x["number"] for x in ms},
-            "rows": [], "closed": [], "dropped": [], "unadmitted": [], "untrusted": [], "collaborators": collab}
+            "rows": [], "closed": [], "dropped": [], "unadmitted": [], "untrusted": [], "collaborators": collab, "last_id": last_id}
     for i in issues:
         m = ROW_TITLE.match((i.get("title") or "").strip())
         if not m:
@@ -331,7 +338,51 @@ def next_id(root, snap):
     _, _, apath = queue_paths(root)
     ids = [int(r["Id"]) for r in snap["rows"] + snap["closed"] + snap.get("dropped", []) + snap.get("untrusted", [])]
     ids += [int(r["Id"]) for r in parse_table(read(apath)) if r["Id"].isdigit()] if os.path.isfile(apath) else []
-    return max(ids, default=0) + 1
+    return max(ids + [int(snap.get("last_id") or 0)], default=0) + 1
+
+
+def allocate_id(root, snap):
+    """The next row id, RESERVED (0.7.2, ai-coach 2026-10-24, item 20): six add-rows in a row made issues titled [3] [3] [4] [4]
+    [5] [5], because GitHub's issue list lags a just-created issue. The last allocated id is kept in .reef/queue.json under a
+    file lock and counts like a row's; the snapshot's re-read carries it over."""
+    snap_p = os.path.join(root, ".reef", "queue.json")
+    os.makedirs(os.path.dirname(snap_p), exist_ok=True)
+    with open(snap_p + ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            on_disk = json.loads(read(snap_p)) if os.path.isfile(snap_p) else {}
+        except ValueError:
+            on_disk = {}
+        snap["last_id"] = max(int(snap.get("last_id") or 0), int(on_disk.get("last_id") or 0))
+        new_id = next_id(root, snap)
+        snap["last_id"] = new_id
+        on_disk = on_disk or dict(snap)
+        on_disk["last_id"] = new_id
+        write_text(snap_p, json.dumps(on_disk, indent=1) + "\n")
+    return new_id
+
+
+def settle_id(root, snap, new_id, number, title):
+    """After `issue create`: if another open row issue carries the same [id] (two sessions, one lagging list), the NEWER issue
+    — this one — is retitled to the next free id, and the change is printed (item 20)."""
+    for _ in range(3):
+        try:
+            issues = json.loads(gh(root, "issue", "list", "--label", LABEL, "--state", "open", "--limit", "1000", "--json", "number,title", read=True))
+        except (GhError, ValueError):
+            return new_id
+        others = [i["number"] for i in issues if i["number"] != number
+                  for m in [ROW_TITLE.match((i.get("title") or "").strip())] if m and m.group(1) == str(new_id)]
+        if not others or min(others) > number:   # no clash, or this issue is the older one: the other session retitles
+            return new_id
+        for i in issues:   # every id now on the forge counts before the next allocation
+            m = ROW_TITLE.match((i.get("title") or "").strip())
+            if m:
+                snap["last_id"] = max(int(snap.get("last_id") or 0), int(m.group(1)))
+        fresh = allocate_id(root, snap)
+        gh_write(root, "issue", "edit", str(number), "--title", f"[{fresh}] {title}")
+        print(f"reef-queue: #{number} was [{new_id}] like #{min(others)}; retitled to [{fresh}]", file=sys.stderr)
+        new_id = fresh
+    return new_id
 
 
 def ensure_labels(root, *names):
@@ -441,14 +492,15 @@ def add_row(root, item, depends, source, batch, admitted, priority=""):
     cfg, qpath, apath = queue_paths(root)
     if issues_mode(cfg):
         snap = sync(root)
-        new_id, cur = next_id(root, snap), snap["current_batch"] or "1"
+        new_id, cur = allocate_id(root, snap), snap["current_batch"] or "1"
         if batch is None:
             batch = cur if source == "planned" or admitted else str(int(cur) + 1)   # rule 6
         title, body = issue_text(item, depends, admitted)
         ensure_labels(root, LABEL, source, *([priority] if priority else []))
-        gh_write(root, "issue", "create", "--title", f"[{new_id}] {title}", "--body", body, "--label", LABEL, "--label", source,
-                 *(["--label", priority] if priority else []), "--milestone", ensure_milestone(root, snap, batch))
-        return new_id
+        url = gh_write(root, "issue", "create", "--title", f"[{new_id}] {title}", "--body", body, "--label", LABEL, "--label", source,
+                       *(["--label", priority] if priority else []), "--milestone", ensure_milestone(root, snap, batch)).strip()
+        number = url.rstrip("/").rsplit("/", 1)[-1]
+        return settle_id(root, snap, new_id, int(number), title) if number.isdigit() else new_id
     q = read(qpath)
     ids = [int(r["Id"]) for r in parse_table(q) if r["Id"].isdigit()]
     if os.path.isfile(apath):
@@ -482,6 +534,27 @@ def add_row(root, item, depends, source, batch, admitted, priority=""):
 
 def cmd_add_row(root, item, depends, source, batch, admitted, priority=""):
     print(add_row(root, item, depends, source, batch, admitted, priority))
+    return 0
+
+
+def cmd_add_rows(root, path):
+    """A chain of rows in one pass (item 20c): `@prev` in a row's depends is the id allocated just before it."""
+    try:
+        rows = json.loads(read(path))
+    except (OSError, ValueError) as e:
+        die(f"add-rows: {e}")
+    if not isinstance(rows, list) or not all(isinstance(r, dict) and r.get("item") for r in rows):
+        die("add-rows: a JSON list of objects, each with an item")
+    prev = None
+    for r in rows:
+        if r.get("source", "planned") not in ("planned", "found") or r.get("priority", "") not in ("",) + PRIORITIES:
+            die("add-rows: source is planned or found; priority is p1, p2 or p3")
+        dep = str(r.get("depends") or "")
+        if "@prev" in dep and prev is None:
+            die("add-rows: @prev in the first row has nothing to point at")
+        dep = dep.replace("@prev", str(prev)) if prev is not None else dep
+        prev = add_row(root, r["item"], dep, r.get("source", "planned"), r.get("batch"), str(r.get("admitted") or ""), r.get("priority", ""))
+        print(prev)
     return 0
 
 
@@ -1206,6 +1279,8 @@ def main(argv):
         if opt("--priority") not in ("",) + PRIORITIES:
             die("--priority is p1, p2 or p3")
         return cmd_add_row(root, opt("--item"), opt("--depends"), src, opt("--batch", None), opt("--admitted"), opt("--priority"))
+    if cmd == "add-rows" and "--file" in argv:
+        return cmd_add_rows(root, opt("--file"))
     if cmd == "set-depends" and len(argv) >= 3:
         return cmd_set_depends(root, argv[1], argv[2])
     if cmd == "triage":

@@ -38,7 +38,8 @@ if a[:2] == ["auth", "status"]:
     print("Logged in to github.com")
 elif a[:2] == ["issue", "list"]:
     lab = opt("--label")
-    print(json.dumps([view(i) for i in s["issues"] if lab in i["labels"]]))
+    hidden = list(s.get("hidden", [])) + ([s["last_created"]] if s.get("lag") and s.get("last_created") else [])   # a lagging list
+    print(json.dumps([view(i) for i in s["issues"] if lab in i["labels"] and i["number"] not in hidden]))
 elif a[:2] == ["issue", "view"]:
     print(json.dumps(view(issue(a[2]))))
 elif a[:2] == ["issue", "create"]:
@@ -46,6 +47,7 @@ elif a[:2] == ["issue", "create"]:
     s["issues"].append({"number": s["next"], "title": opt("--title"), "body": opt("--body") or "", "state": "OPEN",
                         "labels": opt("--label", True), "milestone": opt("--milestone"), "comments": [],
                         "assignees": opt("--assignee", True), "author": s.get("me", "owner")})
+    s["last_created"] = s["next"]; s["hidden"] = []   # the lag covers the newest issue; an earlier hidden one surfaces now
     print(f"https://github.com/o/r/issues/{s['next']}")
 elif a[:2] == ["issue", "edit"]:
     i = issue(a[2])
@@ -542,6 +544,46 @@ class QuestionsAsIssues(Base):
         i = next(x for x in self.gh()["issues"] if x["number"] == 21)
         self.assertEqual(i["state"], "CLOSED")
         self.assertIn("answered: accept, with a log scrub row", i["comments"][-1])
+
+
+class RowIds(Base):
+    """Item 20 (0.7.2, ai-coach 2026-10-24): six add-rows in a row created issues titled [3] [3] [4] [4] [5] [5] because GitHub's
+    issue list lags a just-created issue. The last allocated id is reserved locally; a clash retitles the newer issue; a
+    chain resolves @prev."""
+
+    def test_three_rapid_add_rows_get_consecutive_ids_while_the_list_lags(self):
+        s = self.gh(); s["lag"] = True; self.put(s)
+        ids = [self.q("add-row", "--item", f"row {k}", "--source", "planned").stdout.strip() for k in range(3)]
+        self.assertEqual(ids, ["6", "7", "8"])
+        titles = sorted(i["title"] for i in self.gh()["issues"] if i["number"] > 15)
+        self.assertEqual(titles, ["[6] row 0", "[7] row 1", "[8] row 2"])
+        with open(os.path.join(self.d, ".reef", "queue.json")) as f:
+            self.assertEqual(json.load(f)["last_id"], 8)
+
+    def test_a_forced_collision_retitles_the_newer_issue(self):
+        s = self.gh()
+        s["issues"].append({"number": 16, "title": "[6] theirs", "body": body(), "state": "OPEN", "labels": ["reef-row", "planned"],
+                            "milestone": "Batch 2", "comments": []})
+        s["hidden"] = [16]                                                   # another session's issue, not yet in the list
+        self.put(s)
+        r = self.q("add-row", "--item", "ours", "--source", "planned")
+        self.assertEqual(r.stdout.strip(), "7", r.stderr)
+        self.assertIn("#21 was [6] like #16; retitled to [7]", r.stderr)
+        by = {i["number"]: i["title"] for i in self.gh()["issues"]}
+        self.assertEqual((by[16], by[21]), ("[6] theirs", "[7] ours"))
+
+    def test_add_rows_chains_and_resolves_prev(self):
+        s = self.gh(); s["lag"] = True; self.put(s)
+        rows = os.path.join(self.tmp, "rows.json")
+        with open(rows, "w") as f:
+            json.dump([{"item": "M1 schema", "source": "planned"}, {"item": "M2 api", "depends": "@prev"},
+                       {"item": "M3 ui", "depends": "@prev, 3", "source": "found", "priority": "p1"}], f)
+        r = self.q("add-rows", "--file", rows)
+        self.assertEqual(r.stdout.split(), ["6", "7", "8"], r.stderr)
+        by = {i["title"]: i for i in self.gh()["issues"] if i["number"] > 15}
+        self.assertEqual(by["[7] M2 api"]["body"], "Depends: 6\nAdmitted: \n")
+        self.assertEqual(by["[8] M3 ui"]["body"], "Depends: 7, 3\nAdmitted: \n")
+        self.assertEqual(sorted(by["[8] M3 ui"]["labels"]), ["found", "p1", "reef-row"])
 
 
 class TrustCheck(Base):
