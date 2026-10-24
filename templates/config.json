@@ -56,7 +56,8 @@
     "queue": "docs/queue.md"
   },
   "queue": {
-    "home": "file"
+    "home": "file",
+    "batch_max": 10
   },
   "invariants": [],
   "graph": {

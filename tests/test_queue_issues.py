@@ -32,6 +32,7 @@ def issue(n):
 def view(i):
     ms = i.get("milestone")
     return {"number": i["number"], "title": i["title"], "body": i["body"], "state": i["state"], "stateReason": i.get("stateReason", ""),
+            "createdAt": i.get("createdAt", "2026-10-24T00:00:00Z"),
             "labels": [{"name": l} for l in i["labels"]], "milestone": {"title": ms} if ms else None}
 if a[:2] == ["issue", "list"]:
     lab = opt("--label")
@@ -159,9 +160,8 @@ class Base(unittest.TestCase):
         with open(self.state) as f:
             return json.load(f)
 
-    def q(self, *args, mode="ok"):
-        env = dict(os.environ, PATH=self.bin + os.pathsep + os.environ.get("PATH", ""), GH_STATE=self.state, GH_MODE=mode,
-                   REEF_GH_READ_TIMEOUT="3")
+    def q(self, *args, mode="ok", **extra):
+        env = dict(os.environ, PATH=self.bin + os.pathsep + os.environ.get("PATH", ""), GH_STATE=self.state, GH_MODE=mode, **extra)
         return subprocess.run([sys.executable, QUEUE, *args, "--repo", self.d], capture_output=True, text=True, env=env)
 
     def issue(self, rid):
@@ -180,7 +180,7 @@ class ReadsFromIssues(Base):
         self.assertTrue(os.path.isfile(os.path.join(self.d, ".reef", "queue.json")), "the snapshot is written")
 
     def test_a_failing_gh_reads_the_last_snapshot_and_writes_refuse(self):
-        self.q("status")
+        self.assertEqual(self.q("status").returncode, 0)
         r = self.q("status", mode="fail")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("last snapshot", r.stderr)
@@ -188,7 +188,7 @@ class ReadsFromIssues(Base):
         r = self.q("add-row", "--item", "x", mode="fail")
         self.assertEqual(r.returncode, 1)
         self.assertEqual(len(self.gh()["issues"]), 5, "nothing written")
-        r = self.q("status", mode="slow")
+        r = self.q("status", mode="slow", REEF_GH_READ_TIMEOUT="2")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("last snapshot", r.stderr, "a slow gh read gives up after REEF_GH_READ_TIMEOUT")
         os.unlink(os.path.join(self.d, ".reef", "queue.json"))
@@ -283,6 +283,62 @@ class Priority(Base):
         r = self.q("admit", "15", "--source", "found", "--priority", "p1")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("p1", next(i for i in self.gh()["issues"] if i["number"] == 15)["labels"])
+
+
+class Triage(Base):
+    """Every found row without a priority label is untriaged (the owner's go, 2026-10-24): the tick warns once one has
+    waited more than 7 days; `triage` lists them all by module with four outcomes; `demote` makes one a note."""
+
+    def aged(self, days):
+        import datetime
+        s = self.gh()
+        when = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for i in s["issues"]:
+            i["createdAt"] = when
+        self.put(s)
+
+    def test_the_weekly_line_and_the_full_list(self):
+        self.aged(2)
+        r = self.q("triage", "--count")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("untriaged found: 2", r.stdout)
+        self.aged(9)
+        r = self.q("triage", "--count")
+        self.assertEqual(r.returncode, 1, "a finding untriaged for more than 7 days is the tick's line")
+        self.assertIn("untriaged found: 2 (oldest 9 day(s))", r.stdout)
+        r = self.q("triage")
+        self.assertEqual(r.returncode, 1)
+        for line in ("set-priority 4 p1|p2|p3", "drop-row 5 --reason", "demote 5", "absorbs row 4"):
+            self.assertIn(line, r.stdout)
+        self.q("set-priority", "4", "p2")
+        self.q("set-priority", "5", "p3")
+        r = self.q("triage", "--count")
+        self.assertEqual((r.returncode, "untriaged found: 0" in r.stdout), (0, True), "a priority label is the triage decision")
+
+    def test_demote_makes_a_finding_a_note_and_a_security_one_stays(self):
+        r = self.q("demote", "5")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "n1")
+        self.assertEqual((self.issue(5)["state"], self.issue(5)["stateReason"]), ("CLOSED", "NOT_PLANNED"))
+        self.assertIn("demoted to note n1", self.issue(5)["comments"][-1])
+        notes = open(os.path.join(self.d, "reef", "noted-risks.md")).read()
+        self.assertIn("n1 · row 5 · ", notes)
+        self.assertIn("cache lifetime (was row 5)", notes)
+        s = self.gh()
+        s["issues"][2]["title"] = "[4] session cookie leaks on resize"
+        self.put(s)
+        r = self.q("demote", "4")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("always a queue row", r.stderr)
+        self.assertEqual(self.issue(4)["state"], "OPEN")
+
+    def test_check_warns_when_the_current_batch_is_over_batch_max(self):
+        self.cfg["queue"]["batch_max"] = 1
+        with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
+            f.write(json.dumps(self.cfg, indent=2) + "\n")
+        r = self.q("check")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("warning: batch 2 holds 2 open row(s), over queue.batch_max 1", r.stdout)
 
 
 class ReadersUseTheSnapshot(Base):

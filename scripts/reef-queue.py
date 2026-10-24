@@ -31,13 +31,17 @@ Usage:
                                                 status, task counts, ADRs — never hand-edited
   reef-queue.py close ID --pr N [--repo DIR]               (0.7.1, issues) close the row's issue as completed, "merged in #N"
   reef-queue.py admit <issue> [--source planned|found] [--batch N]   (0.7.1, issues) a plain issue becomes the next row
+  reef-queue.py demote ID [--repo DIR]                     (0.7.1, issues) a queued found row that may never happen becomes a
+                                                 note; its issue closes as not planned; security, privacy, money, data loss refused
   reef-queue.py set-priority ID p1|p2|p3|none             (0.7.1, issues) the row's priority label; add-row and admit take --priority
   reef-queue.py migrate-to-issues [--apply] [--repo DIR]   (0.7.1) the open rows to the repository's issues; a dry run
                                                  without --apply. Footnotes, notes and the archive stay files
   `queue.home: issues` (0.7.1): a row is an issue labelled `reef-row` titled `[<id>] <item>`, its body `Depends:` and
   `Admitted:` lines, a `found` or `planned` label; a batch is a milestone `Batch N`, the current batch the lowest open one;
   a closed issue is archived. `ready` orders by priority (`p1`, then none or `p2`, then `p3`), then planned before found,
-  then id; a found row labelled `p1` counts as planned (the owner promoted it). Every read syncs `.reef/queue.json` first (a failing gh: the last snapshot, said on stderr);
+  then id; a found row labelled `p1` counts as planned (the owner promoted it). A found row with no priority label is
+  untriaged: `triage` lists them all, `triage --count` exits 1 once one has waited more than 7 days; `check` warns when
+  the current batch holds more open rows than `queue.batch_max` (default 10). Every read syncs `.reef/queue.json` first (a failing gh: the last snapshot, said on stderr);
   every write goes to gh and fails closed.
   `check` also validates (0.6) every feature folder's slug (2-5 kebab-case words, no bare number, no
   generic word) and the structure: a process document outside the layout fails.
@@ -242,7 +246,7 @@ def sync(root):
     snap_p = os.path.join(root, ".reef", "queue.json")
     try:
         issues = json.loads(gh(root, "issue", "list", "--label", LABEL, "--state", "all", "--limit", "1000",
-                               "--json", "number,title,body,state,stateReason,labels,milestone", read=True))
+                               "--json", "number,title,body,state,stateReason,labels,milestone,createdAt", read=True))
         ms = json.loads(gh(root, "api", "repos/{owner}/{repo}/milestones?state=all&per_page=100", read=True))
     except (GhError, ValueError) as e:
         if not os.path.isfile(snap_p):
@@ -260,7 +264,7 @@ def sync(root):
         b = i.get("body") or ""
         row = {"Id": m.group(1), "Item": field(b, "Item") or m.group(2).strip(), "Depends": field(b, "Depends"),
                "Source": "found" if any(lb.get("name") == "found" for lb in i.get("labels") or []) else "planned",
-               "Batch": batch_of(i.get("milestone")), "Admitted": field(b, "Admitted"), "_issue": i["number"],
+               "Batch": batch_of(i.get("milestone")), "Admitted": field(b, "Admitted"), "_issue": i["number"], "_created": i.get("createdAt", ""),
                "Priority": next((p for p in PRIORITIES if any(lb.get("name") == p for lb in i.get("labels") or [])), "")}
         snap["rows" if i.get("state") == "OPEN" else "dropped" if i.get("stateReason") == "NOT_PLANNED" else "closed"].append(row)
     os.makedirs(os.path.dirname(snap_p), exist_ok=True)
@@ -453,8 +457,7 @@ def open_notes(root):
     return [l for l in read(p).splitlines() if re.match(r"^- n\d+ · ", l) and " → row " not in l] if os.path.isfile(p) else []
 
 
-def cmd_note(root, text, row_id):
-    import datetime
+def note_text(text):
     text = " ".join(text.split()).replace("|", "/")
     if not text:
         die("note: the finding, one line")
@@ -462,12 +465,36 @@ def cmd_note(root, text, row_id):
     if m:
         die(f"'{m.group(0)}': a security, privacy, money or data-loss finding is always a queue row — "
             f"add-row --item \"…\" --source found", 1)
+    return text
+
+
+def next_note(root):
     p = notes_path(root)
     body = read(p) if os.path.isfile(p) else NOTES_HEAD
-    n = max((int(x) for x in re.findall(r"(?m)^- n(\d+) · ", body)), default=0) + 1
+    return p, body, max((int(x) for x in re.findall(r"(?m)^- n(\d+) · ", body)), default=0) + 1
+
+
+def cmd_note(root, text, row_id):
+    import datetime
+    text = note_text(text)
+    p, body, n = next_note(root)
     write_text(p, body.rstrip("\n") + f"\n- n{n} · row {row_id or '-'} · {datetime.date.today().isoformat()} · {text}\n")
     print(f"n{n}")
     return 0
+
+
+def cmd_demote(root, row_id):
+    """A queued found row that may never happen becomes a note (0.7.1, issues): the issue closes as not planned with the
+    note's id, the note keeps the row's text. Checked before anything is written: a safety finding stays a row."""
+    if not issues_mode(config(root)):
+        die("demote is for queue.home: issues", 1)
+    r = next((x for x in load(root)[2] if x["Id"] == row_id), None)
+    if r is None or r["_status"] != "queued":
+        die(f"row {row_id} is {'not an open row' if r is None else r['_status']}: only a queued row becomes a note", 1)
+    text = note_text(f"{r.get('Item', '').strip()} (was row {row_id})")
+    n = next_note(root)[2]
+    gh_write(root, "issue", "close", str(r["_issue"]), "--reason", "not planned", "--comment", f"demoted to note n{n} (may never happen)")
+    return cmd_note(root, text, row_id)
 
 
 def cmd_promote_note(root, nid, batch):
@@ -533,7 +560,38 @@ def triage_rows(rows, text):
     return stale, open_found, open_planned
 
 
+def triage_issues(root, count_only):
+    """On issues (0.7.1, the owner's go 2026-10-24): a found row with no priority label is untriaged; giving it a priority
+    IS the decision. The tick's line once one has waited more than 7 days; the list groups them all by module."""
+    import datetime
+    _, text, rows, _, _ = load(root)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    age = lambda r: (now - datetime.datetime.fromisoformat(r["_created"].replace("Z", "+00:00"))).days if r.get("_created") else 0
+    found = [r for r in rows if r.get("Source") == "found"]
+    un = [r for r in found if not r.get("Priority")]
+    oldest = max((age(r) for r in un), default=0)
+    print(f"triage: batch {current_batch(text) or '?'} · open found {len(found)} vs planned {len(rows) - len(found)} · untriaged found: "
+          f"{len(un)}" + (f" (oldest {oldest} day(s))" if un else ""))
+    if count_only or not un:
+        return 1 if un and (oldest > 7 or not count_only) else 0
+    print("\nONE owner question (AskUserQuestion, one entry per row; a priority label is the decision):")
+    groups = {}
+    for r in un:
+        groups.setdefault(module_of(r.get("Item", "")), []).append(r)
+    for mod in sorted(groups):
+        print(f"\n## {mod}")
+        for r in groups[mod]:
+            print(f"- row {r['Id']} (#{r['_issue']}, batch {r.get('Batch') or '?'}, {age(r)} day(s)): {r.get('Item', '')[:140]}")
+            print(f"    Keep → set-priority {r['Id']} p1|p2|p3")
+            print(f"    Merge into design row <id> → footnote --row <id> \"absorbs row {r['Id']}: …\" + drop-row {r['Id']} --reason \"merged into <id>\"")
+            print(f"    Drop → drop-row {r['Id']} --reason \"<why it no longer matters>\"   (first-class outcome)")
+            print(f"    Note → demote {r['Id']}   (may never happen; security, privacy, money and data loss stay rows)")
+    return 1
+
+
 def cmd_triage(root, count_only):
+    if issues_mode(config(root)):
+        return triage_issues(root, count_only)
     """Found-row triage as a command (usability plan B5). The first full loop had 18 of 26 open rows `found` and no
     moment that asked about them; rule 7 says a found row untouched after two batches is promoted once with a reason,
     merged into a design row, or deleted, and deletion is a first-class outcome. Prints the owner's ONE question."""
@@ -660,6 +718,10 @@ def cmd_check(root):
     for feat in states:
         if feat and feat not in known:
             bad.append(f"task file(s) with feature: {feat} have no queue row (and none in the archive)")
+    cur, bmax = current_batch(text), int((cfg.get("queue") or {}).get("batch_max", 10) or 0)
+    n_cur = sum(1 for r in rows if cur and (r.get("Batch") or "").strip() == cur)
+    if bmax and n_cur > bmax:
+        print(f"warning: batch {cur} holds {n_cur} open row(s), over queue.batch_max {bmax} — a sprint is 5 to 10 rows")
     for n in sync(root)["unadmitted"] if issues_mode(cfg) else []:
         print(f"warning: #{n} is labelled {LABEL} but its title has no [id] — the owner admits it: reef-queue.py admit {n}")
     bad += structure_errors(root, cfg)
@@ -915,7 +977,7 @@ def main(argv):
         argv = argv[:i] + argv[i + 2:]
     root = repo_root(repo)
     if not argv:
-        die("usage: reef-queue.py status|ready [--all] [--with-found]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids>|triage [--count]|note <text> [--row ID]|promote-note n<k> [--batch N]|set-batch ID N|drop-row ID --reason <text>|close ID --pr N|admit <issue>|set-priority ID p1|p2|p3|none|migrate-to-issues [--apply] [--repo DIR]")
+        die("usage: reef-queue.py status|ready [--all] [--with-found]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids>|triage [--count]|note <text> [--row ID]|promote-note n<k> [--batch N]|set-batch ID N|drop-row ID --reason <text>|close ID --pr N|admit <issue>|set-priority ID p1|p2|p3|none|demote ID|migrate-to-issues [--apply] [--repo DIR]")
     cmd = argv[0]
     if cmd == "status":
         return cmd_status(root)
@@ -954,6 +1016,8 @@ def main(argv):
         if opt("--source", "planned") not in ("planned", "found") or opt("--priority") not in ("",) + PRIORITIES:
             die("--source is planned or found; --priority is p1, p2 or p3")
         return cmd_admit(root, argv[1], opt("--source", "planned"), opt("--batch", None), opt("--priority"))
+    if cmd == "demote" and len(argv) >= 2:
+        return cmd_demote(root, argv[1])
     if cmd == "set-priority" and len(argv) >= 3:
         return cmd_set_priority(root, argv[1], argv[2])
     if cmd == "migrate-to-issues":

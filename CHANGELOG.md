@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **Triage every finding, weekly and at each batch boundary** (the owner's go, 2026-10-24: 82 found rows piled up behind
+  a 10-row batch, and the triage command only flagged rows two batches old). On issues, a found row with no priority
+  label is untriaged, and giving it a priority is the decision. `triage` lists every untriaged row by module with four
+  outcomes (keep with a priority, merge into a design row, drop with a reason, note); `triage --count` exits 1 once one
+  has waited more than 7 days, so the tick names it; `/reef-loop` asks at every batch boundary. `demote ID` makes a
+  queued finding that may never happen a note and closes its issue as not planned (security, privacy, money and data
+  loss stay rows). `check` warns when the current batch holds more open rows than `queue.batch_max` (default 10).
+  tests/size-budget.json raised: `config_keys` 90 → 91, `prose_words` 19,761 → 19,790, `script_lines` 12,103 → 12,167.
 - **Priority labels the loop respects** (the owner's go, 2026-10-24: companies rank the backlog, Reef ordered rows by id).
   On issues, `p1`, `p2` and `p3` labels order `ready`: priority first (none counts as `p2`), then planned before found,
   then id; a found row labelled `p1` counts as planned, the owner having promoted it. `set-priority ID p1|p2|p3|none`;
