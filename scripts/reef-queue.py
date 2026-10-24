@@ -590,11 +590,11 @@ def triage_issues(root, count_only):
 
 
 def cmd_triage(root, count_only):
-    if issues_mode(config(root)):
-        return triage_issues(root, count_only)
     """Found-row triage as a command (usability plan B5). The first full loop had 18 of 26 open rows `found` and no
     moment that asked about them; rule 7 says a found row untouched after two batches is promoted once with a reason,
     merged into a design row, or deleted, and deletion is a first-class outcome. Prints the owner's ONE question."""
+    if issues_mode(config(root)):
+        return triage_issues(root, count_only)
     _, text, rows, archived, _ = load(root)
     stale, open_found, open_planned = triage_rows(rows, text)
     cur = current_batch(text) or "?"

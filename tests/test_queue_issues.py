@@ -394,6 +394,11 @@ class InitChoosesTheQueue(Base):
         r = self.init(d, "--queue", "issues")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.home_of(d), "issues")
+        r = self.init(d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.home_of(d), "issues", "a refresh (reef-update) keeps a project on issues")
+        self.assertNotIn("PROPOSED reef/queue.md", r.stdout)
+        self.assertNotIn("PROPOSED .reef/config.json", r.stdout)
 
 
 class ReadersUseTheSnapshot(Base):
