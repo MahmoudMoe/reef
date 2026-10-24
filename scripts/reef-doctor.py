@@ -228,6 +228,14 @@ def main(argv):
             say("OK" if rc_d == 0 else "WARN", "docker: running" if rc_d == 0 else "docker: not running", "" if rc_d == 0 else "start Docker before a task that needs the database")
         except Exception:
             say("WARN", "docker: not installed", "the project has a compose file; its tests need Docker")
+    # .env (0.7.2, ai-coach 2026-10-24): Prisma loads the checkout's .env; with two keys set, the base branch failed 21 tests
+    # that pass in CI. One line, key NAMES only, no automatic double run.
+    full = str((cfg.get("gates") or {}).get("full", "") or "")
+    if full and os.path.isfile(os.path.join(root, ".env")):
+        with open(os.path.join(root, ".env"), encoding="utf-8", errors="replace") as f:
+            keys = [m.group(1) for m in re.finditer(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=", f.read(), re.M)]
+        say("WARN", f"env: the local gate reads .env ({len(keys)} key(s): {', '.join(keys)}), CI does not",
+            f"compare once: {' '.join(k + '=' for k in keys)} {full}")
     # proposals
     pdir = os.path.join(root, ".reef", "proposed")
     props = []

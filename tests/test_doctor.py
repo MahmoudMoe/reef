@@ -84,6 +84,19 @@ class Doctor(unittest.TestCase):
         self.assertIn("checkout main -- reef/queue.md", r.stdout)
         self.assertIn("worktree: .reef/worktrees/a [feat/a] (feature)", r.stdout)
 
+    def test_a_local_env_file_is_named_by_its_keys_never_its_values(self):
+        # 0.7.2 (ai-coach, 2026-10-24): Prisma loads the checkout's .env; two keys made 21 tests fail locally that pass in CI
+        d = project()
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump({"branches": {"base": "main"}, "paths": {"queue": "reef/queue.md"}, "gates": {"full": "npm test"}}, f)
+        self.assertNotIn("the local gate reads .env", doctor(d).stdout, "no .env: no line")
+        with open(os.path.join(d, ".env"), "w") as f:
+            f.write("# local\nDATABASE_URL=postgres://u:sekret@localhost/db\nexport AI_COACH_SPEED_HASH = topsecret\n")
+        r = doctor(d)
+        self.assertIn("WARN env: the local gate reads .env (2 key(s): DATABASE_URL, AI_COACH_SPEED_HASH), CI does not", r.stdout)
+        self.assertIn("compare once: DATABASE_URL= AI_COACH_SPEED_HASH= npm test", r.stdout)
+        self.assertNotIn("sekret", r.stdout); self.assertNotIn("topsecret", r.stdout)
+
     def test_not_a_reef_project_exits_2(self):
         d = tempfile.mkdtemp(prefix="reef-doctor-none.")
         subprocess.run(["git", "init", "-q", d], check=True)
