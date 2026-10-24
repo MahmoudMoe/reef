@@ -739,6 +739,9 @@ def cmd_migrate(root, apply):
         die("the queue is already on issues", 1)
     q = read(qpath)
     rows, cur = parse_table(q), int(current_batch(q) or 1)
+    for r in [r for r in rows if re.fullmatch(r"<[^<>]*>", r.get("Item", "").strip())]:   # a fresh init's `<the first … row>`
+        rows.remove(r)
+        print(f"skipped row {r['Id']}: the template's placeholder, {r['Item'].strip()}")
     num = lambda r: int((re.match(r"\d+", r.get("Batch", "")) or re.match(r"\d+", str(cur))).group())
     batches = sorted({num(r) for r in rows} | {cur})
     print(f"{len(rows)} open row(s); milestones {', '.join(f'Batch {b}' for b in batches)} (current: Batch {cur}); labels {LABEL}, planned, found")

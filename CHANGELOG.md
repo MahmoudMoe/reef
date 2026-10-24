@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **The migration skips the template's placeholder row** (the owner's go, 2026-10-24). On a fresh `/reef-init` project
+  with no architecture grill, `migrate-to-issues` made the queue template's `<the first planned row, one line>` issue [1].
+  A row whose Item is all angle brackets is skipped and named; a grilled first row (the walking skeleton) still moves.
+  tests/size-budget.json raised: `script_lines` 12,072 → 12,075.
 - **A Proof cell with two names checks each** (the owner's go, 2026-10-24). The trial's row 5 rollup reported a test
   missing that existed: `reef-converge` read the cell `` `a`, `b` `` as one name, "a`, `b". A cell holding only backticked
   spans joined by commas, semicolons or "and" is now one proof per span, each a test or a command as before.

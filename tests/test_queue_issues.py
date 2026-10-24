@@ -297,5 +297,20 @@ class Migrate(Base):
         self.assertIn("already on issues", r.stderr)
 
 
+    def test_the_templates_placeholder_row_is_not_migrated(self):
+        # 2026-10-24: a fresh /reef-init queue holds `<the first planned row, one line>`; the migration made it issue [1]
+        p = os.path.join(self.d, "reef", "queue.md")
+        q = open(p).read().replace("| 4 | photo resize | 3 | found | 2 | |\n",
+                                   "| 4 | photo resize | 3 | found | 2 | |\n| 5 | <the first planned row, one line> | | planned | 2 | |\n")
+        with open(p, "w") as f:
+            f.write(q)
+        s = self.forge()
+        s.update(issues=[], milestones=[], next=0)
+        self.put(s)
+        r = self.q("migrate-to-issues", "--apply")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("skipped row 5: the template's placeholder", r.stdout)
+        self.assertEqual([i["title"][:3] for i in self.gh()["issues"]], ["[2]", "[3]", "[4]"])
+
 if __name__ == "__main__":
     unittest.main()
