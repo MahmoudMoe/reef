@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # CLASS: code
 """Reef recalibrate — an existing project's documents into Reef's structure: planned, then applied under one approval.
-  reef-recalibrate plan    [--repo DIR]      reef/recalibration.md + .reef/recalibration.json (create/convert/move/keep + reason)
+  reef-recalibrate plan    [--measure] [--repo DIR]   reef/recalibration.md + .reef/recalibration.json (create/convert/move/keep + reason);
+                                             --measure (0.7.2) applies the plan in a scratch worktree, runs gates.full and every
+                                             package.json check:* script there, prints the error and red-test counts, removes the worktree
   reef-recalibrate history [--repo DIR]      how it was pushed: branches, commit convention, merge style, tags, CI → derived branches.*
   reef-recalibrate measure [--json] [--repo DIR]   (0.7.2) counts, not judgments, into reef/day-zero.md ## Measured: largest product
                                              files, …; on node also a dependency-cruiser config + known-violations baseline under
@@ -23,6 +25,10 @@ import subprocess
 import sys
 
 KEEP = {"README.md", "LICENSE", "LICENSE.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md", "CODEOWNERS", "CODE_OF_CONDUCT.md", "AGENTS.md", "CLAUDE.md", "HANDOFF.md"}
+# 0.7.2 (ai-coach, 2026-10-24, item 16): a licence anywhere, under any name (a font's OFL.md, LICENSE-fonts.md, NOTICE.md), is kept;
+# so is every document in a directory that holds an asset (font, image, binary) beside its licence
+LICENCE_RE = re.compile(r"(?i)^(licen[cs]e|copying|notice|ofl)([-_.].*)?(\.md|\.txt)?$")
+ASSET_EXT = (".ttf", ".otf", ".woff", ".woff2", ".eot", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".pdf", ".mp3", ".mp4", ".wasm", ".bin")
 DECISION_DIR = re.compile(r"(^|/)(adr|adrs|decisions?|rfcs?)(/|$)", re.I)
 SPEC_DIR = re.compile(r"(^|/)(specs?|requirements|features?)(/|$)|spec\.md$|-spec\.md$|_spec\.md$", re.I)
 RUNBOOK = re.compile(r"runbook|operations|how[-_ ]?to|guide|playbook|onboarding", re.I)
@@ -69,10 +75,67 @@ def referenced_by(root, rel):
     return [l for l in r.stdout.splitlines() if l]
 
 
-def classify(root, rel, text, served):
+_DIR_READERS = {}
+
+
+def directory_readers(root, rel):
+    """0.7.2 (ai-coach, 2026-10-24, item 16a): a tool that reads a whole DIRECTORY or a glob (`check:docs` over `docs/**`, a
+    loader over `specs/*/spec.md`) never names the file, so the file read "not referenced" and moved — 735 documents on
+    ai-coach, 603 `check:docs` errors. Every ancestor directory (`docs/loop/`, `docs/loop`, `specs/`) is grepped in code,
+    CI and package.json (the same excludes); a hit keeps every document under it."""
+    readers = []
+    parts = rel.split("/")[:-1]
+    for i in range(len(parts), 0, -1):
+        d = "/".join(parts[:i])
+        if d not in _DIR_READERS:
+            # the DIRECTORY, not a file in it: `docs/loop/` or `docs/loop/**` or a bare `docs/loop`, never `docs/loop/queue.md`
+            esc = re.sub(r"([.+?()\[\]{}|^$])", r"\", d)
+            needles = [rf"{esc}/(\*|[^A-Za-z0-9_./*-]|$)"] + ([rf"(^|[^A-Za-z0-9_./-]){esc}([^A-Za-z0-9_./-]|$)"] if "/" in d else [])
+            hits = []
+            for n in needles:
+                r = subprocess.run(["git", "-C", root, "grep", "-l", "-E", "--", n, "--", ":!*.md", ":!.reef/**", ":!*.log", ":!*.txt", ":!*.lock", ":!package-lock.json"],
+                                   capture_output=True, text=True)
+                hits += [l for l in r.stdout.splitlines() if l and l not in hits]
+            _DIR_READERS[d] = (d, hits)
+        d, hits = _DIR_READERS[d]
+        if hits:
+            readers.append((d, hits))
+    return readers
+
+
+def unmerged_edits(root, base):
+    """Item 16c: a document changed on a local branch not merged into `branches.base` is kept — moving it guarantees a conflict."""
+    out = {}
+    if subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", f"refs/heads/{base}"], capture_output=True).returncode != 0:
+        return out
+    for b in [l.strip() for l in git(root, "branch", "--format=%(refname:short)", check=False).splitlines() if l.strip()]:
+        if b == base or subprocess.run(["git", "-C", root, "merge-base", "--is-ancestor", b, base], capture_output=True).returncode == 0:
+            continue
+        for rel in git(root, "diff", "--name-only", f"{base}...{b}", check=False).splitlines():
+            if rel.endswith(".md"):
+                out.setdefault(rel, b)
+    return out
+
+
+def beside_asset_licence(root, rel):
+    d = os.path.dirname(os.path.join(root, rel))
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return False
+    return any(LICENCE_RE.match(n) for n in names) and any(n.lower().endswith(ASSET_EXT) for n in names)
+
+
+def classify(root, rel, text, served, unmerged=None):
     base = os.path.basename(rel)
     if base in KEEP:
         return "keep", "project file (README, LICENSE, CONTRIBUTING, SECURITY, CHANGELOG, CODEOWNERS)"
+    if LICENCE_RE.match(base):
+        return "keep", "a licence (kept wherever it is, under any name)"
+    if beside_asset_licence(root, rel):
+        return "keep", "beside an asset's licence (fonts, images, binaries)"
+    if unmerged and rel in unmerged:
+        return "keep", f"edited on unmerged branch {unmerged[rel]}"
     if rel.startswith(("reef/", ".reef/", ".github/", ".claude/", "tasks/")):
         return "keep", "already in the layout"
     if any(rel == d or rel.startswith(d + "/") for d in served):
@@ -80,6 +143,8 @@ def classify(root, rel, text, served):
     refs = referenced_by(root, rel)
     if refs:
         return "keep", f"referenced by {refs[0]}" + (f" (+{len(refs) - 1})" if len(refs) > 1 else "")
+    for d, hits in directory_readers(root, rel):
+        return "keep", f"directory {d}/ read by {hits[0]}" + (f" (+{len(hits) - 1})" if len(hits) > 1 else "")
     if DECISION_DIR.search(rel) or re.search(r"^#+\s*(Decision|Status|Context)\b", text, re.M | re.I) and re.search(r"^#+\s*Consequences", text, re.M | re.I):
         return "convert-adr", "a decision record (ADR/RFC shape)"
     if base.lower() == "glossary.md":
@@ -146,10 +211,13 @@ def build_plan(root):
     served = served_dirs(root)
     date = datetime.date.today().isoformat()
     files = [l for l in git(root, "ls-files", "--", "*.md", "**/*.md", check=False).splitlines() if l.endswith(".md")]
+    cfg_p = os.path.join(root, ".reef", "config.json")
+    base_branch = str(((json.loads(read(cfg_p)) if os.path.isfile(cfg_p) else {}).get("branches") or {}).get("base", "main") or "main")
+    unmerged = unmerged_edits(root, base_branch)
     plan, n, taken = [], 0, set()
     for rel in sorted(files):
         text = read(os.path.join(root, rel))
-        action, reason = classify(root, rel, text, served)
+        action, reason = classify(root, rel, text, served, unmerged)
         entry = {"path": rel, "action": action, "reason": reason}
         title = (re.search(r"^#\s+(.+)$", text, re.M) or [None, ""])[1] if re.search(r"^#\s+(.+)$", text, re.M) else ""
         if action == "convert-adr":
@@ -192,14 +260,69 @@ def render_plan(plan):
     return "\n".join(lines) + "\n"
 
 
-def cmd_plan(root):
+def measure_plan(root, plan_json):
+    """Item 16d: the plan applied in a SCRATCH worktree, then `gates.full` and every package.json `check:*` script run there;
+    the error and red-test counts are printed, the worktree removed, the tree untouched. The owner approves a plan whose cost
+    was measured (ai-coach: 603 `check:docs` errors and 4 red tests were found only after the apply)."""
+    import tempfile
+    cfg_p = os.path.join(root, ".reef", "config.json")
+    cfg = json.loads(read(cfg_p)) if os.path.isfile(cfg_p) else {}
+    cmds = []
+    full = str((cfg.get("gates") or {}).get("full", "") or "")
+    if full:
+        cmds.append(("gates.full", full))
+    pkg_p = os.path.join(root, "package.json")
+    if os.path.isfile(pkg_p):
+        try:
+            for name in sorted(json.loads(read(pkg_p)).get("scripts") or {}):
+                if name.startswith("check:"):
+                    cmds.append((name, f"npm run {name}"))
+        except ValueError:
+            pass
+    wt = tempfile.mkdtemp(prefix="reef-plan-measure.")
+    os.rmdir(wt)
+    git(root, "worktree", "add", "-q", "--detach", wt, "HEAD")
+    rows, worst = [], 0
+    try:
+        if os.path.isfile(cfg_p) and not os.path.isfile(os.path.join(wt, ".reef", "config.json")):
+            os.makedirs(os.path.join(wt, ".reef"), exist_ok=True)
+            with open(os.path.join(wt, ".reef", "config.json"), "w", encoding="utf-8") as f:
+                f.write(read(cfg_p))
+        r = subprocess.run([sys.executable, os.path.abspath(__file__), "--apply", "--no-commit", "--list", plan_json, "--repo", wt], capture_output=True, text=True)
+        rows.append(("apply (scratch)", r.returncode, 0, 0))
+        for name, cmd in cmds:
+            r = subprocess.run(["sh", "-c", cmd], cwd=wt, capture_output=True, text=True)
+            out = r.stdout + r.stderr
+            errors = len(re.findall(r"(?i)\berror\b", out))
+            red = sum(int(m) for m in re.findall(r"(?i)\b(\d+) (?:failed|failing)\b", out))
+            worst = max(worst, r.returncode)
+            rows.append((name, r.returncode, errors, red))
+    finally:
+        git(root, "worktree", "remove", "--force", wt, check=False)
+        git(root, "worktree", "prune", check=False)
+    lines = ["", "## Measured cost of this plan (applied in a scratch worktree, then every gate run there; the tree here was not touched)", "",
+             "| command | exit | error lines | red tests |", "|---|---|---|---|"] + [f"| {n} | {rc} | {e} | {t} |" for n, rc, e, t in rows]
+    if not cmds:
+        lines.append("| (no gates.full and no package.json check:* script to run) | – | – | – |")
+    return "\n".join(lines) + "\n", worst
+
+
+def cmd_plan(root, measure=False):
     plan = build_plan(root)
     os.makedirs(os.path.join(root, "reef"), exist_ok=True)
     os.makedirs(os.path.join(root, ".reef"), exist_ok=True)
-    with open(os.path.join(root, "reef", "recalibration.md"), "w", encoding="utf-8") as f:
-        f.write(render_plan(plan))
-    with open(os.path.join(root, ".reef", "recalibration.json"), "w", encoding="utf-8") as f:
+    plan_json = os.path.join(root, ".reef", "recalibration.json")
+    with open(plan_json, "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
+    text = render_plan(plan)
+    if measure:
+        block, worst = measure_plan(root, plan_json)
+        text += block
+        print(block.strip())
+        if worst:
+            print("measured: this plan leaves a gate red — cut it to the stray documents (keep the folders the project's tools read) and measure again")
+    with open(os.path.join(root, "reef", "recalibration.md"), "w", encoding="utf-8") as f:
+        f.write(text)
     moving = [e for e in plan["entries"] if e["action"] != "keep"]
     print(f"plan written: reef/recalibration.md — {len(moving)} document(s) to convert or move, {len(plan['entries']) - len(moving)} kept")
     return 0
@@ -606,7 +729,8 @@ def cmd_apply(root, list_path, commit):
     if not entries:
         print("nothing to do: every document is in the layout or kept")
         return 1
-    if git(root, "status", "--porcelain", check=False).strip():
+    dirty = [l for l in git(root, "status", "--porcelain", check=False).splitlines() if l.strip() and not l.startswith("?? .reef/")]
+    if dirty:   # Reef's own untracked state under .reef/ (a config copied into a scratch worktree) is not the owner's work
         die("the working tree is not clean — the apply is one commit, undone by one revert", 1)
     dead_before = dead_links(root)   # the apply answers for the links IT breaks, not for ones dead already (ai-coach had 7)
     cfg_path = os.path.join(root, ".reef", "config.json")
@@ -725,7 +849,7 @@ def main(argv):
     if not root:
         die("not a git repository", 2)
     if argv[:1] == ["plan"]:
-        return cmd_plan(root)
+        return cmd_plan(root, "--measure" in argv)
     if argv[:1] == ["history"]:
         print(json.dumps(cmd_history(root), indent=1))
         return 0
