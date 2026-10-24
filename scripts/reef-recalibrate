@@ -496,6 +496,9 @@ def build_plan(root):
         title = (re.search(r"^#\s+(.+)$", text, re.M) or [None, ""])[1] if re.search(r"^#\s+(.+)$", text, re.M) else ""
         if action == "convert-adr":
             entry["adr_slug"] = slugify(os.path.splitext(os.path.basename(rel))[0], title)
+            m = re.match(r"^(\d{4})-", os.path.basename(rel))
+            if m:   # 0.7.2 (ai-coach, item 21): an ADR that already carries its number keeps it — it is the same record
+                entry["adr_number"] = int(m.group(1))
         if action == "convert-feature":
             stem = os.path.splitext(os.path.basename(rel))[0] if os.path.basename(rel).lower() != "spec.md" else os.path.basename(os.path.dirname(rel))
             feat = base = slugify(stem, title)
@@ -534,7 +537,8 @@ def render_plan(plan):
     lines += ["", "## Documents", "", "| action | path | → | reason |", "|---|---|---|---|"]
     for e in plan["entries"]:
         dest = {"convert-queue": "open rows → Reef's queue (+ archive)", "merge-handoff": "HANDOFF.md (+ archive)",
-                "convert-adr": f"reef/architecture/adr/NNNN-{e.get('adr_slug', '')}.md (+ archive)",
+                "convert-adr": f"reef/architecture/adr/{os.path.basename(e['path'])} (the same record, its number kept)" if e.get("adr_number")
+                else f"reef/architecture/adr/NNNN-{e.get('adr_slug', '')}.md (+ archive)",
                 "convert-feature": f"reef/features/{e.get('feature', '')}/SPEC.md (+ queue row, + archive)",
                 "merge-glossary": "reef/glossary.md (+ archive)", "archive": e.get("archive", ""), "keep": "—"}[e["action"]]
         lines.append(f"| {e['action']} | `{e['path']}` | {dest} | {e['reason']} |")
@@ -1047,6 +1051,15 @@ def cmd_apply(root, list_path, commit, park=False):
     arch_adr = os.path.join(root, "reef", "architecture", "adr")
     os.makedirs(arch_adr, exist_ok=True)
     numbered = [int(m.group(1)) for d in (arch_adr, os.path.join(root, paths.get("adr", "docs/adr"))) if os.path.isdir(d) for f in os.listdir(d) for m in [re.match(r"^(\d{4})-", f)] if m]
+    kept = {}   # 0.7.2 (ai-coach, item 21): 193 ADRs cited 456 times as `ADR NNNN` would each have taken a new number
+    for e in entries:
+        if e["action"] == "convert-adr" and e.get("adr_number"):
+            n, name = int(e["adr_number"]), os.path.basename(e["path"])
+            clash = [f for f in os.listdir(arch_adr) if re.match(rf"^{n:04d}-", f)] + ([os.path.basename(kept[n])] if n in kept else [])
+            if clash:
+                die(f"ADR number {n:04d} clashes: {e['path']} and reef/architecture/adr/{clash[0]} — renumber one by hand; nothing moved", 1)
+            kept[n] = e["path"]
+            numbered.append(n)
     nxt = (max(numbered) + 1) if numbered else 1
     next_row = 1
     if os.path.isfile(queue_path):
@@ -1093,6 +1106,13 @@ def cmd_apply(root, list_path, commit, park=False):
             with open(hp, "w", encoding="utf-8") as f:
                 f.write(prev.rstrip("\n") + f"\n\n## Carried over from {rel} ({date})\n\n" + re.sub(r"^# .*\n", "", text, count=1).strip() + "\n")
             touched.append("HANDOFF.md")
+        if e["action"] == "convert-adr" and e.get("adr_number"):   # the same record moves, number and text intact, no Supersedes
+            new = f"reef/architecture/adr/{os.path.basename(rel)}"
+            git(root, "mv", rel, new)
+            moved[rel] = new
+            touched.append(new)
+            index.append(f"| `{rel}` | `{new}` | {e['reason']} — the same record, its number kept |")
+            continue
         os.makedirs(os.path.dirname(os.path.join(root, arch)), exist_ok=True)
         git(root, "mv", rel, arch)
         moved[rel] = arch
