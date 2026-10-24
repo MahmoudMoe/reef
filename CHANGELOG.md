@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.1 (unreleased)
+- **A GREEN record carries its review; a base merge that leaves the feature unchanged carries over** (the owner's go,
+  2026-10-24). On the trial night a journal conflict moved a PR's head, the guard said "re-review and re-record", and
+  the orchestrator re-recorded GREEN with no review. `reef-record <feature> GREEN` now needs `--report`: the reviewer's
+  report naming the PR head (its first 12 hex) with its `VERDICT:` line; a FAIL report, another head or no report is
+  refused, and the record keeps the report's hash. The guard's carry-over also accepts a base merge whose resolution
+  leaves the feature's own change identical (the patch-id of a zero-context diff against the base each side sits on), so
+  that case needs no re-record at all; code slipped into the resolution is still a fresh review. tests/size-budget.json
+  raised: `prose_words` 19,813 → 19,872, `script_lines` 12,198 → 12,232.
 - **A new project's queue starts on GitHub issues** (the owner's go, 2026-10-24: no on-device queue unless clearly told).
   `/reef-init` asks where the queue lives and passes `--queue issues|file`. A new project whose own repository has a
   GitHub `origin` and a gh login moves to issues at the end of the init (`migrate-to-issues --apply`); without them it
