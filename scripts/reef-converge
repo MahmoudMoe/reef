@@ -119,6 +119,10 @@ def proofs(text):
                 out.append((ac_id, p.strip().strip("~").strip(), "superseded"))   # replaced by a later task's row: never run
             elif re.match(r"^\[mechanic\]", p):
                 out.append((ac_id, re.sub(r"^\[mechanic\]\s*", "", p).strip("`").strip(), "mechanic"))
+            elif len(re.findall(r"`[^`]+`", p)) > 1 and not re.sub(r"`[^`]+`|[,;]|\band\b|\s", "", p):
+                # `a`, `b` in one cell is two proofs, each checked (2026-10-24, the trial's row 5 rollup: read as one name)
+                out += [(ac_id, x.strip(), "cmd" if not TEST_RE.fullmatch(x.strip()) and looks_like_command(x) else "test")
+                        for x in re.findall(r"`([^`]+)`", p)]
             elif p.startswith("`") and p.endswith("`") and not TEST_RE.fullmatch(body) and looks_like_command(body):
                 out.append((ac_id, body, "cmd"))
             else:
