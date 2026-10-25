@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **Workflow v3, the design** (the owner's go, 2026-10-25): `docs/design/workflow-v3.md`. The first adoption measured the
+  full suite three times on one commit, three judges spending about 195k tokens on one row with no blocker, a five-line fix
+  behind four steps, proofs misread as shell, and an orchestrator at its context ceiling every few hours. v3: the tier decides
+  the whole pipeline (a fast path for most rows, the current rigor on the critical path), one trusted result per commit that
+  every judge reads, one fresh judge per concern, proofs as named tests, two rows in flight, scripts orchestrating; every
+  removed step names what catches what it caught. Seven phases, one PR each, measured first (phase 1) and guarded by a
+  rework ceiling. Design only, no code; tests/size-budget.json: unchanged.
 - **The guard never says HANDOFF.md was written when it was not** (2026-10-25, the first adoption). At the context
   ceiling the guard runs `reef-handoff --write` and denied with "HANDOFF.md written from measured state" whatever the
   script returned; on the Mac's Python 3.9 it was a SyntaxError, so the next session would have started from a handoff
