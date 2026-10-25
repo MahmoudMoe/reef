@@ -736,41 +736,52 @@ class WholeAdoption(unittest.TestCase):
 
 class ExistingAdrNumbersAreKept(unittest.TestCase):
     """0.7.2 (ai-coach, 2026-10-24, item 21): 193 numbered ADRs cited 456 times would have been renumbered by the apply. A
-    filename that carries a 4-digit number keeps it (the same record, moved); only unnumbered decisions get the next
-    number; a clash with an ADR already in Reef's home refuses the apply and names both files."""
+    filename that carries a 4-digit number keeps it; only unnumbered decisions get the next number; a numbered record that
+    would land on a number already in the ADR home refuses the apply and names both files.
+    0.7.3 (ai-coach, 2026-10-25): the ADR home is `paths.adr`. The apply wrote converted ADRs to reef/architecture/adr/ and
+    moved the configured docs/adr/ there too, while reef-structure counts the configured folders as the layout; after the
+    owner moved docs/adr/ back (the project's check:docs reads it), the next apply would have split the ADRs across two homes.
+    A document under any configured `paths.*` home is in the layout and stays."""
 
     def project(self, clash=False):
         d = tempfile.mkdtemp(prefix="reef-adrnum.")
         subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
-        write(d, ".reef/config.json", json.dumps({"gates": {"full": "true"}, "paths": {"adr": "docs/adr", "queue": "reef/queue.md"}}))
+        write(d, ".reef/config.json", json.dumps({"gates": {"full": "true"}, "paths": {"adr": "docs/adr", "queue": "reef/queue.md", "glossary": "docs/glossary.md"}}))
         write(d, ".reef/version", "0.7.1\n")
         write(d, "reef/queue.md", "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n")
-        write(d, "docs/adr/0024-x.md", "# ADR 0024 — x\n\n## Status\nAccepted\n\n## Context\nc\n\n## Decision\nd\n\n## Consequences\ne\n")
+        write(d, "docs/adr/0024-x.md", self.ADR)
+        write(d, "docs/glossary.md", "# Glossary\n| Term | Definition |\n|---|---|\n| Order | one sale |\n")
         write(d, "decisions/foo.md", "# Foo\n\n## Status\nAccepted\n\n## Context\nc\n\n## Decision\nd\n\n## Consequences\ne\n")
         write(d, "src/a.py", "# see ADR 0024\n")
         if clash:
-            write(d, "reef/architecture/adr/0024-other.md", "# ADR 0024 — other\n\n## Status\nAccepted\n\n## Context\nc\n\n## Decision\nd\n\n## Consequences\ne\n")
+            write(d, "decisions/0024-other.md", "# ADR 0024 — other\n\n## Status\nAccepted\n\n## Context\nc\n\n## Decision\nd\n\n## Consequences\ne\n")
         git(d, "add", "-A"); git(d, "commit", "-qm", "init")
         run = lambda *a: subprocess.run([sys.executable, RECAL, *a, "--repo", d], capture_output=True, text=True)
         self.assertEqual(run("plan").returncode, 0)
         git(d, "add", "-A"); git(d, "commit", "-qm", "plan")
         return d, run("--apply")
 
-    def test_a_numbered_adr_keeps_its_number_and_an_unnumbered_one_gets_the_next(self):
+    ADR = "# ADR 0024 — x\n\n## Status\nAccepted\n\n## Context\nc\n\n## Decision\nd\n\n## Consequences\ne\n"
+
+    def test_the_adr_home_is_paths_adr_its_records_stay_and_an_unnumbered_one_gets_the_next_number_there(self):
         d, r = self.project()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        kept = os.path.join(d, "reef", "architecture", "adr", "0024-x.md")
-        self.assertTrue(os.path.isfile(kept))
-        self.assertEqual(open(kept).read(), "# ADR 0024 — x\n\n## Status\nAccepted\n\n## Context\nc\n\n## Decision\nd\n\n## Consequences\ne\n", "the same record, byte for byte")
-        self.assertFalse(os.path.isfile(os.path.join(d, "docs", "adr", "0024-x.md")))
-        nxt = [f for f in os.listdir(os.path.join(d, "reef", "architecture", "adr")) if f.startswith("0025-")]
-        self.assertEqual(len(nxt), 1, os.listdir(os.path.join(d, "reef", "architecture", "adr")))
-        self.assertIn("Supersedes: reef/archive/", open(os.path.join(d, "reef", "architecture", "adr", nxt[0])).read())
-        self.assertIn("the same record, its number kept", open(os.path.join(d, "reef", "archive", "README.md")).read())
+        self.assertEqual(open(os.path.join(d, "docs", "adr", "0024-x.md")).read(), self.ADR, "in the ADR home: stays, byte for byte")
+        self.assertFalse(os.path.exists(os.path.join(d, "reef", "architecture", "adr")), "no second ADR home")
+        nxt = [f for f in os.listdir(os.path.join(d, "docs", "adr")) if f.startswith("0025-")]
+        self.assertEqual(len(nxt), 1, os.listdir(os.path.join(d, "docs", "adr")))
+        self.assertIn("Supersedes: reef/archive/", open(os.path.join(d, "docs", "adr", nxt[0])).read())
+        self.assertIn("| Order | one sale |", open(os.path.join(d, "docs", "glossary.md")).read(), "the configured glossary stays where it is")
+        self.assertFalse(os.path.exists(os.path.join(d, "reef", "glossary.md")))
+        plan = {e["path"]: e for e in json.loads(open(os.path.join(d, ".reef", "recalibration.json")).read())["entries"]}
+        self.assertEqual(plan["docs/adr/0024-x.md"]["action"], "keep")
+        self.assertIn(f"docs/adr/0025-", open(os.path.join(d, "reef", "recalibration.md")).read().replace("NNNN", "0025"))
+        r = subprocess.run([sys.executable, STRUCT, "--check", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
-    def test_a_clash_with_reefs_home_refuses_and_names_both(self):
+    def test_a_clash_with_the_adr_home_refuses_and_names_both(self):
         d, r = self.project(clash=True)
         self.assertEqual(r.returncode, 1, r.stdout)
-        self.assertIn("ADR number 0024 clashes: docs/adr/0024-x.md and reef/architecture/adr/0024-other.md", r.stderr)
-        self.assertTrue(os.path.isfile(os.path.join(d, "docs", "adr", "0024-x.md")), "nothing moved")
+        self.assertIn("ADR number 0024 clashes: decisions/0024-other.md and docs/adr/0024-x.md", r.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(d, "decisions", "0024-other.md")), "nothing moved")
         self.assertEqual(git(d, "status", "--porcelain").strip(), "")

@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **The ADR home is `paths.adr`; a document under any configured `paths.*` home stays** (ai-coach, 2026-10-25). The apply
+  wrote converted ADRs to `reef/architecture/adr/` whatever `paths.adr` said, and moved a configured `docs/adr/` there as well,
+  while `reef-structure` has counted the configured folders as the layout since 0.7.2. On ai-coach the owner moved
+  `docs/adr/` back (the project's `check:docs` reads it); the next apply would have split the ADRs across two homes. Now
+  the plan keeps a document under a `paths.*` home ("already in the layout"), converted ADRs and numbered records land in
+  `paths.adr` (default `reef/architecture/adr`), numbering counts both homes, and a clash names the record and the one in
+  the home. **Changed:** item 21's test expected a configured `docs/adr/` to move into `reef/architecture/adr/`; it now
+  expects it to stay. tests/size-budget.json raised: `script_lines` 14,176 → 14,195.
 - **`reef-migrate --layout` leaves in place what the project's code reads by name** (ai-coach, 2026-10-25). The layout move
   took all 196 ADRs out of `docs/adr/` and set `paths.adr` to `reef/architecture/adr`; `scripts/check-docs.ts` reads
   `readdirSync("docs/adr")`, so `npm run check:docs` (gate 1 of the project's CI) failed with ENOENT while `npm test`, which
