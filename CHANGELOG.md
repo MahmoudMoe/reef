@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **Reef's own code is never the project's reader** (ai-coach, 2026-10-25). After `reef-init`, `scripts/reef-*` sit in the
+  project and name `specs/`, `docs/`, `docs/loop/queue.md`, `docs/glossary.md` and `HANDOFF-FRESH.md` in their comments and
+  code. The plan counted them as the project's readers: `specs/*` and the glossary kept ("read by scripts/reef-claims.py"),
+  the old queue retired behind four reef-* scripts (the hand-off stayed "partial"), and the apply repointed paths inside
+  `scripts/reef-recalibrate` itself, then refused on a "broken link" in its regex. A file under `scripts/reef-*` or
+  `.githooks/` (the shape the guard locks and `reef-update --commit` stages) no longer counts as a reader, by exact path or
+  by directory. tests/size-budget.json raised: `script_lines` 14,150 → 14,154.
 - **The recalibration plan's proposals no longer land in reef-init's `.reef/proposed/`** (ai-coach, 2026-10-25). The plan
   wrote its instruction-layer rewrites (item 19) and the dependency-cruiser config and baseline (item 13) under
   `.reef/proposed/`, reef-init's directory: the AGENTS.md rewrite overwrote init's own AGENTS.md proposal, `reef-update` and

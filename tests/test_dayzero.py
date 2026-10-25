@@ -608,6 +608,26 @@ class InstructionLayer(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(d, "docs", "coaching-model.md")), "a document only CLAUDE.md names stays in place")
         self.assertEqual(git(d, "status", "--porcelain").strip(), "", "one commit")
 
+    def test_reefs_own_scripts_never_read_keep_or_block_a_document(self):
+        """0.7.3 (ai-coach, 2026-10-25): after reef-init, Reef's own scripts/reef-* name `specs/`, `docs/`, HANDOFF-FRESH.md in
+        comments and code; the plan counted them as the project's readers — specs/ and the glossary kept, the old queue retired
+        behind four reef-* scripts, scripts/reef-recalibrate repointed by its own apply, which then refused on a "broken link"."""
+        d = self.fixture()
+        r = subprocess.run([sys.executable, INIT, "--root", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "init")
+        r = subprocess.run([sys.executable, RECAL, "plan", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        plan = json.loads(open(os.path.join(d, ".reef", "recalibration.json")).read())
+        reef_code = [rd for rd in plan["adoption"]["readers"] if rd["reader"].startswith(("scripts/reef-", ".githooks/"))]
+        self.assertEqual(reef_code, [], "Reef's own code is not the project's reader")
+        self.assertEqual([e["path"] for e in plan["entries"] if "scripts/reef-" in e["reason"] + str(e.get("blocked_by", ""))], [])
+        before = open(os.path.join(d, "scripts", "reef-recalibrate"), "rb").read()
+        git(d, "add", "-A"); git(d, "commit", "-qm", "plan")
+        r = subprocess.run([sys.executable, RECAL, "--apply", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(open(os.path.join(d, "scripts", "reef-recalibrate"), "rb").read(), before, "the apply never edits Reef's own script")
+
     def test_the_plan_leaves_reef_inits_proposals_alone_and_the_apply_clears_its_own(self):
         """0.7.3 (ai-coach, 2026-10-25): the plan wrote its AGENTS.md rewrite to .reef/proposed/AGENTS.md, over reef-init's own
         proposal for the same file; the doctor then advised `reef-init --accept AGENTS.md`, which recorded the rewrite as Reef's
