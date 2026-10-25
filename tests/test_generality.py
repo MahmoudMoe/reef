@@ -320,5 +320,24 @@ class AdoptInPlace(unittest.TestCase):
         by = {e["path"]: e for e in json.load(open(os.path.join(d, ".reef", "recalibration.json")))["entries"]}
         self.assertEqual(by["notes/ideas.md"]["action"], "archive", "--move proposes the move")
 
+
+class ReefCodeIsNotTheProjects(unittest.TestCase):
+    """Found by running the adoption on two public repositories (a Go service, a FastAPI + TypeScript template): the measure
+    counted Reef's own scripts/reef-* as the project's product code — the largest file was scripts/reef-queue.py, and Reef's
+    own scripts were listed as the project's sensitive files. Reef's code is never the project's product."""
+
+    def test_the_measure_and_the_size_baseline_leave_reefs_scripts_out(self):
+        d = stack_project("go")
+        subprocess.run([sys.executable, os.path.join(SCRIPTS, "reef-init.py"), "--root", d], capture_output=True, text=True, check=True)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "reef init")
+        r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-recalibrate"), "measure", "--json", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        m = json.loads(r.stdout)
+        reef = [f for f in list(m["baseline"]) + [e["file"] for e in m["sensitive"]] + [f for f, _ in m["large_files"]] if f.startswith("scripts/reef-")]
+        self.assertEqual(reef, [])
+        self.assertEqual(sorted(m["baseline"]), ["cmd/checkdocs/main.go", "internal/orders/orders.go"])
+        r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-structure"), "--sizes", "--repo", d], capture_output=True, text=True)
+        self.assertNotIn("scripts/reef-", r.stdout + r.stderr)
+
 if __name__ == "__main__":
     unittest.main()
