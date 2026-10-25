@@ -483,6 +483,45 @@ class RecalibrationSafety(unittest.TestCase):
         self.assertNotIn("| gates.full |", out, "no gate ran on an unchanged worktree")
 
 
+class StructureBaselineIsThePlan(unittest.TestCase):
+    """0.7.3 (ai-coach, 2026-10-25): `structure --check` found 507 documents the plan had KEPT for a reader (specs/ read by check:docs),
+    so the gate could not be switched on. A document the plan kept for a reader is the baseline; a new stray document still fails."""
+
+    def project(self):
+        d = tempfile.mkdtemp(prefix="reef-struct-base.")
+        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        write(d, ".reef/version", "0.7.2\n")
+        write(d, ".reef/config.json", json.dumps({"paths": {"queue": "reef/queue.md"}}))
+        write(d, "specs/export/spec.md", "# Export\n\n## Requirements\n- a month\n")
+        write(d, "design_handoff/notes.md", "# Notes\n\n## Decision\nkeep\n\n## Consequences\nx\n")
+        write(d, "reef/queue.md", "# Queue\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "init")
+        return d
+
+    def check(self, d):
+        return subprocess.run([sys.executable, STRUCT, "--check", "--repo", d], capture_output=True, text=True)
+
+    def test_a_document_the_plan_kept_for_a_reader_is_the_baseline_a_new_stray_still_fails(self):
+        d = self.project()
+        r = self.check(d)
+        self.assertEqual(r.returncode, 1, "no plan: both documents are strays")
+        write(d, ".reef/recalibration.json", json.dumps({"date": "2026-10-25", "entries": [
+            {"path": "specs/export/spec.md", "action": "keep", "reason": "directory specs/ read by package.json"},
+            {"path": "design_handoff/notes.md", "action": "keep", "reason": "waits: package.json reads design_handoff/ (a retire row is created)", "blocked_by": "package.json reads design_handoff/"}]}))
+        r = self.check(d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("note: 2 document(s) kept by the recalibration plan for a reader are the baseline", r.stdout)
+        write(d, "specs/new/spec.md", "# New\n\n## Requirements\n- new\n")
+        git(d, "add", "-A")   # the check reads tracked files
+        r = self.check(d)
+        self.assertEqual(r.returncode, 1, "a document the plan never saw is a stray")
+        self.assertIn("specs/new/spec.md: a process document outside the layout", r.stdout)
+        self.assertNotIn("specs/export/spec.md", r.stdout)
+        write(d, ".reef/recalibration.json", json.dumps({"date": "2026-10-25", "entries": [{"path": "specs/export/spec.md", "action": "keep", "reason": "a spec whose work is done"}]}))
+        r = self.check(d)
+        self.assertIn("specs/export/spec.md: a process document outside the layout", r.stdout, "a keep for another reason is not a reader baseline")
+
+
 class StructureHonoursConfigPaths(unittest.TestCase):
     """0.7.2 (ai-coach, 2026-10-24, item 17): reef-structure accepts the places .reef/config.json paths.* names whatever the
     version — init adopted docs/adr as the ADR home and the check then flagged every ADR in it."""
