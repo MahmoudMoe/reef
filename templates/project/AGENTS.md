@@ -35,7 +35,7 @@ scripts/                    Reef's mechanisms (never edited here — re-copied f
 ## How work flows (the loop is a graph)
 1. **A queue row** (`{{queue_path}}`, current batch, a `planned` row before a `found` one) → `/reef-plan`: grill, slice into task files with real `blocked-by` edges, declared `resources:` (ports, the database, the browser, `heavy`) and a `tier:`; one batched question set for the owner; `/reef-plan-review`.
 2. **`/reef-task`** runs the task set as a graph: every ready task is dispatched at once, each implementer in its own worktree (`.reef/worktrees/<id>`, its own installed dependencies and generated code — never the shared copy); implement → verify → merge into the feature branch, under the retry cap in `.reef/config.json` (`caps.attempts`). The guard refuses a dispatch outside the ready set, a blocked or at-cap task, a stale plan, a wrong model.
-3. **`/reef-review`**: push, PR into `{{base}}`, acceptance review, diff review (`code-excellence` when installed), the local gate (`ci.feature_gate`), one rollup under the same cap; the loop merges when `merge.by` is `loop`.
+3. **`/reef-review`**: push, PR into `{{base}}`, one review (the spec, the diff, the evidence), the local gate (`ci.feature_gate`), one rollup under the same cap; the loop merges when `merge.by` is `loop`.
 4. **Close in the same breath as the merge** (single writer, on `{{base}}`): row archived, draft ADR numbered, journal entry, branch and worktree deleted.
 5. **Release**: a PR from `{{base}}` into `{{release}}` is the owner's merge; CI runs there and only there; a fresh orchestrator starts after it (`/clear`, then `HANDOFF.md`).
 

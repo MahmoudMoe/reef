@@ -1,4 +1,4 @@
 ---
-description: Push, PR, acceptance + diff review, CI — after reef-task
+description: Push, PR, the one review (spec, diff, evidence), CI — after reef-task
 ---
 Invoke the reef-review skill with $ARGUMENTS.

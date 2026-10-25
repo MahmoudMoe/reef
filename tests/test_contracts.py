@@ -301,10 +301,40 @@ class SecurityPerItem(unittest.TestCase):
     def test_a_design_or_critical_tasks_review_dispatches_the_security_agent(self):
         # 0.7.2 (ai-coach, 2026-10-24, item 22): the release pass alone reached the sensitive code once per release
         skill = read("skills", "reef-review", "SKILL.md")
-        self.assertIn("a task of tier `design` or `critical` — dispatches `reef:security` (model `roles.security`) on that feature diff before the GREEN record", skill)
+        # v3 phase 3c: phrased by the path (a design/critical task, or a risk touch, IS the critical path)
+        self.assertIn("the critical path — dispatches `reef:security` (model `roles.security`) on that feature diff before the GREEN record", skill)
         self.assertIn("`review.security_per_item: off` in `.reef/config.json` opts a project out", skill)
         with open(os.path.join(ROOT, "templates", "config.json"), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["review"]["security_per_item"], "on", "the default is on; the project opts out")
+
+
+class OneReviewer(unittest.TestCase):
+    """v3 phase 3c: one fresh judge per concern — the acceptance agent is the row's ONE reviewer (the spec, the diff, every
+    criterion against its named test in the evidence); the separate diff review and its key are gone; the hunter's guard
+    pass and the security agent run once per feature, on the critical path."""
+
+    def test_the_review_skill_has_one_reviewer_and_no_diff_review(self):
+        skill = read("skills", "reef-review", "SKILL.md")
+        self.assertNotIn("## 3. Diff review", skill)
+        self.assertNotIn("diff_review", skill)
+        self.assertIn("ONE reviewer", skill)
+        self.assertIn("scripts/reef-tier.py path", skill)
+        self.assertLessEqual(len(skill.splitlines()), 60)
+        agent = read("agents", "acceptance.md")
+        self.assertIn("scripts/reef-evidence.py", agent)
+        self.assertIn("## Proof", agent)
+        self.assertRegex(agent, r"(?i)git diff <branches\.base>\.\.\.HEAD")
+        self.assertLessEqual(len(agent.splitlines()), 60)
+        with open(os.path.join(ROOT, "templates", "config.json"), encoding="utf-8") as f:
+            self.assertNotIn("diff_review", json.load(f)["review"], "the key is gone with the step")
+        for p in (("skills", "reef-loop", "SKILL.md"), ("templates", "project", "AGENTS.md"), ("README.md",), ("commands", "review.md"), ("docs", "manual", "ar", "index.html")):
+            self.assertNotIn("diff review", read(*p), "/".join(p))
+            self.assertNotIn("diff_review", read(*p), "/".join(p))
+        # the review (2026-10-26): the reviewer is told the head, the base branch, and what red or pending evidence means
+        self.assertIn("scripts/reef-evidence.py <PR head>", agent)
+        self.assertIn("`branches.base` in `.reef/config.json`", agent)
+        self.assertRegex(agent, r"(?i)red.{0,60}never re-run")
+        self.assertIn("pending", agent)
 
 
 class RollupNoPlanHunter(unittest.TestCase):
