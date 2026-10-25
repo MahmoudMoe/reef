@@ -726,7 +726,7 @@ def check_git(args):
             deny("git merge --no-verify skips the pre-merge-commit gate")
         elif sub == "push" and a == "--no-verify" and has_prepush_hook(CTX.get("cwd") or os.getcwd()):
             # push -n is --dry-run, NOT --no-verify — only the long form is a bypass; with no .githooks/pre-push at the
-            # command's git root there is nothing to skip (ai-coach, 2026-10-24: its push guard chained into that hook)
+            # command's git root there is nothing to skip (first adoption, 2026-10-24: its push guard chained into that hook)
             deny("git push --no-verify skips .githooks/pre-push, this repository's push gate (fix what it refuses instead)")
         elif sub == "stash":
             action = next((t for t in args[j:] if not t.startswith("-")), "push")
@@ -1202,7 +1202,7 @@ def check_one_orchestrator(payload, cwd):
     except (OSError, ValueError):
         held = {}
     age = time.time() - float(held.get("at") or 0)
-    # 0.7.2 (ai-coach, 2026-10-25): the hold belongs to a PROCESS, not a session id. After /clear the same Claude process carries a
+    # 0.7.2 (first adoption, 2026-10-25): the hold belongs to a PROCESS, not a session id. After /clear the same Claude process carries a
     # new session id and was refused by its own hold for 30 minutes; a session that ended without `reef-loop.py wait` held it as
     # long. The hook's parent is the Claude process: the same pid is the same owner, a dead pid holds nothing. A hold written
     # before this change (no pid) keeps the old 30-minute rule.

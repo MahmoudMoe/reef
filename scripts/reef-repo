@@ -100,7 +100,7 @@ def main(argv):
             try:
                 rc, err = act(f"protect branch {release}", ["api", "-X", "PUT", f"repos/{nwo}/branches/{release}/protection",
                                                             "-H", "Accept: application/vnd.github+json", "--input", tmp])
-                # 0.7.2 (ai-coach, 2026-10-24): on a private repository the PUT is a 403 by plan, not by permission
+                # 0.7.2 (first adoption, 2026-10-24): on a private repository the PUT is a 403 by plan, not by permission
                 if rc != 0 and "403" in err and gh(["api", f"repos/{nwo}", "--jq", ".private"], repo)[1] == "true":
                     could_not.append("branch protection on a private repository needs GitHub Pro/Team — until then CI and the "
                                      "local gate are the only wall")

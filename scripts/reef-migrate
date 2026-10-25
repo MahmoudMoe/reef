@@ -90,7 +90,7 @@ def cmd_layout(root, commit):
     paths = cfg.get("paths", {})
     moved = {}
     mover = load_mover()
-    # 0.7.3 (ai-coach, 2026-10-25): the move took docs/adr/ while scripts/check-docs.ts read `readdirSync("docs/adr")` — the
+    # 0.7.3 (first adoption, 2026-10-25): the move took docs/adr/ while scripts/check-docs.ts read `readdirSync("docs/adr")` — the
     # project's CI failed on ENOENT. A source the project's code reads by name (the file's path; the ADR folder as a folder)
     # stays where it is, with its paths.* key. Instruction files are not readers here (their links are rewritten), and
     # Reef's own scripts never are (the mover's rule).

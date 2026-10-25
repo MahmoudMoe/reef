@@ -28,12 +28,12 @@ import subprocess
 import sys
 
 KEEP = {"README.md", "LICENSE", "LICENSE.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md", "CODEOWNERS", "CODE_OF_CONDUCT.md", "AGENTS.md", "CLAUDE.md", "HANDOFF.md"}
-# 0.7.2 (ai-coach, 2026-10-24, item 16): a licence anywhere, under any name (a font's OFL.md, LICENSE-fonts.md, NOTICE.md), is kept;
+# 0.7.2 (first adoption, 2026-10-24, item 16): a licence anywhere, under any name (a font's OFL.md, LICENSE-fonts.md, NOTICE.md), is kept;
 # so is every document in a directory that holds an asset (font, image, binary) beside its licence
 
 
 def reef_dir(root):
-    """0.7.3 (ai-coach, 2026-10-25): Reef's proposals live under the git dir — every tool, test and linter skips .git; under
+    """0.7.3 (first adoption, 2026-10-25): Reef's proposals live under the git dir — every tool, test and linter skips .git; under
     .reef/proposed/ a project test that walks the disk counted .dependency-cruiser.cjs and a .claude/ folder as its own.
     The common dir, so a linked worktree sees the same proposals. Outside a git repository: .reef/ as before."""
     r = subprocess.run(["git", "-C", root, "rev-parse", "--git-common-dir"], capture_output=True, text=True)
@@ -102,9 +102,9 @@ _DIR_READERS = {}
 
 
 def directory_readers(root, rel):
-    """0.7.2 (ai-coach, 2026-10-24, item 16a): a tool that reads a whole DIRECTORY or a glob (`check:docs` over `docs/**`, a
+    """0.7.2 (first adoption, 2026-10-24, item 16a): a tool that reads a whole DIRECTORY or a glob (`check:docs` over `docs/**`, a
     loader over `specs/*/spec.md`) never names the file, so the file read "not referenced" and moved — 735 documents on
-    ai-coach, 603 `check:docs` errors. Every ancestor directory (`docs/loop/`, `docs/loop`, `specs/`) is grepped in code,
+    first adoption, 603 `check:docs` errors. Every ancestor directory (`docs/loop/`, `docs/loop`, `specs/`) is grepped in code,
     CI and package.json (the same excludes); a hit keeps every document under it."""
     readers = []
     parts = rel.split("/")[:-1]
@@ -151,14 +151,14 @@ def beside_asset_licence(root, rel):
     return any(LICENCE_RE.match(n) for n in names) and any(n.lower().endswith(ASSET_EXT) for n in names)
 
 
-# ---------------------------------------------------------------- the instruction layer (0.7.2, ai-coach 2026-10-24, item 19)
+# ---------------------------------------------------------------- the instruction layer (0.7.2, first adoption 2026-10-24, item 19)
 # CLAUDE.md, AGENTS.md and CLAUDE-CODE-PROMPT.md told every session to read HANDOFF-FRESH.md and docs/loop/queue.md first, start
 # with /loop-start, close with `npm run loop:close`, number ADRs with loop:adr, route models by their own table, run up to 15
 # agents. After adoption a fresh session obeyed those files, not Reef: two harnesses. The files agents read first are readers
 # too, their process rules are listed with file:line, and their rewrite is part of the approved recalibration.
 INSTRUCTION_GLOBS = ("CLAUDE*.md", "AGENTS.md", "GEMINI.md", ".cursorrules", ".github/copilot-instructions.md", ".claude/commands/**", ".claude/agents/**")
 INSTRUCTION_FILE = re.compile(r"^(CLAUDE[^/]*\.md|AGENTS\.md|GEMINI\.md|\.cursorrules|\.github/copilot-instructions\.md|\.claude/(commands|agents)/.+)$")
-# 0.7.3 (ai-coach, 2026-10-25): Reef's own code (the shape the guard locks and reef-update stages) names `specs/`, `docs/` and
+# 0.7.3 (first adoption, 2026-10-25): Reef's own code (the shape the guard locks and reef-update stages) names `specs/`, `docs/` and
 # HANDOFF-FRESH.md in comments and code: never the project's reader — it kept specs/, retired the old queue behind four reef-*
 # scripts, and the apply repointed scripts/reef-recalibrate, then refused on a "broken link" inside it
 REEF_CODE = re.compile(r"^(scripts/reef-[^/]+|\.githooks/[^/]+)$")
@@ -267,7 +267,7 @@ def rewrite_instruction(text, entry):
     return "".join(out)
 
 
-# ---------------------------------------------------------------- the whole adoption (0.7.2, ai-coach 2026-10-24, item 18)
+# ---------------------------------------------------------------- the whole adoption (0.7.2, first adoption 2026-10-24, item 18)
 # Assess archived 32 stray documents and handed off; specs/, docs/adr/, a 909-row old queue and a second handoff stayed because the
 # project's own tools read them, and nothing said the replacement was deferred or in what order it had to happen. The plan now
 # covers the whole adoption as one ordered list, checks that the old loop has nothing in flight, migrates in ONE commit, and ends
@@ -321,7 +321,7 @@ def adoption_inventory(root, cfg, files, base_branch):
                 holds.append({"file": rel, "line": n, "text": line.strip()[:160]})
     # the precondition: an unmerged local branch the old queue (or the old handoff) names is work in flight under the old loop
     in_flight = []
-    # ai-coach, 2026-10-25: `main` (the release branch, legitimately unmerged into develop) was "in flight" because the word appeared in
+    # first adoption, 2026-10-25: `main` (the release branch, legitimately unmerged into develop) was "in flight" because the word appeared in
     # docs/loop/queue-archive.md. Only an OPEN row of an old queue, or the old handoff, can claim a branch; base and release never count.
     release_branch = str((cfg.get("branches") or {}).get("release", "main") or "main")
     if subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", f"refs/heads/{base_branch}"], capture_output=True).returncode == 0:
@@ -471,7 +471,7 @@ def propose_rewrites(root, layer):
     return out
 
 
-# 0.7.3 (ai-coach, 2026-10-25): the folders .reef/config.json `paths.*` names are the layout (reef-structure has said so since
+# 0.7.3 (first adoption, 2026-10-25): the folders .reef/config.json `paths.*` names are the layout (reef-structure has said so since
 # 0.7.2): a document there stays, and converted ADRs land in `paths.adr` — the apply had moved docs/adr/ to
 # reef/architecture/adr/ and would have split the ADRs across two homes once the owner moved docs/adr/ back
 HOME_KEYS = ("adr", "queue", "runlog", "glossary", "tasks", "features", "day_zero")
@@ -531,7 +531,7 @@ def slugify(name, title=""):
     for cand in (name, title, f"{name} {title}"):
         s = re.sub(r"[^a-z0-9]+", "-", cand.lower()).strip("-")
         words = [w for w in s.split("-") if w and w not in GENERIC and not w.isdigit()]
-        while words and re.match(r"^\d", words[0]):       # a leading id token (`014a`, `572a`) is not a word (ai-coach: 96 of them)
+        while words and re.match(r"^\d", words[0]):       # a leading id token (`014a`, `572a`) is not a word (first adoption: 96 of them)
             words.pop(0)
         if len(words) >= 2:
             return "-".join(words[:5])
@@ -572,7 +572,7 @@ def cmd_history(root):
 
 # 0.7.3 (the owner's rule: Reef works on any project, 2026-10-25): moving an existing project's documents into Reef's tree was
 # the riskiest and least valuable part of adoption — every guess about who reads a file was a broken check somewhere
-# (docs/adr on ai-coach). Adoption keeps them in place; `plan --move` proposes the move, a document at a time, later.
+# (docs/adr on the first adoption). Adoption keeps them in place; `plan --move` proposes the move, a document at a time, later.
 IN_PLACE_ACTIONS = ("convert-adr", "convert-feature", "archive", "merge-glossary")
 
 
@@ -602,7 +602,7 @@ def build_plan(root, move=False):
         if action == "convert-adr":
             entry["adr_slug"] = slugify(os.path.splitext(os.path.basename(rel))[0], title)
             m = re.match(r"^(\d{4})-", os.path.basename(rel))
-            if m:   # 0.7.2 (ai-coach, item 21): an ADR that already carries its number keeps it — it is the same record
+            if m:   # 0.7.2 (first adoption, item 21): an ADR that already carries its number keeps it — it is the same record
                 entry["adr_number"] = int(m.group(1))
         if action == "convert-feature":
             stem = os.path.splitext(os.path.basename(rel))[0] if os.path.basename(rel).lower() != "spec.md" else os.path.basename(os.path.dirname(rel))
@@ -672,7 +672,7 @@ def measure_plan(root, plan_json):
     """Item 16d: the plan applied in a SCRATCH worktree, then `gates.full` and every check-family command of the project's
     own task runners (`check`, `check:*`, `check-*`; package.json, Makefile, justfile, Taskfile, tox, pyproject) run there;
     the error and red-test counts are printed, the worktree removed, the tree untouched. The owner approves a plan whose cost
-    was measured (ai-coach: 603 `check:docs` errors and 4 red tests were found only after the apply)."""
+    was measured (first adoption: 603 `check:docs` errors and 4 red tests were found only after the apply)."""
     import tempfile
     cfg_p = os.path.join(root, ".reef", "config.json")
     cfg = json.loads(read(cfg_p)) if os.path.isfile(cfg_p) else {}
@@ -693,7 +693,7 @@ def measure_plan(root, plan_json):
         r = subprocess.run([sys.executable, os.path.abspath(__file__), "--apply", "--no-commit", "--list", plan_json, "--repo", wt], capture_output=True, text=True)
         nothing = r.returncode == 1 and r.stdout.startswith("nothing to do")   # adopted in place: the checks still measure the tree
         rows.append(("apply (scratch)", "0 (nothing moves)" if nothing else r.returncode, 0, 0))
-        if r.returncode != 0 and not nothing:   # ai-coach, 2026-10-25: the gates ran on an unchanged worktree and the table meant nothing
+        if r.returncode != 0 and not nothing:   # first adoption, 2026-10-25: the gates ran on an unchanged worktree and the table meant nothing
             apply_said = (r.stderr or r.stdout).strip().splitlines()
             rows.append(("(the apply did not run: " + (apply_said[-1][:140] if apply_said else "no output") + " — gates skipped)", "-", "-", "-"))
             cmds = []
@@ -786,7 +786,7 @@ def rewrite_links(root, moved, touched_files, dead_before=frozenset()):
                 return f"{m.group(1)}{new}{m.group(3) or ''}{m.group(4)}"
             if src != rel and not os.path.exists(os.path.join(root, abs_target)):
                 # this file moved; the link was relative to where it came from — a sibling that STAYS (kept:
-                # referenced by code) or moved elsewhere. Seen live (0.7 dogfood, ai-coach): the apply refused
+                # referenced by code) or moved elsewhere. Seen live (0.7 dogfood, first adoption): the apply refused
                 # on `design-decisions.md` beside a converted spec, a file the plan itself kept.
                 from_origin = os.path.normpath(os.path.join(origin, target))
                 dest = moved.get(from_origin, from_origin)
@@ -838,8 +838,8 @@ def to_spec(text, feature, row, archive, rel=""):
             f"## Success criteria\n- SC-1: the original spec's outcome is observable.\n\n## Owner decisions\n- (none yet)\n\n## Architecture impact\n(to be stated)\n")
 
 
-# ---------------------------------------------------------------- measure (0.7.2, ai-coach 2026-10-24, item 10)
-# /reef-assess scored "module boundaries" by feel; nothing was counted. On ai-coach the largest files were tests and i18n
+# ---------------------------------------------------------------- measure (0.7.2, first adoption 2026-10-24, item 10)
+# /reef-assess scored "module boundaries" by feel; nothing was counted. On the first adoption the largest files were tests and i18n
 # dictionaries, the `$executeRawUnsafe` hits were mostly comments, and the tagged `$queryRaw` calls were parameterised.
 CODE_EXT = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go", ".rs", ".java", ".kt", ".rb", ".php", ".cs", ".swift",
             ".vue", ".svelte")   # schema and migration files are counted in their own table, never as product
@@ -935,7 +935,7 @@ def measure(root):
     linter = next((f for f in LINTERS if os.path.isfile(os.path.join(root, f))), None)
     if not linter and os.path.isfile(os.path.join(root, "pyproject.toml")) and re.search(r"^\[tool\.(ruff|flake8|pylint)", read(os.path.join(root, "pyproject.toml")), re.M):
         linter = "pyproject.toml [tool.ruff]"
-    guards = []   # ai-coach, 2026-10-25: 220 of 517 test files matched "never"/"rules" anywhere in their first 30 lines — noise
+    guards = []   # first adoption, 2026-10-25: 220 of 517 test files matched "never"/"rules" anywhere in their first 30 lines — noise
     for rel in sorted(tests):
         with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as f:
             first = [f.readline() for _ in range(6)]
@@ -954,7 +954,7 @@ def measure(root):
             "baseline": product}
 
 
-# ---------------------------------------------------------------- boundaries (0.7.2, ai-coach 2026-10-24, item 13)
+# ---------------------------------------------------------------- boundaries (0.7.2, first adoption 2026-10-24, item 13)
 # Layer boundaries were not enforced. The measure derives a dependency-cruiser config from the observed layout and writes
 # today's violations as the known-violations baseline, so day one is green and only a NEW violation fails. Proposed under
 # <git dir>/reef/recalibration/proposed/, applied by the owner with the plan; the gate is `depcruise --ignore-known`.
@@ -1070,7 +1070,7 @@ def render_boundaries(b):
                   ", ".join(f"`{k['from']}` → `{k['to']}`" for k in b["new"])]
     return "\n".join(lines) + "\n"
 
-# ---------------------------------------------------------------- the real sensitive code (0.7.2, ai-coach 2026-10-24, item 22)
+# ---------------------------------------------------------------- the real sensitive code (0.7.2, first adoption 2026-10-24, item 22)
 # tiers.design.paths (auth, crypto, secrets, migrations globs) matched 0 of the 21 files holding access control, tenant isolation and
 # money (session-access.ts, visibility*.ts, scoped-client*.ts, *tenant*, usage*.ts, metering*.ts, app/api/sign-in/**): a change there
 # ran as an ordinary full task. The measure lists sensitive files BY CONTENT, Observed with file:line, and the plan proposes the
@@ -1272,7 +1272,7 @@ def cmd_apply(root, list_path, commit, park=False):
     dirty = [l for l in git(root, "status", "--porcelain", check=False).splitlines() if l.strip() and not l.startswith("?? .reef/")]
     if dirty:   # Reef's own untracked state under .reef/ (a config copied into a scratch worktree) is not the owner's work
         die("the working tree is not clean — the apply is one commit, undone by one revert", 1)
-    dead_before = dead_links(root)   # the apply answers for the links IT breaks, not for ones dead already (ai-coach had 7)
+    dead_before = dead_links(root)   # the apply answers for the links IT breaks, not for ones dead already (first adoption had 7)
     cfg_path = os.path.join(root, ".reef", "config.json")
     cfg = json.loads(read(cfg_path)) if os.path.isfile(cfg_path) else {}
     paths = cfg.get("paths", {})
@@ -1283,7 +1283,7 @@ def cmd_apply(root, list_path, commit, park=False):
     os.makedirs(arch_adr, exist_ok=True)
     numbered = [int(m.group(1)) for d in {arch_adr, os.path.join(root, "reef", "architecture", "adr"), os.path.join(root, "docs", "adr")}
                 if os.path.isdir(d) for f in os.listdir(d) for m in [re.match(r"^(\d{4})-", f)] if m]
-    kept = {}   # 0.7.2 (ai-coach, item 21): 193 ADRs cited 456 times as `ADR NNNN` would each have taken a new number
+    kept = {}   # 0.7.2 (first adoption, item 21): 193 ADRs cited 456 times as `ADR NNNN` would each have taken a new number
     for e in entries:
         if e["action"] == "convert-adr" and e.get("adr_number"):
             n, name = int(e["adr_number"]), os.path.basename(e["path"])
