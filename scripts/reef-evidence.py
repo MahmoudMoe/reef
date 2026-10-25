@@ -69,7 +69,9 @@ def ci_checks(repo, sha):
     return [{"name": c.get("name"), "status": c.get("status"), "conclusion": c.get("conclusion")} for c in runs] if isinstance(runs, list) else None
 
 
-def local_record(main, snapshots):
+def local_record(main, snapshots, sha):
+    """The record for one of these snapshots, and only if it says so itself: its snapshot is the file's name and its head
+    is the commit asked about (the security review, 2026-10-25: a file's content was trusted by its name alone)."""
     for snap in snapshots:
         p = os.path.join(main, ".reef", "evidence", f"{snap}.json")
         try:
@@ -77,7 +79,7 @@ def local_record(main, snapshots):
                 rec = json.load(f)
         except (OSError, ValueError):
             continue
-        if isinstance(rec, dict):
+        if isinstance(rec, dict) and rec.get("snapshot") == snap and rec.get("head") == sha:
             rec["path"] = os.path.relpath(p, main)
             return rec
     return None
@@ -92,28 +94,37 @@ def evidence(repo, commit=None):
         return {"source": "none", "state": "none", "commit": commit, "exit": None, "why": f"no commit {commit!r} in {root}"}
     is_head = sha == git(root, "rev-parse", "HEAD")
     out = {"commit": sha, "source": "none", "state": "none", "exit": None}
-    if str((cfg.get("ci") or {}).get("feature_gate", "ci") or "ci") == "ci":
+    ci = cfg.get("ci") if isinstance(cfg.get("ci"), dict) else {}
+    if str(ci.get("feature_gate", "ci") or "ci") == "ci":
         checks = ci_checks(root, sha)
+        # ci.check_name (default `every gate, once`, the template's CI job and reef-repo's required check) is the check-run that
+        # IS the suite: when the commit has it, it alone decides; else every check must be green
+        suite = str(ci.get("check_name", "every gate, once") or "every gate, once")
+        if checks and any(c["name"] == suite for c in checks):
+            checks = [c for c in checks if c["name"] == suite]
         if checks:
             out["checks"] = checks
-            out["source"] = "ci"
             if any(c["conclusion"] in RED for c in checks):
-                out.update(state="red", exit=1)
-            elif any(c["status"] != "completed" for c in checks):
-                out.update(state="pending", exit=None)
-            else:
-                out.update(state="green", exit=0)
-            return out
-    snaps = []
-    if is_head or commit is None:
-        live = live_snapshot(root)
-        if live:
-            snaps.append(live)
+                out.update(source="ci", state="red", exit=1)
+                return out
+            if any(c["status"] != "completed" for c in checks):
+                out.update(source="ci", state="pending", exit=None)
+                return out
+            if all(c["conclusion"] == "success" for c in checks):
+                out.update(source="ci", state="green", exit=0)
+                return out
+            out["why"] = "CI ran, but a check was skipped or neutral (" + ", ".join(c["name"] for c in checks if c["conclusion"] != "success") + \
+                         "): not a suite result — ci.check_name names the suite's check-run, or run the gate"
+    # the local record: THIS tree's snapshot when the commit is HEAD (a dirty tree never inherits HEAD's record), else the
+    # snapshot a clean checkout at that commit has
+    live = live_snapshot(root) if is_head else ""
     clean = clean_snapshot(root, sha)
-    if clean and clean not in snaps:
-        snaps.append(clean)
+    snaps = [live] if live else ([clean] if clean else [])
+    if live and clean and live != clean:
+        out["dirty"] = True
+        out.setdefault("why", f"the tree differs from HEAD {sha[:12]} — its record is not this tree's; run `sh scripts/reef-gate.sh full` here")
     out["snapshot"] = snaps[0] if snaps else None
-    rec = local_record(main, snaps)
+    rec = local_record(main, snaps, sha)
     if rec is not None:
         out.update(source="local", record=rec, snapshot=rec.get("snapshot"), exit=rec.get("exit"), state="green" if rec.get("exit") == 0 else "red")
     return out

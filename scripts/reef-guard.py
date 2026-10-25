@@ -96,10 +96,14 @@ LOCKED_TYPES = ("verifier", "loophole-hunter", "plan-reviewer", "Explore", "secu
 AGENT_TYPES = LOCKED_TYPES + ("implementer", "mechanic")
 MUTATING_GIT = {"commit", "add", "rm", "mv", "checkout", "switch", "restore", "reset", "merge", "rebase", "push",
                 "stash", "apply", "am", "cherry-pick", "revert", "clean", "worktree", "submodule", "init", "clone"}
-WRITE_HEADS = {"tee", "cp", "mv", "rm", "touch", "mkdir", "rmdir", "truncate", "dd", "install", "ln", "chmod", "chown", "shred", "unlink"}
+WRITE_HEADS = {"tee", "cp", "mv", "rm", "touch", "mkdir", "rmdir", "truncate", "dd", "install", "ln", "chmod", "chown", "shred", "unlink", "rsync"}
 REDIRECTS = {">", ">>", ">|"}
 STATUS_LINE = re.compile(r"in flight:.*?/\s*waiting on:.*?/\s*next:\s*\S", re.S)
-RECORD_DIRS = re.compile(r"(^|/)\.reef/(approvals|review|night|evidence)(/|$)")   # night (0.7, super Reef): the contract and the `active` marker; evidence (v3): the gate's one result per tree
+# night (0.7, super Reef): the contract and the `active` marker; evidence (v3): the gate's one result per tree. Case-insensitive
+# (a macOS disk opens .reef/Evidence/ as the same folder) and after `=` (dd's of=); a whole folder copied, synced, unpacked or
+# removed is caught in check_record_dirs (the security review of v3 phase 2, 2026-10-25)
+RECORD_DIRS = re.compile(r"(^|[/=])\.reef/(approvals|review|night|evidence)(/|$)", re.I)
+RECORD_NAMES = {"approvals", "review", "night", "evidence"}
 # evidence an AGENT produced: a hand-back, a verifier/hunter report, a plan review. The main session (no agent_id in
 # the payload) may copy one (cp/mv from the scratchpad) but never write its content (2026-10-17: a hunter report and
 # a hand-back were typed by the orchestrator "from the agent's message" — evidence nobody but the orchestrator wrote).
@@ -301,9 +305,28 @@ def check_record_dirs(seg):
     only: a hand-written record would be an approval nobody gave (tripwire; the digest check is the code)."""
     here = CTX.get("cd_hint") or CTX.get("cwd") or ""
     resolved = lambda t: os.path.normpath(os.path.join(here, os.path.expanduser(t))) if here and not os.path.isabs(t) else t   # `../../evidence/x` after a cd
-    if any(RECORD_DIRS.search(t) or RECORD_DIRS.search(resolved(t)) for t in write_targets(seg)):
+    hits = lambda t: RECORD_DIRS.search(t) or RECORD_DIRS.search(resolved(t))
+    targets = write_targets(seg)
+    if any(hits(t) for t in targets):
         deny("writing under .reef/approvals/, .reef/review/, .reef/night/ or .reef/evidence/ by hand — these records are written by the "
              "AskUserQuestion hook, scripts/reef-record, scripts/reef-run.py and scripts/reef-gate.sh, bound to a digest, a forge SHA or a tree snapshot")
+    # the folder as a whole: copied, synced or unpacked INTO .reef/, or removed with .reef/ (the security review, 2026-10-25)
+    is_reef = lambda t: os.path.basename(os.path.normpath(resolved(t))).lower() == ".reef"
+    head = next((os.path.basename(x) for x in seg if os.path.basename(x) in WRITE_HEADS or os.path.basename(x) in ("find", "git")), None)
+    args = [a for a in seg if not a.startswith("-") and a not in REDIRECTS]
+    if head in ("cp", "mv", "rsync", "install") and any(is_reef(t) for t in targets) \
+       and any(os.path.basename(os.path.normpath(a)).lower() in RECORD_NAMES for a in args):
+        deny("copying or syncing a records folder (approvals, review, night, evidence) into .reef/ — those are written only by Reef's scripts")
+    if any(os.path.basename(x) == "tar" for x in seg):   # an unpack into .reef/ (tar is not a write head: `tar -xzO | grep` reads)
+        for j, t in enumerate(seg):
+            if (t == "-C" and j + 1 < len(seg) and is_reef(seg[j + 1])) or (t.startswith("--directory=") and is_reef(t.split("=", 1)[1])):
+                deny("unpacking an archive into .reef/ — its records (approvals, review, night, evidence) are written only by Reef's scripts")
+    if head in ("rm", "rmdir", "shred", "unlink") and any(is_reef(t) for t in targets):
+        deny("removing .reef/ whole — it holds the approvals, the review records and the evidence; remove the one path you mean")
+    if head == "find" and "-delete" in seg and any(hits(a) or is_reef(a) for a in args[1:]):
+        deny("find -delete under .reef/ records — the approvals, review records and evidence are removed by no agent")
+    if head == "git" and "clean" in args[:3] and any(hits(a) or is_reef(a) for a in args):
+        deny("git clean over .reef/ records — the approvals, review records and evidence are removed by no agent")
 
 
 def check_evidence_authoring(seg, ctx):

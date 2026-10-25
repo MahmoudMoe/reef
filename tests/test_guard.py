@@ -680,9 +680,26 @@ class EvidenceIsTheGates(unittest.TestCase):
                     "tee .reef/evidence/0123456789abcdef.json < /tmp/e.json",
                     "python3 - <<'EOF'\nopen('.reef/evidence/x.json', 'w').write('{}')\nEOF\nmv x.json .reef/evidence/y.json",
                     "rm -rf .reef/evidence",
-                    "cd .reef/worktrees/1101 && printf '{}' >> ../../evidence/abc.json"):
+                    "cd .reef/worktrees/1101 && printf '{}' >> ../../evidence/abc.json",
+                    # the security review of this change (2026-10-25): a case-insensitive disk, dd's of=, a whole folder
+                    # copied, synced or unpacked into .reef/, and the deletes that take the folder with them
+                    "echo '{}' > .reef/Evidence/0123456789abcdef.json",
+                    "dd if=/tmp/e.json of=.reef/evidence/0123456789abcdef.json",
+                    "mkdir -p /tmp/x/evidence && cp -r /tmp/x/evidence .reef/",
+                    "rsync -a /tmp/x/evidence .reef/",
+                    "mv /tmp/x/review .reef",
+                    "tar -C .reef -xf /tmp/x.tar",
+                    "rm -rf .reef",
+                    "find .reef/evidence -delete",
+                    "find .reef -name '*.json' -delete",
+                    "git clean -fdX .reef/evidence",
+                    "git clean -fdx .reef"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(bash(cmd).returncode, 2, cmd)
+        for cmd in ("rm -rf .reef/worktrees/1101", "find .reef/ci-local -name '*.log'", "git clean -fd .reef/worktrees",
+                    "cp /tmp/claude-1/x/scratchpad/notes.md .reef/", "tar -czf /tmp/claude-1/x/scratchpad/wt.tgz .reef/worktrees/1101", "ls .reef"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(bash(cmd).returncode, 0, cmd + ": " + bash(cmd).stderr)
         for cmd in ("sh scripts/reef-gate.sh full > /tmp/claude-1/x/scratchpad/gate.log 2>&1",
                     "REEF_GATE_NO_CACHE=1 sh scripts/reef-gate.sh full > /tmp/gate.log 2>&1; echo $?",
                     "python3 scripts/reef-evidence.py HEAD", "python3 scripts/reef-evidence.py --format json > /tmp/e.json",

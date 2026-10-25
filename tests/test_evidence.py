@@ -25,6 +25,8 @@ if a[:1] == ["api"] and "check-runs" in a[1]:
                         {"name": "CodeQL", "status": "completed", "conclusion": "success"}],
             "pending": [{"name": "test (ubuntu-latest)", "status": "in_progress", "conclusion": None},
                         {"name": "CodeQL", "status": "completed", "conclusion": "success"}],
+            "skipped": [{"name": "test (ubuntu-latest)", "status": "completed", "conclusion": "skipped"},
+                        {"name": "CodeQL", "status": "completed", "conclusion": "success"}],
             "none": []}[mode]
     print(json.dumps({"total_count": len(runs), "check_runs": runs})); sys.exit(0)
 sys.exit(1)
@@ -114,6 +116,21 @@ class Evidence(unittest.TestCase):
         self.assertEqual(self.gate(cwd=wt).returncode, 0)
         self.assertFalse(os.path.isdir(os.path.join(wt, ".reef", "evidence")), "a worktree's run writes the MAIN checkout's record")
         self.assertEqual(len(os.listdir(os.path.join(self.d, ".reef", "evidence"))), 1, "the same tree: the same file")
+        # the security review (2026-10-25): a DIRTY tree must not inherit HEAD's green
+        with open(os.path.join(self.d, "app.py"), "a") as f:
+            f.write("y = 2\n")
+        r = self.evidence()
+        self.assertEqual(r.returncode, 2, "an edited tree has no record of its own: " + r.stdout)
+        self.assertIn("differs from HEAD", r.stdout)
+        r = self.evidence(sha)
+        self.assertEqual(r.returncode, 2, "naming HEAD's commit changes nothing while the tree differs: " + r.stdout)
+        # a forged record: the right file name, the wrong head inside
+        with open(os.path.join(self.d, "app.py"), "w") as f:
+            f.write("x = 1\n")
+        snap = self.snapshot()
+        with open(os.path.join(self.d, ".reef", "evidence", f"{snap}.json"), "w") as f:
+            json.dump({"snapshot": snap, "head": "0" * 40, "exit": 0, "mode": "full"}, f)
+        self.assertEqual(self.evidence().returncode, 2, "a record whose head is not this commit is no evidence")
 
     def test_with_ci_on_feature_prs_the_check_runs_are_the_evidence_and_local_is_the_fallback(self):
         self.config({"gates": {"full": "echo '3 passed'"}, "ci": {"feature_gate": "ci"}})
@@ -129,6 +146,14 @@ class Evidence(unittest.TestCase):
         self.assertIn("pending — 1 of 2 check runs still running", r.stdout)
         r = self.evidence(GH_CHECKS="none")
         self.assertEqual(r.returncode, 2, "no check run and no local record: none")
+        r = self.evidence(GH_CHECKS="skipped")
+        self.assertEqual(r.returncode, 2, "a skipped check is not a green suite: " + r.stdout)
+        self.config({"gates": {"full": "echo '3 passed'"}, "ci": {"feature_gate": "ci", "check_name": "CodeQL"}})
+        self.assertEqual(self.evidence(GH_CHECKS="skipped").returncode, 0, "ci.check_name, the required check, alone decides when the commit has it")
+        self.config({"gates": {"full": "echo '3 passed'"}, "ci": {"feature_gate": "ci", "check_name": "test (ubuntu-latest)"}})
+        self.assertEqual(self.evidence(GH_CHECKS="skipped").returncode, 2, "the suite's check was skipped: none")
+        self.assertEqual(self.evidence(GH_CHECKS="success").returncode, 0)
+        self.config({"gates": {"full": "echo '3 passed'"}, "ci": {"feature_gate": "ci"}})
         self.assertEqual(self.gate().returncode, 0)
         for mode in ("none", "down"):
             r = self.evidence(GH_CHECKS=mode)
