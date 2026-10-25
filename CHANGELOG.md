@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **The fast path builds in one worktree per row, in order, with no judge per task** (workflow v3, phase 3b; 2026-10-26).
+  The first adoption paid a worktree per task (`npm ci`, generate, typegen, build each time, or about 60 tests red) and a
+  verifier per task on rows whose risk the tier had called ordinary. `scripts/reef-attempt` now prints the row's `path:`;
+  on the fast path (a 0.6 feature folder, every task light or full, no risk touch) `reef-graph.py worktree` answers the
+  FEATURE worktree instead of making one, the ready set lets a fast row's tasks run one at a time in id order, and
+  `reef-attempt` prints `verifier: none` for a judged task (graph mode reads it the same). `scripts/reef-merge-close`
+  closes a fast-path task in place: the work committed on the feature branch with the `Closes-task:` trailer through the
+  commit gate, `status: done`, the file moved — no task branch, no merge. The full gate runs once after the last task and
+  writes the evidence the one reviewer reads. The critical path keeps a worktree and a verifier per task, and its close
+  now REQUIRES the verifier's PASS report at `.reef/ci-local/report-<id>.md` — the skill asked for it before, nothing
+  checked. The flat `tasks/` layout (pre-0.6) keeps a worktree per task. tests/size-budget.json raised: `script_lines` 15,238 → 15,402. `prose_words` lowered 21,190 → 21,170 (the skill gained the fast path and lost five history asides).
 - **One reviewer per row: the spec, the diff, and every criterion against its named test in the evidence** (workflow v3,
   phase 3c; 2026-10-25). The first adoption paid three judges on one row with no blocker — acceptance 47k tokens,
   security 54k, a third — each looking at the same code from an overlapping angle; the 0.7 diff review had already been

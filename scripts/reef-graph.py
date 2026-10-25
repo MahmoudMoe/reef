@@ -280,6 +280,35 @@ def load_graph(tasks_dirs):
     return tasks
 
 
+_ROW_MODE = {}
+
+
+def fast_row(t):
+    """Workflow v3: the task's feature is on the fast path AND lives in a 0.6 feature folder — one worktree per row, tasks
+    in order. Cached per feature for one run; False when the plan check cannot be read."""
+    feat = t.fm.get("feature") or t.path
+    if feat not in _ROW_MODE:
+        try:
+            pth, folder = plan_check_module().row_mode(t.path)
+            _ROW_MODE[feat] = pth == "fast" and folder
+        except Exception:
+            _ROW_MODE[feat] = False
+    return _ROW_MODE[feat]
+
+
+def plan_check_module():
+    """scripts/reef-plan-check.py beside this script: the one home of the path rule."""
+    import importlib.machinery
+    import importlib.util
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
+    loader = importlib.machinery.SourceFileLoader("reef_plan_check", p)
+    spec = importlib.util.spec_from_loader("reef_plan_check", loader)
+    mod = importlib.util.module_from_spec(spec)
+    sys.dont_write_bytecode = True
+    loader.exec_module(mod)
+    return mod
+
+
 def not_ready_reason(tasks, t, cfg):
     """None when t is ready, else the human-readable reason."""
     cap = cfg_int(cfg, ["caps", "attempts"], DEFAULT_CAP)
@@ -296,6 +325,10 @@ def not_ready_reason(tasks, t, cfg):
         holders = [o.canon for o in others if r in o.resources]
         if len(holders) >= slots_for(cfg, r):
             return f"resource {r!r} held by task(s) {', '.join(holders)} ({len(holders)}/{slots_for(cfg, r)} slots)"
+    if t.status != "in-progress":
+        busy = [o.canon for o in others if o.fm.get("feature") == t.fm.get("feature")]
+        if busy and fast_row(t):
+            return f"fast path: task(s) {', '.join(busy)} in progress in the row's one worktree — tasks run in order"
     if t.status != "in-progress" and len(others) >= parallel:
         return f"parallel cap {parallel} reached (in progress: {', '.join(o.canon for o in others)})"
     return None
@@ -386,6 +419,16 @@ def cmd_worktree(task_path, base):
     cfg = read_config(root)
     tasks = load_graph(project_dirs(root, cfg, task_path))
     t = find_task(tasks, task_path)
+    if fast_row(t):   # v3 phase 3b: the row's one worktree is the feature worktree the task file lives in; no setup, no branch
+        branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=root, capture_output=True, text=True).stdout.strip()
+        with open(graph_lock_path(lock_key(root, cfg)), "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            fm, text = read_frontmatter(t.path)
+            set_keys(t.path, text, {"worktree": os.path.relpath(root, main_checkout(root))})
+        print(f"worktree: {root}")
+        print(f"branch: {branch}")
+        print("path: fast — the row's one worktree; its tasks run here in order, the commit gate on every commit")
+        return 0
     wt_root = os.path.join(main_checkout(root), cfg.get("worktree", {}).get("dir", ".reef/worktrees"))
     wt = os.path.join(wt_root, t.canon)
     slug = re.sub(r"^R?\d+-", "", os.path.basename(t.path))[:-3]

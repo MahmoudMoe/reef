@@ -267,6 +267,57 @@ class Lock(unittest.TestCase):
         self.assertEqual(r.returncode, 7)
 
 
+class RowWorktree(unittest.TestCase):
+    """Workflow v3, phase 3b: a fast row (a 0.6 feature folder, light/full tasks, no risk touch) has ONE worktree — the
+    feature worktree the task files live in — and its tasks run in id order, one at a time. The flat tasks/ layout and the
+    critical path keep a worktree per task (the Worktree suite below)."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-graph-row.")
+        subprocess.run(["git", "init", "-q", "-b", "feat/demo", self.d], check=True)
+        subprocess.run(["git", "-C", self.d, "config", "user.email", "t@t"], check=True)
+        subprocess.run(["git", "-C", self.d, "config", "user.name", "t"], check=True)
+        config(self.d, gates={"test": "true"}, worktree={"setup": "echo ran > setup-marker"}, paths={"features": "reef/features"}, graph={"parallel": 3})
+        self.feat = os.path.join(self.d, "reef", "features", "demo")
+        os.makedirs(self.feat)
+        with open(os.path.join(self.feat, "SPEC.md"), "w") as f:
+            f.write("# demo\nRow: 1\n")
+        self.p1 = task(self.feat, 1, slug="one")
+        self.p2 = task(self.feat, 2, slug="two")
+        subprocess.run(["git", "-C", self.d, "add", "-A"], check=True)
+        subprocess.run(["git", "-C", self.d, "commit", "-qm", "init"], check=True)
+
+    def test_a_fast_row_works_in_the_feature_worktree_and_runs_its_tasks_in_order(self):
+        r = graph("worktree", self.p1)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"worktree: {self.d}", r.stdout)
+        self.assertIn("branch: feat/demo", r.stdout)
+        self.assertIn("path: fast", r.stdout)
+        self.assertFalse(os.path.isdir(os.path.join(self.d, ".reef", "worktrees", "1")), "no task worktree on the fast path")
+        self.assertFalse(os.path.exists(os.path.join(self.d, "setup-marker")), "the row's worktree had its setup at plan time")
+        self.assertIn("worktree: .", frontmatter(self.p1))
+        r = graph("ready", "--root", self.d)
+        self.assertEqual([l.split("\t")[0] for l in r.stdout.splitlines()], ["1", "2"], "nothing in progress: both ready, in id order")
+        with open(self.p1) as f:
+            t = f.read()
+        with open(self.p1, "w") as f:
+            f.write(t.replace("status: pending", "status: in-progress"))
+        r = graph("ready", "--root", self.d)
+        self.assertEqual([l.split("\t")[0] for l in r.stdout.splitlines()], ["1"], "task 1 in progress: task 2 waits for the row's one worktree")
+        self.assertIn("fast path: task(s) 1 in progress", graph("check", self.p2).stdout + graph("check", self.p2).stderr)
+
+    def test_a_critical_task_in_the_row_keeps_a_worktree_per_task(self):
+        with open(self.p2) as f:
+            t = f.read()
+        with open(self.p2, "w") as f:
+            f.write(t.replace("complexity: mech", "complexity: design\ntier: critical").replace("verify: gate-only", "verify: judge"))
+        subprocess.run(["git", "-C", self.d, "commit", "-qam", "crit"], check=True)
+        r = graph("worktree", self.p1)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("worktree: .reef/worktrees/1", frontmatter(self.p1))
+        self.assertTrue(os.path.isdir(os.path.join(self.d, ".reef", "worktrees", "1")), "the critical path: a worktree per task, as before")
+
+
 class Worktree(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp(prefix="reef-graph-wt.")

@@ -28,6 +28,19 @@ def fail(msg, code):
     sys.exit(code)
 
 
+def plan_check_module():
+    """scripts/reef-plan-check.py beside this script: the one home of the path rule (workflow v3)."""
+    import importlib.machinery
+    import importlib.util
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
+    loader = importlib.machinery.SourceFileLoader("reef_plan_check", p)
+    spec = importlib.util.spec_from_loader("reef_plan_check", loader)
+    mod = importlib.util.module_from_spec(spec)
+    sys.dont_write_bytecode = True
+    loader.exec_module(mod)
+    return mod
+
+
 def git(cwd, *args, check=True):
     r = subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True)
     if check and r.returncode != 0:
@@ -79,6 +92,12 @@ def main(argv):
         if line[:1] not in (" ", "\t", "#") and ":" in line:
             fm.setdefault(line.split(":", 1)[0].strip(), line.split(":", 1)[1].strip())
     tid = fm.get("id") or re.match(r"R?\d+", name).group()
+    slug = re.sub(r"^R?\d+-", "", name)[:-3]
+    try:
+        pth, folder = plan_check_module().row_mode(task)
+    except Exception:
+        pth, folder = "critical", False
+    fast_row = pth == "fast" and folder   # v3 phase 3b: the row's one worktree, no task branch
     main_ck = main_checkout(root)
     wt = os.path.join(main_ck, fm["worktree"]) if fm.get("worktree") else os.path.join(main_ck, str((cfg.get("worktree") or {}).get("dir", ".reef/worktrees")), tid)
     tbranch = "task/{}-{}".format(tid, re.sub(r"^R?\d+-", "", name)[:-3])   # not an f-string: a backslash there needs 3.12
@@ -91,8 +110,51 @@ def main(argv):
         git(root, "worktree", "prune")
         print(f"merge-close: {name} is already closed (under done/, status done, no branch {tbranch})")
         return 0
+    if fast_row and not has_branch:
+        # the fast path: the work is here, in the row's one worktree — commit it in place with the trailer, mark done, move
+        git(root, "add", "-A")
+        staged = git(root, "diff", "--cached", "--name-only").stdout.split()
+        bad = [p for p in staged if SECRET.search(p)]
+        if bad:
+            git(root, "reset", "-q")
+            fail(f"refusing to commit {', '.join(bad)}: a secret-shaped file in the worktree — remove it, then re-run", 2)
+        head = m.group(1)
+        head = re.sub(r"^status:.*$", "status: done", head, count=1, flags=re.M) if re.search(r"^status:", head, re.M) else head + "status: done\n"
+        body = text[m.end():]
+        if block and "<!-- journal -->" not in body:
+            body = body.rstrip("\n") + f"\n\n<!-- journal -->\n{block}\n<!-- /journal -->\n"
+        with open(task, "w", encoding="utf-8", newline="") as f:
+            f.write(text[:m.start(1)] + head + text[m.end(1):m.end()] + body)
+        dest = task if in_done else os.path.join(os.path.dirname(task), "done", name)
+        if not in_done:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            git(root, "mv", task, dest)
+        git(root, "add", dest)
+        r = git(root, "commit", "-q", "-m", f"{subject}\n\nCloses-task: {tid}-{slug}", check=False)
+        if r.returncode != 0:
+            git(root, "reset", "-q")
+            if dest != task and os.path.exists(dest):
+                os.rename(dest, task)
+            with open(task, "w", encoding="utf-8", newline="") as f:
+                f.write(text)
+            fail(f"the commit was refused by the gate; nothing changed:\n{(r.stdout + r.stderr).strip()[-800:]}", 2)
+        print(f"merge-close: fast path — {name} closed in place on {branch} at {git(root, 'rev-parse', '--short', 'HEAD').stdout.strip()}; "
+              f"the row's one worktree, no task branch")
+        return 0
     if not has_branch:
         fail(f"no branch {tbranch} and {name} is not closed — nothing to merge", 1)
+    if fm.get("verify") == "judge" and not merged:
+        # v3 phase 3b: the critical path keeps a verifier per task — its PASS report is what lets the task close (the
+        # orchestrator copies the agent's report there verbatim; nothing checked it before)
+        rep = os.path.join(wt if os.path.isdir(wt) else root, ".reef", "ci-local", f"report-{tid}.md")
+        try:
+            with open(rep, encoding="utf-8") as f:
+                passed = re.search(r"^VERDICT:[ \t]*PASS\b", f.read(), re.M)
+        except OSError:
+            passed = None
+        if not passed:
+            fail(f"a judged task on the critical path closes only with the verifier's PASS report at {os.path.relpath(rep, root)} — "
+                 "none there, or not PASS (the orchestrator copies the verifier's report there verbatim)", 2)
     if not merged:
         if not os.path.isdir(wt):
             fail(f"no task worktree at {wt} while {tbranch} is unmerged", 1)

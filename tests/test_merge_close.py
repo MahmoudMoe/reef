@@ -42,6 +42,58 @@ def read(d, rel):
         return f.read()
 
 
+class FastRowClose(unittest.TestCase):
+    """Workflow v3, phase 3b: on the fast path there is no task branch — the implementer worked in the feature worktree;
+    merge-close commits the work there with the Closes-task trailer, marks the task done and moves it, nothing else."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="reef-mc-fast.")
+        self.main = os.path.join(self.tmp, "main")
+        subprocess.run(["git", "init", "-q", "-b", "main", self.main], check=True)
+        for k, v in (("user.email", "t@t"), ("user.name", "t")):
+            subprocess.run(["git", "-C", self.main, "config", k, v], check=True)
+        write(self.main, ".reef/config.json", '{"branches": {"base": "main"}, "paths": {"features": "reef/features"}}')
+        write(self.main, ".gitignore", ".reef/worktrees/\n")
+        write(self.main, "reef/features/demo/SPEC.md", "# demo\nRow: 1\n")
+        write(self.main, "reef/features/demo/tasks/101-slice.md", TASK)
+        write(self.main, "src/a.py", "a = 1\n")
+        git(self.main, "add", "-A"); git(self.main, "commit", "-qm", "init")
+        self.feat = os.path.join(self.tmp, "feat")
+        self.assertEqual(git(self.main, "worktree", "add", "-q", "-b", "feat/demo", self.feat, "main").returncode, 0)
+        write(self.feat, "src/a.py", "a = 2\n")                    # the implementer's work, in the row's one worktree
+        write(self.feat, "tests/test_a.py", "def test_a(): pass\n")
+        self.journal = os.path.join(self.tmp, "journal.md")
+        write(self.tmp, "journal.md", "| 101 | PASS | growth 3 |\n")
+
+    def close(self):
+        return subprocess.run([sys.executable, CLOSE, "reef/features/demo/tasks/101-slice.md", "--subject", "feat: the slice",
+                               "--journal", self.journal, "--repo", self.feat], capture_output=True, text=True, cwd=self.feat)
+
+    def test_the_close_commits_in_place_with_the_trailer_and_no_merge(self):
+        r = self.close()
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        self.assertIn("fast path", r.stdout)
+        self.assertEqual(len(git(self.feat, "rev-list", "--parents", "-1", "HEAD").stdout.split()), 2, "one plain commit, no merge")
+        msg = git(self.feat, "log", "-1", "--format=%B", "HEAD").stdout
+        self.assertIn("feat: the slice", msg); self.assertIn("Closes-task: 101-slice", msg)
+        self.assertEqual(git(self.feat, "show", "HEAD:src/a.py").stdout, "a = 2\n")
+        done = git(self.feat, "show", "HEAD:reef/features/demo/tasks/done/101-slice.md").stdout
+        self.assertIn("status: done", done)
+        self.assertIn("<!-- journal -->\n| 101 | PASS | growth 3 |\n<!-- /journal -->", done)
+        self.assertEqual(git(self.feat, "ls-tree", "HEAD", "reef/features/demo/tasks/101-slice.md").stdout, "", "moved, not copied")
+        self.assertEqual(git(self.feat, "status", "--porcelain").stdout, "")
+        self.assertNotEqual(git(self.feat, "rev-parse", "-q", "--verify", "refs/heads/task/101-slice").returncode, 0, "no task branch was ever made")
+        r = self.close()
+        self.assertEqual((r.returncode, "already closed" in r.stdout), (0, True), "a second run changes nothing")
+
+    def test_a_secret_shaped_file_is_refused_in_place_too(self):
+        write(self.feat, ".env.local", "KEY=1\n")
+        r = self.close()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("refusing to commit .env.local", r.stderr)
+        self.assertEqual(git(self.feat, "diff", "--cached", "--name-only").stdout, "", "nothing left staged")
+
+
 class MergeClose(unittest.TestCase):
     """A main checkout on main, a feature worktree on feat/demo, a task worktree under the MAIN checkout's .reef/worktrees."""
 
@@ -122,6 +174,23 @@ class MergeClose(unittest.TestCase):
         self.assertEqual(git(self.feat, "rev-parse", "HEAD").stdout, head)
         self.untouched()
         self.assertEqual(git(self.wt, "status", "--porcelain").stdout, "", "the task's own commit stands; a re-run resumes from the merge")
+
+    def test_a_judged_task_on_the_critical_path_closes_only_with_the_verifiers_pass_report(self):
+        # workflow v3, phase 3b: the critical path keeps a verifier per task, and its close now REQUIRES the report (before,
+        # the skill asked for it and nothing checked)
+        judged = TASK.replace("attempts: 0\n", "attempts: 0\nworktree: .reef/worktrees/101\nverify: judge\n").replace("complexity: mech\ntier: light", "complexity: design\ntier: critical")
+        write(self.feat, "reef/features/demo/tasks/101-slice.md", judged + "\n## Decision\nhuman words\n")
+        r = self.close()
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("verifier's PASS report", r.stderr)
+        self.assertEqual(git(self.feat, "rev-parse", "-q", "--verify", "refs/heads/task/101-slice").returncode, 0, "nothing merged")
+        write(self.wt, ".reef/ci-local/report-101.md", "RUN: agent=verifier task=101\nRULE AC1: PASS iff x\nVERDICT: FAIL\n")
+        r = self.close()
+        self.assertEqual(r.returncode, 2, "a FAIL report closes nothing")
+        write(self.wt, ".reef/ci-local/report-101.md", "RUN: agent=verifier task=101\nRULE AC1: PASS iff x\nVERDICT: PASS\n")
+        write(self.wt, ".gitignore", ".reef/ci-local/\n")
+        r = self.close()
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
 
     def test_a_secret_shaped_file_in_the_task_worktree_is_refused(self):
         write(self.wt, ".env.local", "KEY=1\n")
