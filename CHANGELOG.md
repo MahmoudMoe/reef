@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **The recalibration plan's proposals no longer land in reef-init's `.reef/proposed/`** (ai-coach, 2026-10-25). The plan
+  wrote its instruction-layer rewrites (item 19) and the dependency-cruiser config and baseline (item 13) under
+  `.reef/proposed/`, reef-init's directory: the AGENTS.md rewrite overwrote init's own AGENTS.md proposal, `reef-update` and
+  the doctor listed the plan's files as renderings waiting for `reef-init --accept`, and that advice was destructive —
+  accepting AGENTS.md recorded the rewrite as Reef's rendering, so the next `reef-update` replaced AGENTS.md with the template
+  (the product text and the project's own rules gone); accepting the archived CLAUDE-CODE-PROMPT.md put it back at the root.
+  The plan now writes to `.reef/recalibration/proposed/` (ignored by reef-init's `.gitignore` lines), the `git diff
+  --no-index` lines and the boundaries section point there, and the apply removes each rewrite it applied (only after the
+  apply succeeded: a refused apply keeps them). tests/size-budget.json raised: `script_lines` 14,118 → 14,124.
 - **Four adoption defects from the first real run of 0.7.2** (ai-coach, 2026-10-25). (1) `main`, the release branch, was reported
   "in flight under the old loop" because the word sat in `docs/loop/queue-archive.md`: the check now skips `branches.base` and
   `branches.release` and matches a branch name only inside an OPEN row of an old queue (or the old handoff), never anywhere in a
