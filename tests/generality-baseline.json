@@ -1,7 +1,4 @@
 {
- "scripts/reef-guard.py": {
-  "ci:local": 1
- },
  "scripts/reef-init.py": {
   "@prisma/client": 1
  },
