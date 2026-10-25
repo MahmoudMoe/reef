@@ -81,7 +81,7 @@ def main(argv):
     tid = fm.get("id") or re.match(r"R?\d+", name).group()
     main_ck = main_checkout(root)
     wt = os.path.join(main_ck, fm["worktree"]) if fm.get("worktree") else os.path.join(main_ck, str((cfg.get("worktree") or {}).get("dir", ".reef/worktrees")), tid)
-    tbranch = f"task/{tid}-{re.sub(r'^R?\d+-', '', name)[:-3]}"
+    tbranch = "task/{}-{}".format(tid, re.sub(r"^R?\d+-", "", name)[:-3])   # not an f-string: a backslash there needs 3.12
     if os.path.isdir(wt):
         tbranch = git(wt, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     has_branch = git(root, "rev-parse", "-q", "--verify", f"refs/heads/{tbranch}", check=False).returncode == 0

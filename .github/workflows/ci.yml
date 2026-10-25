@@ -15,8 +15,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: on macOS, the Python a Mac ships (/usr/bin/python3, 3.9) — Reef's floor (tests/test_python_floor.py)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p "$RUNNER_TEMP/py" && ln -sf /usr/bin/python3 "$RUNNER_TEMP/py/python3"
+          echo "$RUNNER_TEMP/py" >> "$GITHUB_PATH"
+          /usr/bin/python3 --version
       - name: run sabotage suites
-        run: sh tests/run.sh
+        run: python3 --version && sh tests/run.sh
 
   code-change-needs-a-test:
     # 1.6: a change to a CLASS: code script is a change to a mechanism; a mechanism without a test

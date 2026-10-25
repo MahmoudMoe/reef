@@ -49,7 +49,7 @@ def render(root, questions):
     out = [f"# Handoff — {date}", "",
            "Rendered whole by `scripts/reef-handoff` from measured state; never amended by hand. A fresh orchestrator reads this head and `python3 scripts/reef-loop.py tick`, nothing else, at start.",
            "", "## Where things stand",
-           "- " + " · ".join(f"`{b}` at {h}" for b, h in heads.items()) + f" · open PRs: {', '.join(f'#{p['number']} {p['headRefName']}' for p in prs) or 'none'} · worktrees: {len(wts)}",
+           "- " + " · ".join(f"`{b}` at {h}" for b, h in heads.items()) + f" · open PRs: {', '.join('#%s %s' % (p['number'], p['headRefName']) for p in prs) or 'none'} · worktrees: {len(wts)}",
            "", "## The tick", "```", tick.rstrip(), "```", "", "## The owner's questions (one question set)"]
     out += [f"- {q}" for q in questions] or ["- none pending"]
     out += ["", "## Last merges (journal tail)"]
