@@ -183,7 +183,9 @@ class RawSqlProposal(unittest.TestCase):
     def test_the_proposal_seeds_the_allow_list_or_reuses_a_guard_test(self):
         d = Measure().fixture()
         m = json.loads(subprocess.run([sys.executable, RECAL, "measure", "--json", "--repo", d], capture_output=True, text=True).stdout)
-        self.assertEqual(m["raw_sql_proposal"], {"allow": ["src/lib/db.ts"], "reuse": [], "gate": "python3 scripts/reef-structure --raw-sql"})
+        self.assertEqual(m["raw_sql_proposal"], {"allow": ["src/lib/db.ts"], "reuse": [], "gate": "python3 scripts/reef-structure --raw-sql",
+                                                 "profile": {"name": "node + Prisma", "unsafe_calls": "`$queryRawUnsafe`/`$executeRawUnsafe`",
+                                                             "fix": "use a tagged `$queryRaw`/`$executeRaw` (parameterised)"}})
         rec = open(os.path.join(d, "reef", "recalibration.md")).read()
         self.assertIn('`assess.raw_sql_allow: ["src/lib/db.ts"]`', rec)
         self.assertIn('"raw-sql": "python3 scripts/reef-structure --raw-sql"', rec)
