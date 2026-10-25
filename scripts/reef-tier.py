@@ -18,6 +18,12 @@ Computes the tier the diff <base>...HEAD deserves and compares it with the task'
 Declared lighter than computed -> exit 1 ("declared light, computed full"). An EMPTY diff is refused
 (exit 1): there is nothing to tier. --write raises `tier:` in the task file to the computed one.
 Exit 0 ok · 1 refused · 2 usage/git error.
+
+  reef-tier.py path <task-file>...     (workflow v3, phase 3) the PATH the tier decides for a feature's tasks:
+         `fast` when every task is light or full and none touches auth/pii/money/migration — the deterministic
+         check is the plan review, one worktree per row, no per-task verifier, one reviewer at the end;
+         `critical` otherwise — the hunter's plan pass, the plan-reviewer, a verifier per task, security per feature.
+         Rollups (R*) are fix rounds, not tasks of the plan. Prints one line; exit 2 without a task file.
 """
 import fnmatch
 import os
@@ -62,6 +68,45 @@ def numstat(repo, base):
 
 
 TOUCHES = {"pii": "critical", "money": "critical", "auth": "critical", "migration": "design"}
+RISK_TOUCHES = tuple(TOUCHES)
+
+
+def path_of(tier, touches):
+    """fast | critical — the tier decides the whole pipeline (workflow v3 §2): light/full = fast; design/critical, or a
+    risk touch, = critical."""
+    return "critical" if tier in ("design", "critical") or any(t in RISK_TOUCHES for t in touches) else "fast"
+
+
+def cmd_path(files):
+    tiers, why = [], []
+    for p in files:
+        if re.match(r"^R\d+[-.]", os.path.basename(p)):
+            continue
+        try:
+            with open(p, encoding="utf-8") as f:
+                m = FENCE.match(f.read())
+        except OSError:
+            die(f"cannot read {p}")
+        fm = m.group(1) if m else ""
+        tm = re.search(r"^tier:[ \t]*(\S+)", fm, re.M)
+        tier = tm.group(1).strip('"') if tm else "full"
+        xm = re.search(r"^touches:[ \t]*\[(.*)\]", fm, re.M)
+        touches = [t.strip().strip("\"'") for t in xm.group(1).split(",") if t.strip()] if xm else []
+        im = re.search(r"^id:[ \t]*(\S+)", fm, re.M)
+        tid = im.group(1) if im else os.path.basename(p)
+        tiers.append(tier)
+        if tier in ("design", "critical"):
+            why.append(f"{tid}: tier {tier}")
+        elif any(t in RISK_TOUCHES for t in touches):
+            why.append(f"{tid}: touches {', '.join(t for t in touches if t in RISK_TOUCHES)}")
+    if not tiers:
+        die("usage: reef-tier.py path <task-file>... (no task file given, or only rollups)")
+    if why:
+        print("path: critical — " + "; ".join(why))
+    else:
+        seen = sorted(set(tiers), key=ORDER.get)
+        print(f"path: fast (tiers {', '.join(seen)}; no risk touch)")
+    return 0
 
 
 def compute(rows, tiers, tasks_dir="tasks", touches=()):
@@ -103,6 +148,8 @@ def compute(rows, tiers, tasks_dir="tasks", touches=()):
 
 
 def main(argv):
+    if argv and argv[0] == "path":
+        return cmd_path(argv[1:])
     base, repo, write, task = "main", None, False, None
     i = 0
     while i < len(argv):

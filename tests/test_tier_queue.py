@@ -56,6 +56,31 @@ def tier(task_path, *args):
 CFG = {"tiers": {"light": {"allow": ["docs/**", "src/safe/**"], "max_lines": 5, "migrations": ["migrations/**"]}}}
 
 
+class Path(unittest.TestCase):
+    """Workflow v3, phase 3: the tier names the PATH, and the path decides the pipeline — light/full = fast; design/critical,
+    or a touch of auth/pii/money/migration = critical. `reef-tier.py path <task files>` prints it; rollups are not tasks."""
+
+    def test_path_from_tiers_and_touches(self):
+        d = tempfile.mkdtemp(prefix="reef-path.")
+        fm = lambda tier, touches, tid=1: f"---\nid: {tid}\nfeature: f\nstatus: pending\ntier: {tier}\ntouches: [{touches}]\n---\n# t\n"
+        a = write(d, "tasks/101-a.md", fm("light", "", 101))
+        b = write(d, "tasks/102-b.md", fm("full", "", 102))
+        r = subprocess.run([sys.executable, TIER, "path", a, b], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "path: fast (tiers light, full; no risk touch)")
+        c = write(d, "tasks/103-c.md", fm("full", "migration", 103))
+        r = subprocess.run([sys.executable, TIER, "path", a, b, c], capture_output=True, text=True)
+        self.assertEqual(r.stdout.strip(), "path: critical — 103: touches migration")
+        e = write(d, "tasks/104-e.md", fm("design", "", 104))
+        r = subprocess.run([sys.executable, TIER, "path", a, e], capture_output=True, text=True)
+        self.assertEqual(r.stdout.strip(), "path: critical — 104: tier design")
+        rollup = write(d, "tasks/R01-f.md", fm("critical", "money", "R1"))
+        r = subprocess.run([sys.executable, TIER, "path", a, rollup], capture_output=True, text=True)
+        self.assertEqual(r.stdout.strip(), "path: fast (tiers light; no risk touch)", "a rollup is a fix round, not a task of the plan")
+        r = subprocess.run([sys.executable, TIER, "path"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2, "no task file: usage")
+
+
 class Tier(unittest.TestCase):
     def test_light_diff_passes_light_declaration(self):
         d = repo(CFG)

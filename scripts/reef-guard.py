@@ -1026,6 +1026,39 @@ def feature_tier(root, feature):
     return best
 
 
+RISK_TOUCHES = ("auth", "pii", "money", "migration")   # scripts/reef-tier.py path: the same four
+
+
+def feature_path(root, feature):
+    """fast | critical | None (no task): workflow v3 — the tier names the path. critical when a task of the feature is
+    design/critical or touches a risk class; rollups are not tasks of the plan."""
+    graph = load_graph_module()
+    cfg = read_config(root)
+    dirs = [graph.tasks_dir_for(root, cfg)]
+    feat_dir = os.path.join(root, (cfg.get("paths") or {}).get("features", "reef/features"), feature, "tasks")
+    if os.path.isdir(feat_dir):
+        dirs.append(feat_dir)
+    path = None
+    for base in dirs:
+        for d in (base, os.path.join(base, "done")):
+            if not os.path.isdir(d):
+                continue
+            for f in os.listdir(d):
+                if not f.endswith(".md") or ROLLUP_NAME.match(f):
+                    continue
+                try:
+                    fm, _ = read_frontmatter(os.path.join(d, f))
+                except Exception:
+                    continue
+                if not fm or fm.get("feature") != feature:
+                    continue
+                touches = [t.strip().strip("\"'") for t in str(fm.get("touches") or "").strip("[]").split(",") if t.strip()]
+                if task_tier(fm) in ("design", "critical") or any(t in RISK_TOUCHES for t in touches):
+                    return "critical"
+                path = "fast"
+    return path
+
+
 def dispatch_tier(prompt, cwd):
     """(tier, root) from the dispatch prompt's REEF-TASK: or REEF-FEATURE: line; (None, cwd) without one."""
     m = re.search(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", prompt, re.M)
@@ -1100,6 +1133,11 @@ def _check_dispatch(tool_input, payload):
     prompt = str(tool_input.get("prompt") or "")
     tier, troot = dispatch_tier(prompt, cwd)
     check_role_model(sub, tool_input, troot if tier else cwd, tier)
+    if "plan-reviewer" in sub:   # v3 phase 3a: the fast path has no plan-reviewer — the deterministic check is the review
+        fm_ = re.search(r"^REEF-FEATURE:[ \t]*(\S+)", prompt, re.M)
+        if fm_ and feature_path(cwd, fm_.group(1)) == "fast":
+            deny(f"plan-reviewer is not dispatched for feature {fm_.group(1)!r}: it is on the fast path (every task light or full, no "
+                 "auth/pii/money/migration touch) — scripts/reef-plan-check.py is the review; the plan-reviewer runs on the critical path only")
     if "implementer" not in sub:
         if tier and any(t in sub for t in ("verifier", "loophole-hunter")):
             m = re.search(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", prompt, re.M)

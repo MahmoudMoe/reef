@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **The tier names the path, and on the fast path the deterministic check is the plan review** (workflow v3, phase 3a;
+  2026-10-25). The first adoption ran the plan-reviewer agent on every row heavier than light — one more judge, about 50k
+  tokens and minutes of wall-clock, on rows whose risk the tier had already called ordinary. `scripts/reef-tier.py path
+  <task files>` prints the path: `fast` when every task is light or full and none touches auth, pii, money or migration;
+  `critical` otherwise. `reef-plan-check.py --verify-stamp` says `review: not required` on the fast path and requires the
+  plan-reviewer's record only on the critical path; `--needs-agent` exits 3 on the fast path; the guard refuses a
+  plan-reviewer dispatch for a fast-path feature. The hunter's plan pass was already gated to critical tasks
+  (`hunter.plan_pass`), and its cap (`hunter.plan_rounds` 2) already means one pass and one re-check only after a
+  finding — both unchanged. `/reef-plan` names the path before the review and asks in the grill only what neither the
+  codebase nor the spec answers. One test changed on purpose: a full-tier feature with no risk touch no longer needs the
+  plan-reviewer agent (`tests/test_tiers_lock.py`). tests/size-budget.json raised: `script_lines` 15,146 → 15,257. `prose_words` lowered 21,222 → 21,210 (the skill says less).
 - **Scripts read the evidence too: converge, the GREEN record and the plan check** (workflow v3, phase 2b; 2026-10-25).
   The first adoption's two Proof rows were each a full build and vitest run as shell, racing the gate for the CPU (a
   false `contradicts`), and the orchestrator recorded GREEN on a head whose suite nobody had seen. `scripts/reef-converge`

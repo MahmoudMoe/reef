@@ -23,8 +23,9 @@ Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
 - --digest FEATURE: print `digest: <feature> <sha256>` — the same digest the stamp uses — and exit.
 - --summary --feature SLUG (0.7): one readable line for the owner's gate — tasks, criteria, draft ADRs, and the plan
   files changed since the last recorded approval (the approval record's `files`); --plan-files prints that map.
-- --needs-agent: exit 0 when the plan-reviewer agent is needed (some task heavier than light, or no
-  tier table), 3 when every task is light and tiers.light.roles.plan_reviewer is "none".
+- --needs-agent: exit 0 when the plan-reviewer agent is needed (the CRITICAL path: a design/critical task, or a
+  touch of auth/pii/money/migration — workflow v3), 3 on the fast path (every task light or full, no risk touch:
+  the deterministic check alone stamps) or when the tier table says "none".
 Rule for the orchestrator: this script is deterministic; never argue with it, never work around it.
 """
 import hashlib, json, os, re, subprocess, sys
@@ -313,19 +314,40 @@ def approval_state(root, feat, digest):
     return True, f"approval: OK for {feat!r} ({digest[:16]}, {rec.get('approved_at', '?')})"
 
 
-def review_state(root, feat, digest, task_paths):
-    """(ok, line, required): the plan reviewer's verdict, a record `scripts/reef-record plan-review` writes, must be
-    PASS at this digest for a feature with any task above `light` (the deterministic stamp alone never meant the
-    semantic review passed — first contact, 2026-10-16)."""
-    tiers = set()
-    for p in task_paths:
+RISK_TOUCHES = ("auth", "pii", "money", "migration")   # scripts/reef-tier.py path: the same four
+
+
+def feature_path(task_paths):
+    """(path, why): workflow v3 — `fast` when every task is light or full and none touches a risk class; `critical`
+    otherwise (a design/critical task, or a touch of auth/pii/money/migration). Rollups are not tasks of the plan."""
+    tiers, why = [], []
+    for p in sorted(task_paths):
+        if re.match(r"R\d+[-.]", os.path.basename(p)):
+            continue
         try:
             txt = read(p)
         except (OSError, UnicodeDecodeError):
             continue
-        tiers.add(fm_value(txt, "tier") or ("light" if fm_value(txt, "complexity") == "mech" else "full"))
-    if not tiers - {"light"}:
-        return True, f"review: not required for {feat!r} (every task light)", False
+        tier = fm_value(txt, "tier") or ("light" if fm_value(txt, "complexity") == "mech" else "full")
+        touches = [t.strip().strip("\"'") for t in fm_value(txt, "touches").strip("[]").split(",") if t.strip()]
+        tiers.append(tier)
+        tid = fm_value(txt, "id") or os.path.basename(p)
+        if tier in ("design", "critical"):
+            why.append(f"{tid}: tier {tier}")
+        elif any(t in RISK_TOUCHES for t in touches):
+            why.append(f"{tid}: touches {', '.join(t for t in touches if t in RISK_TOUCHES)}")
+    if why:
+        return "critical", "; ".join(why)
+    return "fast", f"tiers {', '.join(sorted(set(tiers), key=lambda t: TIER_ORDER.index(t) if t in TIER_ORDER else 1)) or 'none'}; no risk touch"
+
+
+def review_state(root, feat, digest, task_paths):
+    """(ok, line, required): the plan reviewer's verdict, a record `scripts/reef-record plan-review` writes, must be
+    PASS at this digest on the CRITICAL path (workflow v3, phase 3a: before, for any task above light — one more judge
+    on rows whose risk the tier already called ordinary). On the fast path the deterministic check is the review."""
+    path, why = feature_path(task_paths)
+    if path == "fast":
+        return True, f"review: not required for {feat!r} (fast path: {why} — the deterministic check is the review)", False
     p = os.path.join(main_checkout(root), ".reef", "review", f"plan-{feat}.json")
     try:
         with open(p, encoding="utf-8") as f:
@@ -1221,6 +1243,10 @@ def main():
     present = [fm.get("tier") or ("light" if fm.get("complexity") == "mech" else "full") for rel, fm in tasks.items()
                if not os.path.basename(rel).startswith("R") and (feature_filter is None or fm.get("feature") == feature_filter)]
     heaviest = max(present, key=lambda t: TIER_ORDER.index(t) if t in TIER_ORDER else 1, default="full")
+    path, _why = feature_path([os.path.join(root, rel) for rel, fm in tasks.items() if feature_filter is None or fm.get("feature") == feature_filter])
+    if path == "fast" and present:   # v3 phase 3a: the fast path has no plan-reviewer; the check alone stamps
+        print(f"plan-reviewer: none (fast path: heaviest tier {heaviest}, no risk touch — the deterministic check alone stamps)")
+        sys.exit(3 if flags["needs_agent"] else 0)
     trole = (tiers_cfg.get(heaviest, {}) or {}).get("roles", {}) if isinstance(tiers_cfg.get(heaviest, {}), dict) else {}
     model = str((trole or {}).get("plan_reviewer") or roles.get("plan_reviewer") or "opus")
     if model.lower() == "none":
