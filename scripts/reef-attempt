@@ -270,6 +270,19 @@ def check_single_rollup(path, task):
                     "(move it back from done/ with status: pending if needed); a second rollup resets the cap")
 
 
+def plan_check_module():
+    """scripts/reef-plan-check.py beside this script: the one home of the path rule (workflow v3)."""
+    import importlib.machinery
+    import importlib.util
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
+    loader = importlib.machinery.SourceFileLoader("reef_plan_check", p)
+    spec = importlib.util.spec_from_loader("reef_plan_check", loader)
+    mod = importlib.util.module_from_spec(spec)
+    sys.dont_write_bytecode = True
+    loader.exec_module(mod)
+    return mod
+
+
 def run(cap_flag, path, failure):
     if not os.path.isfile(path):
         die(f"task file not found: {path}")
@@ -341,7 +354,18 @@ def run(cap_flag, path, failure):
         acs = re.search(r"^##\s+Acceptance Criteria\s*$(.*?)(?=^##\s|\Z)", task.text, re.M | re.S)
         n_ac = len([l for l in (acs.group(1) if acs else "").splitlines()
                     if re.match(r"^\s*[-*+]\s+|^\s*\d+[.)]\s+", l) and "HUMAN AC" not in l])
-        if task.get("verify") == "judge":
+        # workflow v3, phase 3b: the tier names the path — on the fast path (a 0.6 feature folder, light/full, no risk touch)
+        # no verifier per task: the commit gate per commit, the evidence once, the one reviewer at the end
+        fast_row = False
+        try:
+            pth, folder = plan_check_module().row_mode(path)
+            fast_row = pth == "fast" and folder
+            print(f"path: {pth}" + (" (row worktree)" if fast_row else ""))
+        except Exception as e:
+            print(f"path: critical (the plan could not be read: {e})")
+        if task.get("verify") == "judge" and fast_row:
+            print("verifier: none (fast path: the commit gate per commit, the evidence once, the one reviewer at the end)")
+        elif task.get("verify") == "judge":
             print(f"verifier: model={verifier}")
             if rw:  # the judge is told its budget before it writes (first contact: 1693 words, unknown cap, a rewrite round)
                 print(f"report: budget={rw + 40 * max(0, n_ac - 8)} words, RULE lines free ({n_ac} criteria)")

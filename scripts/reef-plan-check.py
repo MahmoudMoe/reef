@@ -342,6 +342,60 @@ def feature_path(task_paths):
     return "fast", f"tiers {', '.join(sorted(set(tiers), key=lambda t: TIER_ORDER.index(t) if t in TIER_ORDER else 1)) or 'none'}; no risk touch"
 
 
+def feature_task_paths(task_path):
+    """Every task file of the feature a task belongs to: the files of its tasks/ and tasks/done/ sharing its `feature:`."""
+    task_path = os.path.abspath(task_path)
+    d = os.path.dirname(task_path)
+    if os.path.basename(d) == "done":
+        d = os.path.dirname(d)
+    files = [os.path.join(d, f) for f in os.listdir(d) if f.endswith(".md")]
+    if os.path.isdir(os.path.join(d, "done")):
+        files += [os.path.join(d, "done", f) for f in os.listdir(os.path.join(d, "done")) if f.endswith(".md")]
+    try:
+        feat = fm_value(read(task_path), "feature")
+    except (OSError, UnicodeDecodeError):
+        feat = ""
+    if not feat:
+        return sorted(files)
+    out = []
+    for p in files:
+        try:
+            if fm_value(read(p), "feature") == feat:
+                out.append(p)
+        except (OSError, UnicodeDecodeError):
+            continue
+    return sorted(out)
+
+
+def row_mode(task_path):
+    """(path, folder): the path of the task's feature, and whether it lives in a 0.6 feature folder (SPEC.md beside tasks/).
+    Workflow v3's one worktree per row applies to feature folders; the flat tasks/ layout keeps a worktree per task."""
+    d = os.path.dirname(os.path.abspath(task_path))
+    if os.path.basename(d) == "done":
+        d = os.path.dirname(d)
+    fdir = os.path.dirname(d)                      # <features>/<slug>
+    folder = os.path.isfile(os.path.join(fdir, "SPEC.md"))
+    # under paths.features of the checkout that holds .reef/config.json (the review, 2026-10-26: a SPEC.md at the
+    # repository root beside a flat tasks/ is not a feature folder)
+    here, root = fdir, None
+    while True:
+        if os.path.isfile(os.path.join(here, ".reef", "config.json")) or os.path.isdir(os.path.join(here, ".git")) or os.path.isfile(os.path.join(here, ".git")):
+            root = here
+            break
+        parent = os.path.dirname(here)
+        if parent == here:
+            break
+        here = parent
+    if root:
+        try:
+            with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+                features = str(((json.load(f).get("paths") or {}).get("features")) or "reef/features")
+        except (OSError, ValueError):
+            features = "reef/features"
+        folder = folder and os.path.dirname(os.path.abspath(fdir)) == os.path.abspath(os.path.join(root, features))
+    return feature_path(feature_task_paths(task_path))[0], folder
+
+
 def review_state(root, feat, digest, task_paths):
     """(ok, line, required): the plan reviewer's verdict, a record `scripts/reef-record plan-review` writes, must be
     PASS at this digest on the CRITICAL path (workflow v3, phase 3a: before, for any task above light — one more judge

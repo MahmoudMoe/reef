@@ -193,6 +193,36 @@ class Attempt(unittest.TestCase):
 
     # ---- 0.4.0 ----
 
+    def test_a_fast_row_prints_its_path_and_no_verifier_a_critical_one_both(self):
+        # workflow v3, phase 3b: the tier names the path; on the fast path (a 0.6 feature folder, every task light/full, no
+        # risk touch) no verifier per task — the commit gate per commit, the evidence once, the one reviewer at the end
+        feat = os.path.join(self.dir, "reef", "features", "demo")
+        os.makedirs(os.path.join(feat, "tasks"))
+        open(os.path.join(feat, "SPEC.md"), "w").write("# demo\nRow: 1\n")
+        p = make_task(os.path.join(feat, "tasks"), fm="id: 7\nfeature: demo\nstatus: pending\neffort: medium\nverify: judge\ntier: full\nattempts: 0\n")
+        r = run(p)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("\npath: fast (row worktree)\n", r.stdout)
+        self.assertIn("verifier: none (fast path", r.stdout)
+        self.assertNotIn("verifier: model=", r.stdout)
+        q = make_task(os.path.join(feat, "tasks"), name="008-crit.md", fm="id: 8\nfeature: demo\nstatus: pending\neffort: medium\nverify: judge\ntier: critical\nattempts: 0\n", body="# c\n\n## Decision\nhuman words\n\n## Log\n")
+        r = run(q)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("\npath: critical\n", r.stdout)
+        self.assertIn("verifier: model=", r.stdout)
+        r = run(p)
+        self.assertIn("\npath: critical\n", r.stdout, "one critical task puts the whole row on the critical path")
+        self.assertIn("verifier: model=", r.stdout)
+        # the review (2026-10-26): a flat tasks/ layout with a SPEC.md at the repository root is not a feature folder
+        flat = os.path.join(self.dir, "flat")
+        os.makedirs(os.path.join(flat, "tasks")); os.makedirs(os.path.join(flat, ".reef"))
+        open(os.path.join(flat, ".reef", "config.json"), "w").write("{}")
+        open(os.path.join(flat, "SPEC.md"), "w").write("# not a feature folder\n")
+        f = make_task(os.path.join(flat, "tasks"), fm="id: 9\nfeature: f\nstatus: pending\neffort: medium\nverify: judge\ntier: full\nattempts: 0\n")
+        r = run(f)
+        self.assertIn("\npath: fast\n", r.stdout, "fast, but no row worktree: the flat layout keeps a worktree per task")
+        self.assertIn("verifier: model=", r.stdout)
+
     def test_verifier_model_printed_for_judge_tasks_from_config(self):
         # roles.verifier is read at dispatch, exactly like roles.author
         os.makedirs(os.path.join(self.dir, ".reef"), exist_ok=True)

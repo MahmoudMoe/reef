@@ -414,6 +414,19 @@ class ReviewSkill(unittest.TestCase):
         self.assertNotRegex(self.text, r"cap 5\b")
 
 
+class ThePathSizesTheBuild(unittest.TestCase):
+    """v3 phase 3b: /reef-task names the path; on the fast path one worktree per row, tasks in order, the commit gate per
+    commit, no verifier per task, the full gate once at the end; the close commits in place."""
+
+    def test_reef_task_has_the_fast_path(self):
+        text = read("skills", "reef-task", "SKILL.md")
+        self.assertIn("## The path", text)
+        self.assertIn("verifier: none", text)
+        self.assertRegex(text, r"(?i)one task at a time")
+        self.assertIn("sh scripts/reef-gate.sh full", text)
+        self.assertLessEqual(len(text.splitlines()), 60)
+
+
 class ThePathSizesThePlanReview(unittest.TestCase):
     """v3 phase 3a: /reef-plan runs the plan-reviewer and the hunter's plan pass on the critical path only; on the fast path
     reef-plan-check alone is the review, and the gate accepts `review: not required`."""

@@ -274,7 +274,7 @@ def cmd_generate(root, only):
         verify_only = verify_only or rejected
         rejudge = "" if rejected else get("rejudge")
         mark_dispatched(root, path, tid, implementer=not verify_only)
-        judge = bool(get("verifier"))
+        judge = "model=" in get("verifier")   # v3: `verifier: none (fast path …)` is no judge
         hunter = bool(get("adversary"))
         items.append({
             "id": tid, "task": os.path.abspath(path), "worktree": worktree, "checkout": checkout,
