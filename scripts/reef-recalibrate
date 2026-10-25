@@ -326,15 +326,56 @@ def adoption_inventory(root, cfg, files, base_branch):
             text = read(os.path.join(root, rel))
             if any(rx.search(text) for _, rx in RULE_KINDS) or any(q in text for q in old_queues) or any(h in text for h in old_handoffs):
                 old_cmds.append(rel)
-    scripts = {}
-    pkg_p = os.path.join(root, "package.json")
-    if os.path.isfile(pkg_p):
-        try:
-            scripts = {k: v for k, v in (json.loads(read(pkg_p)).get("scripts") or {}).items() if re.match(r"^(loop|handoff|adr)[:_-]", k)}
-        except ValueError:
-            scripts = {}
+    scripts = {name: body for name, _, body in project_commands(root) if OLD_LOOP_COMMAND.match(name)}
     return {"old_queues": {k: {"rows": len(v), "open": sum(1 for r in v if r["open"])} for k, v in old_queues.items()}, "old_handoffs": old_handoffs,
             "holds": holds, "in_flight": in_flight, "old_commands": old_cmds, "old_scripts": scripts, "_rows": old_queues}
+
+
+# 0.7.3 (the owner's rule: Reef works on any stack): the project's own named commands, from whichever task runner it uses —
+# package.json scripts, Makefile targets, justfile recipes, Taskfile tasks, tox environments, pyproject poe/pdm/hatch scripts
+CHECK_FAMILY = re.compile(r"^check([:._-].*)?$")
+OLD_LOOP_COMMAND = re.compile(r"^(loop|handoff|adr)([:._-].*)?$")
+
+
+def project_commands(root):
+    """[(name, how to run it, its body or source file)] — the body when the runner states one (package.json), else the file."""
+    out = []
+    pkg = os.path.join(root, "package.json")
+    if os.path.isfile(pkg):
+        try:
+            out += [(k, f"npm run {k}", str(v)) for k, v in (json.loads(read(pkg)).get("scripts") or {}).items()]
+        except (ValueError, AttributeError):
+            pass
+    for name in ("Makefile", "makefile", "GNUmakefile"):
+        if os.path.isfile(os.path.join(root, name)):
+            out += [(t, f"make {t}", name) for t in re.findall(r"^([A-Za-z0-9][\w.:-]*)\s*:(?![=:])", read(os.path.join(root, name)), re.M)]
+    for name in ("justfile", "Justfile", ".justfile"):
+        if os.path.isfile(os.path.join(root, name)):
+            out += [(t, f"just {t}", name) for t in re.findall(r"^@?([A-Za-z0-9][\w-]*)[^:=\n]*:(?!=)", read(os.path.join(root, name)), re.M)]
+    for name in ("Taskfile.yml", "Taskfile.yaml", "taskfile.yml"):
+        if os.path.isfile(os.path.join(root, name)):
+            body = re.split(r"^tasks:\s*$", read(os.path.join(root, name)), maxsplit=1, flags=re.M)
+            out += [(t, f"task {t}", name) for t in (re.findall(r"^  ([\w:.-]+):\s*$", body[1], re.M) if len(body) > 1 else [])]
+    if os.path.isfile(os.path.join(root, "tox.ini")):
+        out += [(t, f"tox -e {t}", "tox.ini") for t in re.findall(r"^\[testenv:([\w.-]+)\]", read(os.path.join(root, "tox.ini")), re.M)]
+    if os.path.isfile(os.path.join(root, "pyproject.toml")):
+        section = ""
+        for line in read(os.path.join(root, "pyproject.toml")).splitlines():
+            m = re.match(r"^\[([^\]]+)\]\s*$", line)
+            if m:
+                section = m.group(1)
+                continue
+            k = re.match(r"^([A-Za-z0-9][\w-]*)\s*=", line)
+            if not k:
+                continue
+            if section == "tool.poe.tasks":
+                out.append((k.group(1), f"poe {k.group(1)}", "pyproject.toml"))
+            elif section == "tool.pdm.scripts":
+                out.append((k.group(1), f"pdm run {k.group(1)}", "pyproject.toml"))
+            elif re.match(r"^tool\.hatch\.envs\.([\w-]+)\.scripts$", section):
+                env = section.split(".")[3]
+                out.append((k.group(1), f"hatch run {'' if env == 'default' else env + ':'}{k.group(1)}", "pyproject.toml"))
+    return out
 
 
 def adoption_readers(root, moving, new_home):
@@ -370,7 +411,7 @@ def render_adoption(a, readers, blocked):
     lines += [f"- old handoff `{h}` → merged into HANDOFF.md, archived" for h in a["old_handoffs"]] or ["- no second handoff"]
     lines += [f"- hold in `{h['file']}:{h['line']}` — `{h['text']}` (outranks Reef's merge default: named in the hand-off)" for h in a["holds"]]
     lines += [f"- old loop command/agent `{c}` → archived (Reef's skills replace it)" for c in a["old_commands"]]
-    lines += [f"- old loop package script `{k}`: `{v}` — the owner retires it (not touched)" for k, v in a["old_scripts"].items()]
+    lines += [f"- old loop command `{k}`: `{v}` — the owner retires it (not touched)" for k, v in a["old_scripts"].items()]
     for r in readers:
         lines.append(f"- reader `{r['reader']}` of `{r['target']}`: " + (f"repointed to `{r['new']}`" if r["action"] == "repoint" else f"RETIRE — it reads `{r['directory']}/`; a queue row, the documents under it wait"))
     if not readers:
@@ -605,7 +646,8 @@ def render_plan(plan):
 
 
 def measure_plan(root, plan_json):
-    """Item 16d: the plan applied in a SCRATCH worktree, then `gates.full` and every package.json `check:*` script run there;
+    """Item 16d: the plan applied in a SCRATCH worktree, then `gates.full` and every check-family command of the project's
+    own task runners (`check`, `check:*`, `check-*`; package.json, Makefile, justfile, Taskfile, tox, pyproject) run there;
     the error and red-test counts are printed, the worktree removed, the tree untouched. The owner approves a plan whose cost
     was measured (ai-coach: 603 `check:docs` errors and 4 red tests were found only after the apply)."""
     import tempfile
@@ -615,14 +657,7 @@ def measure_plan(root, plan_json):
     full = str((cfg.get("gates") or {}).get("full", "") or "")
     if full:
         cmds.append(("gates.full", full))
-    pkg_p = os.path.join(root, "package.json")
-    if os.path.isfile(pkg_p):
-        try:
-            for name in sorted(json.loads(read(pkg_p)).get("scripts") or {}):
-                if name.startswith("check:"):
-                    cmds.append((name, f"npm run {name}"))
-        except ValueError:
-            pass
+    cmds += sorted((run, run) for name, run, _ in project_commands(root) if CHECK_FAMILY.match(name))
     wt = tempfile.mkdtemp(prefix="reef-plan-measure.")
     os.rmdir(wt)
     git(root, "worktree", "add", "-q", "--detach", wt, "HEAD")
@@ -652,7 +687,7 @@ def measure_plan(root, plan_json):
     lines = ["", "## Measured cost of this plan (applied in a scratch worktree, then every gate run there; the tree here was not touched)", "",
              "| command | exit | error lines | red tests |", "|---|---|---|---|"] + [f"| {n} | {rc} | {e} | {t} |" for n, rc, e, t in rows]
     if not cmds:
-        lines.append("| (no gates.full and no package.json check:* script to run) | – | – | – |")
+        lines.append("| (no gates.full and no check-family command to run) | – | – | – |")
     return "\n".join(lines) + "\n", worst
 
 
