@@ -1392,8 +1392,8 @@ def checkpoint(root, tp, stop):
             except Exception as e:
                 why = f"reef-handoff did not run: {e}"
             break
-    return (f"HANDOFF.md NOT written ({why}) — before /clear, write HANDOFF.md by hand from `python3 scripts/reef-loop.py tick` "
-            f"and this session's facts, and tell the owner the handoff script failed")
+    return (f"HANDOFF.md NOT written ({why}) — the one thing left to do here: write HANDOFF.md by hand from `python3 "
+            f"scripts/reef-loop.py tick` and this session's facts, and tell the owner the handoff script failed")
 
 
 def check_context_ceiling(payload, tool_input=None):
