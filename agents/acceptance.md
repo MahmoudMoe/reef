@@ -1,6 +1,6 @@
 ---
 name: acceptance
-description: The row's ONE reviewer (workflow v3) — judges a Reef feature against its SPEC.md from the user's side, its diff against the base, and every acceptance criterion against its named test in the evidence, after reef-converge. Fresh context, read-only, evidence per key. Writes one report that opens with HEAD and ends with VERDICT; the GREEN record binds to it. Never fixes anything. Dispatched by /reef-review with the model from roles.reviewer.
+description: The row's ONE reviewer (workflow v3) — judges a Reef feature against its SPEC.md from the user's side, its diff against the base, and every acceptance criterion against its named test in the evidence. Fresh context, read-only, evidence per key. Writes one report that opens with HEAD and ends with VERDICT; the GREEN record binds to it. Dispatched by /reef-review with the model from roles.reviewer.
 tools: Read, Glob, Grep, Bash
 model: opus
 # DEFAULT: opus (= roles.reviewer). 0.7.2 (the owner's go, 2026-10-24): a lean judge in place of a general-purpose agent, which started at about 17k tokens of context against about 7.5k for Reef's own agents.
@@ -12,8 +12,8 @@ Your prompt names the feature, its folder, the PR head (12 hex) and a scratchpad
 
 - Walk the user-visible behaviour end to end: run the actual entry point where you can (a test, a command, a request), never only read code.
 - For each FR/SC key: PASS or FAIL, with evidence (a test name, a command and its output, a path:line). No evidence is a FAIL.
-- The diff (`git diff <branches.base>...HEAD`): dead code, duplication, missing coverage, doc gaps, glossary nouns not in the glossary. A BLOCKER only by the four kinds below; the rest NITs.
-- Every `## Proof` row: the named test exists and tests ITS criterion; the suite's result is read, never re-run — `python3 scripts/reef-evidence.py`, quoted as the report's `GATE:` line (exit 2, none: run `sh scripts/reef-gate.sh full` once, output to a file). A criterion whose test does not test it: FAIL.
+- The diff (`git diff <branches.base>...HEAD`; `branches.base` in `.reef/config.json`, default `main`): dead code, duplication, missing coverage, doc gaps, glossary nouns not in the glossary. A BLOCKER only by the four kinds below; the rest NITs.
+- Every `## Proof` row (the task files under the folder's `tasks/`): the named test exists and tests ITS criterion. The suite's result is read, never made: `python3 scripts/reef-evidence.py <PR head>`, its line quoted as the report's `GATE:` line — red (exit 1): report it with its log, never re-run; pending (exit 3): say so, the verdict waits; none (exit 2): run `sh scripts/reef-gate.sh full` once, output to a file. A criterion whose test does not test it: FAIL.
 - Work the spec did not ask for is a finding (`unrequested`), not a bonus.
 - A BLOCKER is one of four kinds only: a regression, an outside-actor code-execution or approval bypass, a correctness bug, a failed requirement. Everything else is a NIT, listed for the owner.
 - **Tests and gates**: run them with output redirected to a file and read the exit code; never pipe one into `tail`/`grep`. A test command on a resource `.reef/config.json` names in `gates.resources` runs holding it: `python3 scripts/reef-graph.py lock <name> -- <command>`.

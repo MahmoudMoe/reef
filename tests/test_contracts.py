@@ -327,8 +327,14 @@ class OneReviewer(unittest.TestCase):
         self.assertLessEqual(len(agent.splitlines()), 60)
         with open(os.path.join(ROOT, "templates", "config.json"), encoding="utf-8") as f:
             self.assertNotIn("diff_review", json.load(f)["review"], "the key is gone with the step")
-        for p in (("skills", "reef-loop", "SKILL.md"), ("templates", "project", "AGENTS.md"), ("README.md",)):
+        for p in (("skills", "reef-loop", "SKILL.md"), ("templates", "project", "AGENTS.md"), ("README.md",), ("commands", "review.md"), ("docs", "manual", "ar", "index.html")):
             self.assertNotIn("diff review", read(*p), "/".join(p))
+            self.assertNotIn("diff_review", read(*p), "/".join(p))
+        # the review (2026-10-26): the reviewer is told the head, the base branch, and what red or pending evidence means
+        self.assertIn("scripts/reef-evidence.py <PR head>", agent)
+        self.assertIn("`branches.base` in `.reef/config.json`", agent)
+        self.assertRegex(agent, r"(?i)red.{0,60}never re-run")
+        self.assertIn("pending", agent)
 
 
 class RollupNoPlanHunter(unittest.TestCase):
