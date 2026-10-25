@@ -900,7 +900,9 @@ def measure(root):
     excluded = lambda rel: any(fnmatch.fnmatch(rel, g) or rel.startswith(g.rstrip("/") + "/") for g in excl)
     product, tests = {}, {}
     for rel in files:
-        if not rel.endswith(CODE_EXT) or rel.endswith(".d.ts") or GENERATED.search(rel) or DATA_DIR.search(rel) or excluded(rel):
+        # REEF_CODE: Reef's own scripts are never the project's product (two public repositories, 2026-10-25: the largest
+        # "product" file was scripts/reef-queue.py and Reef's scripts were listed as the project's sensitive files)
+        if not rel.endswith(CODE_EXT) or rel.endswith(".d.ts") or GENERATED.search(rel) or DATA_DIR.search(rel) or excluded(rel) or REEF_CODE.match(rel):
             continue
         (tests if TEST_FILE.search(rel) else product)[rel] = count_lines(os.path.join(root, rel))
     largest = sorted(product.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
