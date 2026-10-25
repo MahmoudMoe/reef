@@ -72,7 +72,7 @@ def referenced_by(root, rel):
     # document, which made every document "kept" on a second run — 0.7 dogfood) nor from logs and evidence dumps
     r = subprocess.run(["git", "-C", root, "grep", "-l", "-F", "--", rel, "--", ":!*.md", ":!.reef/**", ":!*.log", ":!*.txt"],
                        capture_output=True, text=True)
-    refs = [l for l in r.stdout.splitlines() if l]
+    refs = [l for l in r.stdout.splitlines() if l and not REEF_CODE.match(l)]
     # item 19: the files agents read first are readers too (they were excluded with every other *.md)
     r = subprocess.run(["git", "-C", root, "grep", "-l", "-F", "--", rel, "--", *INSTRUCTION_GLOBS], capture_output=True, text=True)
     return refs + [l for l in r.stdout.splitlines() if l and l not in refs and l != rel]
@@ -98,7 +98,7 @@ def directory_readers(root, rel):
             for n in needles:
                 r = subprocess.run(["git", "-C", root, "grep", "-l", "-E", "--", n, "--", ":!*.md", ":!.reef/**", ":!*.log", ":!*.txt", ":!*.lock", ":!package-lock.json"],
                                    capture_output=True, text=True)
-                hits += [l for l in r.stdout.splitlines() if l and l not in hits]
+                hits += [l for l in r.stdout.splitlines() if l and l not in hits and not REEF_CODE.match(l)]
                 r = subprocess.run(["git", "-C", root, "grep", "-l", "-E", "--", n, "--", *INSTRUCTION_GLOBS], capture_output=True, text=True)
                 hits += [l for l in r.stdout.splitlines() if l and l not in hits]
             _DIR_READERS[d] = (d, hits)
@@ -138,6 +138,10 @@ def beside_asset_licence(root, rel):
 # too, their process rules are listed with file:line, and their rewrite is part of the approved recalibration.
 INSTRUCTION_GLOBS = ("CLAUDE*.md", "AGENTS.md", "GEMINI.md", ".cursorrules", ".github/copilot-instructions.md", ".claude/commands/**", ".claude/agents/**")
 INSTRUCTION_FILE = re.compile(r"^(CLAUDE[^/]*\.md|AGENTS\.md|GEMINI\.md|\.cursorrules|\.github/copilot-instructions\.md|\.claude/(commands|agents)/.+)$")
+# 0.7.3 (ai-coach, 2026-10-25): Reef's own code (the shape the guard locks and reef-update stages) names `specs/`, `docs/` and
+# HANDOFF-FRESH.md in comments and code: never the project's reader — it kept specs/, retired the old queue behind four reef-*
+# scripts, and the apply repointed scripts/reef-recalibrate, then refused on a "broken link" inside it
+REEF_CODE = re.compile(r"^(scripts/reef-[^/]+|\.githooks/[^/]+)$")
 RULE_KINDS = (("start command", re.compile(r"(?i)\b(start|begin|open)\b.*(/[a-z][\w:-]*(start|loop|session)|npm run loop:|loop:start)|(/loop-start|loop:start)\b")),
               ("close command", re.compile(r"(?i)(/[a-z][\w:-]*close|loop:close|npm run loop:close|\bclose\b.*\bwith\b.*\bloop)")),
               ("ADR numbering", re.compile(r"(?i)(loop:adr|number(ing)?\s+(the\s+)?ADRs?|ADR\s+numbers?\s+(come|are|from))")),
