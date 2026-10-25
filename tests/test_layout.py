@@ -127,6 +127,32 @@ class LayoutMove(unittest.TestCase):
         self.assertIn("1201", r.stdout)
         self.assertEqual(subprocess.run([sys.executable, STRUCT, "--check", "--repo", d], capture_output=True, text=True).returncode, 0)
 
+    def test_a_folder_or_file_the_projects_code_reads_by_name_stays_with_its_path(self):
+        """0.7.3 (ai-coach, 2026-10-25): the layout move took all 196 ADRs out of docs/adr/ and set paths.adr to the new home;
+        scripts/check-docs.ts reads `readdirSync("docs/adr")`, so `npm run check:docs`, gate 1 of the project's CI, failed with
+        ENOENT, and npm test, which never reads the folder, stayed green."""
+        d = self.fixture()
+        write(d, "scripts/check-docs.ts", 'import { readdirSync } from "fs";\nconst adrs = readdirSync("docs/adr");\n')
+        write(d, "src/terms.ts", 'export const GLOSSARY = "docs/glossary.md";\n')
+        shutil.copy(MIGRATE, write(d, "scripts/reef-migrate", ""))   # Reef's own copy names docs/adr and docs/queue.md: never a reader
+        git(d, "add", "-A"); git(d, "commit", "-qm", "the project's code reads two of the 0.5 paths")
+        r = subprocess.run([sys.executable, MIGRATE, "--layout", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(d, "docs", "adr", "0001-x.md")))
+        self.assertFalse(os.path.exists(os.path.join(d, "reef", "architecture", "adr")))
+        self.assertTrue(os.path.isfile(os.path.join(d, "docs", "glossary.md")))
+        self.assertTrue(os.path.isfile(os.path.join(d, "reef", "queue.md")), "what nothing reads still moves")
+        cfg = json.loads(open(os.path.join(d, ".reef", "config.json")).read())
+        self.assertEqual((cfg["paths"]["adr"], cfg["paths"]["glossary"], cfg["paths"]["queue"]), ("docs/adr", "docs/glossary.md", "reef/queue.md"))
+        self.assertIn("kept: docs/adr (read by scripts/check-docs.ts)", r.stdout)
+        self.assertIn("kept: docs/glossary.md (read by src/terms.ts)", r.stdout)
+        agents = open(os.path.join(d, "AGENTS.md")).read()
+        self.assertIn("(reef/queue.md)", agents, "an instruction file's link is rewritten, never a reason to keep")
+        self.assertIn("(docs/adr/0001-x.md)", agents)
+        self.assertEqual(git(d, "status", "--porcelain").strip(), "", "one commit")
+        write(d, ".reef/version", "0.6.0\n")
+        r = subprocess.run([sys.executable, STRUCT, "--check", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 class Migrations(unittest.TestCase):
     def test_05_config_gains_keys_once_and_gates_test_is_untouched(self):
