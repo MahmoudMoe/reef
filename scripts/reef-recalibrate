@@ -7,7 +7,7 @@
   reef-recalibrate history [--repo DIR]      how it was pushed: branches, commit convention, merge style, tags, CI → derived branches.*
   reef-recalibrate measure [--json] [--repo DIR]   (0.7.2) counts, not judgments, into reef/day-zero.md ## Measured: largest product
                                              files, …; on node also a dependency-cruiser config + known-violations baseline under
-                                             .reef/proposed/ (layer boundaries, item 13), proposed in reef/recalibration.md
+                                             .reef/recalibration/proposed/ (layer boundaries, item 13), proposed in reef/recalibration.md
                                              files, product vs test LOC, raw SQL by directory, functions/triggers per migration,
                                              linter, existing guard tests; reef/size-baseline.json; files over assess.large_file
                                              as candidate refactor rows in reef/recalibration.md
@@ -27,6 +27,9 @@ import sys
 KEEP = {"README.md", "LICENSE", "LICENSE.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md", "CODEOWNERS", "CODE_OF_CONDUCT.md", "AGENTS.md", "CLAUDE.md", "HANDOFF.md"}
 # 0.7.2 (ai-coach, 2026-10-24, item 16): a licence anywhere, under any name (a font's OFL.md, LICENSE-fonts.md, NOTICE.md), is kept;
 # so is every document in a directory that holds an asset (font, image, binary) beside its licence
+# 0.7.3 (ai-coach, 2026-10-25): the plan's own proposals; .reef/proposed/ is reef-init's, and the plan's AGENTS.md rewrite overwrote
+# init's proposal for the same file, which the doctor then offered to `--accept` as Reef's rendering
+PROPOSED = os.path.join(".reef", "recalibration", "proposed")
 LICENCE_RE = re.compile(r"(?i)^(licen[cs]e|copying|notice|ofl)([-_.].*)?(\.md|\.txt)?$")
 ASSET_EXT = (".ttf", ".otf", ".woff", ".woff2", ".eot", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".pdf", ".mp3", ".mp4", ".wasm", ".bin")
 DECISION_DIR = re.compile(r"(^|/)(adr|adrs|decisions?|rfcs?)(/|$)", re.I)
@@ -364,7 +367,7 @@ def render_adoption(a, readers, blocked):
 def render_layer(layer, rewrites):
     lines = ["# The instruction layer — what the agents read first", "",
              "Written by `reef-recalibrate plan` (Observed: file:line). Every pointer to a process document and every process rule that "
-             "conflicts with Reef's; the rewrite of each file is part of the approved recalibration (its diff under `.reef/proposed/`), "
+             "conflicts with Reef's; the rewrite of each file is part of the approved recalibration (its diff under `.reef/recalibration/proposed/`), "
              "product content kept verbatim, another tool's block byte-identical, duplicates merged into one file.", ""]
     if not layer["files"]:
         return "\n".join(lines + ["No instruction file found (CLAUDE*.md, AGENTS.md, GEMINI.md, .cursorrules, copilot-instructions, .claude/commands, .claude/agents).", ""])
@@ -379,7 +382,7 @@ def render_layer(layer, rewrites):
 
 
 def propose_rewrites(root, layer):
-    """Each instruction file with a pointer or a rule gets its rewritten text under .reef/proposed/<file>; the plan carries the list.
+    """Each instruction file with a pointer or a rule gets its rewritten text under .reef/recalibration/proposed/<file>; the plan carries the list.
     Nothing in the tree changes until --apply, under the approved plan."""
     out = []
     for e in layer["files"]:
@@ -389,7 +392,7 @@ def propose_rewrites(root, layer):
         new = rewrite_instruction(text, e)
         if new == text:
             continue
-        p = os.path.join(root, ".reef", "proposed", e["file"])
+        p = os.path.join(root, PROPOSED, e["file"])
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
             f.write(new)
@@ -556,7 +559,7 @@ def render_plan(plan):
     rw = plan.get("rewrites") or []
     lay = plan.get("instruction_layer") or {"files": [], "duplicates": []}
     lines += ["", "## Instruction layer (reef/instruction-layer.md)", "",
-              f"{len(lay['files'])} file(s) the agents read first; {len(rw)} rewrite(s) proposed under `.reef/proposed/` and applied with this plan "
+              f"{len(lay['files'])} file(s) the agents read first; {len(rw)} rewrite(s) proposed under `.reef/recalibration/proposed/` and applied with this plan "
               "(process sections → one pointer to Reef's tree; product content and other tools' blocks kept byte for byte); "
               + (f"duplicates merged into `{lay.get('primary')}`: {', '.join('`' + d + '`' for d in lay['duplicates'])}" if lay["duplicates"] else "no duplicate CLAUDE file"), ""]
     lines += [f"- rewrite `{r['file']}` ← `{r['proposed']}` ({r['sections']} section(s), {r['foreign']} foreign block(s) kept) — read the diff first: "
@@ -846,7 +849,7 @@ def measure(root):
 # ---------------------------------------------------------------- boundaries (0.7.2, ai-coach 2026-10-24, item 13)
 # Layer boundaries were not enforced. The measure derives a dependency-cruiser config from the observed layout and writes
 # today's violations as the known-violations baseline, so day one is green and only a NEW violation fails. Proposed under
-# .reef/proposed/, applied by the owner with the plan; the gate is `depcruise --ignore-known`.
+# .reef/recalibration/proposed/, applied by the owner with the plan; the gate is `depcruise --ignore-known`.
 IMPORT_RE = re.compile(r"""(?:^|\n)\s*(?:import\s+(?:[^'"]*?\s+from\s+)?|export\s+[^'"]*?\s+from\s+|const\s+[^=]+=\s*require\()\s*['"]([^'"]+)['"]""")
 BOUNDARY_RULES = (("components-no-db", r"(^|/)components/", "a component never touches the database client"),
                   ("api-db-through-lib", r"(^|/)app/api/", "a route handler reaches the database only through lib/"))
@@ -872,7 +875,7 @@ def resolve_import(rel, spec, files, aliases):
 def boundaries(root, product, stack):
     if stack != "node":
         if stack == "python":
-            draft = os.path.join(root, ".reef", "proposed", "adr-draft-import-boundaries.md")
+            draft = os.path.join(root, PROPOSED, "adr-draft-import-boundaries.md")
             os.makedirs(os.path.dirname(draft), exist_ok=True)
             with open(draft, "w", encoding="utf-8") as f:
                 f.write("# ADR draft — import boundaries (python)\n\nStatus: Draft\n\nContext: layer boundaries are not enforced. "
@@ -914,7 +917,7 @@ def boundaries(root, product, stack):
               "".join(f"    {{ name: '{name}', severity: 'error', comment: '{why}',\n      from: {{ path: '{from_re}' }}, to: {{ path: '({db_re}|node_modules/@prisma/client)' }} }},\n"
                       for name, from_re, why in BOUNDARY_RULES) +
               "  ],\n  options: { doNotFollow: { path: 'node_modules' }, tsPreCompilationDeps: true, tsConfig: { fileName: 'tsconfig.json' } },\n};\n")
-    pdir = os.path.join(root, ".reef", "proposed")
+    pdir = os.path.join(root, PROPOSED)
     os.makedirs(pdir, exist_ok=True)
     with open(os.path.join(pdir, ".dependency-cruiser.cjs"), "w", encoding="utf-8") as f:
         f.write(config)
@@ -939,8 +942,8 @@ def render_boundaries(b):
     if b["stack"] == "python":
         return f"## Proposed gate — boundaries (python)\n\nAn ADR draft only: `{b['adr_draft']}` (import-linter). No gate is proposed until the owner decides.\n"
     lines = ["## Proposed gate — boundaries (node)", "",
-             "Derived from the observed layout; nothing is applied. On approval: move `.reef/proposed/.dependency-cruiser.cjs` and "
-             "`.reef/proposed/.dependency-cruiser-known-violations.json` to the root, `npm i -D dependency-cruiser`, and add to `gates.extra`: "
+             "Derived from the observed layout; nothing is applied. On approval: move `.reef/recalibration/proposed/.dependency-cruiser.cjs` and "
+             "`.reef/recalibration/proposed/.dependency-cruiser-known-violations.json` to the root, `npm i -D dependency-cruiser`, and add to `gates.extra`: "
              f"`\"boundaries\": \"{b['gate']}\"`. Today's {len(b['known'])} violation(s) are the baseline: day one is green, only a NEW one fails.", "",
              f"- database client: {', '.join('`' + d + '`' for d in b['db_files']) or 'none found (no `new PrismaClient(`)'}",
              "- rules: " + "; ".join(f"`{n}` — {why}" for n, _, why in BOUNDARY_RULES), "",
@@ -1309,6 +1312,9 @@ def cmd_apply(root, list_path, commit, park=False):
         print(f"note: {len(already_dead)} relative link(s) were already broken before the apply and travelled as they were (not this apply's to fix):")
         for b in already_dead[:10]:
             print(f"  - {b}")
+    for rw in plan.get("rewrites") or []:   # applied: not left waiting as a proposal (removed only now: a refused apply keeps them)
+        if rw["file"] in touched and os.path.isfile(os.path.join(root, rw["proposed"])):
+            os.remove(os.path.join(root, rw["proposed"]))
     if commit:
         git(root, "add", "-A")   # the tree was clean before: everything staged is this apply (the moves are already staged)
         git(root, "-c", "user.email=reef@local", "-c", "user.name=reef", "commit", "-q", "-m",

@@ -7,7 +7,23 @@
   the old queue retired behind four reef-* scripts (the hand-off stayed "partial"), and the apply repointed paths inside
   `scripts/reef-recalibrate` itself, then refused on a "broken link" in its regex. A file under `scripts/reef-*` or
   `.githooks/` (the shape the guard locks and `reef-update --commit` stages) no longer counts as a reader, by exact path or
-  by directory. tests/size-budget.json raised: `script_lines` 14,118 → 14,122.
+  by directory. tests/size-budget.json raised: `script_lines` 14,150 → 14,154.
+- **The recalibration plan's proposals no longer land in reef-init's `.reef/proposed/`** (ai-coach, 2026-10-25). The plan
+  wrote its instruction-layer rewrites (item 19) and the dependency-cruiser config and baseline (item 13) under
+  `.reef/proposed/`, reef-init's directory: the AGENTS.md rewrite overwrote init's own AGENTS.md proposal, `reef-update` and
+  the doctor listed the plan's files as renderings waiting for `reef-init --accept`, and that advice was destructive —
+  accepting AGENTS.md recorded the rewrite as Reef's rendering, so the next `reef-update` replaced AGENTS.md with the template
+  (the product text and the project's own rules gone); accepting the archived CLAUDE-CODE-PROMPT.md put it back at the root.
+  The plan now writes to `.reef/recalibration/proposed/` (ignored by reef-init's `.gitignore` lines), the `git diff
+  --no-index` lines and the boundaries section point there, and the apply removes each rewrite it applied (only after the
+  apply succeeded: a refused apply keeps them). tests/size-budget.json raised: `script_lines` 14,144 → 14,150.
+- **`structure` can be switched on the day of the adoption** (ai-coach, 2026-10-25; the owner's go). After the apply,
+  `reef-structure --check` found 507 process documents outside the layout — 443 under `specs/` and 64 under
+  `design_handoff/` — every one of them KEPT by the recalibration plan because the project's own checks read those
+  directories (item 16's rule), so the gate could not join `gates.extra` without turning every row red. The check now reads
+  `.reef/recalibration.json`: a document kept for a reader (a directory read, a code or instruction-file reference, a reader
+  still to retire, an in-flight edit) is the baseline and is counted in a note, not failed; a document the plan never saw,
+  or kept for another reason, still fails. Like `sizes` and `boundaries`: baseline first, only the new fails. tests/size-budget.json raised: `script_lines` 14,118 → 14,144.
 - **Four adoption defects from the first real run of 0.7.2** (ai-coach, 2026-10-25). (1) `main`, the release branch, was reported
   "in flight under the old loop" because the word sat in `docs/loop/queue-archive.md`: the check now skips `branches.base` and
   `branches.release` and matches a branch name only inside an OPEN row of an old queue (or the old handoff), never anywhere in a
