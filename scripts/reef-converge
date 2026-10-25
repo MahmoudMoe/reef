@@ -241,6 +241,7 @@ def suite_result(root):
         import importlib.util
         spec = importlib.util.spec_from_loader("reef_evidence", importlib.machinery.SourceFileLoader("reef_evidence", p))
         ev = importlib.util.module_from_spec(spec)
+        sys.dont_write_bytecode = True   # the import must not write scripts/__pycache__ into the tree whose snapshot it reads
         try:
             spec.loader.exec_module(ev)
             e = ev.evidence(root)

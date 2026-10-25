@@ -21,7 +21,7 @@ touch -t 198001010000 "$TMPIDX"   # not the epoch: a zero index timestamp switch
 set -- .
 # v3 phase 2: the gate's own artifacts never move the hash they are keyed by — its logs and markers (.reef/ci-local/) and
 # its evidence (.reef/evidence/<snapshot>.json) are left out whether or not the project ignores them
-set -- "$@" ":(exclude).reef/ci-local" ":(exclude).reef/evidence"
+set -- "$@" ":(exclude).reef/ci-local" ":(exclude).reef/evidence" ":(exclude)scripts/__pycache__"   # and Reef's own byte-code
 while IFS= read -r wt; do
   [ -n "$wt" ] || continue
   w=$(cd "$wt" 2>/dev/null && pwd -P) || continue   # macOS: /var -> /private/var

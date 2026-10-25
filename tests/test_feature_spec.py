@@ -688,7 +688,9 @@ class ConvergeReadsTheEvidence(unittest.TestCase):
         write(self.d, ".reef/config.json", json.dumps(c))
 
     def converge(self):
-        return subprocess.run([sys.executable, CONVERGE, "csv-export-for-orders", "--repo", self.d], capture_output=True, text=True)
+        # bytecode ON, as on CI: importing reef-evidence.py must not litter scripts/__pycache__ into the tree it measures
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+        return subprocess.run([sys.executable, CONVERGE, "csv-export-for-orders", "--repo", self.d], capture_output=True, text=True, env=env)
 
     def snapshot(self):
         return subprocess.run(["sh", "scripts/reef-snapshot.sh"], cwd=self.d, capture_output=True, text=True).stdout.strip()
