@@ -415,7 +415,21 @@ def propose_rewrites(root, layer):
     return out
 
 
-def classify(root, rel, text, served, unmerged=None):
+# 0.7.3 (ai-coach, 2026-10-25): the folders .reef/config.json `paths.*` names are the layout (reef-structure has said so since
+# 0.7.2): a document there stays, and converted ADRs land in `paths.adr` — the apply had moved docs/adr/ to
+# reef/architecture/adr/ and would have split the ADRs across two homes once the owner moved docs/adr/ back
+HOME_KEYS = ("adr", "queue", "runlog", "glossary", "tasks", "features", "day_zero")
+
+
+def config_homes(cfg):
+    return [str(v).strip().strip("/") for k, v in (cfg.get("paths") or {}).items() if v and k in HOME_KEYS]
+
+
+def adr_home(cfg):
+    return str((cfg.get("paths") or {}).get("adr") or "reef/architecture/adr").strip().strip("/")
+
+
+def classify(root, rel, text, served, unmerged=None, homes=()):
     base = os.path.basename(rel)
     if base in KEEP:
         return "keep", "project file (README, LICENSE, CONTRIBUTING, SECURITY, CHANGELOG, CODEOWNERS)"
@@ -429,6 +443,8 @@ def classify(root, rel, text, served, unmerged=None):
         return "keep", f"edited on unmerged branch {unmerged[rel]}"
     if rel.startswith(("reef/", ".reef/", ".github/", ".claude/", "tasks/")):
         return "keep", "already in the layout"
+    if any(rel == h or rel.startswith(h + "/") for h in homes):
+        return "keep", "already in the layout (a .reef/config.json paths.* home)"
     if any(rel == d or rel.startswith(d + "/") for d in served):
         return "keep", "served by the docs build"
     refs = referenced_by(root, rel)
@@ -510,7 +526,7 @@ def build_plan(root):
     adoption = adoption_inventory(root, cfg_all, files, base_branch)
     for rel in sorted(files):
         text = read(os.path.join(root, rel))
-        action, reason = classify(root, rel, text, served, unmerged)
+        action, reason = classify(root, rel, text, served, unmerged, config_homes(cfg_all))
         if rel in adoption["old_queues"]:
             action, reason = "convert-queue", f"the old loop's queue: {adoption['old_queues'][rel]['open']} open row(s) → Reef rows, closed rows archived with the file"
         elif rel in adoption["old_handoffs"]:
@@ -549,7 +565,7 @@ def build_plan(root):
     adoption["readers"] = readers
     layer = instruction_layer(root, files, {e["path"] for e in plan if e["action"] != "keep"})
     rewrites = propose_rewrites(root, layer)
-    return {"date": date, "entries": plan, "history": hist, "instruction_layer": layer, "rewrites": rewrites, "adoption": adoption, "create": ["reef/constitution.md", "reef/queue.md", "reef/journal.md", "reef/glossary.md",
+    return {"date": date, "adr_home": adr_home(cfg_all), "entries": plan, "history": hist, "instruction_layer": layer, "rewrites": rewrites, "adoption": adoption, "create": ["reef/constitution.md", "reef/queue.md", "reef/journal.md", "reef/glossary.md",
                                                                      "reef/architecture/", "reef/features/README.md", f"reef/archive/{date}/", "reef/archive/README.md"]}
 
 
@@ -560,10 +576,11 @@ def render_plan(plan):
              "Undo is `git revert` of the apply commit.", "", "## Create", ""]
     lines += [f"- create `{c}`" for c in plan["create"]]
     lines += ["", "## Documents", "", "| action | path | → | reason |", "|---|---|---|---|"]
+    home = plan.get("adr_home", "reef/architecture/adr")
     for e in plan["entries"]:
         dest = {"convert-queue": "open rows → Reef's queue (+ archive)", "merge-handoff": "HANDOFF.md (+ archive)",
-                "convert-adr": f"reef/architecture/adr/{os.path.basename(e['path'])} (the same record, its number kept)" if e.get("adr_number")
-                else f"reef/architecture/adr/NNNN-{e.get('adr_slug', '')}.md (+ archive)",
+                "convert-adr": f"{home}/{os.path.basename(e['path'])} (the same record, its number kept)" if e.get("adr_number")
+                else f"{home}/NNNN-{e.get('adr_slug', '')}.md (+ archive)",
                 "convert-feature": f"reef/features/{e.get('feature', '')}/SPEC.md (+ queue row, + archive)",
                 "merge-glossary": "reef/glossary.md (+ archive)", "archive": e.get("archive", ""), "keep": "—"}[e["action"]]
         lines.append(f"| {e['action']} | `{e['path']}` | {dest} | {e['reason']} |")
@@ -742,8 +759,8 @@ def relink(text, old_rel, new_rel):
     return LINK.sub(fix, text)
 
 
-def to_adr(text, number, slug, rel, archive):
-    text = relink(text, rel, f"reef/architecture/adr/{number:04d}-{slug}.md")
+def to_adr(text, number, slug, rel, archive, home="reef/architecture/adr"):
+    text = relink(text, rel, f"{home}/{number:04d}-{slug}.md")
     title = (re.search(r"^#\s+(.+)$", text, re.M) or [None, slug])[1] if re.search(r"^#\s+(.+)$", text, re.M) else slug.replace("-", " ")
     sec = lambda h: (re.search(rf"^#+\s*{h}\s*$(.*?)(?=^#+\s|\Z)", text, re.M | re.S) or [None, ""])[1].strip() if re.search(rf"^#+\s*{h}\s*$", text, re.M | re.I) else ""
     ctx, dec, con = sec("Context") or text.strip()[:600], sec("Decision") or "(see the original, archived below)", sec("Consequences") or "+ (see the original)\n- (see the original)"
@@ -1173,16 +1190,18 @@ def cmd_apply(root, list_path, commit, park=False):
     paths = cfg.get("paths", {})
     queue_path = os.path.join(root, paths.get("queue", "reef/queue.md"))
     moved, touched, created = {}, [], []
-    arch_adr = os.path.join(root, "reef", "architecture", "adr")
+    adr_rel = adr_home(cfg)
+    arch_adr = os.path.join(root, adr_rel)
     os.makedirs(arch_adr, exist_ok=True)
-    numbered = [int(m.group(1)) for d in (arch_adr, os.path.join(root, paths.get("adr", "docs/adr"))) if os.path.isdir(d) for f in os.listdir(d) for m in [re.match(r"^(\d{4})-", f)] if m]
+    numbered = [int(m.group(1)) for d in {arch_adr, os.path.join(root, "reef", "architecture", "adr"), os.path.join(root, "docs", "adr")}
+                if os.path.isdir(d) for f in os.listdir(d) for m in [re.match(r"^(\d{4})-", f)] if m]
     kept = {}   # 0.7.2 (ai-coach, item 21): 193 ADRs cited 456 times as `ADR NNNN` would each have taken a new number
     for e in entries:
         if e["action"] == "convert-adr" and e.get("adr_number"):
             n, name = int(e["adr_number"]), os.path.basename(e["path"])
             clash = [f for f in os.listdir(arch_adr) if re.match(rf"^{n:04d}-", f)] + ([os.path.basename(kept[n])] if n in kept else [])
             if clash:
-                die(f"ADR number {n:04d} clashes: {e['path']} and reef/architecture/adr/{clash[0]} — renumber one by hand; nothing moved", 1)
+                die(f"ADR number {n:04d} clashes: {e['path']} and {adr_rel}/{clash[0]} — renumber one by hand; nothing moved", 1)
             kept[n] = e["path"]
             numbered.append(n)
     nxt = (max(numbered) + 1) if numbered else 1
@@ -1232,7 +1251,7 @@ def cmd_apply(root, list_path, commit, park=False):
                 f.write(prev.rstrip("\n") + f"\n\n## Carried over from {rel} ({date})\n\n" + re.sub(r"^# .*\n", "", text, count=1).strip() + "\n")
             touched.append("HANDOFF.md")
         if e["action"] == "convert-adr" and e.get("adr_number"):   # the same record moves, number and text intact, no Supersedes
-            new = f"reef/architecture/adr/{os.path.basename(rel)}"
+            new = f"{adr_rel}/{os.path.basename(rel)}"
             git(root, "mv", rel, new)
             moved[rel] = new
             touched.append(new)
@@ -1244,9 +1263,9 @@ def cmd_apply(root, list_path, commit, park=False):
         touched.append(arch)
         home = arch
         if e["action"] == "convert-adr":
-            new = f"reef/architecture/adr/{nxt:04d}-{e['adr_slug']}.md"
+            new = f"{adr_rel}/{nxt:04d}-{e['adr_slug']}.md"
             with open(os.path.join(root, new), "w", encoding="utf-8") as f:
-                f.write(to_adr(text, nxt, e["adr_slug"], rel, arch))
+                f.write(to_adr(text, nxt, e["adr_slug"], rel, arch, adr_rel))
             nxt += 1
             moved[rel] = new
             created.append(new)
