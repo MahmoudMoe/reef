@@ -342,7 +342,7 @@ def next_id(root, snap):
 
 
 def allocate_id(root, snap):
-    """The next row id, RESERVED (0.7.2, ai-coach 2026-10-24, item 20): six add-rows in a row made issues titled [3] [3] [4] [4]
+    """The next row id, RESERVED (0.7.2, first adoption 2026-10-24, item 20): six add-rows in a row made issues titled [3] [3] [4] [4]
     [5] [5], because GitHub's issue list lags a just-created issue. The last allocated id is kept in .reef/queue.json under a
     file lock and counts like a row's; the snapshot's re-read carries it over."""
     snap_p = os.path.join(root, ".reef", "queue.json")

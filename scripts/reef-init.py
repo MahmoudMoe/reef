@@ -66,7 +66,7 @@ AUDITS = {"node": "npm audit --audit-level=high",
           "rust": "command -v cargo-audit >/dev/null 2>&1 || exit 77; cargo audit",
           "go": "command -v govulncheck >/dev/null 2>&1 || exit 77; govulncheck ./..."}
 GITLEAKS_GATE = "command -v gitleaks >/dev/null 2>&1 || exit 77; gitleaks detect --source . --log-opts=--all --no-banner"
-# 0.7.2 (ai-coach, 2026-10-24, item 12): injection had no deterministic check — only the security agent's judgment. A release
+# 0.7.2 (first adoption, 2026-10-24, item 12): injection had no deterministic check — only the security agent's judgment. A release
 # gate per stack; semgrep missing is exit 77 (skipped, never success), installed by the CI template like gitleaks.
 SEMGREP = {"node": "p/typescript", "python": "p/python", "rust": "p/rust", "go": "p/golang"}
 SEMGREP_GATE = "command -v semgrep >/dev/null 2>&1 || exit 77; semgrep scan --config p/owasp-top-ten --config {pack} --error"
@@ -123,10 +123,10 @@ def detect(root):
             pkg = {}
         scripts = pkg.get("scripts", {}) if isinstance(pkg, dict) else {}
         deps = {**(pkg.get("dependencies") or {}), **(pkg.get("devDependencies") or {})} if isinstance(pkg, dict) else {}
-        # worktree.setup (0.7.2, ai-coach 2026-10-24): a task worktree needs the GENERATED code too — a stale Prisma client
+        # worktree.setup (0.7.2, first adoption 2026-10-24): a task worktree needs the GENERATED code too — a stale Prisma client
         # and .next types failed ~14 test files for reasons unrelated to the task. The project's `generate` script, else
         # Prisma's generator when Prisma is a dependency; never `scripts.setup` or anything that migrates a database.
-        # gates.fast (0.7.2, ai-coach 2026-10-24, item 4): the project's own quick checks, each only when present, never
+        # gates.fast (0.7.2, first adoption 2026-10-24, item 4): the project's own quick checks, each only when present, never
         # invented — it stayed "" and every commit ran the full suite (66 s)
         fast = []
         if "lint" in scripts:
@@ -379,7 +379,7 @@ def sha(data):
 
 
 def reef_dir(root):
-    """0.7.3 (ai-coach, 2026-10-25): Reef's proposals live under the git dir — every tool, test and linter skips .git; under
+    """0.7.3 (first adoption, 2026-10-25): Reef's proposals live under the git dir — every tool, test and linter skips .git; under
     .reef/proposed/ a project test that walks the disk counted .dependency-cruiser.cjs and a .claude/ folder as its own.
     The common dir, so a linked worktree sees the same proposals. Outside a git repository: .reef/ as before."""
     r = subprocess.run(["git", "-C", root, "rev-parse", "--git-common-dir"], capture_output=True, text=True)
