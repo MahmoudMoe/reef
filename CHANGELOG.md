@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **Reef runs on the Python a Mac ships** (2026-10-25, the first adoption: macOS's `/usr/bin/python3` is 3.9).
+  `reef-merge-close` and `reef-handoff` were SyntaxErrors there — an f-string with a backslash, and one nesting its own
+  quotes, both legal only from 3.12 — so a finished task could not merge without another Python, and the guard's
+  checkpoint wrote no HANDOFF.md. CI never saw it: both legs ran 3.12+. Both lines rewritten without the 3.12 forms (no
+  size change); `tests/test_python_floor.py` compiles every Reef Python file under the running interpreter and, on 3.12+,
+  refuses an f-string expression with a backslash or its own quote; the macOS CI leg now runs `/usr/bin/python3`. Under
+  3.9 the whole suite passed but for these two scripts.
 - **Reef's own scripts are never the project's product code** (2026-10-25, found by running the adoption on two public
   repositories: a Go service and a FastAPI + TypeScript template). After `reef-init`, the measure counted `scripts/reef-*`
   as the project's code: the largest "product" file was `scripts/reef-queue.py`, Reef's scripts were listed as the
