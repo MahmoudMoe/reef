@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **The guard knows a gate on any stack** (the owner's rule, 2026-10-25). Piping a gate hides its exit code; the guard knew
+  npm, pytest, vitest, jest, cargo and go — and one adopted project's `npm run ci:local` by name. Now a gate is a command
+  the project configured in `.reef/config.json` `gates.*` (each `&&` part; lint and typecheck count when configured), a
+  task runner's test, check, ci, verify or spec target (npm, pnpm, yarn, bun, make, just, task, composer, deno, mix, dotnet,
+  maven, gradle), or a common test runner (rspec, phpunit, tox, nox, ctest, mocha besides the old ones). `npm run lint |
+  tail` stays allowed when lint is not a configured gate. The project's name left the guard: the generality baseline drops
+  `ci:local`. tests/size-budget.json raised: {BUDGET}.
 - **Reef works on any project and any stack: two guards** (the owner's rule, 2026-10-25). (1) `tests/test_generality.py`
   `GeneralityRatchet`: names of one adopted project or one stack's tools in Reef's code and agent-facing prose (comments and
   docstrings are history and do not count) are listed in `tests/generality-baseline.json` — 40 hits in 7 files today

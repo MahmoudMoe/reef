@@ -169,6 +169,33 @@ class NativeWindows(unittest.TestCase):
         self.assertEqual(r.returncode, 0, "a Windows user's other projects are not Reef's to block")
 
 
+class GateOnAnyStack(unittest.TestCase):
+    """0.7.3 (the owner's rule: Reef works on any stack, 2026-10-25): piping a gate hides its exit code. The guard knew npm,
+    pytest, vitest, jest, cargo and go — and one adopted project's `npm run ci:local` by name. Now a gate is any command the
+    project configured in `.reef/config.json` `gates.*` (lint and typecheck count when configured), a task runner's test,
+    check, ci, verify or spec target, or a common test runner of another stack."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-gates.")
+        subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
+        write_config(self.d, {"gates": {"full": "bundle exec rspec", "fast": "pnpm lint && pnpm typecheck", "extra": {"docs": "make docs-index"}}})
+
+    def run_in(self, cmd):
+        return run_guard({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": cmd}})
+
+    def test_the_projects_configured_gates_and_other_stacks_runners_are_gates(self):
+        for cmd in ("bundle exec rspec | tail -3", "make docs-index 2>&1 | tail", "pnpm test | tail", "pnpm lint | head",
+                    "pnpm typecheck | tail", "yarn test | tail", "bun run test | tail", "make test | tail", "just check | tail", "mvn test | tail", "./gradlew test | tail",
+                    "dotnet test | tail", "mix test | tail", "rspec | tail", "tox -e py312 | tail", "deno test | tail",
+                    "npm run check:docs | tail", "npm run ci:local | tail -1", "composer test | tail", "phpunit | tail"):
+            with self.subTest(cmd=cmd):
+                r = self.run_in(cmd)
+                self.assertEqual(r.returncode, 2, f"NOT DENIED: {cmd!r}: {r.stderr}")
+        for cmd in ("bundle exec rake routes | head", "npm run dev | tail", "make build-assets | tail", "git log | head", "yarn run lint | tail",
+                    "grep rspec Gemfile | head"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.run_in(cmd).returncode, 0, f"denied a non-gate: {cmd!r}")
+
 class PushBypass(unittest.TestCase):
     """0.7.2 (ai-coach, 2026-10-24): `git push --no-verify` skips `.githooks/pre-push` when the repository has one — ai-coach
     chained its push guard into that hook. Without the hook there is nothing to skip; `push -n` is --dry-run."""
