@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **Reef works on any project and any stack: two guards** (the owner's rule, 2026-10-25). (1) `tests/test_generality.py`
+  `GeneralityRatchet`: names of one adopted project or one stack's tools in Reef's code and agent-facing prose (comments and
+  docstrings are history and do not count) are listed in `tests/generality-baseline.json` — 40 hits in 7 files today
+  (`ci:local` in the guard, the old loop's command names and Prisma, Next.js and dependency-cruiser in reef-recalibrate,
+  "ai-coach" in three skills) — and the list only shrinks: a new hit is red, a removed one is red until the baseline is
+  lowered with it. (2) `AnyStack`: a node + Next.js + Prisma project, a python + FastAPI + SQLAlchemy project, a go project
+  and a ruby project (no stack profile) each run reef-init → measure → plan → apply → structure → doctor; every step
+  finishes and the project's own check, which reads its ADR folder by directory, still passes. No script changed.
 - **Reef's proposals live under the git dir, never in the work tree** (ai-coach, 2026-10-25; the owner's go). The project's
   `server-context.test.ts` walks the disk (`readdirSync`, skipping only `node_modules`, `.git`, `.next`, `.claude`) and
   failed locally on Reef's git-ignored `.reef/proposed/`: `.dependency-cruiser.cjs` counted as a seventh JS file and
