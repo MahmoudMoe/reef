@@ -666,6 +666,117 @@ class BlockingFixed(unittest.TestCase):
         self.assertIn("cannot be checked", r.stdout)
 
 
+class ConvergeReadsTheEvidence(unittest.TestCase):
+    """v3 phase 2: a whole-suite proof reads the evidence the gate wrote for this tree instead of running the suite again;
+    the gate runs once only when there is none (and writes it); every proof runs holding gates.resources."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-conv2.")
+        subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
+        os.makedirs(os.path.join(self.d, "scripts"))
+        for name in ("reef-gate.sh", "reef-snapshot.sh", "reef-graph.py", "reef-evidence.py"):
+            shutil.copy(os.path.join(ROOT, "scripts", name), os.path.join(self.d, "scripts", name))
+        self.marker = os.path.join(tempfile.mkdtemp(prefix="reef-conv2-ran."), "ran.log")   # outside the tree: a file in it would move the snapshot
+        self.cfg({"gates": {"full": f"echo ran >> {self.marker}; echo '2 passed'"}, "paths": {"features": "reef/features"}})
+        feature(self.d)
+        write(self.d, "tests/__init__.py", "")
+        write(self.d, "tests/test_export.py", "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_csv_header_and_rows(self):\n        pass\n\n    def test_csv_two_decimals(self):\n        pass\n")
+        subprocess.run(["git", "-C", self.d, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", self.d, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "start"], check=True, capture_output=True)
+
+    def cfg(self, c):
+        write(self.d, ".reef/config.json", json.dumps(c))
+
+    def converge(self):
+        # bytecode ON, as on CI: importing reef-evidence.py must not litter scripts/__pycache__ into the tree it measures
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+        return subprocess.run([sys.executable, CONVERGE, "csv-export-for-orders", "--repo", self.d], capture_output=True, text=True, env=env)
+
+    def snapshot(self):
+        return subprocess.run(["sh", "scripts/reef-snapshot.sh"], cwd=self.d, capture_output=True, text=True).stdout.strip()
+
+    def evidence(self, exit_code, head=None):
+        os.makedirs(os.path.join(self.d, ".reef", "evidence"), exist_ok=True)
+        head = head or subprocess.run(["git", "-C", self.d, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        write(self.d, f".reef/evidence/{self.snapshot()}.json", json.dumps({"snapshot": self.snapshot(), "head": head, "exit": exit_code, "at": "2030-01-01T00:00:00Z", "mode": "full"}))
+
+    def test_a_whole_suite_proof_reads_the_evidence_and_runs_the_gate_only_when_there_is_none(self):
+        self.evidence(0)
+        r = self.converge()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("whole suite: evidence: local snapshot", r.stdout)
+        self.assertFalse(os.path.exists(self.marker), "green evidence for this tree: the suite is not run again")
+        self.evidence(0, head="0" * 40)   # the review (2026-10-25): a record is read through reef-evidence, which checks its head
+        r = self.converge()
+        self.assertIn("whole suite: the gate, run once", r.stdout + r.stderr)
+        self.assertTrue(os.path.exists(self.marker), "a record whose head is not this commit is no evidence: the gate ran")
+        os.unlink(self.marker)
+        self.evidence(1)
+        r = self.converge()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("contradicts — test_csv_header_and_rows exists but the full suite is red (exit 1: evidence: local", r.stdout)
+        self.assertFalse(os.path.exists(self.marker), "red evidence is read too: the tree has not changed")
+        shutil.rmtree(os.path.join(self.d, ".reef", "evidence"))
+        # the rollup file converge wrote is part of the tree now; no evidence for it: the gate runs once and writes this tree's
+        snap_before = self.snapshot()
+        r = self.converge()
+        self.assertIn("whole suite: the gate, run once (exit 0", r.stdout + r.stderr)
+        with open(self.marker) as f:
+            self.assertEqual(f.read().count("ran"), 1, "two proofs, one suite run")
+        self.assertTrue(os.path.isfile(os.path.join(self.d, ".reef", "evidence", snap_before + ".json")), "the gate wrote the evidence for this tree")
+
+    def test_every_proof_runs_holding_gates_resources(self):
+        import fcntl
+        import hashlib
+        self.cfg({"gates": {"full": "true", "resources": ["heavy"], "timeout_s": 1}, "resources": {"heavy": {"slots": 1}},
+                  "converge": {"test_cmd": "python3 -m unittest -q tests.test_export -k {name}"}, "paths": {"features": "reef/features"}})
+        key = os.path.realpath(self.d)
+        slot = os.path.join(tempfile.gettempdir(), f"reef-slot-{hashlib.sha1(key.encode()).hexdigest()}-heavy-0")
+        with open(slot, "a") as held:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            r = self.converge()
+            # the review (2026-10-25): a held slot is not a red test — nothing written, exit 3, run again
+            self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+            self.assertIn("BUSY: 2 proof(s) could not run", r.stdout)
+            self.assertNotIn("contradicts", r.stdout)
+            self.assertFalse(any(f.startswith("R") for f in os.listdir(os.path.join(self.d, "reef/features/csv-export-for-orders/tasks"))), "no rollup for a busy slot")
+        r = self.converge()
+        self.assertEqual(r.returncode, 0, "slot free: the named tests run under the lock and pass: " + r.stdout + r.stderr)
+        self.assertIn("Converged", r.stdout)
+
+
+class PlanCheckRefusesShellInACell(unittest.TestCase):
+    """v3 phase 2: a Proof is a named test; a shell one-liner over 120 characters in a markdown cell is refused unless it
+    is tagged [mechanic] (it must write files). A long test NAME is not shell."""
+
+    def run_check(self, proof):
+        d = tempfile.mkdtemp(prefix="reef-pc-proof.")
+        write(d, ".reef/config.json", json.dumps({"gates": {"full": "true"}, "paths": {"features": "reef/features"}}))
+        feature(d)
+        write(d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", TASK_NEW.replace("| AC-2 | `test_csv_two_decimals` |", f"| AC-2 | {proof} |"))
+        pc = os.path.join(ROOT, "scripts", "reef-plan-check.py")
+        r = subprocess.run([sys.executable, pc, d], capture_output=True, text=True)
+        return [l for l in r.stdout.splitlines() if "characters of shell in a markdown cell" in l]
+
+    def test_long_shell_refused_mechanic_and_a_long_test_name_allowed(self):
+        long_shell = "`npm run build > /tmp/b.log 2>&1 && npx vitest run tests/export.test.ts --reporter=verbose --coverage --coverage.reporter=text --reporter=junit --outputFile=/tmp/junit.xml --run | tail -40`"
+        self.assertGreater(len(long_shell), 120)
+        self.assertEqual(len(self.run_check(long_shell)), 1, "an untagged shell line over 120 characters fails the check")
+        self.assertEqual(self.run_check("[mechanic] " + long_shell), [], "tagged: the mechanic runs it verbatim")
+        long_name = "`" + "exports every amount with two decimals even when the locale uses a comma and the order has more than one hundred lines across three currencies`"
+        self.assertGreater(len(long_name), 120)
+        self.assertEqual(self.run_check(long_name), [], "a long test name is a name, not shell")
+        self.assertEqual(self.run_check("`npx vitest run -t \"two decimals\"`"), [], "short shell stays a warning at most")
+        # the review (2026-10-25): the row is split on `|`, so a shell line was measured only up to its first pipe; and a
+        # test name that begins with a command word is a name
+        piped = "`npx vitest run tests/export.test.ts --reporter=verbose --coverage --coverage.reporter=text --run 2>&1 | tee /tmp/vitest.log | tail -40`"
+        self.assertGreater(len(piped), 120)
+        self.assertEqual(len(self.run_check(piped)), 1, "measured whole, pipes included")
+        name = "`node has two children when the order is split across a comma locale and more than one hundred lines are exported to csv`"
+        self.assertGreater(len(name), 120)
+        self.assertEqual(self.run_check(name), [], "a name beginning with a command word is still a name")
+
+
 class Converge(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp(prefix="reef-conv.")

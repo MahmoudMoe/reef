@@ -29,6 +29,13 @@ a = sys.argv[1:]
 if a[:2] == ["pr", "view"]:
     print(json.dumps({"headRefOid": rev("feat"), "baseRefName": "main", "url": "https://github.com/o/r/pull/7", "number": 7}))
 elif a[:1] == ["api"]:
+    m = re.search(r"commits/([0-9a-f]+)/check-runs", a[1])
+    if m:   # v3 phase 2: the commit's check-runs are the evidence (GH_CHECKS: success | failure | pending | none)
+        checks = os.environ.get("GH_CHECKS", "success")
+        runs = {"success": [{"name": "test", "status": "completed", "conclusion": "success"}],
+                "failure": [{"name": "test", "status": "completed", "conclusion": "failure"}],
+                "pending": [{"name": "test", "status": "in_progress", "conclusion": None}], "none": []}[checks]
+        print(json.dumps({"total_count": len(runs), "check_runs": runs})); sys.exit(0)
     m = re.search(r"git/commits/([0-9a-f]+)", a[1])
     if m:
         print(rev(m.group(1) + "^{tree}")); sys.exit(0)
@@ -59,6 +66,7 @@ class _Repo:
         self.d = os.path.join(self.tmp, "repo")
         os.makedirs(os.path.join(self.d, ".reef"))
         subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
+        git(self.d, "remote", "add", "origin", "https://github.com/o/r.git")   # v3 phase 2: reef-evidence asks the forge only where a remote is
         with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
             json.dump({"gates": {"full": "true"}, "merge": {"by": "loop"}, "branches": {"base": "main", "release": "release"}}, f)
         with open(os.path.join(self.d, "app.py"), "w") as f:
@@ -189,6 +197,41 @@ class ForgeMerge(_Repo, unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(os.path.join(self.d, ".reef", "review", "demo.json")) as f:
             self.assertRegex(json.load(f)["report_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_green_needs_green_evidence_for_the_head_ci_first_then_the_gates_record(self):
+        # v3 phase 2: a GREEN record binds a verdict to a commit — without the suite's one result for that commit there is
+        # nothing to bind it to. CI's check-runs when the project runs CI on feature PRs; else the gate's record for the tree.
+        r = self.record(GH_CHECKS="failure")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("is RED (ci)", r.stderr)
+        r = self.record(GH_CHECKS="pending")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("CI is still running", r.stderr)
+        r = self.record(GH_CHECKS="none")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no evidence for", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "review", "demo.json")))
+        # the gate's record for the head's tree: what a clean checkout at that commit snapshots (HEAD + tree + tree)
+        sha, tree = git(self.d, "rev-parse", "feat"), git(self.d, "rev-parse", "feat^{tree}")
+        snap = subprocess.run(["git", "-C", self.d, "hash-object", "--stdin"], input=f"{sha}\n{tree}\n{tree}\n", capture_output=True, text=True).stdout.strip()
+        os.makedirs(os.path.join(self.d, ".reef", "evidence"))
+        with open(os.path.join(self.d, ".reef", "evidence", f"{snap}.json"), "w") as f:
+            json.dump({"snapshot": snap, "head": sha, "exit": 1, "mode": "full"}, f)
+        r = self.record(GH_CHECKS="none")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("is RED (local)", r.stderr)
+        with open(os.path.join(self.d, ".reef", "evidence", f"{snap}.json"), "w") as f:
+            json.dump({"snapshot": snap, "head": sha, "exit": 0, "mode": "full"}, f)
+        r = self.record(GH_CHECKS="none")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(self.d, ".reef", "review", "demo.json")) as f:
+            self.assertEqual(json.load(f)["evidence"]["source"], "local")
+        r = self.record()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(self.d, ".reef", "review", "demo.json")) as f:
+            self.assertEqual(json.load(f)["evidence"], {"source": "ci", "snapshot": None, "checks": ["test"]})
+        r = self.record("FAIL", GH_CHECKS="none")
+        self.assertEqual(r.returncode, 0, "a FAIL needs no evidence: it is evidence")
 
     def test_a_conflicted_base_merge_that_leaves_the_feature_unchanged_carries_over(self):
         # both sides appended to the journal, as parallel features do: the merge conflicts, the resolution keeps both
