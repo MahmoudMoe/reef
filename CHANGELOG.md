@@ -11,7 +11,13 @@
   commit gate, `status: done`, the file moved — no task branch, no merge. The full gate runs once after the last task and
   writes the evidence the one reviewer reads. The critical path keeps a worktree and a verifier per task, and its close
   now REQUIRES the verifier's PASS report at `.reef/ci-local/report-<id>.md` — the skill asked for it before, nothing
-  checked. The flat `tasks/` layout (pre-0.6) keeps a worktree per task. tests/size-budget.json raised: `script_lines` 15,238 → 15,402. `prose_words` lowered 21,190 → 21,170 (the skill gained the fast path and lost five history asides).
+  checked. The flat `tasks/` layout (pre-0.6) keeps a worktree per task. A fresh review of the change found the fast close never
+  running in the real layout — the `worktree:` key names the FEATURE worktree there, and read as a task worktree it sent the
+  close down the merge flow, which removes the worktree and its branch; the close is now decided by the path alone, checks
+  its destination before touching anything and restores on a refused `git mv`; a fast row offers ONE task to the ready set;
+  a PASS report older than the last hand-back is stale; a feature folder is one under `paths.features`. tests/size-budget.json:
+  `script_lines` 15,238 → 15,448; `prose_words` lowered 21,190 → 21,170 (the skill gained the fast path and lost five
+  history asides).
 - **One reviewer per row: the spec, the diff, and every criterion against its named test in the evidence** (workflow v3,
   phase 3c; 2026-10-25). The first adoption paid three judges on one row with no blocker — acceptance 47k tokens,
   security 54k, a third — each looking at the same code from an overlapping angle; the 0.7 diff review had already been

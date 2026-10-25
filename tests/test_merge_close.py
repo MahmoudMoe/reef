@@ -58,8 +58,11 @@ class FastRowClose(unittest.TestCase):
         write(self.main, "reef/features/demo/tasks/101-slice.md", TASK)
         write(self.main, "src/a.py", "a = 1\n")
         git(self.main, "add", "-A"); git(self.main, "commit", "-qm", "init")
-        self.feat = os.path.join(self.tmp, "feat")
+        self.feat = os.path.join(self.main, ".reef", "worktrees", "demo")   # where /reef-plan puts a feature worktree
         self.assertEqual(git(self.main, "worktree", "add", "-q", "-b", "feat/demo", self.feat, "main").returncode, 0)
+        # the review (2026-10-26): reef-graph.py worktree records the FEATURE worktree on a fast row — the close must not read
+        # that key as a task worktree and tear the feature worktree down
+        write(self.feat, "reef/features/demo/tasks/101-slice.md", TASK.replace("attempts: 0\n", "attempts: 0\nworktree: .reef/worktrees/demo\n"))
         write(self.feat, "src/a.py", "a = 2\n")                    # the implementer's work, in the row's one worktree
         write(self.feat, "tests/test_a.py", "def test_a(): pass\n")
         self.journal = os.path.join(self.tmp, "journal.md")
@@ -83,8 +86,20 @@ class FastRowClose(unittest.TestCase):
         self.assertEqual(git(self.feat, "ls-tree", "HEAD", "reef/features/demo/tasks/101-slice.md").stdout, "", "moved, not copied")
         self.assertEqual(git(self.feat, "status", "--porcelain").stdout, "")
         self.assertNotEqual(git(self.feat, "rev-parse", "-q", "--verify", "refs/heads/task/101-slice").returncode, 0, "no task branch was ever made")
+        self.assertTrue(os.path.isdir(self.feat), "the feature worktree survives its own task's close")
+        self.assertEqual(git(self.main, "rev-parse", "-q", "--verify", "refs/heads/feat/demo").returncode, 0, "and so does the feature branch")
+        self.assertEqual(git(self.feat, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip(), "feat/demo")
         r = self.close()
         self.assertEqual((r.returncode, "already closed" in r.stdout), (0, True), "a second run changes nothing")
+
+    def test_a_destination_already_taken_changes_nothing(self):
+        write(self.feat, "reef/features/demo/tasks/done/101-slice.md", "stale\n")
+        before = git(self.feat, "status", "--porcelain").stdout
+        r = self.close()
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("already exists", r.stderr)
+        self.assertEqual(git(self.feat, "status", "--porcelain").stdout, before, "nothing staged, nothing rewritten")
+        self.assertIn("status: in-progress", read(self.feat, "reef/features/demo/tasks/101-slice.md"))
 
     def test_a_secret_shaped_file_is_refused_in_place_too(self):
         write(self.feat, ".env.local", "KEY=1\n")
@@ -189,6 +204,15 @@ class MergeClose(unittest.TestCase):
         self.assertEqual(r.returncode, 2, "a FAIL report closes nothing")
         write(self.wt, ".reef/ci-local/report-101.md", "RUN: agent=verifier task=101\nRULE AC1: PASS iff x\nVERDICT: PASS\n")
         write(self.wt, ".gitignore", ".reef/ci-local/\n")
+        # the review (2026-10-26): a PASS older than the last hand-back is round 1's verdict on round 2's code
+        import time
+        time.sleep(0.05)
+        write(self.wt, ".reef/ci-local/handback-101.md", "RUN: agent=implementer task=101\nround 2\n")
+        r = self.close()
+        self.assertEqual(r.returncode, 2, "a report older than the hand-back is stale: " + r.stdout + r.stderr)
+        self.assertIn("predates", r.stderr)
+        time.sleep(0.05)
+        os.utime(os.path.join(self.wt, ".reef", "ci-local", "report-101.md"), None)
         r = self.close()
         self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
 

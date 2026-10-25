@@ -335,8 +335,18 @@ def not_ready_reason(tasks, t, cfg):
 
 
 def ready_set(tasks, cfg):
-    return [t for _, t in sorted(tasks.items(), key=lambda kv: (kv[0].startswith("R"), int(kv[0].lstrip("R"))))
-            if not_ready_reason(tasks, t, cfg) is None]
+    ready = [t for _, t in sorted(tasks.items(), key=lambda kv: (kv[0].startswith("R"), int(kv[0].lstrip("R"))))
+             if not_ready_reason(tasks, t, cfg) is None]
+    # v3: a fast row offers ONE task — its lowest — so the orchestrator and graph mode never start two in the row's worktree
+    seen, out = set(), []
+    for t in ready:
+        feat = t.fm.get("feature")
+        if t.status != "in-progress" and fast_row(t):
+            if feat in seen:
+                continue
+            seen.add(feat)
+        out.append(t)
+    return out
 
 
 def find_task(tasks, task_path):

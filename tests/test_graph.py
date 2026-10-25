@@ -297,7 +297,7 @@ class RowWorktree(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.d, "setup-marker")), "the row's worktree had its setup at plan time")
         self.assertIn("worktree: .", frontmatter(self.p1))
         r = graph("ready", "--root", self.d)
-        self.assertEqual([l.split("\t")[0] for l in r.stdout.splitlines()], ["1", "2"], "nothing in progress: both ready, in id order")
+        self.assertEqual([l.split("\t")[0] for l in r.stdout.splitlines()], ["1"], "the review (2026-10-26): a fast row offers ONE task — its lowest — never two at once")
         with open(self.p1) as f:
             t = f.read()
         with open(self.p1, "w") as f:
@@ -305,6 +305,10 @@ class RowWorktree(unittest.TestCase):
         r = graph("ready", "--root", self.d)
         self.assertEqual([l.split("\t")[0] for l in r.stdout.splitlines()], ["1"], "task 1 in progress: task 2 waits for the row's one worktree")
         self.assertIn("fast path: task(s) 1 in progress", graph("check", self.p2).stdout + graph("check", self.p2).stderr)
+        with open(self.p1, "w") as f:
+            f.write(t.replace("status: pending", "status: done"))
+        r = graph("ready", "--root", self.d)
+        self.assertEqual([l.split("\t")[0] for l in r.stdout.splitlines()], ["2"], "task 1 done: task 2 is next")
 
     def test_a_critical_task_in_the_row_keeps_a_worktree_per_task(self):
         with open(self.p2) as f:

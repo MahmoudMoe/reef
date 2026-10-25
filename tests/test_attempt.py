@@ -213,6 +213,15 @@ class Attempt(unittest.TestCase):
         r = run(p)
         self.assertIn("\npath: critical\n", r.stdout, "one critical task puts the whole row on the critical path")
         self.assertIn("verifier: model=", r.stdout)
+        # the review (2026-10-26): a flat tasks/ layout with a SPEC.md at the repository root is not a feature folder
+        flat = os.path.join(self.dir, "flat")
+        os.makedirs(os.path.join(flat, "tasks")); os.makedirs(os.path.join(flat, ".reef"))
+        open(os.path.join(flat, ".reef", "config.json"), "w").write("{}")
+        open(os.path.join(flat, "SPEC.md"), "w").write("# not a feature folder\n")
+        f = make_task(os.path.join(flat, "tasks"), fm="id: 9\nfeature: f\nstatus: pending\neffort: medium\nverify: judge\ntier: full\nattempts: 0\n")
+        r = run(f)
+        self.assertIn("\npath: fast\n", r.stdout, "fast, but no row worktree: the flat layout keeps a worktree per task")
+        self.assertIn("verifier: model=", r.stdout)
 
     def test_verifier_model_printed_for_judge_tasks_from_config(self):
         # roles.verifier is read at dispatch, exactly like roles.author
