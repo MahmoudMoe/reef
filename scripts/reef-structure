@@ -69,9 +69,29 @@ def config_homes(root):
     return [str(v).strip().strip("/") for k, v in paths.items() if v and k in ("adr", "queue", "runlog", "glossary", "tasks", "features", "day_zero")]
 
 
+PLAN_KEEP = re.compile(r"^(directory .+ read by|referenced by|waits: |the instruction layer|edited on unmerged branch)")
+
+
+def plan_keeps(root):
+    """The documents the recalibration plan kept ON PURPOSE because something still reads them (a directory read, a code or
+    instruction-file reference, a reader to retire, an in-flight edit): the baseline, not a violation — the gate can be on from
+    day one and only a NEW stray document fails (ai-coach, 2026-10-25: `structure` found 507 such documents under specs/ and
+    design_handoff/ the plan had kept for `check:docs`, so the gate could not be switched on). A `keep` the owner chose by hand
+    (reason edited) counts too: the plan is the owner's decision."""
+    p = os.path.join(root, ".reef", "recalibration.json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            entries = json.load(f).get("entries") or []
+    except (OSError, ValueError):
+        return set()
+    return {e["path"] for e in entries if e.get("action") == "keep" and (PLAN_KEEP.match(str(e.get("reason") or "")) or e.get("blocked_by"))}
+
+
 def violations(root):
     is06 = os.path.isfile(os.path.join(root, ".reef", "version"))
     homes = config_homes(root)
+    kept = plan_keeps(root)
+    kept_seen = 0
     legacy_ok = ("docs/adr/", "docs/queue", "docs/journal", "docs/day-zero", "docs/glossary", "docs/runlog", "tasks/", ".specify/")
     served = served_dirs(root)
     bad = []
@@ -90,6 +110,9 @@ def violations(root):
             continue   # no paths configured: the 0.5 places
         if not is_process_doc(root, rel):
             continue
+        if rel in kept:
+            kept_seen += 1
+            continue   # kept by the recalibration plan for a reader: the baseline until that reader is retired
         if referenced(root, rel):
             continue
         bad.append(f"{rel}: a process document outside the layout — a decision goes under reef/architecture/adr/ or its feature's adr/, a spec in its feature folder, anything else to reef/archive/ (scripts/reef-recalibrate)")
@@ -217,12 +240,15 @@ def main(argv):
         print("ok: no Unsafe raw query outside assess.raw_sql_allow")
         return 0
     bad = violations(root)
+    kept = plan_keeps(root)
+    if kept:
+        print(f"note: {len(kept)} document(s) kept by the recalibration plan for a reader are the baseline (not violations until their readers are retired)")
     if bad:
         print("FAIL: structure")
         for b in bad:
             print(f"  - {b}")
         return 1
-    print("ok: every process document lives in the layout")
+    print("ok: every process document lives in the layout" + (" or is kept by the plan" if kept else ""))
     return 0
 
 

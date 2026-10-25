@@ -9,7 +9,14 @@
   (the product text and the project's own rules gone); accepting the archived CLAUDE-CODE-PROMPT.md put it back at the root.
   The plan now writes to `.reef/recalibration/proposed/` (ignored by reef-init's `.gitignore` lines), the `git diff
   --no-index` lines and the boundaries section point there, and the apply removes each rewrite it applied (only after the
-  apply succeeded: a refused apply keeps them). tests/size-budget.json raised: `script_lines` 14,118 → 14,124.
+  apply succeeded: a refused apply keeps them). tests/size-budget.json raised: `script_lines` 14,144 → 14,150.
+- **`structure` can be switched on the day of the adoption** (ai-coach, 2026-10-25; the owner's go). After the apply,
+  `reef-structure --check` found 507 process documents outside the layout — 443 under `specs/` and 64 under
+  `design_handoff/` — every one of them KEPT by the recalibration plan because the project's own checks read those
+  directories (item 16's rule), so the gate could not join `gates.extra` without turning every row red. The check now reads
+  `.reef/recalibration.json`: a document kept for a reader (a directory read, a code or instruction-file reference, a reader
+  still to retire, an in-flight edit) is the baseline and is counted in a note, not failed; a document the plan never saw,
+  or kept for another reason, still fails. Like `sizes` and `boundaries`: baseline first, only the new fails. tests/size-budget.json raised: `script_lines` 14,118 → 14,144.
 - **Four adoption defects from the first real run of 0.7.2** (ai-coach, 2026-10-25). (1) `main`, the release branch, was reported
   "in flight under the old loop" because the word sat in `docs/loop/queue-archive.md`: the check now skips `branches.base` and
   `branches.release` and matches a branch name only inside an OPEN row of an old queue (or the old handoff), never anywhere in a
