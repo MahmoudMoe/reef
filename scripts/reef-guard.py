@@ -99,7 +99,7 @@ MUTATING_GIT = {"commit", "add", "rm", "mv", "checkout", "switch", "restore", "r
 WRITE_HEADS = {"tee", "cp", "mv", "rm", "touch", "mkdir", "rmdir", "truncate", "dd", "install", "ln", "chmod", "chown", "shred", "unlink"}
 REDIRECTS = {">", ">>", ">|"}
 STATUS_LINE = re.compile(r"in flight:.*?/\s*waiting on:.*?/\s*next:\s*\S", re.S)
-RECORD_DIRS = re.compile(r"(^|/)\.reef/(approvals|review|night)(/|$)")   # night (0.7, super Reef): the contract and the `active` marker
+RECORD_DIRS = re.compile(r"(^|/)\.reef/(approvals|review|night|evidence)(/|$)")   # night (0.7, super Reef): the contract and the `active` marker; evidence (v3): the gate's one result per tree
 # evidence an AGENT produced: a hand-back, a verifier/hunter report, a plan review. The main session (no agent_id in
 # the payload) may copy one (cp/mv from the scratchpad) but never write its content (2026-10-17: a hunter report and
 # a hand-back were typed by the orchestrator "from the agent's message" — evidence nobody but the orchestrator wrote).
@@ -228,8 +228,11 @@ def _check_bash(cmd, depth=0):
                 k = 0
                 while k < len(seg) and (ENV_ASSIGN.match(seg[k]) or seg[k] in PREFIX_WORDS):
                     k += 1
-                if k + 1 < len(seg) and os.path.basename(seg[k]) == "cd" and t in (";", "&&") and os.path.isabs(seg[k + 1]):
-                    CTX["cd_hint"] = seg[k + 1]
+                if k + 1 < len(seg) and os.path.basename(seg[k]) == "cd" and t in (";", "&&"):
+                    # v3 phase 2: a relative cd resolves against the hint so far, else the payload's cwd, so
+                    # `cd .reef/worktrees/1101 && printf '{}' >> ../../evidence/x.json` is seen as the write under .reef/evidence/ it is
+                    base = CTX.get("cd_hint") or CTX.get("cwd") or os.getcwd()
+                    CTX["cd_hint"] = seg[k + 1] if os.path.isabs(seg[k + 1]) else os.path.normpath(os.path.join(base, os.path.expanduser(seg[k + 1])))
             seg = []
         else:
             seg.append(t)
@@ -296,9 +299,11 @@ def is_scratch(path):
 def check_record_dirs(seg):
     """.reef/approvals/ and .reef/review/ are written by scripts/reef-approval.py and scripts/reef-record
     only: a hand-written record would be an approval nobody gave (tripwire; the digest check is the code)."""
-    if any(RECORD_DIRS.search(t) for t in write_targets(seg)):
-        deny("writing under .reef/approvals/, .reef/review/ or .reef/night/ by hand — these records are written by the "
-             "AskUserQuestion hook, scripts/reef-record and scripts/reef-run.py, bound to a digest or a forge SHA")
+    here = CTX.get("cd_hint") or CTX.get("cwd") or ""
+    resolved = lambda t: os.path.normpath(os.path.join(here, os.path.expanduser(t))) if here and not os.path.isabs(t) else t   # `../../evidence/x` after a cd
+    if any(RECORD_DIRS.search(t) or RECORD_DIRS.search(resolved(t)) for t in write_targets(seg)):
+        deny("writing under .reef/approvals/, .reef/review/, .reef/night/ or .reef/evidence/ by hand — these records are written by the "
+             "AskUserQuestion hook, scripts/reef-record, scripts/reef-run.py and scripts/reef-gate.sh, bound to a digest, a forge SHA or a tree snapshot")
 
 
 def check_evidence_authoring(seg, ctx):
@@ -1264,8 +1269,9 @@ def check_edit(tool_input, payload, ctx):
         return
     rel = os.path.relpath(path, ctx["cwd"]) if os.path.isabs(path) else path
     if RECORD_DIRS.search(path) or RECORD_DIRS.search(rel):
-        deny("editing under .reef/approvals/ or .reef/review/ — these records are written by the AskUserQuestion "
-             "hook and scripts/reef-record, bound to a digest or a forge SHA; a hand-written one is an approval nobody gave")
+        deny("editing under .reef/approvals/, .reef/review/, .reef/night/ or .reef/evidence/ — these records are written by the AskUserQuestion "
+             "hook, scripts/reef-record, scripts/reef-run.py and scripts/reef-gate.sh, bound to a digest, a forge SHA or a tree snapshot; "
+             "a hand-written one is an approval nobody gave, or a suite run that never happened")
     if ctx.get("main_session") and (EVIDENCE.search(path) or EVIDENCE.search(rel)):
         deny(EVIDENCE_DENIAL.format(path=rel))
     if not (GUARD_FILES.search(path) or GUARD_FILES.search(rel)):

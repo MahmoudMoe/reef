@@ -54,6 +54,8 @@ SCRIPTS = ["reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.
            "reef-repo", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-migrate", "reef-merge-base", "reef-merge-close",
            # 0.7 (2026-10-18: /reef-graph on the trial found no scripts/reef-graph-run.py — it was never in this list)
            "reef-graph-run.py", "reef-run.py",
+           # v3 phase 2: judges read the suite's one result
+           "reef-evidence.py",
            # 0.7.3: the stack profiles (data the measure and the raw-SQL gate read)
            "reef-stacks.json",
            # 2026-10-23: the night prompt runs `python3 scripts/reef-approval.py --proxy`; no project had it
@@ -96,7 +98,7 @@ TEMPLATE_OF = {"constitution": "project/constitution.md", "queue": "project/queu
                "architecture": "project/architecture.md", "map": "project/reef-README.md"}
 EXISTING_CONSTITUTIONS = (".specify/constitution.md", ".specify/memory/constitution.md")
 STACK_OPINIONS = {"node": "node.md", "python": "python.md", "rust": "rust.md", "go": "go.md"}
-GITIGNORE_LINES = [".reef/worktrees/", ".reef/proposed/", ".reef/ci-local/", ".reef/approvals/", ".reef/review/",
+GITIGNORE_LINES = [".reef/worktrees/", ".reef/proposed/", ".reef/ci-local/", ".reef/evidence/", ".reef/approvals/", ".reef/review/",
                    ".reef/verifying/", ".reef/inflight/", ".reef/loop.json", ".reef/status.html", ".reef/cost/", ".reef/graph/", "tasks/.plan-review.json", ".env",
                    ".reef/hunt/", ".reef/run/", ".reef/questions.md", ".reef/night/", ".reef/queue.json", ".reef/queue-view.md", "scripts/__pycache__/", ".reef/recalibration/"]   # .reef/recalibration/: the plan's proposals. .reef/run/: reef-run's gate, log and lock; questions.md: the owner's open questions (the handoff reads it). .reef/hunt/: the hunter's own reports: evidence like .reef/ci-local/ (2026-10-18: 12 untracked files in the trial's status)
 VERSION = "0.7.2"   # written to .reef/version; absent = a 0.5 project (every 0.6 check warns instead of failing)

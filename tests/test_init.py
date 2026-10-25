@@ -179,7 +179,7 @@ class Idempotent(unittest.TestCase):
         gi = read(self.d, ".gitignore")
         self.assertTrue(gi.startswith("node_modules/\n"))
         self.assertIn(".reef/worktrees/", gi)
-        for evidence in (".reef/ci-local/", ".reef/hunt/"):   # 2026-10-18: twelve untracked hunt reports in the trial's status
+        for evidence in (".reef/ci-local/", ".reef/hunt/", ".reef/evidence/"):   # 2026-10-18: twelve untracked hunt reports in the trial's status; v3: the gate's one result per tree
             self.assertIn(evidence + "\n", gi, f"{evidence} is evidence the guard protects; it is never committed")
         # 2026-10-24, the trial: Python byte-code of the copied scripts showed up untracked in every git status
         self.assertIn("scripts/__pycache__/\n", gi)
