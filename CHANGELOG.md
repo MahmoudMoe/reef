@@ -11,7 +11,12 @@
   (`hunter.plan_pass`), and its cap (`hunter.plan_rounds` 2) already means one pass and one re-check only after a
   finding — both unchanged. `/reef-plan` names the path before the review and asks in the grill only what neither the
   codebase nor the spec answers. One test changed on purpose: a full-tier feature with no risk touch no longer needs the
-  plan-reviewer agent (`tests/test_tiers_lock.py`). tests/size-budget.json raised: `script_lines` 15,146 → 15,257. `prose_words` lowered 21,222 → 21,210 (the skill says less).
+  plan-reviewer agent (`tests/test_tiers_lock.py`), and two in `tests/test_plan_check.py` that pinned the model line on a
+  light-only plan. A fresh review of the change found three readers of the same plan that could differ on `touches: auth`
+  written without brackets — the check ignored it, the guard read it as a risk, `reef-tier.py` read it as none; now the
+  check fails a bracketless `touches:`, and the path has ONE rule, `reef-plan-check.py`'s `feature_path`, called by
+  `reef-tier.py path` and the guard. tests/size-budget.json: `script_lines` 15,146 → 15,238; `prose_words` lowered
+  21,222 → 21,210 (the skill says less).
 - **Scripts read the evidence too: converge, the GREEN record and the plan check** (workflow v3, phase 2b; 2026-10-25).
   The first adoption's two Proof rows were each a full build and vitest run as shell, racing the gate for the CPU (a
   false `contradicts`), and the orchestrator recorded GREEN on a head whose suite nobody had seen. `scripts/reef-converge`

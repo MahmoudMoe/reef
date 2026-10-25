@@ -79,6 +79,11 @@ class Path(unittest.TestCase):
         self.assertEqual(r.stdout.strip(), "path: fast (tiers light; no risk touch)", "a rollup is a fix round, not a task of the plan")
         r = subprocess.run([sys.executable, TIER, "path"], capture_output=True, text=True)
         self.assertEqual(r.returncode, 2, "no task file: usage")
+        # the review (2026-10-25): one rule, one parser — a bracketless `touches: auth` (which the check now refuses) reads the
+        # same here as in reef-plan-check.feature_path and the guard: critical
+        g = write(d, "tasks/105-g.md", "---\nid: 105\nfeature: f\nstatus: pending\ntier: full\ntouches: auth\n---\n# t\n")
+        r = subprocess.run([sys.executable, TIER, "path", a, g], capture_output=True, text=True)
+        self.assertEqual(r.stdout.strip(), "path: critical — 105: touches auth")
 
 
 class Tier(unittest.TestCase):

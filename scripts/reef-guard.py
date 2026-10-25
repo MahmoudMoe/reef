@@ -1026,37 +1026,33 @@ def feature_tier(root, feature):
     return best
 
 
-RISK_TOUCHES = ("auth", "pii", "money", "migration")   # scripts/reef-tier.py path: the same four
-
-
 def feature_path(root, feature):
-    """fast | critical | None (no task): workflow v3 — the tier names the path. critical when a task of the feature is
-    design/critical or touches a risk class; rollups are not tasks of the plan."""
+    """fast | critical | None (no task): workflow v3 — the tier names the path. ONE rule: scripts/reef-plan-check.py's
+    feature_path over the feature's task files (the review, 2026-10-25: three readers of the same plan must not differ)."""
     graph = load_graph_module()
     cfg = read_config(root)
     dirs = [graph.tasks_dir_for(root, cfg)]
     feat_dir = os.path.join(root, (cfg.get("paths") or {}).get("features", "reef/features"), feature, "tasks")
     if os.path.isdir(feat_dir):
         dirs.append(feat_dir)
-    path = None
+    paths = []
     for base in dirs:
         for d in (base, os.path.join(base, "done")):
             if not os.path.isdir(d):
                 continue
             for f in os.listdir(d):
-                if not f.endswith(".md") or ROLLUP_NAME.match(f):
+                if not f.endswith(".md"):
                     continue
                 try:
                     fm, _ = read_frontmatter(os.path.join(d, f))
                 except Exception:
                     continue
-                if not fm or fm.get("feature") != feature:
-                    continue
-                touches = [t.strip().strip("\"'") for t in str(fm.get("touches") or "").strip("[]").split(",") if t.strip()]
-                if task_tier(fm) in ("design", "critical") or any(t in RISK_TOUCHES for t in touches):
-                    return "critical"
-                path = "fast"
-    return path
+                if fm and fm.get("feature") == feature:
+                    paths.append(os.path.join(d, f))
+    if not paths:
+        return None
+    sys.dont_write_bytecode = True
+    return load_plugin_module("reef-plan-check.py", "reef_plan_check").feature_path(paths)[0]
 
 
 def dispatch_tier(prompt, cwd):

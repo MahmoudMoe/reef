@@ -566,6 +566,19 @@ class PathDecidesTheReview(unittest.TestCase):
         self.assertIn("plan-reviewer: model=", r.stdout)
 
 
+class BracketlessTouches(unittest.TestCase):
+    """The review of v3 phase 3a (2026-10-25): `touches: auth` without brackets was ignored by the check (no tier forced,
+    plan green) while the guard read it as a risk — three readers, two answers. The check now fails it."""
+
+    def test_touches_without_brackets_fails_the_check(self):
+        tmp = repo(tempfile.mkdtemp(prefix="reef-pc-touch."))
+        with open(os.path.join(tmp, "tasks", "002-full.md"), "w") as f:
+            f.write(DESIGN_TASK.replace("tier: critical", "tier: full\ntouches: auth").format(id=2, acs="- test_full_works goes red then green"))
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("touches must be a list", r.stdout)
+
+
 class HunterStampOutsideTheDigest(unittest.TestCase):
     """2026-10-18 (qassimha): `plan --decided` after Approve and a stamp migration changed the approval digest of a plan
     nobody had edited; and 202/203 reached the gate with stamps their review-round edits had staled, unnamed."""

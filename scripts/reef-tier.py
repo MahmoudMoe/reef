@@ -68,44 +68,26 @@ def numstat(repo, base):
 
 
 TOUCHES = {"pii": "critical", "money": "critical", "auth": "critical", "migration": "design"}
-RISK_TOUCHES = tuple(TOUCHES)
-
-
-def path_of(tier, touches):
-    """fast | critical — the tier decides the whole pipeline (workflow v3 §2): light/full = fast; design/critical, or a
-    risk touch, = critical."""
-    return "critical" if tier in ("design", "critical") or any(t in RISK_TOUCHES for t in touches) else "fast"
 
 
 def cmd_path(files):
-    tiers, why = [], []
-    for p in files:
-        if re.match(r"^R\d+[-.]", os.path.basename(p)):
-            continue
-        try:
-            with open(p, encoding="utf-8") as f:
-                m = FENCE.match(f.read())
-        except OSError:
-            die(f"cannot read {p}")
-        fm = m.group(1) if m else ""
-        tm = re.search(r"^tier:[ \t]*(\S+)", fm, re.M)
-        tier = tm.group(1).strip('"') if tm else "full"
-        xm = re.search(r"^touches:[ \t]*\[(.*)\]", fm, re.M)
-        touches = [t.strip().strip("\"'") for t in xm.group(1).split(",") if t.strip()] if xm else []
-        im = re.search(r"^id:[ \t]*(\S+)", fm, re.M)
-        tid = im.group(1) if im else os.path.basename(p)
-        tiers.append(tier)
-        if tier in ("design", "critical"):
-            why.append(f"{tid}: tier {tier}")
-        elif any(t in RISK_TOUCHES for t in touches):
-            why.append(f"{tid}: touches {', '.join(t for t in touches if t in RISK_TOUCHES)}")
-    if not tiers:
+    """One rule, one parser: scripts/reef-plan-check.py's feature_path beside this script (the guard calls the same)."""
+    files = [p for p in files if not re.match(r"^R\d+[-.]", os.path.basename(p))]
+    if not files:
         die("usage: reef-tier.py path <task-file>... (no task file given, or only rollups)")
-    if why:
-        print("path: critical — " + "; ".join(why))
-    else:
-        seen = sorted(set(tiers), key=ORDER.get)
-        print(f"path: fast (tiers {', '.join(seen)}; no risk touch)")
+    for p in files:
+        if not os.path.isfile(p):
+            die(f"cannot read {p}")
+    import importlib.machinery
+    import importlib.util
+    pc = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
+    loader = importlib.machinery.SourceFileLoader("reef_plan_check", pc)
+    spec = importlib.util.spec_from_loader("reef_plan_check", loader)
+    mod = importlib.util.module_from_spec(spec)
+    sys.dont_write_bytecode = True
+    loader.exec_module(mod)
+    path, why = mod.feature_path(files)
+    print(f"path: critical — {why}" if path == "critical" else f"path: fast ({why})")
     return 0
 
 

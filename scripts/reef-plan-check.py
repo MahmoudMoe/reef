@@ -319,7 +319,8 @@ RISK_TOUCHES = ("auth", "pii", "money", "migration")   # scripts/reef-tier.py pa
 
 def feature_path(task_paths):
     """(path, why): workflow v3 — `fast` when every task is light or full and none touches a risk class; `critical`
-    otherwise (a design/critical task, or a touch of auth/pii/money/migration). Rollups are not tasks of the plan."""
+    otherwise (a design/critical task, or a touch of auth/pii/money/migration). Rollups are not tasks of the plan.
+    THE one rule: scripts/reef-tier.py path and the guard call this function (the review, 2026-10-25: three readers)."""
     tiers, why = [], []
     for p in sorted(task_paths):
         if re.match(r"R\d+[-.]", os.path.basename(p)):
@@ -809,7 +810,9 @@ def main():
             errs.append(f"tier {tier} on a mech task (mech <=> light; make it design or lower the tier)")
         # 0.6: touches: forces a tier (pii/money/auth -> critical, migration -> design + Rollback:)
         touches = fm.get("touches", "[]").strip()
-        tl = [t.strip().strip("\"'") for t in touches.strip("[]").split(",") if t.strip()] if touches.startswith("[") else []
+        if touches and not touches.startswith("["):   # the v3 review: `touches: auth` was ignored here and read as a risk elsewhere
+            errs.append(f"touches must be a list: `touches: [{touches}]`")
+        tl = [t.strip().strip("\"'") for t in touches.strip("[]").split(",") if t.strip()]
         bad_t = [t for t in tl if t not in TOUCHES]
         if bad_t:
             errs.append(f"touches {bad_t} not in {sorted(TOUCHES)}")

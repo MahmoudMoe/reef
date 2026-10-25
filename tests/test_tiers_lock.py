@@ -145,6 +145,12 @@ class FourTiers(unittest.TestCase):
         r = dispatch(self.d, "reef:plan-reviewer", "REEF-FEATURE: other\nreview", model="fable")
         self.assertEqual(r.returncode, 2, "the fast path dispatches no plan-reviewer: " + r.stderr)
         self.assertIn("fast path", r.stderr)
+        # the review (2026-10-25): a risk touch on an otherwise full feature is the critical path — the sabotage test of
+        # the touches branch (delete it and this dispatch is refused as fast)
+        with open(os.path.join(self.d, "tasks", "005-risky.md"), "w") as f:
+            f.write(task_text(5, "risky", "full", "design", extra="touches: [auth]\n"))
+        r = dispatch(self.d, "reef:plan-reviewer", "REEF-FEATURE: risky\nreview", model="fable")
+        self.assertEqual(r.returncode, 0, "a risk touch is the critical path: the plan-reviewer is dispatched: " + r.stderr)
 
     def test_explore_is_a_mechanic(self):
         self.assertEqual(dispatch(self.d, "Explore", "look around", model="opus").returncode, 2)
