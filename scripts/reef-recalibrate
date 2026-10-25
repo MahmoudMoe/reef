@@ -873,12 +873,50 @@ def stack_profiles():
         return {}
 
 
+# 0.7.3 (a public FastAPI template, 2026-10-25): a repository of several projects declares them in its workspace files; Reef
+# read the root only — the backend's tests never joined the gate, its raw SQL was "not measured" (its dependencies live in
+# backend/pyproject.toml). Each declared member is a project of its own: its stack, its dependencies, its gate.
+def workspace_members(root):
+    """The member directories a monorepo declares — package.json `workspaces`, pnpm-workspace.yaml `packages`, pyproject
+    `[tool.uv.workspace] members`, go.work `use`, Cargo `[workspace] members` — that exist; [] for a single project."""
+    import glob
+    globs = []
+    pkg = os.path.join(root, "package.json")
+    if os.path.isfile(pkg):
+        try:
+            w = json.loads(read(pkg)).get("workspaces")
+            globs += [str(x) for x in ((w.get("packages") if isinstance(w, dict) else w) or [])]
+        except (ValueError, AttributeError):
+            pass
+    pnpm = os.path.join(root, "pnpm-workspace.yaml")
+    if os.path.isfile(pnpm):
+        globs += re.findall(r"^\s*-\s*['\"]?([^'\"\n#!]+?)['\"]?\s*$", read(pnpm), re.M)
+    for name, header in (("pyproject.toml", r"\[tool\.uv\.workspace\]"), ("Cargo.toml", r"\[workspace\]")):
+        p = os.path.join(root, name)
+        m = re.search(header + r"[^\[]*?\bmembers\s*=\s*\[([^\]]*)\]", read(p), re.S) if os.path.isfile(p) else None
+        globs += re.findall(r"['\"]([^'\"]+)['\"]", m.group(1)) if m else []
+    gw = os.path.join(root, "go.work")
+    if os.path.isfile(gw):
+        for block in re.findall(r"^use\s*\(([^)]*)\)|^use\s+(\S+)", read(gw), re.M):
+            globs += [x for x in re.findall(r"(\S+)", block[0] or block[1]) if not x.startswith("//")]
+    out = set()
+    for g in globs:
+        for d in glob.glob(os.path.join(root, g.strip().rstrip("/"))):
+            rel = os.path.relpath(d, root).replace(os.sep, "/")
+            if os.path.isdir(d) and rel not in (".", "") and "node_modules" not in rel.split("/") and not rel.startswith(".."):
+                out.add(rel)
+    return sorted(out)
+
+
 def active_profiles(root):
-    """[(name, profile, the text of its dependency manifests)] for each stack this project uses."""
+    """[(name, profile, the text of its dependency manifests, its directory)] for each stack the project and each declared
+    workspace member use ("" is the root)."""
     out = []
-    for name, prof in stack_profiles().items():
-        if any(os.path.isfile(os.path.join(root, f)) for f in prof.get("detect") or []):
-            out.append((name, prof, "\n".join(read(os.path.join(root, f)) for f in prof.get("deps_from") or [] if os.path.isfile(os.path.join(root, f)))))
+    for member in [""] + workspace_members(root):
+        base = os.path.join(root, member)
+        for name, prof in stack_profiles().items():
+            if any(os.path.isfile(os.path.join(base, f)) for f in prof.get("detect") or []):
+                out.append((name, prof, "\n".join(read(os.path.join(base, f)) for f in prof.get("deps_from") or [] if os.path.isfile(os.path.join(base, f))), member))
     return out
 
 
@@ -907,8 +945,8 @@ def measure(root):
         (tests if TEST_FILE.search(rel) else product)[rel] = count_lines(os.path.join(root, rel))
     largest = sorted(product.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
     # raw SQL: by each stack profile's raw-SQL rule, when the project depends on what it names; by directory; a comment never counts
-    raw, raw_profile = {}, None
-    for name, prof, deps_text in active_profiles(root):
+    raw, raw_profile, scanned = {}, None, set()
+    for name, prof, deps_text, member in active_profiles(root):
         rs = prof.get("raw_sql")
         if not rs or not has_dep(deps_text, rs.get("when_deps") or []):
             continue
@@ -916,8 +954,9 @@ def measure(root):
         unsafe, safe = re.compile(rs["unsafe"]), re.compile(rs.get("safe") or r"(?!)")
         ext, comment = tuple(prof.get("code_ext") or ()), tuple(prof.get("comment") or ("#",))
         for rel in sorted(product) + sorted(tests):
-            if not rel.endswith(ext):
+            if not rel.endswith(ext) or (member and not rel.startswith(member + "/")) or (name, rel) in scanned:
                 continue
+            scanned.add((name, rel))
             with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as f:
                 for line in f:
                     s = line.strip()
@@ -990,7 +1029,7 @@ def fill(template, values):
 def boundaries(root, product):
     """The first stack profile with a boundary tool: an ADR draft (a tool to decide on), or a config derived from the observed
     import graph with today's violations as the known-violations baseline (the JS/TS import graph: imports, tsconfig paths)."""
-    hit = next(((n, p) for n, p, _ in active_profiles(root) if p.get("boundaries")), None)
+    hit = next(((n, p) for n, p, _, _ in active_profiles(root) if p.get("boundaries")), None)
     if hit is None:
         return None
     stack, prof = hit
@@ -1095,7 +1134,7 @@ def sensitive_files(root, product):
             for m in re.finditer(r"(?<![\w/])((?:[\w.-]+/)+[\w.-]+\.(ts|tsx|js|py|go|rs))\b", line):
                 tm_lines.setdefault(m.group(1), n)
     # the general vocabulary, then each stack profile's own (a framework's session call, its permission decorator)
-    kinds_rx = list(SENSITIVE) + [(k, re.compile(rx)) for _, p, _ in active_profiles(root) for k, rx in (p.get("sensitive") or {}).items()]
+    kinds_rx = list(SENSITIVE) + [(k, re.compile(rx)) for _, p, _, _ in active_profiles(root) for k, rx in (p.get("sensitive") or {}).items()]
     for rel in sorted(product):
         kinds = []
         if SENSITIVE_PATH.search(rel):

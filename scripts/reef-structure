@@ -142,29 +142,25 @@ def raw_sql_violations(root):
             allow = set(str(x) for x in ((json.load(f).get("assess") or {}).get("raw_sql_allow") or []))
     except (OSError, ValueError):
         allow = set()
-    try:
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-stacks.json"), encoding="utf-8") as f:
-            profiles = {k: v for k, v in json.load(f).items() if isinstance(v, dict)}
-    except (OSError, ValueError):
-        profiles = {}
+    # the measure's own switch and scope (reef-recalibrate, copied beside this script): the stack AND the dependency its
+    # rule names, per declared workspace member — so the allow list the measure wrote is green on day one
+    import importlib.machinery, importlib.util
+    loader = importlib.machinery.SourceFileLoader("reef_recalibrate", os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-recalibrate"))
+    spec = importlib.util.spec_from_loader("reef_recalibrate", loader)
+    rc = importlib.util.module_from_spec(spec)
+    loader.exec_module(rc)
     r = subprocess.run(["git", "-C", root, "ls-files", "-co", "--exclude-standard"], capture_output=True, text=True)
-    listed = [l for l in r.stdout.splitlines() if l and not SKIP_DIR.search(l)]
-    bad = []
-    for prof in profiles.values():
+    listed = [l for l in r.stdout.splitlines() if l and not SKIP_DIR.search(l) and not REEF_CODE.match(l)]
+    bad, seen = [], set()
+    for name, prof, deps, member in rc.active_profiles(root):
         rs = prof.get("raw_sql")
-        if not rs or not any(os.path.isfile(os.path.join(root, f)) for f in prof.get("detect") or []):
+        if not rs or not rc.has_dep(deps, rs.get("when_deps") or []):
             continue
-        deps = ""
-        for f in prof.get("deps_from") or []:
-            try:
-                with open(os.path.join(root, f), encoding="utf-8", errors="replace") as fh:
-                    deps += fh.read() + "\n"
-            except OSError:
-                continue
-        if not any(re.search(r"(?<![\w@/.-])" + re.escape(d) + r"(?![\w/-])", deps, re.I) for d in rs.get("when_deps") or []):
-            continue   # the same switch as reef-recalibrate's measure: the stack AND the dependency its rule names
         unsafe, ext, comment = re.compile(rs["unsafe"]), tuple(prof.get("code_ext") or ()), tuple(prof.get("comment") or ("#",))
-        for rel in sorted(l for l in listed if l.endswith(ext) and l not in allow):
+        for rel in sorted(l for l in listed if l.endswith(ext) and l not in allow and (not member or l.startswith(member + "/"))):
+            if (name, rel) in seen:
+                continue
+            seen.add((name, rel))
             try:
                 with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as f:
                     for n, line in enumerate(f, 1):

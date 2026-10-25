@@ -38,6 +38,8 @@ import datetime
 import difflib
 import filecmp
 import hashlib
+import importlib.machinery
+import importlib.util
 import json
 import os
 import re
@@ -110,8 +112,9 @@ def die(msg):
 
 # ---------------------------------------------------------------- stack
 
-def detect(root):
-    """Stack facts the templates need. Only what the files say; nothing guessed is a gate."""
+def detect(root, members=True):
+    """Stack facts the templates need. Only what the files say; nothing guessed is a gate. 0.7.3: each workspace member the
+    repository declares (reef-recalibrate's workspace_members) with a test command of its own gets `test:<member>`."""
     has = lambda *p: os.path.isfile(os.path.join(root, *p))
     facts = {"name": os.path.basename(os.path.abspath(root)), "stack": "unknown", "test": "", "fast": "",
              "build": "", "install": "", "setup": "", "ecosystem": "", "setup_steps": ""}
@@ -195,6 +198,17 @@ def detect(root):
             facts["conventions"] = "\n".join(body)
         except OSError:
             pass
+    if members:
+        loader = importlib.machinery.SourceFileLoader("reef_recalibrate", os.path.join(PLUGIN, "scripts", "reef-recalibrate"))
+        spec = importlib.util.spec_from_loader("reef_recalibrate", loader)
+        rc = importlib.util.module_from_spec(spec)
+        loader.exec_module(rc)
+        facts["member_gates"] = {}
+        for m in rc.workspace_members(root):
+            f = detect(os.path.join(root, m), members=False)
+            if f["test"]:   # a uv workspace's members run through the root's lock
+                test = "uv run pytest -q" if f["stack"] == "python" and has("uv.lock") and not f["test"].startswith("uv ") else f["test"]
+                facts["member_gates"][f"test:{m}"] = f"cd {m} && {test}"
     return facts
 
 
@@ -288,7 +302,7 @@ def project_config(existing, facts):
         cfg = json.load(f)
     cfg["gates"]["fast"] = facts["fast"]
     cfg["gates"]["full"] = facts["test"]
-    cfg["gates"]["extra"] = {"build": facts["build"]} if facts["build"] else {}
+    cfg["gates"]["extra"] = {**({"build": facts["build"]} if facts["build"] else {}), **(facts.get("member_gates") or {})}
     cfg["gates"]["release"] = release_gates(facts)
     cfg["branches"] = {"base": facts["base"], "release": facts["release"]}
     cfg["merge"] = {"by": "loop" if facts["base"] != facts["release"] else "human"}
@@ -531,6 +545,20 @@ def run(root, facts, dry):
                 json.dump({"gates": {"release": release_gates(facts)}}, f, indent=2)
                 f.write("\n")
         w.proposed.append((".reef/config.json gates.release", "+ " + json.dumps(release_gates(facts)) + "\n  (release gates: C4 drift, history secret scan, dependency audit, injection scan — add to gates.release when the tools are installed; a missing tool is exit 77 = skipped, and reef-ci-local reports a skip as exit 2, not success)\n"))
+    if existing is not None and facts.get("member_gates"):
+        # 0.7.3: an upgrade never adds a gate that may be red on its own — the member gates arrive as a proposal
+        had = (existing.get("gates") or {}).get("extra") or {}
+        new = {g: c for g, c in facts["member_gates"].items() if g not in had}
+        for g in new:
+            merged["gates"]["extra"].pop(g, None)
+        if new:
+            prop = os.path.join(reef_dir(root), "proposed", "gates.extra.members.json")
+            if not dry:
+                os.makedirs(os.path.dirname(prop), exist_ok=True)
+                with open(prop, "w", encoding="utf-8") as f:
+                    json.dump({"gates": {"extra": new}}, f, indent=2)
+                    f.write("\n")
+            w.proposed.append((".reef/config.json gates.extra", "+ " + json.dumps(new) + "\n  (one test gate per workspace member the repository declares — add each to gates.extra once it passes on its own)\n"))
     if existing is not None and merged == existing:
         w.skipped.append(".reef/config.json")
     else:

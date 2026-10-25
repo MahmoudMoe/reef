@@ -1,6 +1,16 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **A monorepo's declared members are projects of their own** (the owner's go, 2026-10-25; found on a public FastAPI
+  template: a python `backend/` and a TypeScript `frontend/` declared in the root's workspace files). Reef read the root
+  only: the gate was the root's `npm test` (the frontend's tests) and the backend's pytest never ran; the backend's raw SQL
+  was "not measured" because its dependencies live in `backend/pyproject.toml`. `workspace_members()` reads what the
+  repository declares — package.json `workspaces`, pnpm-workspace.yaml, `[tool.uv.workspace] members`, go.work `use`, Cargo
+  `[workspace] members`; each member is detected with its own dependencies (the raw-SQL measure, the `--raw-sql` gate — now
+  the measure's own code, loaded, not a copy — and the sensitive vocabulary work per member) and a member with a test
+  command gets `gates.extra["test:<member>"] = "cd <member> && <its test>"` (a uv workspace's python members run
+  `uv run pytest -q`). A new project gets them written; an existing one gets them as a proposal — an upgrade never adds a
+  gate that may be red on its own. The python profile knows SQLModel. tests/size-budget.json raised: {BUDGET}.
 - **Reef's own scripts are never the project's product code** (2026-10-25, found by running the adoption on two public
   repositories: a Go service and a FastAPI + TypeScript template). After `reef-init`, the measure counted `scripts/reef-*`
   as the project's code: the largest "product" file was `scripts/reef-queue.py`, Reef's scripts were listed as the

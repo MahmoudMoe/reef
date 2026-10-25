@@ -339,5 +339,53 @@ class ReefCodeIsNotTheProjects(unittest.TestCase):
         r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-structure"), "--sizes", "--repo", d], capture_output=True, text=True)
         self.assertNotIn("scripts/reef-", r.stdout + r.stderr)
 
+
+class Monorepo(unittest.TestCase):
+    """Found on a public FastAPI template (2026-10-25): a repository of several projects — a python backend/ and a
+    TypeScript frontend/ — declared in the root's workspace files. Reef read the root only: the gate was the root's
+    `npm test` (the frontend's tests), the backend's pytest never ran, and its raw SQL was "not measured" because its
+    dependencies live in backend/pyproject.toml. Each member the repository declares is now a project of its own."""
+
+    def project(self):
+        d = tempfile.mkdtemp(prefix="reef-mono.")
+        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        write(d, "package.json", json.dumps({"name": "mono", "workspaces": ["frontend"], "scripts": {"test": "npm --workspace frontend test"}}))
+        write(d, "pyproject.toml", '[dependency-groups]\ndev = ["ruff"]\n\n[tool.uv.workspace]\nmembers = ["backend"]\n')
+        write(d, "uv.lock", "version = 1\n")
+        write(d, "frontend/package.json", json.dumps({"name": "web", "scripts": {"test": "vitest run"}}))
+        write(d, "frontend/src/app.ts", "export const app = 1;\n")
+        write(d, "backend/pyproject.toml", '[project]\nname = "api"\nversion = "0.1.0"\ndependencies = ["fastapi", "sqlmodel"]\n')
+        write(d, "backend/app/crud.py", "from sqlmodel import text\ndef find(session, name):\n    return session.exec(text(f\"select * from items where name='{name}'\"))\n")
+        write(d, "backend/tests/test_crud.py", "def test_x():\n    assert True\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "a monorepo")
+        return d
+
+    def test_each_declared_member_gets_its_gate_its_profile_and_its_raw_sql_rule(self):
+        d = self.project()
+        r = subprocess.run([sys.executable, os.path.join(SCRIPTS, "reef-init.py"), "--root", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        extra = json.load(open(os.path.join(d, ".reef", "config.json")))["gates"]["extra"]
+        self.assertEqual(extra.get("test:backend"), "cd backend && uv run pytest -q")
+        self.assertEqual(extra.get("test:frontend"), "cd frontend && npm test")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "reef init")
+        r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-recalibrate"), "measure", "--json", "--repo", d], capture_output=True, text=True)
+        m = json.loads(r.stdout)
+        self.assertEqual(m["raw_sql"], {"backend/app": {"tagged": 0, "unsafe": 1, "files": ["backend/app/crud.py"]}})
+        write(d, ".reef/config.json", json.dumps({**json.load(open(os.path.join(d, ".reef", "config.json"))), "assess": {"raw_sql_allow": ["backend/app/crud.py"]}}))
+        write(d, "backend/app/report.py", "def r(engine, day):\n    return engine.execute(f\"select * from sales where day='{day}'\")\n")
+        r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-structure"), "--raw-sql", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("backend/app/report.py:2", r.stdout)
+
+    def test_an_existing_project_gets_the_member_gates_as_a_proposal_never_a_new_red_gate(self):
+        d = self.project()
+        write(d, ".reef/config.json", json.dumps({"gates": {"full": "npm test", "extra": {"build": "true"}}}))
+        git(d, "add", "-A"); git(d, "commit", "-qm", "an existing Reef project")
+        r = subprocess.run([sys.executable, os.path.join(SCRIPTS, "reef-init.py"), "--root", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(json.load(open(os.path.join(d, ".reef", "config.json")))["gates"]["extra"], {"build": "true"}, "nothing added on upgrade")
+        self.assertIn("PROPOSED .reef/config.json gates.extra", r.stdout)
+        self.assertIn('"test:backend": "cd backend && uv run pytest -q"', r.stdout)
+
 if __name__ == "__main__":
     unittest.main()
