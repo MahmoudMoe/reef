@@ -447,7 +447,7 @@ class LedgerClasses(unittest.TestCase):
         out = {}
         for d, pat in (("scripts", "reef-"), ("templates", "pre-commit")):
             for n in os.listdir(os.path.join(ROOT, d)):
-                if n.startswith(pat):
+                if n.startswith(pat) and not n.endswith(".json"):   # scripts/reef-stacks.json (0.7.3) is data, not a script
                     with open(os.path.join(ROOT, d, n), encoding="utf-8") as f:
                         head = "".join(f.readline() for _ in range(3))
                     m = re.search(r"^# CLASS: ([a-z, ]+)$", head, re.M)

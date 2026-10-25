@@ -4,7 +4,7 @@
 --sizes (0.7.2): the size ratchet over reef/size-baseline.json (written by `reef-recalibrate measure`, product files only): a
 baselined file may not grow past its baseline, a new file may not exceed `structure.new_file_lines` (default 400); a file that
 shrank lowers its baseline in the same run. Only files changed since HEAD are read. Joins gates.extra.
---raw-sql (0.7.2, node + Prisma): exit 1 on `$queryRawUnsafe` / `$executeRawUnsafe` in a file outside `assess.raw_sql_allow`
+--raw-sql (0.7.2; 0.7.3 any stack with a profile): exit 1 on an unsafe raw query (scripts/reef-stacks.json) in a file outside `assess.raw_sql_allow`
 (the files that held one when assess measured — a baseline, not a cleanup); a comment line never counts. Joins gates.extra.
 Exit 1 when a process document (decision, spec, runbook, plan) lives outside the layout — reef/ for 0.6, the
 docs/adr, docs/queue.md, docs/journal.md, tasks/ places for a project without .reef/version. Kept: README, LICENSE*,
@@ -129,36 +129,51 @@ def violations(root):
     return bad
 
 
-RAW_UNSAFE = re.compile(r"\$(query|execute)RawUnsafe\b")
 SKIP_DIR = re.compile(r"(^|/)(node_modules|dist|build|out|coverage|\.next|\.turbo|generated|__generated__|\.prisma|vendor)(/|$)")
 
 
 def raw_sql_violations(root):
-    """0.7.2 (ai-coach, 2026-10-24, item 12): SQL injection had no deterministic check — only the security agent's judgment.
-    An Unsafe raw call outside `assess.raw_sql_allow` fails; the allow list is the baseline the measure found, owner-edited."""
+    """0.7.2 (item 12): SQL injection had no deterministic check — only the security agent's judgment. An unsafe raw call
+    outside `assess.raw_sql_allow` fails; the allow list is the baseline the measure found, owner-edited. 0.7.3: what an
+    unsafe call looks like comes from the stack profiles in scripts/reef-stacks.json (reef-recalibrate reads the same file)."""
     try:
         with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
             allow = set(str(x) for x in ((json.load(f).get("assess") or {}).get("raw_sql_allow") or []))
     except (OSError, ValueError):
         allow = set()
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-stacks.json"), encoding="utf-8") as f:
+            profiles = {k: v for k, v in json.load(f).items() if isinstance(v, dict)}
+    except (OSError, ValueError):
+        profiles = {}
     r = subprocess.run(["git", "-C", root, "ls-files", "-co", "--exclude-standard"], capture_output=True, text=True)
+    listed = [l for l in r.stdout.splitlines() if l and not SKIP_DIR.search(l)]
     bad = []
-    for rel in sorted(l for l in r.stdout.splitlines() if l.endswith((".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")) and not SKIP_DIR.search(l)):
-        if rel in allow:
+    for prof in profiles.values():
+        rs = prof.get("raw_sql")
+        if not rs or not any(os.path.isfile(os.path.join(root, f)) for f in prof.get("detect") or []):
             continue
-        try:
-            with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as f:
-                for n, line in enumerate(f, 1):
-                    s = line.strip()
-                    if s.startswith(("//", "*", "/*")):
-                        continue
-                    if RAW_UNSAFE.search(s):
-                        bad.append(f"{rel}:{n}: an Unsafe raw query outside assess.raw_sql_allow — use a tagged `$queryRaw`/`$executeRaw` "
-                                   "(parameterised), or the owner adds the file to the allow list in .reef/config.json")
-        except OSError:
-            continue
+        deps = ""
+        for f in prof.get("deps_from") or []:
+            try:
+                with open(os.path.join(root, f), encoding="utf-8", errors="replace") as fh:
+                    deps += fh.read() + "\n"
+            except OSError:
+                continue
+        if not any(re.search(r"(?<![\w@/.-])" + re.escape(d) + r"(?![\w/-])", deps, re.I) for d in rs.get("when_deps") or []):
+            continue   # the same switch as reef-recalibrate's measure: the stack AND the dependency its rule names
+        unsafe, ext, comment = re.compile(rs["unsafe"]), tuple(prof.get("code_ext") or ()), tuple(prof.get("comment") or ("#",))
+        for rel in sorted(l for l in listed if l.endswith(ext) and l not in allow):
+            try:
+                with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as f:
+                    for n, line in enumerate(f, 1):
+                        s = line.strip()
+                        if not s.startswith(comment) and unsafe.search(s):
+                            bad.append(f"{rel}:{n}: an unsafe raw query outside assess.raw_sql_allow — {rs.get('fix', 'parameterise it')}, "
+                                       "or the owner adds the file to the allow list in .reef/config.json")
+            except OSError:
+                continue
     return bad
-
 
 # the measure's product set, repeated here (scripts never import each other): code files that are not tests, declarations,
 # generated or data (i18n) — the same excludes, so the baseline and the check agree on what a product file is
@@ -237,7 +252,7 @@ def main(argv):
             for b in bad:
                 print(f"  - {b}")
             return 1
-        print("ok: no Unsafe raw query outside assess.raw_sql_allow")
+        print("ok: no unsafe raw query outside assess.raw_sql_allow")
         return 0
     bad = violations(root)
     kept = plan_keeps(root)

@@ -834,8 +834,6 @@ CODE_EXT = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go", ".rs", "
 TEST_FILE = re.compile(r"(^|/)(tests?|__tests__|spec)/|\.(test|spec)\.[a-z]+$|(^|/)test_[^/]+\.py$|_test\.(go|py|rs|js|ts)$")
 GENERATED = re.compile(r"(^|/)(node_modules|dist|build|out|coverage|\.next|\.turbo|generated|__generated__|\.prisma|target|vendor|\.venv|\.reef|\.git)(/|$)")
 DATA_DIR = re.compile(r"(^|/)(i18n|locales|interface|translations)(/|$)")
-RAW_TAGGED = re.compile(r"\$(query|execute)Raw(?!Unsafe)\b")
-RAW_UNSAFE = re.compile(r"\$(query|execute)RawUnsafe\b")
 SQL_FUNC = re.compile(r"^\s*CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\b", re.I | re.M)
 SQL_TRIG = re.compile(r"^\s*CREATE\s+(OR\s+REPLACE\s+)?TRIGGER\b", re.I | re.M)
 LINTERS = (".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.json", ".eslintrc.yml", ".eslintrc.yaml", "eslint.config.js",
@@ -853,9 +851,32 @@ def count_lines(p):
         return 0
 
 
+# 0.7.3 (the owner's rule: Reef works on any stack): what one stack's tools look like — raw SQL, the database client, the
+# layer-boundary tool, session and permission vocabulary — lives in scripts/reef-stacks.json, one profile per stack
+def stack_profiles():
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-stacks.json"), encoding="utf-8") as f:
+            return {k: v for k, v in json.load(f).items() if isinstance(v, dict)}
+    except (OSError, ValueError):
+        return {}
+
+
+def active_profiles(root):
+    """[(name, profile, the text of its dependency manifests)] for each stack this project uses."""
+    out = []
+    for name, prof in stack_profiles().items():
+        if any(os.path.isfile(os.path.join(root, f)) for f in prof.get("detect") or []):
+            out.append((name, prof, "\n".join(read(os.path.join(root, f)) for f in prof.get("deps_from") or [] if os.path.isfile(os.path.join(root, f)))))
+    return out
+
+
+def has_dep(text, deps):
+    return any(re.search(r"(?<![\w@/.-])" + re.escape(d) + r"(?![\w/-])", text, re.I) for d in deps)
+
+
 def measure(root):
-    """The facts /reef-assess used to guess: largest product files, product vs test LOC, raw SQL by directory (node/Prisma;
-    comment lines ignored), functions and triggers per migration (Observed; their classification is Inferred, by Explore),
+    """The facts /reef-assess used to guess: largest product files, product vs test LOC, raw SQL by directory (by the stack
+    profile's raw-SQL rule; comment lines ignored), functions and triggers per migration (Observed; their classification is Inferred, by Explore),
     the linter, the project's existing guard tests, and the files over `assess.large_file` as candidate refactor rows."""
     import fnmatch
     cfg_p = os.path.join(root, ".reef", "config.json")
@@ -871,31 +892,28 @@ def measure(root):
             continue
         (tests if TEST_FILE.search(rel) else product)[rel] = count_lines(os.path.join(root, rel))
     largest = sorted(product.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
-    # raw SQL: node + Prisma only, by the file's directory; a comment line never counts
-    pkg_p = os.path.join(root, "package.json")
-    deps = {}
-    if os.path.isfile(pkg_p):
-        try:
-            pkg = json.loads(read(pkg_p))
-            deps = {**(pkg.get("dependencies") or {}), **(pkg.get("devDependencies") or {})}
-        except ValueError:
-            pass
-    raw = {}
-    prisma = "prisma" in deps or "@prisma/client" in deps
-    if prisma:
+    # raw SQL: by each stack profile's raw-SQL rule, when the project depends on what it names; by directory; a comment never counts
+    raw, raw_profile = {}, None
+    for name, prof, deps_text in active_profiles(root):
+        rs = prof.get("raw_sql")
+        if not rs or not has_dep(deps_text, rs.get("when_deps") or []):
+            continue
+        raw_profile = raw_profile or {"name": rs.get("name", name), "unsafe_calls": rs.get("unsafe_calls", ""), "fix": rs.get("fix", "")}
+        unsafe, safe = re.compile(rs["unsafe"]), re.compile(rs.get("safe") or r"(?!)")
+        ext, comment = tuple(prof.get("code_ext") or ()), tuple(prof.get("comment") or ("#",))
         for rel in sorted(product) + sorted(tests):
-            if not rel.endswith((".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")):
+            if not rel.endswith(ext):
                 continue
             with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as f:
                 for line in f:
                     s = line.strip()
-                    if s.startswith(("//", "*", "/*", "#")):
+                    if s.startswith(comment):
                         continue
                     d = os.path.dirname(rel) or "."
-                    if RAW_UNSAFE.search(s):
+                    if unsafe.search(s):
                         raw.setdefault(d, {"tagged": 0, "unsafe": 0, "files": []})["unsafe"] += 1
                         raw[d]["files"].append(rel) if rel not in raw[d]["files"] else None
-                    elif RAW_TAGGED.search(s):
+                    elif safe.search(s):
                         raw.setdefault(d, {"tagged": 0, "unsafe": 0, "files": []})["tagged"] += 1
     migrations = {}
     for rel in files:
@@ -913,13 +931,13 @@ def measure(root):
         if GUARD_NAME.search(os.path.basename(rel)) or GUARD_TEXT.search(docblock):
             guards.append(rel)
     big = [(rel, n) for rel, n in sorted(product.items(), key=lambda kv: (-kv[1], kv[0])) if n > large]
-    stack = "node" if os.path.isfile(pkg_p) else "python" if os.path.isfile(os.path.join(root, "pyproject.toml")) else "other"
     sensitive = sensitive_files(root, product)
     return {"date": datetime.date.today().isoformat(), "product": {"loc": sum(product.values()), "files": len(product)},
-            "boundaries": boundaries(root, product, stack),
+            "boundaries": boundaries(root, product),
             "sensitive": sensitive, "design_paths": design_paths(root, cfg, sensitive, files),
             "tests": {"loc": sum(tests.values()), "files": len(tests)}, "largest": largest,
-            "raw_sql": raw if prisma else None, "raw_sql_note": "" if prisma else "not measured (node + Prisma only; other stacks later)",
+            "raw_sql": raw if raw_profile else None, "raw_sql_profile": raw_profile,
+            "raw_sql_note": "" if raw_profile else "not measured: no stack profile with a raw-SQL rule matches this project (scripts/reef-stacks.json)",
             "migrations": migrations, "linter": linter, "guard_tests": guards, "large_file": large, "large_files": big,
             "baseline": product}
 
@@ -929,8 +947,6 @@ def measure(root):
 # today's violations as the known-violations baseline, so day one is green and only a NEW violation fails. Proposed under
 # <git dir>/reef/recalibration/proposed/, applied by the owner with the plan; the gate is `depcruise --ignore-known`.
 IMPORT_RE = re.compile(r"""(?:^|\n)\s*(?:import\s+(?:[^'"]*?\s+from\s+)?|export\s+[^'"]*?\s+from\s+|const\s+[^=]+=\s*require\()\s*['"]([^'"]+)['"]""")
-BOUNDARY_RULES = (("components-no-db", r"(^|/)components/", "a component never touches the database client"),
-                  ("api-db-through-lib", r"(^|/)app/api/", "a route handler reaches the database only through lib/"))
 
 
 def resolve_import(rel, spec, files, aliases):
@@ -950,18 +966,27 @@ def resolve_import(rel, spec, files, aliases):
     return None
 
 
-def boundaries(root, product, stack):
-    if stack != "node":
-        if stack == "python":
-            draft = os.path.join(proposed_dir(root), "adr-draft-import-boundaries.md")
-            os.makedirs(os.path.dirname(draft), exist_ok=True)
-            with open(draft, "w", encoding="utf-8") as f:
-                f.write("# ADR draft — import boundaries (python)\n\nStatus: Draft\n\nContext: layer boundaries are not enforced. "
-                        "Decision (proposed): `import-linter` with a contract per layer (`[importlinter] root_package = <pkg>`; a `layers` "
-                        "contract listing the layers top-down), run as `gates.extra.boundaries: lint-imports`. Today's violations become "
-                        "the first contract's `ignore_imports`. Consequences: a new cross-layer import fails the gate; the baseline is paid down by rows.\n")
-            return {"stack": stack, "adr_draft": os.path.relpath(draft, root)}
+def fill(template, values):
+    """A profile template's @NAME@ placeholders (never braces: a rendered file must not look like an unfilled template)."""
+    for k, v in values.items():
+        template = template.replace(f"@{k}@", v)
+    return template
+
+
+def boundaries(root, product):
+    """The first stack profile with a boundary tool: an ADR draft (a tool to decide on), or a config derived from the observed
+    import graph with today's violations as the known-violations baseline (the JS/TS import graph: imports, tsconfig paths)."""
+    hit = next(((n, p) for n, p, _ in active_profiles(root) if p.get("boundaries")), None)
+    if hit is None:
         return None
+    stack, prof = hit
+    b = prof["boundaries"]
+    if b.get("adr_draft"):
+        draft = os.path.join(proposed_dir(root), b.get("adr_draft_file") or "adr-draft-boundaries.md")
+        os.makedirs(os.path.dirname(draft), exist_ok=True)
+        with open(draft, "w", encoding="utf-8") as f:
+            f.write(b["adr_draft"])
+        return {"stack": stack, "tool": b.get("tool", ""), "adr_draft": os.path.relpath(draft, root)}
     aliases = {}
     ts = os.path.join(root, "tsconfig.json")
     if os.path.isfile(ts):
@@ -974,35 +999,33 @@ def boundaries(root, product, stack):
             pass
     if not aliases:
         aliases = {"@/": "src/"}
+    ext = tuple(prof.get("code_ext") or ())
     files = set(product)
-    db_files = sorted(rel for rel in files if rel.endswith((".ts", ".tsx", ".js", ".mjs")) and "new PrismaClient(" in read(os.path.join(root, rel)))
+    client, pkg = re.compile(b["db_client"]), b.get("db_package", "")
+    rules = [tuple(r) for r in b.get("rules") or []]
+    db_files = sorted(rel for rel in files if rel.endswith(ext) and client.search(read(os.path.join(root, rel))))
     known = []
     for rel in sorted(files):
-        if not rel.endswith((".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")):
+        if not rel.endswith(ext):
             continue
         for spec in IMPORT_RE.findall(read(os.path.join(root, rel))):
             to = resolve_import(rel, spec, files, aliases)
-            hits_db = to in db_files or spec == "@prisma/client"
-            if not hits_db:
+            if not (to in db_files or spec == pkg):
                 continue
-            for name, from_re, _ in BOUNDARY_RULES:
+            for name, from_re, _ in rules:
                 if re.search(from_re, rel):
-                    known.append({"from": rel, "to": to or "node_modules/@prisma/client", "rule": {"severity": "error", "name": name}})
-    db_re = "|".join(re.escape(p) for p in db_files) or "lib/(prisma|db|client)"
-    config = ("/** generated by `reef-recalibrate measure` from the observed layout — proposed; edit, then move it to the root with the\n"
-              " * known-violations baseline and add `\"boundaries\": \"npx depcruise --config .dependency-cruiser.cjs --ignore-known src\"` to gates.extra */\n"
-              "module.exports = {\n  forbidden: [\n" +
-              "".join(f"    {{ name: '{name}', severity: 'error', comment: '{why}',\n      from: {{ path: '{from_re}' }}, to: {{ path: '({db_re}|node_modules/@prisma/client)' }} }},\n"
-                      for name, from_re, why in BOUNDARY_RULES) +
-              "  ],\n  options: { doNotFollow: { path: 'node_modules' }, tsPreCompilationDeps: true, tsConfig: { fileName: 'tsconfig.json' } },\n};\n")
+                    known.append({"from": rel, "to": to or f"node_modules/{pkg}", "rule": {"severity": "error", "name": name}})
+    db_re = "|".join(re.escape(p) for p in db_files) or b.get("db_fallback", "")
+    rule_text = "".join(fill(b["config_rule"], {"NAME": n, "WHY": why, "FROM": fr, "DB_RE": db_re, "DB_PACKAGE": pkg}) for n, fr, why in rules)
+    config = fill(b["config_header"], {"GATE": b["gate"]}) + fill(b["config_body"], {"RULES": rule_text})
     pdir = proposed_dir(root)
     os.makedirs(pdir, exist_ok=True)
-    with open(os.path.join(pdir, ".dependency-cruiser.cjs"), "w", encoding="utf-8") as f:
+    with open(os.path.join(pdir, b["config_file"]), "w", encoding="utf-8") as f:
         f.write(config)
-    with open(os.path.join(pdir, ".dependency-cruiser-known-violations.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(pdir, b["baseline_file"]), "w", encoding="utf-8") as f:
         json.dump(known, f, indent=1)
         f.write("\n")
-    existing = os.path.join(root, ".dependency-cruiser-known-violations.json")
+    existing = os.path.join(root, b["baseline_file"])
     new = []
     if os.path.isfile(existing):
         try:
@@ -1010,40 +1033,42 @@ def boundaries(root, product, stack):
             new = [k for k in known if (k["from"], k["to"], k["rule"]["name"]) not in had]
         except (ValueError, AttributeError):
             new = []
-    return {"stack": stack, "db_files": db_files, "rules": [n for n, _, _ in BOUNDARY_RULES], "known": known, "new": new,
-            "gate": "npx depcruise --config .dependency-cruiser.cjs --ignore-known src"}
+    return {"stack": stack, "tool": b.get("tool", ""), "install": b.get("install", ""), "config_file": b["config_file"],
+            "baseline_file": b["baseline_file"], "db_files": db_files, "rules": [n for n, _, _ in rules],
+            "rule_text": [[n, why] for n, _, why in rules], "known": known, "new": new, "gate": b["gate"]}
 
 
 def render_boundaries(b):
     if b is None:
-        return "## Proposed gate — boundaries\n\nNo boundary gate is proposed for this stack yet (node: dependency-cruiser; python: an ADR draft).\n"
-    if b["stack"] == "python":
-        return f"## Proposed gate — boundaries (python)\n\nAn ADR draft only: `{b['adr_draft']}` (import-linter). No gate is proposed until the owner decides.\n"
-    lines = ["## Proposed gate — boundaries (node)", "",
-             "Derived from the observed layout; nothing is applied. On approval: move `.git/reef/recalibration/proposed/.dependency-cruiser.cjs` and "
-             "`.git/reef/recalibration/proposed/.dependency-cruiser-known-violations.json` to the root, `npm i -D dependency-cruiser`, and add to `gates.extra`: "
+        return ("## Proposed gate — boundaries\n\nNo boundary gate is proposed: no stack profile with a boundary tool matches this "
+                "project (scripts/reef-stacks.json).\n")
+    if b.get("adr_draft"):
+        return f"## Proposed gate — boundaries ({b['stack']})\n\nAn ADR draft only: `{b['adr_draft']}` ({b['tool']}). No gate is proposed until the owner decides.\n"
+    pd = ".git/reef/recalibration/proposed"
+    lines = [f"## Proposed gate — boundaries ({b['stack']})", "",
+             f"Derived from the observed layout; nothing is applied. On approval: move `{pd}/{b['config_file']}` and "
+             f"`{pd}/{b['baseline_file']}` to the root, `{b['install']}`, and add to `gates.extra`: "
              f"`\"boundaries\": \"{b['gate']}\"`. Today's {len(b['known'])} violation(s) are the baseline: day one is green, only a NEW one fails.", "",
-             f"- database client: {', '.join('`' + d + '`' for d in b['db_files']) or 'none found (no `new PrismaClient(`)'}",
-             "- rules: " + "; ".join(f"`{n}` — {why}" for n, _, why in BOUNDARY_RULES), "",
+             f"- database client: {', '.join('`' + d + '`' for d in b['db_files']) or 'none found (no file matches the profile’s database client)'}",
+             "- rules: " + "; ".join(f"`{n}` — {why}" for n, why in b["rule_text"]), "",
              "| rule | from | to |", "|---|---|---|"]
     lines += [f"| {k['rule']['name']} | `{k['from']}` | `{k['to']}` |" for k in b["known"]] or ["| – | none | – |"]
     if b["new"]:
-        lines += ["", f"**{len(b['new'])} NEW violation(s) since the committed baseline** (`.dependency-cruiser-known-violations.json`): " +
+        lines += ["", f"**{len(b['new'])} NEW violation(s) since the committed baseline** (`{b['baseline_file']}`): " +
                   ", ".join(f"`{k['from']}` → `{k['to']}`" for k in b["new"])]
     return "\n".join(lines) + "\n"
-
 
 # ---------------------------------------------------------------- the real sensitive code (0.7.2, ai-coach 2026-10-24, item 22)
 # tiers.design.paths (auth, crypto, secrets, migrations globs) matched 0 of the 21 files holding access control, tenant isolation and
 # money (session-access.ts, visibility*.ts, scoped-client*.ts, *tenant*, usage*.ts, metering*.ts, app/api/sign-in/**): a change there
 # ran as an ordinary full task. The measure lists sensitive files BY CONTENT, Observed with file:line, and the plan proposes the
 # exact tiers.design.paths diff with the count of files each glob matches; .reef/config.json stays owner-edited.
-SENSITIVE = (("session, cookie or token handling", re.compile(r"\b(cookies\(\)|setCookie|getSession|getServerSession|useSession|jsonwebtoken|jwt\.(sign|verify)|verifyToken|signToken|sessionStorage|session[-_]?access|refresh[-_]?token)\b", re.I)),
+SENSITIVE = (("session, cookie or token handling", re.compile(r"\b(setCookie|getSession|jwt\.(sign|verify)|verifyToken|signToken|sessionStorage|session[-_]?access|refresh[-_]?token)\b", re.I)),
              ("RLS or tenant scoping", re.compile(r"set_config\(|\bRLS\b|row level security|\btenant[-_]?id\b|\btenantId\b|scoped[-_]?client|forTenant|withTenant|\bvisibility\b", re.I)),
              ("permission predicate", re.compile(r"\b(can[A-Z]\w+|is(Admin|Owner|Member|Allowed|Authorized|Permitted)|has(Permission|Role|Access)|assert(Role|Permission|Owner|Access)|require(Role|Permission|Auth)|authorize\w*)\b")),
              ("payment, usage, metering or cap", re.compile(r"\b(stripe|payment\w*|checkout|invoice\w*|metering|meter\w*|usage\w*|quota\w*|billing|credits?|plan[-_]?limit\w*)\b", re.I)),
              ("secret read", re.compile(r"process\.env\.[A-Z0-9_]*(SECRET|KEY|TOKEN|PASSWORD|PRIVATE)|environ(\.get)?\(?\[?[\"'][A-Z0-9_]*(SECRET|KEY|TOKEN|PASSWORD)|getenv\([\"'][A-Z0-9_]*(SECRET|KEY|TOKEN|PASSWORD)")),
-             ("sign-in route", re.compile(r"\b(signIn|signOut|NextAuth|authOptions|handleLogin|loginHandler)\b")))
+             ("sign-in route", re.compile(r"\b(signIn|signOut|handleLogin|loginHandler)\b")))
 SENSITIVE_PATH = re.compile(r"(^|/)(sign-?in|sign-?up|login|logout|auth|oauth|sso|callback|session|billing|payments?|metering|tenant\w*)(/|\.|-|_|$)", re.I)
 
 
@@ -1055,6 +1080,8 @@ def sensitive_files(root, product):
         for n, line in enumerate(read(tm).splitlines(), 1):
             for m in re.finditer(r"(?<![\w/])((?:[\w.-]+/)+[\w.-]+\.(ts|tsx|js|py|go|rs))\b", line):
                 tm_lines.setdefault(m.group(1), n)
+    # the general vocabulary, then each stack profile's own (a framework's session call, its permission decorator)
+    kinds_rx = list(SENSITIVE) + [(k, re.compile(rx)) for _, p, _ in active_profiles(root) for k, rx in (p.get("sensitive") or {}).items()]
     for rel in sorted(product):
         kinds = []
         if SENSITIVE_PATH.search(rel):
@@ -1065,7 +1092,7 @@ def sensitive_files(root, product):
                 s = line.strip()
                 if s.startswith(("//", "*", "/*", "#")):
                     continue
-                for kind, rx in SENSITIVE:
+                for kind, rx in kinds_rx:
                     if kind not in seen and rx.search(s):
                         kinds.append({"kind": kind, "line": n})
                         seen.add(kind)
@@ -1149,19 +1176,21 @@ def raw_sql_proposal(m):
         return None
     allow = sorted({f for v in m["raw_sql"].values() for f in v["files"]})
     reuse = [g for g in m.get("guard_tests") or [] if RAW_GUARD.search(os.path.basename(g))]
-    return {"allow": allow, "reuse": reuse, "gate": "python3 scripts/reef-structure --raw-sql"}
+    return {"allow": allow, "reuse": reuse, "gate": "python3 scripts/reef-structure --raw-sql", "profile": m.get("raw_sql_profile") or {}}
 
 
 def render_raw_sql(p):
     if p is None:
-        return "## Proposed gate — raw SQL\n\nNot measured for this stack (node + Prisma only); nothing proposed.\n"
-    lines = ["## Proposed gate — raw SQL (node + Prisma)", ""]
+        return ("## Proposed gate — raw SQL\n\nNot measured: no stack profile with a raw-SQL rule matches this project "
+                "(scripts/reef-stacks.json); nothing proposed.\n")
+    prof = p.get("profile") or {}
+    lines = [f"## Proposed gate — raw SQL ({prof.get('name', '')})", ""]
     if p["reuse"]:
         lines += [f"The project already guards raw SQL: {', '.join('`' + g + '`' for g in p['reuse'])} — reuse it (keep it in `gates.full`); no new gate is proposed."]
     else:
         lines += ["On approval the owner adds to `.reef/config.json`: `assess.raw_sql_allow: " + json.dumps(p["allow"]) +
-                  "` (today's files with an Unsafe raw query — a baseline, not a cleanup) and to `gates.extra`: `\"raw-sql\": \"" + p["gate"] +
-                  "\"`. Day one is green; a new `$queryRawUnsafe`/`$executeRawUnsafe` outside those files fails."]
+                  "` (today's files with an unsafe raw query — a baseline, not a cleanup) and to `gates.extra`: `\"raw-sql\": \"" + p["gate"] +
+                  f"\"`. Day one is green; a new {prof.get('unsafe_calls', 'unsafe raw query')} outside those files fails."]
     return "\n".join(lines) + "\n"
 
 

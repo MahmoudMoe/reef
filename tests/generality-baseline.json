@@ -1,21 +1,4 @@
 {
- "scripts/reef-init.py": {
-  "@prisma/client": 1
- },
- "scripts/reef-recalibrate": {
-  "@prisma/client": 4,
-  "NextAuth": 1,
-  "PrismaClient": 2,
-  "RawUnsafe": 3,
-  "app/api/": 1,
-  "depcruise": 2,
-  "dependency-cruiser": 10,
-  "getServerSession": 1,
-  "queryRawUnsafe": 1
- },
- "scripts/reef-structure": {
-  "RawUnsafe": 1
- },
  "skills/reef-assess/SKILL.md": {
   "ai-coach": 2
  },
