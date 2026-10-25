@@ -10,12 +10,7 @@
   "app/api/": 1,
   "depcruise": 2,
   "dependency-cruiser": 10,
-  "docs/loop": 2,
   "getServerSession": 1,
-  "loop-start": 1,
-  "loop:adr": 1,
-  "loop:close": 2,
-  "loop:start": 2,
   "queryRawUnsafe": 1
  },
  "scripts/reef-structure": {
