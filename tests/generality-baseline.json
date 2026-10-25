@@ -1,0 +1,36 @@
+{
+ "scripts/reef-guard.py": {
+  "ci:local": 1
+ },
+ "scripts/reef-init.py": {
+  "@prisma/client": 1
+ },
+ "scripts/reef-recalibrate": {
+  "@prisma/client": 4,
+  "NextAuth": 1,
+  "PrismaClient": 2,
+  "RawUnsafe": 3,
+  "app/api/": 1,
+  "depcruise": 2,
+  "dependency-cruiser": 10,
+  "docs/loop": 2,
+  "getServerSession": 1,
+  "loop-start": 1,
+  "loop:adr": 1,
+  "loop:close": 2,
+  "loop:start": 2,
+  "queryRawUnsafe": 1
+ },
+ "scripts/reef-structure": {
+  "RawUnsafe": 1
+ },
+ "skills/reef-assess/SKILL.md": {
+  "ai-coach": 2
+ },
+ "skills/reef-init/SKILL.md": {
+  "ai-coach": 1
+ },
+ "skills/reef-review/SKILL.md": {
+  "ai-coach": 1
+ }
+}
