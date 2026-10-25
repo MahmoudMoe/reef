@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **The recalibration plan's proposals no longer land in reef-init's `.reef/proposed/`** (ai-coach, 2026-10-25). The plan
+  wrote its instruction-layer rewrites (item 19) and the dependency-cruiser config and baseline (item 13) under
+  `.reef/proposed/`, reef-init's directory: the AGENTS.md rewrite overwrote init's own AGENTS.md proposal, `reef-update` and
+  the doctor listed the plan's files as renderings waiting for `reef-init --accept`, and that advice was destructive —
+  accepting AGENTS.md recorded the rewrite as Reef's rendering, so the next `reef-update` replaced AGENTS.md with the template
+  (the product text and the project's own rules gone); accepting the archived CLAUDE-CODE-PROMPT.md put it back at the root.
+  The plan now writes to `.reef/recalibration/proposed/` (ignored by reef-init's `.gitignore` lines), the `git diff
+  --no-index` lines and the boundaries section point there, and the apply removes each rewrite it applied (only after the
+  apply succeeded: a refused apply keeps them). tests/size-budget.json raised: `script_lines` 14,144 → 14,150.
 - **`structure` can be switched on the day of the adoption** (ai-coach, 2026-10-25; the owner's go). After the apply,
   `reef-structure --check` found 507 process documents outside the layout — 443 under `specs/` and 64 under
   `design_handoff/` — every one of them KEPT by the recalibration plan because the project's own checks read those

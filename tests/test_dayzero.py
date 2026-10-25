@@ -17,6 +17,8 @@ REPO = os.path.join(ROOT, "scripts", "reef-repo")
 RECAL = os.path.join(ROOT, "scripts", "reef-recalibrate")
 STRUCT = os.path.join(ROOT, "scripts", "reef-structure")
 GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
+INIT = os.path.join(ROOT, "scripts", "reef-init.py")
+PROPOSED = os.path.join(".reef", "recalibration", "proposed")   # the plan's; .reef/proposed/ is reef-init's
 
 FAKE_GH = r'''#!/usr/bin/env python3
 import json, os, sys
@@ -576,7 +578,7 @@ class InstructionLayer(unittest.TestCase):
         self.assertIn([9, "docs/loop/queue.md"], [p[:2] for p in agents["pointers"]])
         claude = next(e for e in plan["instruction_layer"]["files"] if e["file"] == "CLAUDE.md")
         self.assertEqual(claude["pointers"], [[5, "docs/coaching-model.md", False]], "a pointer to a KEPT document is listed and stays")
-        self.assertFalse(os.path.exists(os.path.join(d, ".reef", "proposed", "CLAUDE.md")), "nothing to rewrite in CLAUDE.md")
+        self.assertFalse(os.path.exists(os.path.join(d, PROPOSED, "CLAUDE.md")), "nothing to rewrite in CLAUDE.md")
         kinds = {(n, k) for n, k, _ in agents["rules"]}
         self.assertIn((10, "start command"), kinds)
         self.assertIn((11, "ADR numbering"), kinds)
@@ -587,8 +589,8 @@ class InstructionLayer(unittest.TestCase):
         self.assertIn("rule, start command: `Start every session with /loop-start and close with `npm run loop:close`.` (AGENTS.md:10)", layer)
         self.assertIn("pointer → `HANDOFF-FRESH.md` (AGENTS.md:9)", layer)
         self.assertIn("DUPLICATE of the primary CLAUDE file", layer)
-        self.assertIn("read the diff first: `git diff --no-index AGENTS.md .reef/proposed/AGENTS.md`", open(os.path.join(d, "reef", "recalibration.md")).read())
-        proposed = open(os.path.join(d, ".reef", "proposed", "AGENTS.md")).read()
+        self.assertIn("read the diff first: `git diff --no-index AGENTS.md .reef/recalibration/proposed/AGENTS.md`", open(os.path.join(d, "reef", "recalibration.md")).read())
+        proposed = open(os.path.join(d, PROPOSED, "AGENTS.md")).read()
         self.assertIn(self.FOREIGN, proposed, "another tool's block is byte-identical")
         self.assertIn("An AI coach for runners: Next.js 16, Prisma, Vitest.", proposed, "product content kept verbatim")
         self.assertIn("there is deliberately no linter", proposed, "the project's rule stays")
@@ -598,6 +600,7 @@ class InstructionLayer(unittest.TestCase):
         r = subprocess.run([sys.executable, RECAL, "--apply", "--repo", d], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(open(os.path.join(d, "AGENTS.md")).read(), proposed, "applied in the one commit")
+        self.assertFalse(os.path.exists(os.path.join(d, PROPOSED, "AGENTS.md")), "an applied rewrite is not left waiting")
         self.assertFalse(os.path.isfile(os.path.join(d, "CLAUDE-CODE-PROMPT.md")))
         claude_md = open(os.path.join(d, "CLAUDE.md")).read()
         self.assertIn("The product: coaching plans.", claude_md, "product content kept")
@@ -605,6 +608,26 @@ class InstructionLayer(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(d, "docs", "coaching-model.md")), "a document only CLAUDE.md names stays in place")
         self.assertEqual(git(d, "status", "--porcelain").strip(), "", "one commit")
 
+    def test_the_plan_leaves_reef_inits_proposals_alone_and_the_apply_clears_its_own(self):
+        """0.7.3 (ai-coach, 2026-10-25): the plan wrote its AGENTS.md rewrite to .reef/proposed/AGENTS.md, over reef-init's own
+        proposal for the same file; the doctor then advised `reef-init --accept AGENTS.md`, which recorded the rewrite as Reef's
+        rendering, and the next reef-update replaced AGENTS.md with the template: the product text and the project's rule gone."""
+        d = self.fixture()
+        write(d, ".gitignore", ".reef/proposed/\n.reef/recalibration/\n")
+        init_proposal = write(d, ".reef/proposed/AGENTS.md", "# reef-init's rendering of AGENTS.md, waiting for --accept or --keep\n")
+        git(d, "add", ".gitignore"); git(d, "commit", "-qm", "init")
+        r = subprocess.run([sys.executable, RECAL, "plan", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(sorted(os.listdir(os.path.join(d, ".reef", "proposed"))), ["AGENTS.md"], "the plan adds nothing to reef-init's proposals")
+        self.assertEqual(open(init_proposal).read(), "# reef-init's rendering of AGENTS.md, waiting for --accept or --keep\n")
+        self.assertTrue(os.path.isfile(os.path.join(d, PROPOSED, "AGENTS.md")))
+        git(d, "add", "-A"); git(d, "commit", "-qm", "plan")
+        r = subprocess.run([sys.executable, RECAL, "--apply", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("An AI coach for runners", open(os.path.join(d, "AGENTS.md")).read())
+        self.assertEqual(os.listdir(os.path.join(d, PROPOSED)), [], "what the apply applied is not left waiting")
+        self.assertTrue(os.path.isfile(init_proposal), "reef-init's proposal is the owner's to accept or keep")
+        self.assertEqual(git(d, "status", "--porcelain").strip(), "", "one commit")
 
 class WholeAdoption(unittest.TestCase):
     """0.7.2 (ai-coach, 2026-10-24, item 18): the plan covers the whole adoption — the old queue's open rows become Reef rows, the

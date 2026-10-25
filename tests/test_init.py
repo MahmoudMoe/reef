@@ -168,6 +168,8 @@ class Idempotent(unittest.TestCase):
             self.assertIn(evidence + "\n", gi, f"{evidence} is evidence the guard protects; it is never committed")
         # 2026-10-24, the trial: Python byte-code of the copied scripts showed up untracked in every git status
         self.assertIn("scripts/__pycache__/\n", gi)
+        # 0.7.3 (ai-coach, 2026-10-25): the recalibration plan's proposals, apart from reef-init's .reef/proposed/
+        self.assertIn(".reef/recalibration/\n", gi)
         mk = read(self.d, "Makefile")
         self.assertTrue(mk.startswith("build:\n"))
         self.assertIn("\nsetup:", mk)
