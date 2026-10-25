@@ -368,6 +368,7 @@ class RawSqlCheck(unittest.TestCase):
         d = tempfile.mkdtemp(prefix="reef-rawsql.")
         subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
         write(d, ".reef/config.json", json.dumps({"assess": {"raw_sql_allow": ["src/legacy.ts"]}}))
+        write(d, "package.json", json.dumps({"name": "x", "dependencies": {"@prisma/client": "6"}}))   # 0.7.3: the node profile's switch
         for rel, text in files.items():
             write(d, rel, text)
         return subprocess.run([sys.executable, STRUCT, "--raw-sql", "--repo", d], capture_output=True, text=True)
@@ -378,7 +379,7 @@ class RawSqlCheck(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)
         r = self.project({"src/legacy.ts": "prisma.$executeRawUnsafe(sql);\n", "src/new.ts": "const x = 1;\nconst r = prisma.$queryRawUnsafe(q);\n"})
         self.assertEqual(r.returncode, 1)
-        self.assertIn("src/new.ts:2: an Unsafe raw query outside assess.raw_sql_allow", r.stdout)
+        self.assertIn("src/new.ts:2: an unsafe raw query outside assess.raw_sql_allow", r.stdout)
         self.assertNotIn("src/legacy.ts", r.stdout)
 
 

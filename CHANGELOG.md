@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **One stack's tools live in data: `scripts/reef-stacks.json`** (the owner's rule, 2026-10-25). Raw SQL, the database
+  client, the layer-boundary tool and the session and permission vocabulary were node + Prisma + Next.js + dependency-cruiser
+  in Reef's code; another stack got nothing, or a sentence naming Prisma. Now each stack is a profile: the files that detect
+  it, where its dependencies are declared, its code files and comment markers, its raw-SQL rule (unsafe and safe calls, the
+  fix), its boundary tool (a config template and rules, or an ADR draft), its session and permission words, its generated
+  code. `node` holds exactly what the code held; `python` is new: SQL built with an f-string, `%` or `.format()` is measured,
+  proposed as `assess.raw_sql_allow` and gated by `reef-structure --raw-sql`; `request.session`, `login_required`,
+  `Depends(get_current_user)` are sensitive. A stack with no profile is told "no stack profile" and offered no other
+  stack's tool. The gate switches on exactly as the measure did (the stack and the dependency its rule names), so day one is
+  green. reef-init copies the file with the scripts; the guard protects it by its name. Reef's code holds no stack name now
+  (generality baseline: only three skills' "ai-coach" notes left). tests/size-budget.json raised: `script_lines` 14,324 → 14,493.
 - **An instruction file's process rules are found by their shape, not by one project's command names** (the owner's rule,
   2026-10-25). The patterns named one adopted project's commands (`/loop-start`, `npm run loop:close`, `loop:adr`,
   `docs/loop/`): on another project the plan found almost no rule to rewrite. A rule is now a slash command, a task-runner

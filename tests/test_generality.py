@@ -231,5 +231,55 @@ class InstructionRulesByShape(unittest.TestCase):
         self.assertEqual([(n, k) for n, k, _ in agents["rules"]],
                          [(4, "start command"), (5, "close command"), (6, "ADR numbering"), (7, "queue or constitution outside Reef")])
 
+
+class StackProfiles(unittest.TestCase):
+    """P4: what one stack's tools look like (raw SQL, the database client, layer boundaries, session and permission code)
+    lives in scripts/reef-stacks.json, one profile per stack; Reef's code reads it. A stack without a profile is told so
+    and never offered another stack's tool."""
+
+    def measure(self, d):
+        r = subprocess.run([sys.executable, os.path.join(SCRIPTS, "reef-recalibrate"), "measure", "--json", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    def test_python_raw_sql_is_measured_proposed_and_gated(self):
+        d = stack_project("python")
+        m = self.measure(d)
+        self.assertEqual(m["raw_sql"], {"shop": {"tagged": 0, "unsafe": 1, "files": ["shop/orders.py"]}})
+        self.assertEqual(m["raw_sql_proposal"]["allow"], ["shop/orders.py"])
+        rec = open(os.path.join(d, "reef", "recalibration.md")).read()
+        self.assertIn("## Proposed gate — raw SQL (python)", rec)
+        self.assertNotIn("Prisma", rec)
+        write(d, ".reef/config.json", json.dumps({"assess": {"raw_sql_allow": ["shop/orders.py"]}}))
+        write(d, "shop/report.py", "from .db import engine\ndef report(day):\n    return engine.execute(f\"select * from sales where day='{day}'\")\n")
+        r = subprocess.run([sys.executable, os.path.join(SCRIPTS, "reef-structure"), "--raw-sql", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("shop/report.py:3", r.stdout)
+        self.assertNotIn("shop/orders.py", r.stdout, "the baseline file passes")
+
+    def test_python_session_and_permission_code_is_sensitive(self):
+        d = stack_project("python")
+        write(d, "shop/views.py", "from flask import request\nfrom flask_login import login_required\n@login_required\ndef cart():\n    return request.session['cart']\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "views")
+        kinds = {k["kind"] for e in self.measure(d)["sensitive"] if e["file"] == "shop/views.py" for k in e["kinds"]}
+        self.assertTrue({"permission predicate", "session, cookie or token handling"} <= kinds, kinds)
+
+    def test_a_stack_without_a_profile_is_told_so_and_offered_no_other_stacks_tool(self):
+        d = stack_project("ruby")
+        m = self.measure(d)
+        self.assertIsNone(m["raw_sql"])
+        rec = open(os.path.join(d, "reef", "recalibration.md")).read()
+        for word in ("Prisma", "prisma", "dependency-cruiser", "depcruise", "npm", "import-linter"):
+            self.assertNotIn(word, rec, word)
+        self.assertIn("no stack profile", rec)
+
+    def test_the_profiles_are_data_reef_init_copies_with_the_scripts(self):
+        with open(os.path.join(SCRIPTS, "reef-stacks.json"), encoding="utf-8") as f:
+            profiles = json.load(f)
+        self.assertTrue({"node", "python"} <= set(profiles))
+        d = stack_project("go")
+        subprocess.run([sys.executable, os.path.join(SCRIPTS, "reef-init.py"), "--root", d], capture_output=True, text=True, check=True)
+        self.assertTrue(os.path.isfile(os.path.join(d, "scripts", "reef-stacks.json")))
+
 if __name__ == "__main__":
     unittest.main()

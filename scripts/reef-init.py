@@ -54,6 +54,8 @@ SCRIPTS = ["reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.
            "reef-repo", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-migrate", "reef-merge-base", "reef-merge-close",
            # 0.7 (2026-10-18: /reef-graph on the trial found no scripts/reef-graph-run.py — it was never in this list)
            "reef-graph-run.py", "reef-run.py",
+           # 0.7.3: the stack profiles (data the measure and the raw-SQL gate read)
+           "reef-stacks.json",
            # 2026-10-23: the night prompt runs `python3 scripts/reef-approval.py --proxy`; no project had it
            "reef-approval.py"]
 # 4.5 security gates per stack: the auditor is installed by the CI template's setup steps; locally a missing tool is
@@ -136,8 +138,10 @@ def detect(root):
         if "vitest" in deps:
             fast.append("npx vitest run --changed")
         facts["fast"] = " && ".join(fast)
-        facts["setup"] = ("npm ci && npm run generate" if "generate" in scripts
-                          else "npm ci && npx prisma generate" if "prisma" in deps or "@prisma/client" in deps else "npm ci")
+        # a generator the node profile names (scripts/reef-stacks.json `generate`) when the project depends on its tool
+        with open(os.path.join(PLUGIN, "scripts", "reef-stacks.json"), encoding="utf-8") as f:
+            gen = next((g["run"] for g in (json.load(f).get("node") or {}).get("generate") or [] if any(d in deps for d in g["when_deps"])), None)
+        facts["setup"] = "npm ci && npm run generate" if "generate" in scripts else f"npm ci && {gen}" if gen else "npm ci"
         facts.update(stack="node", ecosystem="npm", install="npm ci",
                      test="npm test" if "test" in scripts else "",
                      build="npm run build" if "build" in scripts else "",
@@ -592,7 +596,7 @@ def run(root, facts, dry):
             w.place("CLAUDE.md", f.read())
     for name in SCRIPTS:
         with open(os.path.join(PLUGIN, "scripts", name), encoding="utf-8") as f:
-            w.place(f"scripts/{name}", f.read(), executable=True)
+            w.place(f"scripts/{name}", f.read(), executable=not name.endswith(".json"))
     for d in ((["tasks", "tasks/done"] if lay["features"] is None else []) + [lay["adr"]]):
         if not dry:
             os.makedirs(os.path.join(root, d), exist_ok=True)
