@@ -129,6 +129,7 @@ def violations(root):
     return bad
 
 
+REEF_CODE = re.compile(r"^(scripts/reef-[^/]+|\.githooks/[^/]+)$")   # Reef's own code, re-copied by reef-update: never the project's
 SKIP_DIR = re.compile(r"(^|/)(node_modules|dist|build|out|coverage|\.next|\.turbo|generated|__generated__|\.prisma|vendor)(/|$)")
 
 
@@ -206,6 +207,7 @@ def size_violations(root):
     bad, lowered = [], 0
     for rel in sorted(changed):
         if not rel.endswith(CODE_EXT) or rel.endswith(".d.ts") or SKIP_DIR.search(rel) or TEST_FILE.search(rel) or DATA_DIR.search(rel) \
+           or REEF_CODE.match(rel) \
            or any(fnmatch.fnmatch(rel, g) or rel.startswith(g.rstrip("/") + "/") for g in excl) or not os.path.isfile(os.path.join(root, rel)):
             continue
         with open(os.path.join(root, rel), "rb") as f:

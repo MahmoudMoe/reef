@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **Reef's own scripts are never the project's product code** (2026-10-25, found by running the adoption on two public
+  repositories: a Go service and a FastAPI + TypeScript template). After `reef-init`, the measure counted `scripts/reef-*`
+  as the project's code: the largest "product" file was `scripts/reef-queue.py`, Reef's scripts were listed as the
+  project's sensitive files, and `reef/size-baseline.json` held them — the size gate would then have flagged a
+  `reef-update` that grows a Reef script. The measure and `reef-structure --sizes` skip Reef's code (`scripts/reef-*`,
+  `.githooks/*`). tests/size-budget.json raised: `script_lines` 14,505 → 14,509.
 - **No adopted project is named in Reef's code or prose** (the owner's decision, 2026-10-25). 44 history notes in scripts
   and skills named the first project Reef adopted; they now say "the first adoption" (#117 did the same for the trial
   project). `tests/test_generality.py` fails on the name anywhere in scripts, hooks, skills, agents, commands or templates,
