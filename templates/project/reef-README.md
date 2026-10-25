@@ -29,14 +29,14 @@ This is the map a person needs when the tree looks wrong: the plan is not where 
 ## Rendered — Reef's own, refreshed by `reef-init`
 
 `AGENTS.md` (your blocks inside the markers survive) · this file · `.github/workflows/ci.yml` · `.githooks/*` ·
-`scripts/reef-*`. A rendering that would change a file you edited lands in `.reef/proposed/` instead; accept it with
+`scripts/reef-*`. A rendering that would change a file you edited lands in `.git/reef/proposed/` instead; accept it with
 `python3 scripts/reef-init.py --accept <path>` or keep yours with `--keep <path>`.
 
 ## The loop's state (`.reef/`, per machine, gitignored)
 
 `loop.json` (active · wait · stop) · `inflight/` and `verifying/` (who is working) · `ci-local/` (hand-backs and
 judges' reports) · `cost/` (orchestrator cost per task and per feature) · `status.html` (the page the Stop hook
-refreshes; open it in a browser) · `proposed/`.
+refreshes; open it in a browser).
 
 ## What you type
 

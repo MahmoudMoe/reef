@@ -14,7 +14,7 @@ Checks, each OK / WARN / FAIL with the fix on the same line:
   stamp    a design/critical task's adversarial-plan is current or stale
   loop     .reef/loop.json: active, wait, stop; the status page
   tools    gh auth, docker (when a compose file exists)
-  proposals  renderings waiting in .reef/proposed/ and the command that accepts or keeps them
+  proposals  renderings waiting in <git dir>/reef/proposed/ and the command that accepts or keeps them
 Exit 0 = no FAIL · 1 = at least one FAIL · 2 = not a Reef project.
 
 Usability plan A1 (2026-10-17): the owner typed `--accept` and `--keep` by trial, pulled the plugin on the wrong
@@ -237,7 +237,9 @@ def main(argv):
         say("WARN", f"env: the local gate reads .env ({len(keys)} key(s): {', '.join(keys)}), CI does not",
             f"compare once: {' '.join(k + '=' for k in keys)} {full}")
     # proposals
-    pdir = os.path.join(root, ".reef", "proposed")
+    r = subprocess.run(["git", "-C", root, "rev-parse", "--git-common-dir"], capture_output=True, text=True)   # reef-init's reef_dir
+    g = r.stdout.strip()
+    pdir = os.path.join(g if os.path.isabs(g) else os.path.join(root, g), "reef", "proposed") if r.returncode == 0 and g else os.path.join(root, ".reef", "proposed")
     props = []
     for dp, _, fn in os.walk(pdir):
         props += [os.path.relpath(os.path.join(dp, f), pdir) for f in fn if not f.endswith(".diff")]

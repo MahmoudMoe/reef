@@ -242,7 +242,7 @@ class SecurityGatesAsProposals(unittest.TestCase):
         cfg5 = json.loads(open(os.path.join(d5, ".reef", "config.json")).read())
         self.assertEqual(cfg5["gates"]["extra"], {"build": "make"})
         self.assertNotIn("release", cfg5["gates"], "an upgrade never adds a gate that could turn CI red")
-        self.assertTrue(os.path.isfile(os.path.join(d5, ".reef", "proposed", "gates.release.json")))
+        self.assertTrue(os.path.isfile(os.path.join(d5, ".git", "reef", "proposed", "gates.release.json")))
         self.assertIn("gates.release", r.stdout)
         self.assertIn("exit 77", r.stdout)
 

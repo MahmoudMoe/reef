@@ -27,7 +27,7 @@ What it writes (from <plugin>/templates/project and <plugin>/scripts), adapted t
   `setup:` target (appended, never rewritten).
 
 The rule, for every file: ABSENT -> written. IDENTICAL -> skipped. DIFFERENT -> never overwritten:
-the rendering goes to .reef/proposed/<path>, a unified diff is printed, and `--accept <path>`
+the rendering goes to <git dir>/reef/proposed/<path>, a unified diff is printed, and `--accept <path>`
 applies it once the human has read the diff. A second run with nothing changed writes nothing.
 Hooks install (`git config core.hooksPath`), the first commit and the CI offer stay with the
 reef-init skill: they are decisions, not renderings.
@@ -374,6 +374,34 @@ def sha(data):
     return hashlib.sha256(data if isinstance(data, bytes) else data.encode("utf-8")).hexdigest()
 
 
+def reef_dir(root):
+    """0.7.3 (ai-coach, 2026-10-25): Reef's proposals live under the git dir — every tool, test and linter skips .git; under
+    .reef/proposed/ a project test that walks the disk counted .dependency-cruiser.cjs and a .claude/ folder as its own.
+    The common dir, so a linked worktree sees the same proposals. Outside a git repository: .reef/ as before."""
+    r = subprocess.run(["git", "-C", root, "rev-parse", "--git-common-dir"], capture_output=True, text=True)
+    g = r.stdout.strip()
+    if r.returncode != 0 or not g:
+        return os.path.join(root, ".reef")
+    return os.path.join(g if os.path.isabs(g) else os.path.join(root, g), "reef")
+
+
+def carry_old_proposals(root):
+    """An older Reef left its proposals in the work tree (.reef/proposed/, .reef/recalibration/proposed/): moved once under
+    the git dir; a name already there keeps the newer copy."""
+    new = reef_dir(root)
+    if os.path.abspath(new) == os.path.abspath(os.path.join(root, ".reef")):
+        return
+    for old, dst in ((os.path.join(".reef", "proposed"), "proposed"), (os.path.join(".reef", "recalibration", "proposed"), os.path.join("recalibration", "proposed"))):
+        src = os.path.join(root, old)
+        for dp, _, fn in os.walk(src):
+            for f in fn:
+                t = os.path.join(new, dst, os.path.relpath(os.path.join(dp, f), src))
+                if not os.path.exists(t):
+                    os.makedirs(os.path.dirname(t), exist_ok=True)
+                    shutil.move(os.path.join(dp, f), t)
+        shutil.rmtree(src, ignore_errors=True)
+
+
 def load_manifest(root):
     """rel path -> sha256 of the content Reef itself last placed there (written or accepted). A file whose
     current bytes still match is Reef's own, untouched by anyone: a better rendering replaces it without a
@@ -435,13 +463,13 @@ class Writer:
                     self.manifest[rel] = sha(split_foreign(content)[0])
                 self.updated.append(rel + (f" (+{foreign_n} foreign block(s) kept)" if foreign_n else ""))
                 return
-            prop = os.path.join(self.root, ".reef", "proposed", rel)
+            prop = os.path.join(reef_dir(self.root), "proposed", rel)
             if not self.dry:
                 os.makedirs(os.path.dirname(prop), exist_ok=True)
                 with open(prop, "w", encoding="utf-8", newline="") as f:
                     f.write(content)
             diff = difflib.unified_diff(current.decode("utf-8", "replace").splitlines(True),
-                                        content.splitlines(True), fromfile=rel, tofile=f".reef/proposed/{rel}")
+                                        content.splitlines(True), fromfile=rel, tofile=os.path.relpath(prop, self.root))
             self.proposed.append((rel, "".join(diff)))
             return
         if not self.dry:
@@ -473,6 +501,8 @@ class Writer:
 
 
 def run(root, facts, dry):
+    if not dry:
+        carry_old_proposals(root)
     lay0 = LAYOUTS[facts["layout"]]
     w = Writer(root, dry, write_once={"HANDOFF.md", lay0["journal"], lay0["queue"], lay0["glossary"],
                                        os.path.join(os.path.dirname(lay0["queue"]), "queue-archive.md")})
@@ -487,10 +517,10 @@ def run(root, facts, dry):
             die(f".reef/config.json is unparseable ({e}) — fix it before init can merge into it")
     merged = project_config(json.loads(json.dumps(existing)) if existing is not None else None, facts)
     if existing is not None and "release" not in (existing.get("gates") or {}):
-        # 4.5: for an existing project the security gates arrive as a PROPOSAL under .reef/proposed/, never as a
+        # 4.5: for an existing project the security gates arrive as a PROPOSAL (reef_dir/proposed/), never as a
         # red CI on upgrade — the owner adds them to gates.release when the tools are installed
         merged["gates"].pop("release", None)
-        prop = os.path.join(root, ".reef", "proposed", "gates.release.json")
+        prop = os.path.join(reef_dir(root), "proposed", "gates.release.json")
         if not dry:
             os.makedirs(os.path.dirname(prop), exist_ok=True)
             with open(prop, "w", encoding="utf-8") as f:
@@ -598,7 +628,7 @@ def keep(root, paths):
 def accept(root, paths):
     manifest = load_manifest(root)
     for rel in paths:
-        prop = os.path.join(root, ".reef", "proposed", rel)
+        prop = os.path.join(reef_dir(root), "proposed", rel)
         if not os.path.isfile(prop):
             die(f"nothing proposed for {rel} (run reef-init first; the diff is printed then)")
         target = os.path.join(root, rel)
@@ -711,7 +741,7 @@ def main(argv):
                 ([f"{kinds['own']} the project's own"] if kinds["own"] else [])
         print(f"  skipped  {len(w.skipped)} ({', '.join(parts)}; --verbose lists them)")
     for rel, diff in w.proposed:
-        print(f"  PROPOSED {rel} differs from the rendering — NOT overwritten; see .reef/proposed/{rel}")
+        print(f"  PROPOSED {rel} differs from the rendering — NOT overwritten; see {os.path.relpath(os.path.join(reef_dir(root), 'proposed', rel), root)}")
         print("".join("    " + l for l in diff.splitlines(True)), end="")
     if w.proposed:
         print(f"  to apply one after reading its diff: python3 {os.path.abspath(__file__)} --root {os.path.abspath(root)} --accept <path>")

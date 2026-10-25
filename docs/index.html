@@ -123,7 +123,7 @@
         <h3>An existing project</h3>
         <pre><code>/reef-init
 /reef-assess</code></pre>
-        <p class="what"><strong>Nothing you wrote is overwritten.</strong> A differing rendering lands in <code>.reef/proposed/&lt;path&gt;</code> with a diff; apply the ones you choose:</p>
+        <p class="what"><strong>Nothing you wrote is overwritten.</strong> A differing rendering lands in <code>.git/reef/proposed/&lt;path&gt;</code> with a diff; apply the ones you choose:</p>
         <pre><code>python3 scripts/reef-init.py --accept &lt;path&gt;</code></pre>
       </div>
       <div class="what">
@@ -332,7 +332,7 @@ make setup</code></pre>
       </div>
       <div class="card">
         <h3>What it never does</h3>
-        <p><strong>Overwrite a file you wrote.</strong> A differing rendering lands in <code>.reef/proposed/</code> with a diff; only <code>--accept</code> applies it.</p>
+        <p><strong>Overwrite a file you wrote.</strong> A differing rendering lands in <code>.git/reef/proposed/</code> with a diff; only <code>--accept</code> applies it.</p>
         <p><strong>Delete a document.</strong> Recalibration archives into <code>reef/archive/&lt;date&gt;/</code> in one commit that one <code>git revert</code> undoes.</p>
         <p><strong>Let a judge write.</strong> The verifier, the hunter and the plan-reviewer are read-only by the guard, and a tree hash proves it. Evidence is the agent's: the guard refuses a hand-back or a report the orchestrator wrote itself.</p>
         <p><strong>Merge the release.</strong> The release PR is yours. There is no push gate by design; CI is the wall.</p>

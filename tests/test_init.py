@@ -130,11 +130,11 @@ class Idempotent(unittest.TestCase):
         self.assertEqual(read(self.d, "AGENTS.md"), "# my own AGENTS.md\nhand-written\n", "a user's file was overwritten")
         self.assertIn("PROPOSED AGENTS.md", r.stdout)
         self.assertIn("-# my own AGENTS.md", r.stdout)       # the diff was printed
-        self.assertTrue(os.path.isfile(os.path.join(self.d, ".reef", "proposed", "AGENTS.md")))
+        self.assertTrue(os.path.isfile(os.path.join(self.d, ".git", "reef", "proposed", "AGENTS.md")))
         r = init(self.d, "--accept", "AGENTS.md")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("# AGENTS.md", read(self.d, "AGENTS.md"))
-        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "proposed", "AGENTS.md")))
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".git", "reef", "proposed", "AGENTS.md")))
 
     def test_accept_without_proposal_refused(self):
         init(self.d)
@@ -156,6 +156,21 @@ class Idempotent(unittest.TestCase):
         init(self.d)
         cfg = json.loads(read(self.d, ".reef/config.json"))
         self.assertEqual((cfg["caps"]["context_warn"], cfg["caps"]["context_tokens"]), (100000, 150000))
+
+    def test_proposals_live_under_the_git_dir_and_an_old_proposals_folder_is_carried_over(self):
+        """0.7.3 (ai-coach, 2026-10-25): a project test that walks the disk (readdirSync, skipping node_modules, .git, .next,
+        .claude) counted Reef's git-ignored .reef/proposed/.dependency-cruiser.cjs as a stray JS file and its .reef/proposed/.claude/
+        as a nested skipped folder. Every tool skips .git: the proposals live under <git dir>/reef/."""
+        write(self.d, "AGENTS.md", "# my agents file\n")
+        r = init(self.d)
+        self.assertIn("PROPOSED AGENTS.md", r.stdout)
+        self.assertIn(".git/reef/proposed/AGENTS.md", r.stdout)
+        self.assertTrue(os.path.isfile(os.path.join(self.d, ".git", "reef", "proposed", "AGENTS.md")))
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "proposed")))
+        write(self.d, ".reef/proposed/.dependency-cruiser.cjs", "module.exports = {};\n")   # left by an older Reef
+        init(self.d)
+        self.assertTrue(os.path.isfile(os.path.join(self.d, ".git", "reef", "proposed", ".dependency-cruiser.cjs")), "carried over, never lost")
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "proposed")))
 
     def test_gitignore_and_makefile_appended_not_rewritten(self):
         write(self.d, ".gitignore", "node_modules/\n")
@@ -345,7 +360,7 @@ class ReleaseOnlyCi(unittest.TestCase):
         # the four stack-specific files init itself wrote minutes ago, untouched since, are REPLACED, not proposed
         # (first contact, 2026-10-16: they came back as four questions about Reef's own untouched drafts)
         for rel in (".github/dependabot.yml", ".github/workflows/ci.yml", "reef/day-zero.md"):
-            self.assertFalse(os.path.exists(os.path.join(d, ".reef", "proposed", rel)), f"{rel} was proposed")
+            self.assertFalse(os.path.exists(os.path.join(d, ".git", "reef", "proposed", rel)), f"{rel} was proposed")
             self.assertIn(f"updated  {rel}", r.stdout)
         dep = read(d, ".github/dependabot.yml")
         self.assertEqual(dep.count("package-ecosystem"), 2)
@@ -368,7 +383,7 @@ class ReleaseOnlyCi(unittest.TestCase):
         r = init(d)
         for rel in ("HANDOFF.md", "reef/journal.md", "reef/queue.md"):
             self.assertIn(f"skipped  {rel} (record, never re-rendered)", r.stdout)
-            self.assertFalse(os.path.exists(os.path.join(d, ".reef", "proposed", rel)), f"{rel} proposed")
+            self.assertFalse(os.path.exists(os.path.join(d, ".git", "reef", "proposed", rel)), f"{rel} proposed")
         self.assertIn("owner decision: the audit gate", read(d, "reef/journal.md"))
         self.assertIn("A second row", read(d, "reef/queue.md"))
         self.assertIn("`reef/journal.md`", read(d, "reef/constitution.md"), "the constitution names the layout's journal path")
@@ -390,7 +405,7 @@ class ReleaseOnlyCi(unittest.TestCase):
         self.assertIn("npm ci", agents, "the Node rendering arrived")
         self.assertEqual(agents.count("<!-- BEGIN:nextjs-agent-rules -->"), 1, "the block survives, once")
         self.assertTrue(agents.rstrip().endswith("<!-- END:nextjs-agent-rules -->"))
-        self.assertFalse(os.path.exists(os.path.join(d, ".reef", "proposed", "AGENTS.md")))
+        self.assertFalse(os.path.exists(os.path.join(d, ".git", "reef", "proposed", "AGENTS.md")))
         r2 = init(d)
         self.assertIn("skipped  AGENTS.md", r2.stdout, "nothing to do: the rendering plus the block is what is there")
         # the owner edits OUTSIDE the block: a proposal as before, and the proposal carries the block too
@@ -398,7 +413,7 @@ class ReleaseOnlyCi(unittest.TestCase):
         write(d, "package.json", json.dumps({"name": "late", "scripts": {"test": "vitest run", "build": "b"}}))
         r3 = init(d)
         self.assertIn("PROPOSED AGENTS.md", r3.stdout)
-        self.assertIn("<!-- END:nextjs-agent-rules -->", read(d, ".reef/proposed/AGENTS.md"))
+        self.assertIn("<!-- END:nextjs-agent-rules -->", read(d, ".git/reef/proposed/AGENTS.md"))
 
     def test_a_file_anyone_touched_is_still_proposed_never_replaced(self):
         d = tempfile.mkdtemp(prefix="reef-init-touched.")
@@ -485,7 +500,7 @@ class ProjectFilesStayTheProjects(unittest.TestCase):
         self.assertIn("skipped  reef/glossary.md (record, never re-rendered)", r.stdout)
         self.assertIn("| Bill |", read(d, "reef/glossary.md"))
         self.assertIn("PROPOSED AGENTS.md", r.stdout, "edited without markers: proposed, never overwritten")
-        proposed = read(d, ".reef/proposed/AGENTS.md")
+        proposed = read(d, ".git/reef/proposed/AGENTS.md")
         self.assertIn("<!-- BEGIN:reef-owner-decisions -->Only the owner decides: money and personal data.<!-- END:reef-owner-decisions -->", proposed)
         self.assertIn("<!-- BEGIN:reef-boundaries -->`.reef/` is machine state · the owner's deployments: only `vercel-build` connects, in this trial none exist.<!-- END:reef-boundaries -->", proposed)
         self.assertNotIn("fill in — examples", proposed)
@@ -607,7 +622,7 @@ class MapOnDisk(unittest.TestCase):
         write(d, "reef/README.md", m + "\nmy note\n")
         r = init(d)
         self.assertIn("my note", read(d, "reef/README.md"))
-        self.assertTrue(os.path.exists(os.path.join(d, ".reef", "proposed", "reef", "README.md")) or "proposed" in r.stdout.lower() or "skipped" in r.stdout)
+        self.assertTrue(os.path.exists(os.path.join(d, ".git", "reef", "proposed", "reef", "README.md")) or "proposed" in r.stdout.lower() or "skipped" in r.stdout)
         gi = read(d, ".gitignore")
         self.assertIn(".reef/status.html", gi)
         self.assertIn(".reef/cost/", gi)

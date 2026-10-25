@@ -120,7 +120,9 @@ def main(argv):
     if rc != 0:
         print(f"reef-update FAILED: reef-init exit {rc}" + (f": {lines[-1]}" if lines else ""))
         return 1
-    pdir = os.path.join(root, ".reef", "proposed")
+    r = subprocess.run(["git", "-C", root, "rev-parse", "--git-common-dir"], capture_output=True, text=True)   # reef-init's reef_dir
+    g = r.stdout.strip()
+    pdir = os.path.join(g if os.path.isabs(g) else os.path.join(root, g), "reef", "proposed") if r.returncode == 0 and g else os.path.join(root, ".reef", "proposed")
     props = []
     for dp, _, fn in os.walk(pdir):
         props += [os.path.relpath(os.path.join(dp, f), pdir) for f in fn if not f.endswith(".diff")]

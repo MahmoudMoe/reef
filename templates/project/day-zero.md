@@ -1,6 +1,6 @@
 # Day zero — {{name}}
 
-Each line is a command or a gate. Tick it when the gate is green, not when it feels done. `/reef-init` wrote this file and the ones it names; it never overwrites a file you edited (a differing rendering lands in `.reef/proposed/` with a diff).
+Each line is a command or a gate. Tick it when the gate is green, not when it feels done. `/reef-init` wrote this file and the ones it names; it never overwrites a file you edited (a differing rendering lands in `.git/reef/proposed/` with a diff).
 
 - [ ] Reef installed: `/plugin install reef@mahmoudmoe`; review-toolkit agents present (`~/.claude/agents/plan-review.md`, `code-excellence.md`, `code-security.md`) — a stand-in runs only with an owner footnote
 - [ ] `make setup` (hooks) · `{{install}}` · `{{test}}` green

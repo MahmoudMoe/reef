@@ -1,6 +1,18 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **Reef's proposals live under the git dir, never in the work tree** (ai-coach, 2026-10-25; the owner's go). The project's
+  `server-context.test.ts` walks the disk (`readdirSync`, skipping only `node_modules`, `.git`, `.next`, `.claude`) and
+  failed locally on Reef's git-ignored `.reef/proposed/`: `.dependency-cruiser.cjs` counted as a seventh JS file and
+  `.reef/proposed/.claude/` as a nested skipped folder. Every tool, test runner and linter skips `.git`: reef-init's
+  proposals now live in `<git common dir>/reef/proposed/` and the recalibration plan's in
+  `<git common dir>/reef/recalibration/proposed/` (a linked worktree sees the same ones; outside a git repository,
+  `.reef/` as before). `reef-init` (so `reef-update`) moves an older `.reef/proposed/` and `.reef/recalibration/proposed/`
+  there once; the doctor, `reef-update`, `--accept`, the plan's `git diff --no-index` lines and the boundaries section
+  point there. The apply now refuses before moving anything when a planned rewrite is missing (it was skipped silently),
+  and removes an applied rewrite only when it commits — `plan --measure`'s scratch apply now applies the rewrites too and
+  never deletes them. README, the site, the Arabic manual, the reef-init skill and two templates say where to look.
+  tests/size-budget.json raised: `script_lines` 14,176 → 14,230.
 - **`reef-migrate --layout` leaves in place what the project's code reads by name** (ai-coach, 2026-10-25). The layout move
   took all 196 ADRs out of `docs/adr/` and set `paths.adr` to `reef/architecture/adr`; `scripts/check-docs.ts` reads
   `readdirSync("docs/adr")`, so `npm run check:docs` (gate 1 of the project's CI) failed with ENOENT while `npm test`, which
