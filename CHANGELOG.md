@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **The project's own commands come from whichever task runner it uses** (the owner's rule, 2026-10-25). `plan --measure`
+  ran `gates.full` and `package.json` `check:*` scripts only, and the old loop's commands were found only among
+  `package.json` scripts: a project on make, just, task, tox or a pyproject runner was invisible. `project_commands()`
+  reads package.json scripts, Makefile targets, justfile recipes, Taskfile tasks, tox environments and pyproject
+  poe/pdm/hatch scripts; the measure runs every check-family command (`check`, `check:*`, `check-*`) and its table row
+  shows the command that ran (`npm run check:docs`, `make check-docs`); an old loop's `loop*`, `handoff*` and `adr*`
+  commands are listed for the owner from any runner. tests/size-budget.json raised: `script_lines` 14,277 → 14,312.
 - **The guard knows a gate on any stack** (the owner's rule, 2026-10-25). Piping a gate hides its exit code; the guard knew
   npm, pytest, vitest, jest, cargo and go — and one adopted project's `npm run ci:local` by name. Now a gate is a command
   the project configured in `.reef/config.json` `gates.*` (each `&&` part; lint and typecheck count when configured), a
