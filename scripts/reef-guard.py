@@ -1366,7 +1366,8 @@ def check_stop(payload):
 
 
 def checkpoint(root, tp, stop):
-    """loop.json stop + HANDOFF.md rendered from measured state, before a denial that ends the session."""
+    """loop.json stop + HANDOFF.md rendered from measured state, before a denial that ends the session. Returns what the
+    denial says of the handoff: written only on reef-handoff exit 0 (0.7.3: it said written while the script crashed)."""
     try:
         st_p = os.path.join(root, ".reef", "loop.json")
         st = json.load(open(st_p)) if os.path.isfile(st_p) else {}
@@ -1379,14 +1380,20 @@ def checkpoint(root, tp, stop):
         pass
     # 0.7: the checkpoint itself is the guard's, not the model's — HANDOFF.md is rendered from measured state here,
     # before the denial, so a session cut at the ceiling never leaves the next one without a handoff
+    why = "reef-handoff not found"
     for script in (os.path.join(root, "scripts", "reef-handoff"),
                    os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-handoff")):
         if os.path.isfile(script):
             try:
-                subprocess.run([sys.executable, script, "--repo", root, "--write"], capture_output=True, text=True, timeout=20)
-            except Exception:
-                pass
+                r = subprocess.run([sys.executable, script, "--repo", root, "--write"], capture_output=True, text=True, timeout=20)
+                if r.returncode == 0:
+                    return "HANDOFF.md written from measured state (scripts/reef-handoff --write), nothing is lost"
+                why = f"reef-handoff exit {r.returncode}: {((r.stderr or r.stdout).strip().splitlines() or ['no output'])[-1][:160]}"
+            except Exception as e:
+                why = f"reef-handoff did not run: {e}"
             break
+    return (f"HANDOFF.md NOT written ({why}) — the one thing left to do here: write HANDOFF.md by hand from `python3 "
+            f"scripts/reef-loop.py tick` and this session's facts, and tell the owner the handoff script failed")
 
 
 def check_context_ceiling(payload, tool_input=None):
@@ -1417,18 +1424,18 @@ def check_context_ceiling(payload, tool_input=None):
     n = int(m.group(1))
     sub = str((tool_input or {}).get("subagent_type") or "")
     if ceiling and reserve and "implementer" in sub and n <= ceiling and ceiling - n < reserve:
-        checkpoint(main_checkout(cwd), tp, f"context ceiling: {n} tokens + caps.dispatch_reserve {reserve} > caps.context_tokens "
-                                           f"{ceiling} — a new task was not started; /clear now (HANDOFF.md is written)")
+        handoff = checkpoint(main_checkout(cwd), tp, f"context ceiling: {n} tokens + caps.dispatch_reserve {reserve} > "
+                                                     f"caps.context_tokens {ceiling} — a new task was not started; /clear now")
         deny(f"/clear NOW. context reserve: this session is at {n} tokens, {ceiling - n} of room left to caps.context_tokens "
              f"{ceiling} < caps.dispatch_reserve {reserve}. A task started now is split across two sessions (its judges "
-             f"cannot be dispatched in this one). Checkpoint done: HANDOFF.md written from measured state, nothing is lost. "
+             f"cannot be dispatched in this one). Checkpoint: {handoff}. "
              f"Do nothing else here: tell the human to run /clear and paste `<the command you were running> — re-entry: see "
              f"HANDOFF.md`; the fresh orchestrator dispatches this task whole")
     if ceiling and n > ceiling:
         root = main_checkout(cwd)
-        checkpoint(root, tp, f"context ceiling: {n} tokens > caps.context_tokens {ceiling} — /clear now (HANDOFF.md is written)")
+        handoff = checkpoint(root, tp, f"context ceiling: {n} tokens > caps.context_tokens {ceiling} — /clear now")
         deny(f"/clear NOW. context ceiling: this session is at {n} tokens > caps.context_tokens {ceiling}. "
-             f"checkpoint done: HANDOFF.md written from measured state (scripts/reef-handoff --write), nothing is lost. "
+             f"checkpoint: {handoff}. "
              f"Do nothing else in this session — no more Bash, no edits, no summary (the real session kept going 80k past "
              f"the ceiling): tell the human to run /clear and paste `<the command you were running> — re-entry: see HANDOFF.md`; "
              f"the fresh orchestrator resumes there")

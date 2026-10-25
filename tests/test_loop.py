@@ -551,6 +551,18 @@ class ContextCeiling(unittest.TestCase):
         r = subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True)
         self.assertNotIn("context reserve", r.stderr, "4000 of room ≥ the reserve: the room is not what stops this dispatch")
 
+    def test_a_handoff_that_fails_is_never_called_written(self):
+        # 0.7.3, the first adoption: reef-handoff was a SyntaxError on the Mac's Python 3.9; the denial still said
+        # "HANDOFF.md written" and the next session started from the 14:25 handoff
+        d = project({"gates": {"full": "true"}, "caps": {"context_tokens": 10000, "context_warn": 5000}})
+        write(d, "scripts/reef-handoff", "import sys\nsys.stderr.write('SyntaxError: f-string: unmatched [\\n')\nsys.exit(1)\n")
+        r = self.dispatch(d, self.transcript(d, 20000))
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("HANDOFF.md NOT written", r.stderr)
+        self.assertIn("reef-handoff exit 1: SyntaxError", r.stderr, "the denial names why")
+        self.assertNotIn("HANDOFF.md written", r.stderr)
+        self.assertEqual(open(os.path.join(d, "HANDOFF.md")).read(), "# Handoff\nline 1\n", "nothing pretended to write it")
+
     def test_over_denied_and_recorded_under_allowed_missing_allowed_and_said(self):
         d = project({"gates": {"full": "true"}, "caps": {"context_tokens": 10000, "context_warn": 5000}})
         r = self.dispatch(d, self.transcript(d, 20000))
@@ -561,6 +573,8 @@ class ContextCeiling(unittest.TestCase):
         # 0.7: the guard writes the checkpoint itself before denying — a model that ignores the denial's instruction
         # cannot leave the next session without a handoff
         self.assertTrue(os.path.isfile(os.path.join(d, "HANDOFF.md")), "HANDOFF.md rendered by the guard at the ceiling")
+        self.assertNotEqual(open(os.path.join(d, "HANDOFF.md")).read(), "# Handoff\nline 1\n",
+                            "the fixture's HANDOFF.md was replaced: the guard rendered it, not just found it")
         self.assertIn("HANDOFF.md written", r.stderr)
         r = self.dispatch(d, self.transcript(d, 7000))
         self.assertEqual(r.returncode, 0, r.stderr)

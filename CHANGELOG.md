@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **The guard never says HANDOFF.md was written when it was not** (2026-10-25, the first adoption). At the context
+  ceiling the guard runs `reef-handoff --write` and denied with "HANDOFF.md written from measured state" whatever the
+  script returned; on the Mac's Python 3.9 it was a SyntaxError, so the next session would have started from a handoff
+  hours old (the orchestrator noticed and rewrote it by hand). The denial now says written only on exit 0, and otherwise
+  "HANDOFF.md NOT written (reef-handoff exit N: <its last line>)" with what to do. The old test passed because its fixture
+  already held a HANDOFF.md; it now checks the file was replaced, and a failing reef-handoff has its own test. tests/size-budget.json
+  raised: `script_lines` 14,509 → 14,516 (the guard reads the script's exit code and says why).
 - **Reef runs on the Python a Mac ships** (2026-10-25, the first adoption: macOS's `/usr/bin/python3` is 3.9).
   `reef-merge-close` and `reef-handoff` were SyntaxErrors there — an f-string with a backslash, and one nesting its own
   quotes, both legal only from 3.12 — so a finished task could not merge without another Python, and the guard's
