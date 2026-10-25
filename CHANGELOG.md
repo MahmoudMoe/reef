@@ -1,6 +1,16 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **One reviewer per row: the spec, the diff, and every criterion against its named test in the evidence** (workflow v3,
+  phase 3c; 2026-10-25). The first adoption paid three judges on one row with no blocker — acceptance 47k tokens,
+  security 54k, a third — each looking at the same code from an overlapping angle; the 0.7 diff review had already been
+  switched off for the same reason. `reef:acceptance` is now the row's ONE reviewer: the feature against its `SPEC.md`, the
+  diff against the base (dead code, duplication, missing coverage, doc gaps — BLOCKER only by the four kinds), and every
+  `## Proof` row against the evidence (`reef-evidence.py`, read, never re-run: the named test exists and tests its
+  criterion). The separate diff review and `review.diff_review` are gone; `review.split_lines` (4000) is the one
+  reviewer's split-by-task threshold. The hunter's guard pass and `reef:security` run once per feature on the critical
+  path (`reef-tier.py path`: a design/critical task, or a risk touch) — the set `hunter.guard_pass: feature` already
+  named, now said by the path; the fast path's net is the one reviewer, CI and the release pass. tests/size-budget.json: unchanged (nothing grew). `config_keys` lowered 96 → 95 (`review.diff_review` gone), `prose_words` lowered 21,210 → 21,195.
 - **The tier names the path, and on the fast path the deterministic check is the plan review** (workflow v3, phase 3a;
   2026-10-25). The first adoption ran the plan-reviewer agent on every row heavier than light — one more judge, about 50k
   tokens and minutes of wall-clock, on rows whose risk the tier had already called ordinary. `scripts/reef-tier.py path
