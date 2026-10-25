@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **`reef-migrate --layout` leaves in place what the project's code reads by name** (ai-coach, 2026-10-25). The layout move
+  took all 196 ADRs out of `docs/adr/` and set `paths.adr` to `reef/architecture/adr`; `scripts/check-docs.ts` reads
+  `readdirSync("docs/adr")`, so `npm run check:docs` (gate 1 of the project's CI) failed with ENOENT while `npm test`, which
+  never reads the folder, stayed green. Before each move the layout now asks the recalibration's reader checks — the file's
+  path, the ADR folder as a folder; instruction files and Reef's own scripts are not readers — and a source something reads
+  stays, with its `paths.*` key, printed as `kept: <path> (read by …)`. Everything else moves as before.
+  tests/size-budget.json raised: `script_lines` 14,154 → 14,176.
 - **Reef's own code is never the project's reader** (ai-coach, 2026-10-25). After `reef-init`, `scripts/reef-*` sit in the
   project and name `specs/`, `docs/`, `docs/loop/queue.md`, `docs/glossary.md` and `HANDOFF-FRESH.md` in their comments and
   code. The plan counted them as the project's readers: `specs/*` and the glossary kept ("read by scripts/reef-claims.py"),

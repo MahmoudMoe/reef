@@ -6,7 +6,9 @@
   reef-migrate --layout [--repo DIR] [--no-commit]   0.5 flat layout → the one tree in ONE commit (queue, journal,
                                                glossary, day-zero, constitution, ADRs, tasks by feature: + SPEC.md stubs),
                                                paths.* updated, links rewritten (the mover shared with reef-recalibrate);
-                                               a broken link refuses and restores; a second run moves nothing
+                                               a broken link refuses and restores; a second run moves nothing;
+                                               a file or the ADR folder the project's code reads by name stays, with
+                                               its paths.* (0.7.3)
 """
 import importlib.machinery
 import importlib.util
@@ -87,17 +89,35 @@ def cmd_layout(root, commit):
     cfg = json.loads(open(cfg_path).read()) if os.path.isfile(cfg_path) else {}
     paths = cfg.get("paths", {})
     moved = {}
+    mover = load_mover()
+    # 0.7.3 (ai-coach, 2026-10-25): the move took docs/adr/ while scripts/check-docs.ts read `readdirSync("docs/adr")` — the
+    # project's CI failed on ENOENT. A source the project's code reads by name (the file's path; the ADR folder as a folder)
+    # stays where it is, with its paths.* key. Instruction files are not readers here (their links are rewritten), and
+    # Reef's own scripts never are (the mover's rule).
+    def readers(rel, folder=False):
+        hits = ([f for d, fs in mover.directory_readers(root, rel + "/x.md") if d == rel for f in fs] if folder
+                else mover.referenced_by(root, rel))
+        return [f for f in hits if not mover.INSTRUCTION_FILE.match(f)]
+    kept = {}
+    keys = {paths.get("queue", "docs/queue.md"): "queue", paths.get("runlog", "docs/journal.md"): "runlog",
+            paths.get("glossary", "docs/glossary.md"): "glossary", paths.get("adr", "docs/adr"): "adr"}
     pairs = dict(MOVES)
     pairs[paths.get("queue", "docs/queue.md")] = "reef/queue.md"
     pairs[paths.get("runlog", "docs/journal.md")] = "reef/journal.md"
     pairs[paths.get("glossary", "docs/glossary.md")] = "reef/glossary.md"
     for src, dst in pairs.items():
         if os.path.isfile(os.path.join(root, src)) and not os.path.exists(os.path.join(root, dst)):
+            kept[src] = readers(src)
+            if kept[src]:
+                continue
+            del kept[src]
             os.makedirs(os.path.dirname(os.path.join(root, dst)), exist_ok=True)
             git(root, "mv", src, dst)
             moved[src] = dst
     adr = paths.get("adr", "docs/adr")
-    if os.path.isdir(os.path.join(root, adr)) and adr != "reef/architecture/adr":
+    if os.path.isdir(os.path.join(root, adr)) and adr != "reef/architecture/adr" and readers(adr, folder=True):
+        kept[adr] = readers(adr, folder=True)
+    elif os.path.isdir(os.path.join(root, adr)) and adr != "reef/architecture/adr":
         os.makedirs(os.path.join(root, "reef", "architecture", "adr"), exist_ok=True)
         for f in sorted(os.listdir(os.path.join(root, adr))):
             if f.endswith(".md"):
@@ -128,10 +148,13 @@ def cmd_layout(root, commit):
                         "## Grill\n- Q: (none) — A: (none)\n\n## Scope\n(see tasks/)\n\n## Non-goals\n(none stated)\n\n## Already shipped\nnone\n\n## Requirements\n- FR-1 [backend]: the task files' acceptance criteria hold.\n\n"
                         "## Success criteria\n- SC-1: every task under tasks/ is done.\n\n## Owner decisions\n- (none)\n\n## Architecture impact\n(to be stated)\n")
         os.makedirs(os.path.join(root, "reef", "features", feat, "tasks", "done"), exist_ok=True)
+    for src, who in kept.items():
+        print(f"kept: {src} (read by {', '.join(who[:3])}{' …' if len(who) > 3 else ''}) — moves when its readers do")
     if not moved:
         print("reef-migrate --layout: nothing to move (already the one tree)")
         return 1
     cfg.setdefault("paths", {}).update(PATHS_06)
+    cfg["paths"].update({keys[src]: src for src in kept if src in keys})
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
         f.write("\n")
@@ -139,7 +162,6 @@ def cmd_layout(root, commit):
     if os.path.isfile(gi):
         t = open(gi).read().replace("tasks/.plan-review.json", "tasks/.plan-review.json\nreef/features/.plan-review.json")
         open(gi, "w").write(t)
-    mover = load_mover()
     dead_before = mover.dead_links(root) if hasattr(mover, "dead_links") else frozenset()
     result = mover.rewrite_links(root, moved, list(moved.values()) + [".reef/config.json"], dead_before)
     broken = result[0] if isinstance(result, tuple) else result   # (broken, already_dead) since 0.7
