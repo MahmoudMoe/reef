@@ -187,7 +187,7 @@ class Recalibrate(unittest.TestCase):
         # itself KEPT (referenced from code); the converted spec and its archive copy then carried a dead link and the
         # whole apply was refused. A moved document's links are relative to where it came from.
         d = fixture_repo()
-        self.assertEqual(self.run_(d, "plan").returncode, 0)
+        self.assertEqual(self.run_(d, "plan", "--move").returncode, 0)
         plan = json.loads(open(os.path.join(d, ".reef", "recalibration.json")).read())
         by = {e["path"]: e for e in plan["entries"]}
         self.assertEqual(by["specs/export/design-tokens.md"]["action"], "keep", "referenced from code")
@@ -207,7 +207,7 @@ class Recalibrate(unittest.TestCase):
         write(d, "specs/311-review-round/spec.md", "# Review round\n\n- a round\n")
         write(d, "specs/412-review-round/spec.md", "# Review round\n\n- another round\n")
         git(d, "add", "-A"); git(d, "commit", "-qm", "chore: more specs")
-        self.assertEqual(self.run_(d, "plan").returncode, 0)
+        self.assertEqual(self.run_(d, "plan", "--move").returncode, 0)
         plan = json.loads(open(os.path.join(d, ".reef", "recalibration.json")).read())
         by = {e["path"]: e for e in plan["entries"]}
         self.assertEqual(by["specs/014a-tenant-schema/spec.md"]["feature"], "tenant-schema")
@@ -227,7 +227,7 @@ class Recalibrate(unittest.TestCase):
         d = fixture_repo()
         write(d, "ops/runbook.md", "# Runbook\nHow to restart the service. See [the old diagram](diagram.png).\n")
         git(d, "add", "-A"); git(d, "commit", "-qm", "chore: a dead link")
-        self.assertEqual(self.run_(d, "plan").returncode, 0)
+        self.assertEqual(self.run_(d, "plan", "--move").returncode, 0)
         git(d, "add", "-A"); git(d, "commit", "-qm", "chore: plan")
         r = self.run_(d, "--apply")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -238,14 +238,14 @@ class Recalibrate(unittest.TestCase):
         # 0.7 dogfood: `.reef/recalibration.json` names every document and CI logs quote spec paths, so the
         # "referenced from code" exemption excused 800+ stray documents and the structure check printed ok
         d = fixture_repo()
-        self.assertEqual(self.run_(d, "plan").returncode, 0)
+        self.assertEqual(self.run_(d, "plan", "--move").returncode, 0)
         write(d, "evidence/run-1.log", "checking rfcs/0002-event-bus.md ... ok\n")
         git(d, "add", "-A"); git(d, "commit", "-qm", "chore: plan + a log")
         r = subprocess.run([sys.executable, STRUCT, "--check", "--repo", d], capture_output=True, text=True)
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn("rfcs/0002-event-bus.md", r.stdout)
         # and a second `plan` still classifies the RFC as a conversion, not as kept
-        self.assertEqual(self.run_(d, "plan").returncode, 0)
+        self.assertEqual(self.run_(d, "plan", "--move").returncode, 0)
         plan = json.loads(open(os.path.join(d, ".reef", "recalibration.json")).read())
         self.assertEqual({e["path"]: e for e in plan["entries"]}["rfcs/0002-event-bus.md"]["action"], "convert-adr")
 
@@ -258,7 +258,7 @@ class Recalibrate(unittest.TestCase):
         self.assertEqual(hist["derived"], {"branches.base": "develop", "branches.release": "main", "merge.by": "loop", "ci.feature_gate": "local"})
         self.assertEqual(hist["conventional_commits_share"], 1.0)
         self.assertTrue(hist["semver_tags"])
-        r = self.run_(d, "plan")
+        r = self.run_(d, "plan", "--move")
         self.assertEqual(r.returncode, 0, r.stderr)
         plan = json.loads(open(os.path.join(d, ".reef", "recalibration.json")).read())
         by = {e["path"]: e for e in plan["entries"]}
@@ -339,7 +339,7 @@ class Recalibrate(unittest.TestCase):
         write(d, "notes/ideas.md", "# Ideas\nTODO see [missing](nowhere.md).\n")
         git(d, "add", "-A")
         git(d, "commit", "-qm", "chore: broken link")
-        self.run_(d, "plan")
+        self.run_(d, "plan", "--move")
         git(d, "add", "-A")
         git(d, "commit", "-qm", "chore: plan")
         head = git(d, "rev-parse", "HEAD").strip()
@@ -430,7 +430,7 @@ class RecalibrationSafety(unittest.TestCase):
     On ai-coach the full plan moved 735 documents and caused 603 check:docs errors, 4 red tests, an archived font licence and 4 conflicts."""
 
     def plan(self, d, *a):
-        r = subprocess.run([sys.executable, RECAL, "plan", *a, "--repo", d], capture_output=True, text=True)
+        r = subprocess.run([sys.executable, RECAL, "plan", "--move", *a, "--repo", d], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return {e["path"]: e for e in json.loads(open(os.path.join(d, ".reef", "recalibration.json")).read())["entries"]}, r.stdout
 
@@ -763,7 +763,7 @@ class ExistingAdrNumbersAreKept(unittest.TestCase):
             write(d, "decisions/0024-other.md", "# ADR 0024 — other\n\n## Status\nAccepted\n\n## Context\nc\n\n## Decision\nd\n\n## Consequences\ne\n")
         git(d, "add", "-A"); git(d, "commit", "-qm", "init")
         run = lambda *a: subprocess.run([sys.executable, RECAL, *a, "--repo", d], capture_output=True, text=True)
-        self.assertEqual(run("plan").returncode, 0)
+        self.assertEqual(run("plan", "--move").returncode, 0)
         git(d, "add", "-A"); git(d, "commit", "-qm", "plan")
         return d, run("--apply")
 

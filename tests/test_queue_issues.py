@@ -473,7 +473,7 @@ class RecalibrateOnIssues(Base):
         env = dict(os.environ, PATH=self.bin + os.pathsep + os.environ.get("PATH", ""), GH_STATE=self.state)
         recal = lambda *a: subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-recalibrate"), *a, "--repo", d],
                                           capture_output=True, text=True, env=env)
-        self.assertEqual(recal("plan").returncode, 0)
+        self.assertEqual(recal("plan", "--move").returncode, 0)
         subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], check=True)
         subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "plan"], check=True)
         r = recal("--apply")

@@ -69,7 +69,7 @@ def config_homes(root):
     return [str(v).strip().strip("/") for k, v in paths.items() if v and k in ("adr", "queue", "runlog", "glossary", "tasks", "features", "day_zero")]
 
 
-PLAN_KEEP = re.compile(r"^(directory .+ read by|referenced by|waits: |the instruction layer|edited on unmerged branch)")
+PLAN_KEEP = re.compile(r"^(directory .+ read by|referenced by|waits: |the instruction layer|edited on unmerged branch|in place \()")   # 0.7.3: adopted in place
 
 
 def plan_keeps(root):
