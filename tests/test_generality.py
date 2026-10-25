@@ -281,5 +281,38 @@ class StackProfiles(unittest.TestCase):
         subprocess.run([sys.executable, os.path.join(SCRIPTS, "reef-init.py"), "--root", d], capture_output=True, text=True, check=True)
         self.assertTrue(os.path.isfile(os.path.join(d, "scripts", "reef-stacks.json")))
 
+
+class AdoptInPlace(unittest.TestCase):
+    """P5: adoption keeps an existing project's documents where they are — every guess about who reads a file was a broken
+    check somewhere. The plan says what it WOULD move and how (`--move`); the structure gate counts the documents kept in
+    place as the baseline, so it is green on day one and only a new stray document fails."""
+
+    def test_documents_stay_where_they_are_and_the_structure_gate_is_green(self):
+        d = stack_project("python")
+        subprocess.run([sys.executable, os.path.join(SCRIPTS, "reef-init.py"), "--root", d], capture_output=True, text=True, check=True)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "reef init")
+        recal = os.path.join(d, "scripts", "reef-recalibrate")
+        r = subprocess.run([sys.executable, recal, "plan", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        by = {e["path"]: e for e in json.load(open(os.path.join(d, ".reef", "recalibration.json")))["entries"]}
+        self.assertEqual(by["notes/ideas.md"]["action"], "keep")
+        self.assertTrue(by["notes/ideas.md"]["reason"].startswith("in place (archive: "), by["notes/ideas.md"]["reason"])
+        self.assertTrue(by["decisions/cache.md"]["reason"].startswith("in place (convert-adr: "), by["decisions/cache.md"]["reason"])
+        self.assertIn("plan --move", by["decisions/cache.md"]["reason"])
+        git(d, "add", "-A"); git(d, "commit", "-qm", "plan")
+        before = git(d, "ls-files")
+        subprocess.run([sys.executable, recal, "--apply", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(git(d, "ls-files"), before, "nothing moved")
+        r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-structure"), "--check", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        write(d, "notes/new-plan.md", "# Plan\n## Decision\nx\n## Consequences\ny\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "a new stray decision")
+        r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-structure"), "--check", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, "a NEW stray document still fails")
+        self.assertIn("notes/new-plan.md", r.stdout)
+        r = subprocess.run([sys.executable, recal, "plan", "--move", "--repo", d], capture_output=True, text=True)
+        by = {e["path"]: e for e in json.load(open(os.path.join(d, ".reef", "recalibration.json")))["entries"]}
+        self.assertEqual(by["notes/ideas.md"]["action"], "archive", "--move proposes the move")
+
 if __name__ == "__main__":
     unittest.main()

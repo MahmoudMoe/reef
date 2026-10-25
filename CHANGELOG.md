@@ -1,6 +1,16 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **Adoption keeps an existing project's documents in place** (the owner's decision, 2026-10-25). Moving decisions, specs
+  and stray documents into Reef's tree was the riskiest and least valuable part of adoption: every guess about who reads a
+  file was a broken check somewhere (ai-coach: 603 `check:docs` errors from the first full plan; `docs/adr` moved under a
+  script that reads it). `reef-recalibrate plan` now keeps every such document where it is (`keep`, "in place (<what it
+  would do>: <why>; `plan --move` proposes the move)"); the old process still converts — the old queue's open rows → Reef
+  rows, a second handoff → `HANDOFF.md`, the old loop's commands archived. `plan --move` gives the full move, as a later
+  row, a folder at a time. `reef-structure --check` counts a document kept in place as the baseline (green on day one, a
+  new stray document still fails); `plan --measure` runs the project's checks even when nothing moves. The reef-assess
+  skill says so (and names `.git/reef/proposed/` and the check family from any task runner). tests/size-budget.json
+  raised: `script_lines` 14,493 → 14,505.
 - **One stack's tools live in data: `scripts/reef-stacks.json`** (the owner's rule, 2026-10-25). Raw SQL, the database
   client, the layer-boundary tool and the session and permission vocabulary were node + Prisma + Next.js + dependency-cruiser
   in Reef's code; another stack got nothing, or a sentence naming Prisma. Now each stack is a profile: the files that detect

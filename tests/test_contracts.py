@@ -256,6 +256,16 @@ class ProposalsUnderTheGitDir(unittest.TestCase):
             self.assertIn(".git/reef/proposed/", text, "/".join(parts))
             self.assertNotIn(".reef/proposed/", text.replace(".git/reef/proposed/", ""), "/".join(parts))
 
+
+class AssessAdoptsInPlace(unittest.TestCase):
+    def test_the_assess_skill_keeps_the_projects_documents_in_place(self):
+        # 0.7.3 (the owner's rule: Reef works on any project): adoption moves no document; `plan --move` is a later row
+        skill = read("skills", "reef-assess", "SKILL.md")
+        self.assertIn("The project's documents stay in place (`keep`, with what `plan --move` would do); only the old process converts", skill)
+        self.assertIn("Moving a document into Reef's tree is a later queue row (`plan --move`, one folder at a time, after its readers are retired", skill)
+        self.assertIn("every check-family command (`check`, `check:*`, `check-*`, from any task runner)", skill)
+        self.assertNotIn(".reef/proposed/", skill)
+
 class AssessMeasures(unittest.TestCase):
     def test_the_assess_skill_counts_before_it_scores(self):
         # 0.7.2 (ai-coach, 2026-10-24, item 10): module boundaries were scored by feel; the largest files were tests and data
@@ -275,7 +285,8 @@ class PlanIsMeasuredFirst(unittest.TestCase):
         # 0.7.2 (ai-coach, 2026-10-24, item 16): the owner approved a plan whose cost nobody measured
         skill = read("skills", "reef-assess", "SKILL.md")
         self.assertIn("Run `python3 scripts/reef-recalibrate plan --measure` first", skill)
-        self.assertIn("recommend the smallest plan with zero errors; on an existing project \"archive the stray docs, keep folders the project's tools read\" is the default", skill)
+        # 0.7.3 (the owner, 2026-10-25): the default became "keep every document in place"
+        self.assertIn("recommend the smallest plan with zero errors. Moving a document into Reef's tree is a later queue row", skill)
 
 
 class AdoptionHandOff(unittest.TestCase):
