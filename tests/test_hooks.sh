@@ -402,6 +402,7 @@ t "snapshot: sees an EDIT to an untracked file (porcelain was blind to this)" 0
 # 0.4.0: a NESTED worktree (another agent's checkout under this repo) must not count as a
 # change — `git add -A` recorded it as a gitlink, so another agent's commit moved the hash
 rm -f untracked.txt
+printf '.reef/ci-local/\n' > .gitignore   # as reef-init writes it: the gate's run log (v3 phase 1) lands in the MAIN checkout's .reef/ci-local/
 git worktree add -q -b other wt/other >/dev/null 2>&1
 W1=$(sh scripts/reef-snapshot.sh)
 ( cd wt/other && echo theirs > theirs.txt && git add theirs.txt && git commit -qm theirs ) >/dev/null 2>&1
@@ -458,6 +459,29 @@ t "gate sees no GIT_DIR/GIT_INDEX_FILE (in-place path, first commit)" 0
 echo v2 > f.txt; git add f.txt; echo v3-dirty > f.txt
 git -c probe.leak=1 commit -qm c2 >/dev/null 2>&1   # a committer's -c must not reach the gate's git either
 t "gate sees no GIT_DIR/GIT_INDEX_FILE/GIT_CONFIG_PARAMETERS (index dance path, git -c)" 0
+
+# ---------- v3 phase 1: every REAL gate run leaves one line in the MAIN checkout's .reef/ci-local/runs.jsonl ----------
+# (2026-10-25: the first adoption ran the full suite three times on one commit and nothing counted it — the gate's log
+# is overwritten by the next run and the green marker removed by the next green; reef-cost.py rows reads this file)
+mkrepo "$TMP/r14" "true"
+cp "$ROOT/scripts/reef-snapshot.sh" scripts/
+printf '.reef/ci-local/\n' > .gitignore   # as reef-init writes it
+( echo a > f.txt && git add . && git commit -qm c1 ) >/dev/null 2>&1      # the pre-commit's fast gate: line 1
+sh scripts/reef-gate.sh full >/dev/null 2>&1                               # line 2
+sh scripts/reef-gate.sh full >/dev/null 2>&1                               # cached on the same snapshot: no line
+[ "$(wc -l < .reef/ci-local/runs.jsonl | tr -d ' ')" -eq 2 ]
+t "a real gate run appends one line to .reef/ci-local/runs.jsonl; a cached answer appends none" 0
+grep -q '"mode": "full"' .reef/ci-local/runs.jsonl && grep -q '"exit": 0' .reef/ci-local/runs.jsonl \
+  && grep -q "\"head\": \"$(git rev-parse HEAD)\"" .reef/ci-local/runs.jsonl && grep -q '"branch": "main"' .reef/ci-local/runs.jsonl
+t "  the line names the mode, the exit code, the head and the branch" 0
+printf '{"gates": {"test": "false"}}\n' > .reef/config.json
+sh scripts/reef-gate.sh full --failures >/dev/null 2>&1
+grep -q '"exit": 1' .reef/ci-local/runs.jsonl
+t "  a red run is logged with its exit code (the --failures path too)" 0
+git worktree add -q "$TMP/r14-wt" HEAD >/dev/null 2>&1
+( cd "$TMP/r14-wt" && REEF_GATE_NO_CACHE=1 sh scripts/reef-gate.sh full ) >/dev/null 2>&1
+[ "$(wc -l < .reef/ci-local/runs.jsonl | tr -d ' ')" -eq 4 ] && [ ! -f "$TMP/r14-wt/.reef/ci-local/runs.jsonl" ]
+t "  a run in a task worktree lands in the MAIN checkout's log (the worktree is gone after the merge)" 0
 
 echo
 echo "hooks suite: $PASS passed, $FAILED failed"

@@ -412,5 +412,95 @@ class Rows(unittest.TestCase):
         self.assertEqual((rows["105-flat-thing"]["first_turn"], rows["105-flat-thing"]["last_turn"]), (1, 2))
         self.assertEqual((rows["106-other"]["last_turn"], rows["106-other"]["growth"]), (5, 300), "no result: final turn")
 
+
+class PipelineRows(unittest.TestCase):
+    """Workflow v3, phase 1 (the owner, 2026-10-25: "cut the time by half" — measured, not felt): `reef-cost.py rows`
+    reads the pipeline per merged row from the repository's own history: lead time (the plan's first commit -> the
+    approval record -> the merge), tokens (.reef/cost/features.json), full-suite runs (the gate's runs.jsonl), rework
+    (rollups and reverts), and per batch the process-to-product commit ratio and the security FAILs."""
+
+    def repo(self):
+        d = tempfile.mkdtemp(prefix="reef-cost-pipe.")
+        for sub in ("approvals", "cost", "ci-local", "review"):
+            os.makedirs(os.path.join(d, ".reef", sub))
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump({"branches": {"base": "develop"}, "paths": {"features": "reef/features", "queue": "reef/queue.md"}}, f)
+
+        def g(*a, at="2029-12-31T00:00:00Z"):
+            env = dict(os.environ, GIT_AUTHOR_DATE=at, GIT_COMMITTER_DATE=at)
+            return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                                  check=True, capture_output=True, text=True, env=env).stdout.strip()
+
+        def w(rel, text=""):
+            p = os.path.join(d, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w") as f:
+                f.write(text)
+        g("init", "-q", "-b", "develop")
+        w("src/app.py", "x = 1\n"); w("reef/queue.md", "| 1 | x |\n")
+        g("add", "-A"); g("commit", "-qm", "start")
+        # row x: the plan's first commit 01:00, approved 01:30, two gate runs on the branch, a rollup, merged 03:00
+        g("checkout", "-qb", "feat/x")
+        w("reef/features/x/spec.md", "# x\n")
+        w("reef/features/x/tasks/done/101-a.md", "---\nid: 101\nfeature: x\nstatus: done\nattempts: 0\n---\n")
+        w("reef/features/x/tasks/done/R1-rollup.md", "---\nid: R1\nfeature: x\nstatus: done\nattempts: 0\n---\n")
+        g("add", "-A"); g("commit", "-qm", "plan x", at="2030-01-01T01:00:00Z")
+        x1 = g("rev-parse", "HEAD")
+        w("src/x.py", "y = 2\n"); g("add", "-A"); g("commit", "-qm", "x code", at="2030-01-01T02:00:00Z")
+        x2 = g("rev-parse", "HEAD")
+        w(".reef/approvals/x.json", json.dumps({"digest16": "0" * 16, "approved_at": "2030-01-01T01:30:00Z"}))
+        g("checkout", "-q", "develop"); g("merge", "-q", "--squash", "feat/x"); g("commit", "-qm", "Row 1: x (#5)", at="2030-01-01T03:00:00Z")
+        w("reef/queue.md", "| 1 | x | closed |\n"); g("add", "-A"); g("commit", "-qm", "reef: close row 1", at="2030-01-01T03:05:00Z")
+        # row y: no approval record, one gate run from a task worktree, merged 05:00, then reverted
+        g("checkout", "-qb", "feat/y")
+        w("reef/features/y/spec.md", "# y\n"); w("src/y.py", "z = 3\n")
+        g("add", "-A"); g("commit", "-qm", "plan y", at="2030-01-01T04:00:00Z")
+        y1 = g("rev-parse", "HEAD")
+        g("checkout", "-q", "develop"); g("merge", "-q", "--squash", "feat/y"); g("commit", "-qm", "Row 2: y (#6)", at="2030-01-01T05:00:00Z")
+        w("src/y.py", ""); g("add", "-A"); g("commit", "-qm", "Revert \"Row 2: y (#6)\"", at="2030-01-01T05:30:00Z")
+        w("src/app.py", "x = 2\n"); g("add", "-A"); g("commit", "-qm", "Revert \"mixer knob\"", at="2030-01-01T05:40:00Z")   # names neither row: "x" inside a word is not row x
+        w("reef/features/y/tasks/done/0201-y-thing.md", "---\nid: 0201\nfeature: y\nstatus: done\nattempts: 0\n---\n")   # the branch is task/201-…: reef-graph names the canon id
+        with open(os.path.join(d, ".reef", "ci-local", "runs.jsonl"), "w") as f:
+            for rec in ({"at": "2030-01-01T01:10:00Z", "mode": "full", "head": x1, "branch": "feat/x", "exit": 1, "seconds": 5},
+                        {"at": "2030-01-01T02:10:00Z", "mode": "full", "head": x2, "branch": "feat/x", "exit": 0, "seconds": 5},
+                        {"at": "2030-01-01T02:11:00Z", "mode": "fast", "head": x2, "branch": "feat/x", "exit": 0, "seconds": 1},
+                        {"at": "2030-01-01T04:10:00Z", "mode": "full", "head": "0" * 40, "branch": "task/201-y-thing", "exit": 0, "seconds": 5}):
+                f.write(json.dumps(rec) + "\n")
+        with open(os.path.join(d, ".reef", "cost", "features.json"), "w") as f:
+            json.dump({"x": {"s1": {"share": 1000, "planning_share": 100, "roles": {}, "turns": 3}, "s2": {"share": 234, "planning_share": 0, "roles": {}, "turns": 1}},
+                       "y": {"s1": {"share": 50, "planning_share": 50, "roles": {}, "turns": 1}}}, f)
+        with open(os.path.join(d, ".reef", "review", "security-abc.json"), "w") as f:
+            json.dump({"kind": "security", "verdict": "FAIL", "recorded_at": "2030-01-01T06:00:00Z"}, f)
+        return d
+
+    def test_two_merged_rows_lead_time_tokens_suite_runs_and_rework(self):
+        d = self.repo()
+        r = cost("rows", "--repo", d, "--since", "2030-01-01T00:00:00Z", "--format", "json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        rows = {row["feature"]: row for row in out["rows"]}
+        self.assertEqual(sorted(rows), ["x", "y"])
+        x, y = rows["x"], rows["y"]
+        self.assertEqual((x["pr"], x["lead_min"], x["plan_to_approval_min"], x["approval_to_merge_min"]), (5, 120, 30, 90))
+        self.assertEqual((x["tokens"], x["suite_runs"], x["rollups"], x["reverts"]), (1234, 2, 1, 0), "fast runs never count; the rollup is R1")
+        self.assertEqual((y["pr"], y["lead_min"], y["plan_to_approval_min"], y["approval_to_merge_min"]), (6, 60, None, None), "no approval record: the spans stay unknown")
+        self.assertEqual((y["tokens"], y["suite_runs"], y["rollups"], y["reverts"]), (50, 1, 0, 1), "the task worktree's run counts by its head; the Revert names #6")
+        b = out["batch"]
+        self.assertEqual((b["process_commits"], b["product_commits"]), (1, 4), "reef: close row 1 is process; two row merges and two reverts are product")
+        self.assertEqual((b["security_fails"], b["rollups"], b["reverts"], b["suite_runs_median"], b["lead_min_median"]), (1, 1, 1, 1.5, 90))
+        md = cost("rows", "--repo", d, "--since", "2030-01-01T00:00:00Z", "--format", "md").stdout
+        self.assertIn("| x | #5 | 2h00m | 30m | 1h30m | 1,234 | 2 | 1 | 0 |", md)
+        self.assertIn("process : product commits 1 : 4", md)
+        r = cost("rows", "--repo", d, "--since", "2030-01-01", "--format", "json")   # a date alone, as git takes it
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout)["batch"]["security_fails"], 1)
+
+    def test_no_merged_row_is_an_empty_table_not_an_error(self):
+        d = self.repo()
+        r = cost("rows", "--repo", d, "--since", "2031-01-01T00:00:00Z", "--format", "json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout)["rows"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

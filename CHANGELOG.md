@@ -1,6 +1,21 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **The pipeline is measured per merged row, and the morning report shows it beside the last batch** (workflow v3, phase 1;
+  2026-10-25). The first adoption's field review counted by hand — the full suite three times on one commit, about 195k judge
+  tokens on a row with no blocker, a five-line fix behind four steps — and nothing in Reef could say whether the next change
+  made it better. `scripts/reef-gate.sh` now appends one line per REAL run to the main checkout's `.reef/ci-local/runs.jsonl`
+  (at, mode, snapshot, head, branch, exit, seconds; a cached answer is not a run; a task worktree's run lands in the main
+  checkout because the worktree is gone at the merge). `scripts/reef-cost.py rows [--since ISO] [--format text|md|json]` reads
+  the pipeline per row merged into `branches.base`: lead time in three spans (the plan's first commit → the approval record →
+  the merge; the forge's PR through `gh` when it reaches it, since a squash merge erases the branch, else git), tokens from
+  `.reef/cost/features.json`, full-suite runs from the run log, rollups and reverts; per batch the process-to-product commit
+  ratio (a commit is process when every path it touches is Reef's own: `.reef/`, `reef/`, `scripts/reef-*`, `.githooks/`,
+  `.claude/`, the instruction files, the queue and journal, whatever `paths.*` names) and the security FAILs. The morning
+  report's table gains six rows from it, kept in `history.jsonl` so each batch stands beside the last. Read on the first
+  adoption's last six days: nine rows, plan → merge median 6h42m, of it after the approval 55m, tokens median 54k, process :
+  product commits 84 : 12, three rollups, no revert — the baseline every later v3 phase is scored against; suite runs count
+  from this change on. tests/size-budget.json raised: `script_lines` 14,516 → 14,809.
 - **Workflow v3, the design** (the owner's go, 2026-10-25): `docs/design/workflow-v3.md`. The first adoption measured the
   full suite three times on one commit, three judges spending about 195k tokens on one row with no blocker, a five-line fix
   behind four steps, proofs misread as shell, and an orchestrator at its context ceiling every few hours. v3: the tier decides

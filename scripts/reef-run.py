@@ -416,17 +416,41 @@ def night_numbers(root, started, sessions, base):
     first = sum(1 for c, path in done.values() if re.search(r"^attempts:\s*0\s*$", g("show", f"{c}:{path}"), re.M))
     stalls = sum(1 for x in sessions if (x.get("wait") and not str(x["wait"]).startswith("/clear")) or x.get("stop") or x.get("parked"))
     return {"rows": rows, "tasks": len(done), "first_pass": first, "stalls": stalls,
-            "cost": round(sum(float(x.get("cost_usd") or 0) for x in sessions), 2)}
+            "cost": round(sum(float(x.get("cost_usd") or 0) for x in sessions), 2), **pipeline_numbers(root, started)}
+
+
+def pipeline_numbers(root, since):
+    """v3 phase 1 (2026-10-25, "cut the time by half" is a measured claim): the batch's pipeline from `reef-cost.py rows`
+    — lead time per merged row and the part after the approval, tokens, full-suite runs, rework, the process-to-product
+    commit ratio — kept in history.jsonl so the next batch stands beside this one."""
+    cost = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-cost.py")
+    try:
+        r = subprocess.run([sys.executable, cost, "rows", "--repo", root, "--since", since, "--format", "json"],
+                           capture_output=True, text=True, timeout=600)
+        b = json.loads(r.stdout)["batch"]
+    except Exception as e:   # the report says so, never six silent dashes
+        last = (getattr(r, "stderr", "") or "").strip().splitlines() if "r" in locals() else []
+        return {"pipeline_error": last[-1] if last else f"{type(e).__name__}: {e}"}
+    return {"lead_text": b.get("lead_min_median_text"), "pipe_text": b.get("approval_to_merge_min_median_text"), "tokens": b.get("tokens_median"),
+            "suite_runs": b.get("suite_runs_median"), "rollups": b.get("rollups"), "reverts": b.get("reverts"),
+            "process": b.get("process_commits"), "product": b.get("product_commits")}
 
 
 def numbers_table(now, prev):
     def cells(n):
         if not n:
-            return ["–"] * 6
+            return ["–"] * 12
         share = f"{n['first_pass']}/{n['tasks']} ({round(100 * n['first_pass'] / n['tasks'])}%)" if n["tasks"] else "0/0"
         per = f"${n['cost'] / n['rows']:.2f}" if n["rows"] else "–"
-        return [str(n["rows"]), str(n["tasks"]), share, str(n["stalls"]), f"${n['cost']:.2f}", per]
-    names = ["Rows merged", "Tasks finished", "First pass", "Stalls (waits on you, stops, parks)", "Cost", "Cost per merged row"]
+        g = n.get
+        return [str(n["rows"]), str(n["tasks"]), share, str(n["stalls"]), f"${n['cost']:.2f}", per,
+                g("lead_text") or "–", g("pipe_text") or "–", f"{int(g('tokens')):,}" if g("tokens") is not None else "–",
+                str(g("suite_runs")) if g("suite_runs") is not None else "–",
+                f"{g('rollups')} + {g('reverts')}" if g("rollups") is not None else "–",
+                f"{g('process')} : {g('product')}" if g("process") is not None else "–"]
+    names = ["Rows merged", "Tasks finished", "First pass", "Stalls (waits on you, stops, parks)", "Cost", "Cost per merged row",
+             "Lead time per merged row, plan → merge (median)", "Of it after the approval (median)", "Tokens per merged row (median)",
+             "Full-suite runs per merged row (median)", "Rework: rollups + reverts", "Process : product commits"]
     return ["## The night in numbers", "", "| | Tonight | Last night |", "|---|---|---|",
             *[f"| {k} | {a} | {b} |" for k, a, b in zip(names, cells(now), cells(prev))], ""]
 
@@ -471,6 +495,8 @@ def morning_report(root, started, log):
         prev = None
     nums = night_numbers(root, started, tonight, base)
     lines += numbers_table(nums, prev)
+    if nums.get("pipeline_error"):
+        lines += [f"Pipeline numbers unavailable this night: {nums['pipeline_error']}", ""]
     with open(hist, "a", encoding="utf-8") as f:
         f.write(json.dumps({"started": started, **nums}) + "\n")
     lines += [f"Sessions: {len(tonight)} · cost: ${cost:.2f} · log: {os.path.relpath(log, root)}"]

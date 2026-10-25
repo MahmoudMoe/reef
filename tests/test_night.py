@@ -211,9 +211,10 @@ class NightNumbers(unittest.TestCase):
         run = importlib.util.module_from_spec(spec)
         loader.exec_module(run)
         d = tempfile.mkdtemp(prefix="reef-nightnum.")
-        g = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
-        os.makedirs(os.path.join(d, ".reef", "night"))
-        os.makedirs(os.path.join(d, ".reef", "run"))
+        env = dict(os.environ, GIT_AUTHOR_DATE="2099-01-01T00:00:00Z", GIT_COMMITTER_DATE="2099-01-01T00:00:00Z")
+        g = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True, env=env)
+        for sub in ("night", "run", "approvals", "cost", "ci-local"):
+            os.makedirs(os.path.join(d, ".reef", sub))
         with open(os.path.join(d, ".reef", "config.json"), "w") as f:
             json.dump({"branches": {"base": "develop"}}, f)
         g("init", "-q", "-b", "develop")
@@ -224,9 +225,24 @@ class NightNumbers(unittest.TestCase):
         for name, attempts in (("101-a.md", 0), ("102-b.md", 1)):
             with open(os.path.join(tdir, name), "w") as f:
                 f.write(f"---\nid: {name[:3]}\nfeature: x\nstatus: done\nattempts: {attempts}\n---\n")
+        with open(os.path.join(d, "app.py"), "w") as f:
+            f.write("x = 1\n")
         g("add", "-A"); g("commit", "-qm", "tasks done")
+        head = subprocess.run(["git", "-C", d, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
         g("checkout", "-q", "develop")
         g("merge", "-q", "--squash", "feat/x"); g("commit", "-qm", "Feature x (#5)")
+        os.makedirs(os.path.join(d, "reef"), exist_ok=True)
+        with open(os.path.join(d, "reef", "queue.md"), "w") as f:
+            f.write("| 1 | x | closed |\n")
+        g("add", "-A"); g("commit", "-qm", "reef: close row 1")
+        # v3 phase 1: the pipeline per row, beside the previous batch — an approval record, the cost record, the gate's run log
+        with open(os.path.join(d, ".reef", "approvals", "x.json"), "w") as f:
+            json.dump({"digest16": "0" * 16, "approved_at": "2099-01-01T00:00:00Z"}, f)
+        with open(os.path.join(d, ".reef", "cost", "features.json"), "w") as f:
+            json.dump({"x": {"s1": {"share": 1234, "planning_share": 0, "roles": {}, "turns": 1}}}, f)
+        with open(os.path.join(d, ".reef", "ci-local", "runs.jsonl"), "w") as f:
+            for mode in ("full", "fast", "full"):
+                f.write(json.dumps({"at": "2099-01-01T00:00:00Z", "mode": mode, "head": head, "branch": "feat/x", "exit": 0, "seconds": 1}) + "\n")
         log = os.path.join(d, ".reef", "run", "run.log")
         with open(log, "w") as f:
             f.write(json.dumps({"at": "2099-01-01T00:00:00Z", "cost_usd": 10, "wait": "owner: approve row 12"}) + "\n")
@@ -234,11 +250,15 @@ class NightNumbers(unittest.TestCase):
         run.morning_report(d, "2000-01-01T00:00:00Z", log)
         rep = open(os.path.join(d, ".reef", "night", "report.md")).read()
         for row in ("| Rows merged | 1 | – |", "| Tasks finished | 2 | – |", "| First pass | 1/2 (50%) | – |",
-                    "| Stalls (waits on you, stops, parks) | 1 | – |", "| Cost | $16.00 | – |", "| Cost per merged row | $16.00 | – |"):
+                    "| Stalls (waits on you, stops, parks) | 1 | – |", "| Cost | $16.00 | – |", "| Cost per merged row | $16.00 | – |",
+                    "| Lead time per merged row, plan → merge (median) | 0m | – |", "| Of it after the approval (median) | 0m | – |",
+                    "| Tokens per merged row (median) | 1,234 | – |", "| Full-suite runs per merged row (median) | 2 | – |",
+                    "| Rework: rollups + reverts | 0 + 0 | – |", "| Process : product commits | 1 : 1 | – |"):
             self.assertIn(row, rep)
         run.morning_report(d, "2000-01-01T00:00:00Z", log)
         rep = open(os.path.join(d, ".reef", "night", "report.md")).read()
         self.assertIn("| First pass | 1/2 (50%) | 1/2 (50%) |", rep, "the second night shows the first beside it")
+        self.assertIn("| Full-suite runs per merged row (median) | 2 | 2 |", rep)
         self.assertEqual(len(open(os.path.join(d, ".reef", "night", "history.jsonl")).read().splitlines()), 2)
 
 

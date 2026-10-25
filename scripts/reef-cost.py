@@ -5,15 +5,22 @@ Usage: reef-cost.py [<transcript.jsonl>] [--repo DIR] [--format text|md|json] | 
        reef-cost.py <transcript.jsonl> --record [--repo DIR]   (0.7) fold this session's per-task growth into .reef/cost/tasks.json
        reef-cost.py growth <task-id> [--repo DIR]             (0.7) the task's orchestrator growth so far, across sessions
        reef-cost.py growth --feature <slug> [--repo DIR]      (0.7) the feature's share and planning share, across sessions
+       reef-cost.py rows [--repo DIR] [--since ISO] [--format text|md|json]   (v3 phase 1) the pipeline per merged row
        (cat hook-payload.json | reef-cost.py --live  reads transcript_path from the payload)
 Turns = one per requestId; context = input + cache writes + cache reads; a compaction counts once (boundary record,
 else summary record); --live reads the last 256 KB only. Rows: per feature dispatched through Task/Agent
 (REEF-TASK:/REEF-FEATURE:), main-session growth = sum of positive context deltas over its span. Exit 0; 2 on a missing transcript. See README "Measured".
+rows (v3 phase 1): per row merged into branches.base since --since — lead time (the plan's first commit -> the approval record ->
+the merge; the forge's PR when gh reaches it, else git), tokens (.reef/cost/features.json), full-suite runs (the gate's
+.reef/ci-local/runs.jsonl), rollups and reverts; per batch the process-to-product commit ratio and the security FAILs.
 """
+import datetime
 import glob
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 
 TAIL_BYTES = 256 * 1024
@@ -473,7 +480,253 @@ def growth_of(repo, task):
     return {"growth": sum(int(s.get("growth", 0)) for s in sessions.values()), "sessions": len(sessions), "roles": roles}
 
 
+# ---- v3 phase 1 (2026-10-25): the pipeline per merged row, from the repository's own history — the baseline every later
+# phase is scored against. Nothing here writes; gh is used only when it reaches the forge, git is the fallback.
+MERGE_SUBJECT = re.compile(r"\(#(\d+)\)\s*$|^Merge pull request #(\d+)")
+# a commit is "process" when every path it touches is Reef's own: its folders, its scripts, the hooks, the instruction
+# files, the queue, the journal — plus whatever .reef/config.json paths.* names (tasks, adr, glossary, runlog, queue, features)
+PROCESS_ROOTS = (".reef/", ".githooks/", ".claude/", "scripts/reef-", "reef/", "docs/adr/", "docs/queue.md", "docs/journal.md",
+                 "docs/runlog.md", "CLAUDE.md", "AGENTS.md", "HANDOFF.md")
+
+
+def iso(s):
+    """An aware datetime, or None; a date or a time without a zone is read as UTC (`--since 2026-10-20`)."""
+    try:
+        d = datetime.datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=datetime.timezone.utc)
+
+
+def canon_id(x):
+    """A task id as reef-graph names it on a branch: 007 -> 7, R01 -> R1."""
+    x = str(x)
+    if x.startswith("R") and x[1:].isdigit():
+        return "R" + str(int(x[1:]))
+    return str(int(x)) if x.isdigit() else x
+
+
+def minutes(a, b):
+    return None if a is None or b is None else int(round((b - a).total_seconds() / 60))
+
+
+def median(xs):
+    xs = sorted(x for x in xs if x is not None)
+    if not xs:
+        return None
+    n = len(xs)
+    m = xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2
+    return int(m) if m == int(m) else m
+
+
+def fmt_min(m):
+    if m is None:
+        return "–"
+    m = int(m)
+    return f"{m}m" if m < 60 else f"{m // 60}h{m % 60:02d}m"
+
+
+def is_process(path, roots):
+    for r in roots:
+        if r.endswith("/") or r.endswith("-"):
+            if path.startswith(r):
+                return True
+        elif path == r or path.startswith(r + "/"):
+            return True
+    return False
+
+
+def git_out(repo, *a):
+    r = subprocess.run(["git", "-C", repo, *a], capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else ""
+
+
+def forge_pr(repo, n, cache):
+    """The forge's record of PR n through gh: created_at, merged_at, head ref, its commits and the first one's author
+    date. None without gh, without a remote, or on any error — the caller falls back to git."""
+    if n in cache:
+        return cache[n]
+    info = None
+    if not cache.get("_down") and shutil.which("gh") and git_out(repo, "remote").strip():
+        try:
+            api = lambda path: json.loads(subprocess.run(["gh", "api", path], cwd=repo, capture_output=True, text=True, timeout=10).stdout)
+            pr = api(f"repos/{{owner}}/{{repo}}/pulls/{n}")
+            commits = api(f"repos/{{owner}}/{{repo}}/pulls/{n}/commits?per_page=250")
+            if isinstance(pr, dict) and pr.get("number") == n and isinstance(commits, list):
+                dates = [((c.get("commit") or {}).get("author") or {}).get("date") for c in commits if isinstance(c, dict)]
+                info = {"created": pr.get("created_at"), "merged": pr.get("merged_at"), "head_ref": (pr.get("head") or {}).get("ref"),
+                        "commits": [c.get("sha") for c in commits if isinstance(c, dict)], "first_commit": min((d for d in dates if d), default=None)}
+        except Exception:
+            info = None
+        if info is None:
+            cache["_down"] = True   # one failure says the forge is out of reach: git answers the rest of this run
+    cache[n] = info
+    return info
+
+
+def pipeline_rows(repo, since):
+    """{"since", "base", "rows": [...], "batch": {...}} — see the module docstring."""
+    try:
+        with open(os.path.join(repo, ".reef", "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        cfg = {}
+    paths_cfg = cfg.get("paths") if isinstance(cfg.get("paths"), dict) else {}
+    base = str((cfg.get("branches") or {}).get("base", "main") or "main")
+    prefix = str((cfg.get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
+    features = str(paths_cfg.get("features", "reef/features") or "reef/features").strip("/")
+    roots = list(PROCESS_ROOTS) + [str(v).strip("/") for v in paths_cfg.values() if isinstance(v, str) and v.strip("/")]
+    try:
+        with open(os.path.join(repo, ".reef", "cost", "features.json"), encoding="utf-8") as f:
+            shares = json.load(f)
+    except (OSError, ValueError):
+        shares = {}
+    runs = []
+    try:
+        with open(os.path.join(repo, ".reef", "ci-local", "runs.jsonl"), encoding="utf-8") as f:
+            for line in f:
+                try:
+                    runs.append(json.loads(line))
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    commits = []   # (sha, date, subject, paths) on the base's first-parent line since `since`
+    for chunk in git_out(repo, "log", "--first-parent", "-m", "--name-only", f"--since={since}", "--format=%x1e%H%x1f%cI%x1f%s", base).split("\x1e"):
+        lines = chunk.strip("\n").splitlines()
+        if not lines or "\x1f" not in lines[0]:
+            continue
+        sha, date, subj = lines[0].split("\x1f", 2)
+        commits.append((sha, date, subj, [l for l in lines[1:] if l.strip()]))
+    process = product = 0
+    for _, _, _, cpaths in commits:
+        if cpaths:
+            if all(is_process(p, roots) for p in cpaths):
+                process += 1
+            else:
+                product += 1
+    rows, cache = [], {}
+    for sha, date, subj, cpaths in commits:
+        m = MERGE_SUBJECT.search(subj)
+        if not m or subj.startswith("Revert"):
+            continue
+        n = int(m.group(1) or m.group(2))
+        slug = next((p[len(features) + 1:].split("/")[0] for p in cpaths if p.startswith(features + "/") and "/" in p[len(features) + 1:]), None)
+        pr = forge_pr(repo, n, cache)
+        if not slug and pr and pr.get("head_ref"):
+            ref = str(pr["head_ref"])
+            slug = ref[len(prefix):] if ref.startswith(prefix) else ref
+        slug = slug or f"pr-{n}"
+        merged = iso(date)
+        plan_at = iso(pr["first_commit"]) if pr and pr.get("first_commit") else None
+        if plan_at is None:
+            first = git_out(repo, "log", "--all", "--diff-filter=A", "--format=%aI", "--reverse", "--", f"{features}/{slug}").splitlines()
+            plan_at = iso(first[0]) if first else None
+        approved_at = None
+        try:
+            with open(os.path.join(repo, ".reef", "approvals", f"{slug}.json"), encoding="utf-8") as f:
+                approved_at = iso(json.load(f).get("approved_at"))
+        except (OSError, ValueError, AttributeError):
+            pass
+        pr_at = iso(pr["created"]) if pr and pr.get("created") else None
+        tokens = sum(int(x.get("share", 0) or 0) for x in (shares.get(slug) or {}).values() if isinstance(x, dict))
+        fdir = os.path.join(repo, features, slug)
+        task_ids = {canon_id(os.path.basename(t).split("-")[0]) for t in glob.glob(os.path.join(fdir, "tasks", "*.md")) + glob.glob(os.path.join(fdir, "tasks", "done", "*.md"))}
+        heads = set(pr["commits"]) if pr else set()
+        if git_out(repo, "rev-parse", "-q", "--verify", f"refs/heads/{prefix}{slug}").strip():
+            heads |= set(git_out(repo, "rev-list", f"{base}..{prefix}{slug}").split())
+
+        def mine(rec):
+            br = str(rec.get("branch") or "")
+            return rec.get("head") in heads or br == prefix + slug or (br.startswith("task/") and canon_id(br[5:].split("-")[0]) in task_ids)
+        suite_runs = sum(1 for rec in runs if rec.get("mode") == "full" and mine(rec))
+        rollups = len(glob.glob(os.path.join(fdir, "tasks", "done", "R*.md")))
+        for t in glob.glob(os.path.join(repo, "tasks", "done", "R*.md")):
+            try:
+                with open(t, encoding="utf-8") as f:
+                    fm = FENCE.match(f.read())
+                rollups += bool(fm and re.search(rf"^feature:[ \t]*{re.escape(slug)}[ \t]*$", fm.group(1), re.M))
+            except OSError:
+                pass
+        names = re.compile(r"#%d\)|(?<![A-Za-z0-9_-])%s(?![A-Za-z0-9_-])" % (n, re.escape(slug)))
+        reverts = sum(1 for _, _, s2, _ in commits if s2.startswith("Revert") and names.search(s2))
+        rows.append({"feature": slug, "pr": n, "merge": sha, "plan_at": plan_at.isoformat() if plan_at else None,
+                     "approved_at": approved_at.isoformat() if approved_at else None, "pr_at": pr_at.isoformat() if pr_at else None,
+                     "merged_at": merged.isoformat() if merged else None,
+                     "lead_min": minutes(plan_at, merged), "plan_to_approval_min": minutes(plan_at, approved_at),
+                     "approval_to_merge_min": minutes(approved_at, merged), "pr_to_merge_min": minutes(pr_at, merged),
+                     "tokens": tokens, "suite_runs": suite_runs, "rollups": rollups, "reverts": reverts})
+    rows.reverse()   # oldest first
+    since_dt = iso(since)
+    fails = 0
+    for p in glob.glob(os.path.join(repo, ".reef", "review", "security-*.json")):
+        try:
+            with open(p, encoding="utf-8") as f:
+                rec = json.load(f)
+        except (OSError, ValueError):
+            continue
+        at = iso(rec.get("recorded_at"))
+        if rec.get("verdict") == "FAIL" and (since_dt is None or at is None or at >= since_dt):
+            fails += 1
+    batch = {"rows": len(rows), "process_commits": process, "product_commits": product, "security_fails": fails,
+             "rollups": sum(r["rollups"] for r in rows), "reverts": sum(r["reverts"] for r in rows),
+             "lead_min_median": median(r["lead_min"] for r in rows),
+             "approval_to_merge_min_median": median(r["approval_to_merge_min"] for r in rows),
+             "tokens_median": median(r["tokens"] for r in rows if r["tokens"]),
+             "suite_runs_median": median(r["suite_runs"] for r in rows)}
+    batch["lead_min_median_text"] = fmt_min(batch["lead_min_median"])
+    batch["approval_to_merge_min_median_text"] = fmt_min(batch["approval_to_merge_min_median"])
+    return {"since": since, "base": base, "rows": rows, "batch": batch}
+
+
+def render_rows_md(rep):
+    b = rep["batch"]
+    out = ["| row | PR | plan → merge | plan → approval | approval → merge | tokens | full-suite runs | rollups | reverts |",
+           "|---|---|---|---|---|---|---|---|---|"]
+    for r in rep["rows"]:
+        out.append(f"| {r['feature']} | #{r['pr']} | {fmt_min(r['lead_min'])} | {fmt_min(r['plan_to_approval_min'])} | "
+                   f"{fmt_min(r['approval_to_merge_min'])} | {r['tokens']:,} | {r['suite_runs']} | {r['rollups']} | {r['reverts']} |")
+    tok = f"{int(b['tokens_median']):,}" if b["tokens_median"] is not None else "–"
+    out.append("")
+    out.append(f"rows {b['rows']} since {rep['since']} into {rep['base']} · process : product commits {b['process_commits']} : {b['product_commits']} · "
+               f"security FAILs {b['security_fails']} · medians: plan → merge {fmt_min(b['lead_min_median'])}, approval → merge "
+               f"{fmt_min(b['approval_to_merge_min_median'])}, tokens {tok}, full-suite runs {b['suite_runs_median'] if b['suite_runs_median'] is not None else '–'}")
+    return "\n".join(out) + "\n"
+
+
+def cmd_rows(argv):
+    repo, since, fmt = ".", None, "text"
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--repo":
+            repo = argv[i + 1]; i += 2
+        elif a == "--since":
+            since = argv[i + 1]; i += 2
+        elif a == "--format":
+            fmt = argv[i + 1]; i += 2
+        else:
+            die(f"rows: unknown option {a!r} (usage: rows [--repo DIR] [--since ISO] [--format text|md|json])")
+    if since is None:
+        since = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rep = pipeline_rows(os.path.abspath(repo), since)
+    if fmt == "json":
+        print(json.dumps(rep, indent=1))
+    elif fmt == "md":
+        sys.stdout.write(render_rows_md(rep))
+    else:
+        for r in rep["rows"]:
+            print(f"row feature={r['feature']} pr={r['pr']} lead_min={r['lead_min']} plan_to_approval_min={r['plan_to_approval_min']} "
+                  f"approval_to_merge_min={r['approval_to_merge_min']} tokens={r['tokens']} suite_runs={r['suite_runs']} rollups={r['rollups']} reverts={r['reverts']}")
+        b = rep["batch"]
+        print(f"batch rows={b['rows']} process_commits={b['process_commits']} product_commits={b['product_commits']} security_fails={b['security_fails']} "
+              f"lead_min_median={b['lead_min_median']} approval_to_merge_min_median={b['approval_to_merge_min_median']} tokens_median={b['tokens_median']} suite_runs_median={b['suite_runs_median']}")
+    return 0
+
+
 def main(argv):
+    if argv and argv[0] == "rows":
+        return cmd_rows(argv[1:])
     if argv and argv[0] == "growth" and len(argv) >= 3 and argv[1] == "--feature":
         repo = argv[argv.index("--repo") + 1] if "--repo" in argv else "."
         g = feature_growth_of(repo, argv[2])

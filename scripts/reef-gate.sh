@@ -111,6 +111,18 @@ if [ -n "$SNAP" ] && [ -f ".reef/ci-local/gate-$MODE-$SNAP.ok" ]; then
   [ -f ".reef/ci-local/gate-$MODE-$SNAP.green.log" ] && echo "reef-gate ($MODE): its full log: .reef/ci-local/gate-$MODE-$SNAP.green.log"
   exit 0
 fi
+# v3 phase 1 (2026-10-25, the first adoption: the full suite ran three times on one commit and nothing counted it — this
+# log is overwritten by the next run, the green marker removed by the next green): every REAL run appends one line to
+# the MAIN checkout's .reef/ci-local/runs.jsonl — at, mode, snapshot, head, branch, exit, seconds. A cached answer is
+# not a run. The main checkout's, because a task worktree is gone at the merge; reef-cost.py rows counts from it.
+MAINROOT=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); [ -n "$MAINROOT" ] || MAINROOT=$ROOT
+T0=$(date +%s)
+log_run() {   # log_run <exit>
+  mkdir -p "$MAINROOT/.reef/ci-local" 2>/dev/null || return 0
+  printf '{"at": "%s", "mode": "%s", "snapshot": "%s", "head": "%s", "branch": "%s", "exit": %s, "seconds": %s}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$MODE" "$SNAP" "$(git rev-parse -q --verify HEAD 2>/dev/null || echo none)" \
+    "$(git branch --show-current 2>/dev/null | tr -d '"\\')" "$1" "$(( $(date +%s) - T0 ))" >> "$MAINROOT/.reef/ci-local/runs.jsonl" 2>/dev/null || true
+}
 mark_green() {   # the marker keeps the green run's last lines, its log is kept beside it (0.7.1)
   [ -n "$SNAP" ] || return 0; mkdir -p .reef/ci-local; rm -f .reef/ci-local/gate-"$MODE"-*.ok .reef/ci-local/gate-"$MODE"-*.green.log
   L=".reef/ci-local/gate-$MODE.log"
@@ -123,6 +135,7 @@ if [ "$FAILURES" -eq 1 ]; then
   MAXL=$(python3 -c "import json;print(int(json.load(open('.reef/config.json')).get('context',{}).get('failure_lines',60) or 60))" 2>/dev/null || echo 60)
   RC=0
   run_gate "$CMD" >"$LOG" 2>&1 || RC=$?    # set -e must not end the script before the block is printed
+  log_run "$RC"
   [ "$RC" -eq 0 ] && mark_green
   echo "reef-gate ($MODE): exit $RC — full log: $LOG ($(wc -l <"$LOG" | tr -d ' ') lines)"
   # the verdict stands outside the block: a hung suite's log has hundreds of lines after its first FAIL marker, and
@@ -145,6 +158,7 @@ fi
 RC=0
 mkdir -p .reef/ci-local
 run_gate "$CMD" ".reef/ci-local/gate-$MODE.log" || RC=$?
+log_run "$RC"
 [ "$RC" -eq 0 ] && mark_green
 [ "$RC" -eq 124 ] && echo "reef-gate ($MODE): TIMEOUT after ${TIMEOUT}s — the gate hung and its process group was killed (gates.timeout_s; a server a test spawned detached may still hold its port)"
 exit $RC
