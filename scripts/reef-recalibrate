@@ -159,13 +159,25 @@ INSTRUCTION_FILE = re.compile(r"^(CLAUDE[^/]*\.md|AGENTS\.md|GEMINI\.md|\.cursor
 # HANDOFF-FRESH.md in comments and code: never the project's reader — it kept specs/, retired the old queue behind four reef-*
 # scripts, and the apply repointed scripts/reef-recalibrate, then refused on a "broken link" inside it
 REEF_CODE = re.compile(r"^(scripts/reef-[^/]+|\.githooks/[^/]+)$")
-RULE_KINDS = (("start command", re.compile(r"(?i)\b(start|begin|open)\b.*(/[a-z][\w:-]*(start|loop|session)|npm run loop:|loop:start)|(/loop-start|loop:start)\b")),
-              ("close command", re.compile(r"(?i)(/[a-z][\w:-]*close|loop:close|npm run loop:close|\bclose\b.*\bwith\b.*\bloop)")),
-              ("ADR numbering", re.compile(r"(?i)(loop:adr|number(ing)?\s+(the\s+)?ADRs?|ADR\s+numbers?\s+(come|are|from))")),
+# 0.7.3 (the owner's rule: Reef works on any stack): a rule is found by its SHAPE — a slash command or a task-runner command
+# whose name means start, close or ADR, a sentence about numbering ADRs, a queue or backlog file outside Reef — never by one
+# project's command names
+RUNNER = r"(?:npm run|pnpm(?: run)?|yarn(?: run)?|bun run|make|just|task|poe|pdm run|hatch run|tox -e|invoke|rake|composer)"
+
+
+def _command_named(words):
+    return (rf"(?<![\w/])/[a-z][\w:-]*(?:{words})[\w:-]*|\b{RUNNER}\s+[\w:.-]*(?:{words})[\w:.-]*|"
+            rf"(?<![\w/.-])[a-z][\w-]*:(?:{words})\b")
+
+
+RULE_KINDS = (("start command", re.compile(r"(?i)" + _command_named("start|begin|session|open"))),
+              ("close command", re.compile(r"(?i)" + _command_named("close|finish|wrap|end-session|session-end"))),
+              ("ADR numbering", re.compile(r"(?i)number(ing)?\s+(the\s+)?ADRs?|ADR\s+numbers?\s+(come|are|from)|" + _command_named("adr"))),
               ("round or agent cap", re.compile(r"(?i)\b(up to|at most|max(imum)?( of)?)\s+\d+\s+(agents?|rounds?|retries|attempts|parallel)")),
               ("model routing", re.compile(r"(?i)\b(opus|sonnet|haiku|gpt-?\d|o\d-mini|gemini-\d|route\w* (the )?models?|model routing)\b")),
               ("handoff file", re.compile(r"HANDOFF[-_][\w-]*\.md|handoff[-_][\w-]*\.md")),
-              ("queue or constitution outside Reef", re.compile(r"(?i)(docs/loop/|\.specify/memory/constitution\.md|\.specify/constitution\.md|docs/loop/queue\.md)")))
+              ("queue or constitution outside Reef", re.compile(r"(?i)(?<![\w/.-])(?!reef/)(?:[\w.-]+/)*[\w.-]*(queue|backlog)[\w.-]*\.md|"
+                                                               r"\.specify/(memory/)?constitution\.md")))
 OUTRANKS = re.compile(r"(?i)\b(deliberately|on purpose|by design|intentionally)\b.*\b(no|not|never|without)\b|\b(no|never adopt a?)\s+(linter|formatter|orm|framework)\b")
 PATH_IN_TEXT = re.compile(r"(?<![\w/])((?:[\w.-]+/)*[\w.-]+\.md)\b")
 

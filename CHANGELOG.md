@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **An instruction file's process rules are found by their shape, not by one project's command names** (the owner's rule,
+  2026-10-25). The patterns named one adopted project's commands (`/loop-start`, `npm run loop:close`, `loop:adr`,
+  `docs/loop/`): on another project the plan found almost no rule to rewrite. A rule is now a slash command, a task-runner
+  command (npm, pnpm, yarn, bun, make, just, task, poe, pdm, hatch, tox, invoke, rake, composer) or a namespaced script
+  whose name means start, close or ADR; a sentence about numbering ADRs; a queue or backlog file outside `reef/`. The
+  old names left the code (generality baseline lowered). tests/size-budget.json raised: `script_lines` 14,312 → 14,324.
 - **The project's own commands come from whichever task runner it uses** (the owner's rule, 2026-10-25). `plan --measure`
   ran `gates.full` and `package.json` `check:*` scripts only, and the old loop's commands were found only among
   `package.json` scripts: a project on make, just, task, tox or a pyproject runner was invisible. `project_commands()`

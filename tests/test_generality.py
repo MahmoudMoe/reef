@@ -212,5 +212,24 @@ class TheProjectsOwnCommands(unittest.TestCase):
         plan = json.load(open(os.path.join(d, ".reef", "recalibration.json")))
         self.assertEqual(sorted(plan["adoption"]["old_scripts"]), ["adr:new", "handoff", "loop-close"])
 
+
+class InstructionRulesByShape(unittest.TestCase):
+    """P3: the process rules an instruction file states are found by their SHAPE — a slash command or a task-runner command
+    whose name means start, close or ADR, a sentence about numbering ADRs, a queue or backlog file outside Reef — never by one
+    adopted project's command names."""
+
+    def test_a_python_projects_own_process_commands_are_listed(self):
+        d = stack_project("python")
+        write(d, "AGENTS.md", "# shop\n\n## Process\nStart every session with `make session-start`.\nWrap up with `just wrap-up`.\n"
+                              "New decisions: `poe adr-new` picks the file name.\nThe backlog lives in planning/backlog.md.\n")
+        write(d, "planning/backlog.md", "# Backlog\n\n| id | item | status |\n|---|---|---|\n| 1 | x | open |\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "the old process")
+        r = subprocess.run([sys.executable, os.path.join(SCRIPTS, "reef-recalibrate"), "plan", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        layer = json.load(open(os.path.join(d, ".reef", "recalibration.json")))["instruction_layer"]
+        agents = next(e for e in layer["files"] if e["file"] == "AGENTS.md")
+        self.assertEqual([(n, k) for n, k, _ in agents["rules"]],
+                         [(4, "start command"), (5, "close command"), (6, "ADR numbering"), (7, "queue or constitution outside Reef")])
+
 if __name__ == "__main__":
     unittest.main()
