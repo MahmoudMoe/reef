@@ -3,7 +3,9 @@
 """Reef converge — the feature's Proof table executed against the branch: `missing` (test or command absent),
 `contradicts` (present but red), appended to the ONE rollup under a dated ## Converge; `Converged` writes nothing.
 Usage: reef-converge <feature> [--repo DIR] [--base BRANCH] [--dry-run]     Exit 0 converged · 1 findings · 2 usage
-A bare test name runs through converge.test_cmd ({name}) when set, else the full gate once.
+A bare test name runs through converge.test_cmd ({name}) when set, else the whole suite's EVIDENCE for this tree
+(.reef/evidence/<snapshot>.json, written by the gate; the gate runs once only when there is none). Every command and
+named test runs holding gates.resources (reef-graph.py lock), so a proof never races a build for the CPU or a database.
 """
 import datetime
 import json
@@ -203,6 +205,48 @@ def test_exists(repo, name):
     return bool(r.stdout.strip())
 
 
+def main_checkout(root):
+    r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True)
+    for line in r.stdout.splitlines():
+        if line.startswith("worktree "):
+            return line[len("worktree "):].strip()
+    return root
+
+
+def shell_runner(root, cfg):
+    """run(cmd) -> CompletedProcess: `sh -c cmd` in root, holding each of gates.resources through reef-graph.py lock
+    (v3 phase 2; 2026-10-24, the first adoption: a proof's build raced the gate's vitest for the CPU and read as a false
+    contradicts). The wait counts against gates.timeout_s, as the gate's own does."""
+    gates = cfg.get("gates") or {}
+    res = [x for x in (gates.get("resources") or []) if isinstance(x, str) and re.fullmatch(r"[A-Za-z0-9._-]+", x)]
+    graph = os.path.join(root, "scripts", "reef-graph.py")
+    wait = int(gates.get("timeout_s", 1200) or 0) or 21600
+
+    def run(cmd):
+        argv = ["sh", "-c", cmd]
+        if res and os.path.isfile(graph):
+            for r_ in res:
+                argv = [sys.executable, graph, "lock", r_, "--timeout", str(wait), "--", *argv]
+        return subprocess.run(argv, cwd=root, capture_output=True, text=True)
+    return run
+
+
+def suite_result(root):
+    """(exit, how): the whole suite's result for THIS tree — the evidence the gate wrote for the current snapshot (read,
+    never re-run: v3 phase 2), else one gate run, which writes it."""
+    snap_sh = os.path.join(root, "scripts", "reef-snapshot.sh")
+    snap = subprocess.run(["sh", snap_sh], cwd=root, capture_output=True, text=True).stdout.strip() if os.path.isfile(snap_sh) else ""
+    path = os.path.join(main_checkout(root), ".reef", "evidence", f"{snap}.json") if snap else ""
+    if path and os.path.isfile(path):
+        try:
+            rec = json.loads(read(path))
+            return int(rec.get("exit")), f"evidence .reef/evidence/{snap[:12]}.json (exit {rec.get('exit')}, {rec.get('at')})"
+        except (ValueError, TypeError, OSError):
+            pass
+    r = subprocess.run(["sh", os.path.join("scripts", "reef-gate.sh"), "full"], cwd=root, capture_output=True, text=True)
+    return r.returncode, f"the gate, run once (exit {r.returncode}; its evidence is written for this tree)"
+
+
 def main(argv):
     repo, base, dry, pos = ".", None, False, []
     i = 0
@@ -237,7 +281,7 @@ def main(argv):
     if not tasks:
         die(f"no task files for feature {feature!r}", 2)
     test_cmd = str((cfg.get("converge") or {}).get("test_cmd", "") or "")
-    gate = None
+    gate, run = None, shell_runner(root, cfg)
     findings, mechanic_rows, superseded, prose = [], [], [], []
     for path, text in tasks:
         for ac_id, proof, kind in proofs(text):
@@ -250,7 +294,7 @@ def main(argv):
                 continue
             if kind == "prints":
                 cmd, want = proof.split("\0", 1)
-                r = subprocess.run(["sh", "-c", cmd], cwd=root, capture_output=True, text=True)
+                r = run(cmd)
                 if r.returncode == 127:
                     findings.append(f"{label}: missing — `{cmd}` (exit 127)")
                 elif r.stdout.strip() != want:
@@ -260,7 +304,7 @@ def main(argv):
                 mechanic_rows.append(f"{label}: `{proof}`")   # writes files: the mechanic runs it, converge never does
                 continue
             if kind == "cmd":
-                r = subprocess.run(["sh", "-c", proof], cwd=root, capture_output=True, text=True)
+                r = run(proof)
                 if r.returncode == 127 or "not found" in (r.stderr or "").lower() and r.returncode != 0:
                     findings.append(f"{label}: missing — `{proof}` ({r.stderr.strip()[:80] or 'exit 127'})")
                 elif r.returncode != 0:
@@ -270,14 +314,15 @@ def main(argv):
                 findings.append(f"{label}: missing — test {proof} does not exist in the tree")
                 continue
             if test_cmd:
-                r = subprocess.run(["sh", "-c", test_cmd.replace("{name}", proof)], cwd=root, capture_output=True, text=True)
+                r = run(test_cmd.replace("{name}", proof))
                 if r.returncode != 0:
                     findings.append(f"{label}: contradicts — {proof} fails (exit {r.returncode})")
             else:
                 if gate is None:
-                    gate = subprocess.run(["sh", os.path.join("scripts", "reef-gate.sh"), "full"], cwd=root, capture_output=True, text=True).returncode
+                    gate, how = suite_result(root)
+                    print(f"whole suite: {how}")
                 if gate != 0:
-                    findings.append(f"{label}: contradicts — {proof} exists but the full gate is red (exit {gate})")
+                    findings.append(f"{label}: contradicts — {proof} exists but the full suite is red (exit {gate}: {how})")
     # 0.7.2 (first adoption, item 15): a `kind: refactor` task's deterministic criterion — in the branch's diff no existing test
     # file changes an assertion line (moved code and imports allowed), and the full gate is green
     refactors = [os.path.basename(p) for p, t in tasks if re.search(r"^kind:\s*refactor\s*$", t, re.M)]
@@ -293,9 +338,10 @@ def main(argv):
                     findings.append(f"{label}: contradicts — {f} changes an assertion line ({len(rem)} removed, {len(add)} added); "
                                     "a refactor preserves behaviour, its tests stay")
             if gate is None:
-                gate = subprocess.run(["sh", os.path.join("scripts", "reef-gate.sh"), "full"], cwd=root, capture_output=True, text=True).returncode
+                gate, how = suite_result(root)
+                print(f"whole suite: {how}")
             if gate != 0:
-                findings.append(f"{label}: contradicts — the full gate is red (exit {gate}); behaviour is not shown preserved")
+                findings.append(f"{label}: contradicts — the full suite is red (exit {gate}: {how}); behaviour is not shown preserved")
     if superseded:
         print(f"{len(superseded)} superseded row(s) skipped (a later task's Proof replaces them):")
         for m_ in superseded:

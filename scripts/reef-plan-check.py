@@ -973,6 +973,13 @@ def main():
                     # proved AC-4 and AC-10 "another way", the orchestrator ran them itself)
                     if re.search(r"(^|[\s;&|(])(rm|mv|cp|touch|tee|truncate|mkdir)\s|(^|[^<>])>\s*\S|\.env\b|--force", cells[1]) and "[mechanic]" not in cells[1]:
                         print(f"WARN {rel}: Proof for {re.sub(r'^AC-?', 'AC-', m.group(1))} writes files — the read-only verifier cannot run it; tag it `[mechanic]` so the mechanic runs it verbatim")
+                    # v3 phase 2 (the first adoption: proofs were shell one-liners inside markdown cells — a test name run as
+                    # shell, a script read as a file name, a build raced for the CPU): a proof is a NAMED TEST the project's
+                    # runner runs by name; a long shell line is refused unless it must write files ([mechanic])
+                    shell = re.search(r"&&|\|\||[|;<>]|\$\(|\s--?[a-zA-Z]", cells[1]) or re.match(r"^`?(sh|bash|zsh|env|npx|npm|pnpm|yarn|bun|node|deno|python3?|pytest|uv|go|cargo|make|curl|docker)\b", cells[1])
+                    if len(cells[1]) > 120 and shell and "[mechanic]" not in cells[1]:
+                        fail(f"{rel}: Proof for {re.sub(r'^AC-?', 'AC-', m.group(1))} is {len(cells[1])} characters of shell in a markdown cell — name a test "
+                             f"(converge.test_cmd runs it by name) or put the command in a script and name the script; `[mechanic]` only for a proof that must write files")
         # 0.6 dual shape: with a ## Proof table the criterion is ONE declarative sentence and the proof
         # lives in its row; without it, the 0.5 shape (the criterion names its test inline) stays valid
         untested, automated, shape_errs, key_errs = [], 0, [], []

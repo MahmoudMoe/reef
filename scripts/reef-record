@@ -175,6 +175,21 @@ def cmd_security(argv):
     return 0
 
 
+def evidence_for(cwd, sha):
+    """v3 phase 2: the suite's one result for the PR head, through scripts/reef-evidence.py beside this script (CI's
+    check-runs when the project runs CI on feature PRs, else the gate's record for the commit's tree). A GREEN record
+    binds a verdict to a commit; without green evidence for that commit there is nothing to bind it to."""
+    import importlib.machinery
+    import importlib.util
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-evidence.py")
+    if not os.path.isfile(p):
+        return {"source": "none", "state": "none", "why": "scripts/reef-evidence.py is missing (reef-update copies it)"}
+    spec = importlib.util.spec_from_loader("reef_evidence", importlib.machinery.SourceFileLoader("reef_evidence", p))
+    ev = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ev)
+    return ev.evidence(cwd, sha)
+
+
 def main(argv):
     if "-h" in argv or "--help" in argv:   # 0.7 (2026-10-24): `footnote --help` wrote a footnote reading "--help"
         print(__doc__.strip())
@@ -229,6 +244,14 @@ def main(argv):
             die(f"the report reviewed {h.group(1)[:12] if h else 'no named head'}, not the PR head {sha[:12]} — review the head, then record")
         import hashlib
         rec["report_sha256"] = hashlib.sha256(raw).hexdigest()
+        e = evidence_for(cwd, sha)
+        if e.get("state") != "green":
+            what = {"red": f"the evidence for {sha[:12]} is RED ({e.get('source')}): a GREEN record needs a green suite — fix, then record",
+                    "pending": f"CI is still running for {sha[:12]} — record when it is done (python3 scripts/reef-evidence.py {sha[:12]})"}
+            die(what.get(e.get("state"), f"no evidence for {sha[:12]}: no check-run and no .reef/evidence/<snapshot>.json for its tree — "
+                                        f"run `sh scripts/reef-gate.sh full` on that tree (or wait for CI), then record" + (f" ({e['why']})" if e.get("why") else "")))
+        rec["evidence"] = {"source": e.get("source"), "snapshot": e.get("snapshot"),
+                           "checks": [c.get("name") for c in e.get("checks") or []] or None}
     d = os.path.join(main_checkout(cwd), ".reef", "review")
     os.makedirs(d, exist_ok=True)
     with open(os.path.join(d, f"{feature}.json"), "w", encoding="utf-8") as f:
