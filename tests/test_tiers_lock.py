@@ -141,15 +141,27 @@ class FourTiers(unittest.TestCase):
         r = dispatch(self.d, "reef:plan-reviewer", "REEF-FEATURE: lightonly\nreview", model="fable")
         self.assertEqual(r.returncode, 2, "an all-light feature needs no plan-reviewer agent")
         self.assertIn("none", r.stderr)
+        # v3 phase 3a: a full-tier feature with no risk touch is the fast path — the check is the review, no plan-reviewer
+        r = dispatch(self.d, "reef:plan-reviewer", "REEF-FEATURE: other\nreview", model="fable")
+        self.assertEqual(r.returncode, 2, "the fast path dispatches no plan-reviewer: " + r.stderr)
+        self.assertIn("fast path", r.stderr)
+        # the review (2026-10-25): a risk touch on an otherwise full feature is the critical path — the sabotage test of
+        # the touches branch (delete it and this dispatch is refused as fast)
+        with open(os.path.join(self.d, "tasks", "005-risky.md"), "w") as f:
+            f.write(task_text(5, "risky", "full", "design", extra="touches: [auth]\n"))
+        r = dispatch(self.d, "reef:plan-reviewer", "REEF-FEATURE: risky\nreview", model="fable")
+        self.assertEqual(r.returncode, 0, "a risk touch is the critical path: the plan-reviewer is dispatched: " + r.stderr)
 
     def test_explore_is_a_mechanic(self):
         self.assertEqual(dispatch(self.d, "Explore", "look around", model="opus").returncode, 2)
         self.assertEqual(dispatch(self.d, "Explore", "look around", model="sonnet").returncode, 0)
 
-    def test_needs_agent_with_one_full_task_and_none_when_all_light(self):
+    def test_needs_agent_on_the_critical_path_and_none_on_the_fast_path(self):
+        # changed on purpose for v3 phase 3a (2026-10-25): `other` holds one full task and no risk touch — the fast path;
+        # before, every task heavier than light called the plan-reviewer agent
         r = plan_check(self.d, "--needs-agent", "--feature", "other")
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("plan-reviewer: model=fable", r.stdout)
+        self.assertEqual(r.returncode, 3, r.stdout)
+        self.assertIn("plan-reviewer: none (fast path: heaviest tier full", r.stdout)
         with open(os.path.join(self.d, "tasks", "004-l2.md"), "w") as f:
             f.write(task_text(4, "lightonly", "light", "mech"))
         r = plan_check(self.d, "--needs-agent", "--feature", "lightonly")

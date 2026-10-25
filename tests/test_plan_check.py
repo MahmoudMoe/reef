@@ -537,6 +537,48 @@ DESIGN_TASK = TASK.replace("complexity: mech", "complexity: design\ntier: critic
     .replace("## Scope\nx", "## Scope\nx\n\n## Decision\nhuman wrote this")
 
 
+class PathDecidesTheReview(unittest.TestCase):
+    """Workflow v3, phase 3a (2026-10-25): the plan-reviewer agent reviewed every row heavier than light — one more judge on
+    rows whose risk the tier already said was ordinary. On the FAST path (every task light or full, no auth/pii/money/
+    migration touch) the deterministic check is the review: --verify-stamp says `review: not required`, --needs-agent
+    exits 3. A risk touch or a design/critical task is the CRITICAL path: the record is required, as before."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="reef-pc-path.")
+        repo(self.tmp)
+        self.p = os.path.join(self.tmp, "tasks", "002-full.md")
+        with open(self.p, "w") as f:
+            f.write(DESIGN_TASK.replace("tier: critical", "tier: full").format(id=2, acs="- test_full_works goes red then green"))
+        self.assertEqual(run(self.tmp).returncode, 0, run(self.tmp).stdout)
+
+    def test_fast_path_needs_no_plan_reviewer_and_a_risk_touch_makes_it_critical(self):
+        out = run(self.tmp, "--verify-stamp", "--feature", "demo").stdout
+        self.assertIn("review: not required for 'demo' (fast path: tiers light, full; no risk touch", out)
+        r = run(self.tmp, "--needs-agent", "--feature", "demo")
+        self.assertEqual(r.returncode, 3, r.stdout)
+        self.assertIn("plan-reviewer: none (fast path", r.stdout)
+        edit(self.p, "tier: full\n", "tier: design\n")   # a risk touch forces at least design, so a design task is the critical path's shape
+        self.assertEqual(run(self.tmp).returncode, 0, run(self.tmp).stdout)
+        out = run(self.tmp, "--verify-stamp", "--feature", "demo").stdout
+        self.assertIn("review: MISSING for 'demo'", out, "a design task is the critical path: the plan-reviewer's record is required")
+        r = run(self.tmp, "--needs-agent", "--feature", "demo")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("plan-reviewer: model=", r.stdout)
+
+
+class BracketlessTouches(unittest.TestCase):
+    """The review of v3 phase 3a (2026-10-25): `touches: auth` without brackets was ignored by the check (no tier forced,
+    plan green) while the guard read it as a risk — three readers, two answers. The check now fails it."""
+
+    def test_touches_without_brackets_fails_the_check(self):
+        tmp = repo(tempfile.mkdtemp(prefix="reef-pc-touch."))
+        with open(os.path.join(tmp, "tasks", "002-full.md"), "w") as f:
+            f.write(DESIGN_TASK.replace("tier: critical", "tier: full\ntouches: auth").format(id=2, acs="- test_full_works goes red then green"))
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("touches must be a list", r.stdout)
+
+
 class HunterStampOutsideTheDigest(unittest.TestCase):
     """2026-10-18 (qassimha): `plan --decided` after Approve and a stamp migration changed the approval digest of a plan
     nobody had edited; and 202/203 reached the gate with stamps their review-round edits had staled, unnamed."""
@@ -775,12 +817,24 @@ class Config(unittest.TestCase):
             json.dump({"gates": {"fast": "true"}, "paths": {}}, f)
         self.assertEqual(run(tmp).returncode, 1)
 
-    def test_plan_reviewer_model_printed_from_config(self):
+    def test_plan_reviewer_model_printed_from_config_on_the_critical_path(self):
+        # changed on purpose for v3 phase 3a (2026-10-25): the fixture's one mech task is the fast path, which dispatches no
+        # plan-reviewer; the configured model is printed for a plan on the critical path
         r = self.check({"roles": {"plan_reviewer": "opus"}}, True)
+        self.assertIn("plan-reviewer: none (fast path", r.stdout)
+        tmp = repo(tempfile.mkdtemp(prefix="reef-pc."), extra_cfg={"roles": {"plan_reviewer": "opus"}})
+        with open(os.path.join(tmp, "tasks", "002-crit.md"), "w") as f:
+            f.write(DESIGN_TASK.format(id=2, acs="- test_crit_works goes red then green"))
+        r = run(tmp)
+        self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("plan-reviewer: model=opus", r.stdout)
 
     def test_plan_reviewer_model_defaults_to_agent_default(self):
-        r = self.check(None, True)
+        tmp = repo(tempfile.mkdtemp(prefix="reef-pc."))
+        with open(os.path.join(tmp, "tasks", "002-crit.md"), "w") as f:
+            f.write(DESIGN_TASK.format(id=2, acs="- test_crit_works goes red then green"))
+        r = run(tmp)
+        self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("plan-reviewer: model=opus", r.stdout)
 
 

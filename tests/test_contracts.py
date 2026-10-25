@@ -384,6 +384,18 @@ class ReviewSkill(unittest.TestCase):
         self.assertNotRegex(self.text, r"cap 5\b")
 
 
+class ThePathSizesThePlanReview(unittest.TestCase):
+    """v3 phase 3a: /reef-plan runs the plan-reviewer and the hunter's plan pass on the critical path only; on the fast path
+    reef-plan-check alone is the review, and the gate accepts `review: not required`."""
+
+    def test_reef_plan_names_the_path_and_the_gate_accepts_not_required(self):
+        text = read("skills", "reef-plan", "SKILL.md")
+        self.assertIn("scripts/reef-tier.py path", text)
+        self.assertRegex(text, r"(?i)fast.{0,120}reef-plan-check\.py.{0,40}(alone|is the review)")
+        self.assertIn("review: not required", text)
+        self.assertLessEqual(len(text.splitlines()), 60)
+
+
 class EvidenceIsReadNotMade(unittest.TestCase):
     """v3 phase 2 retires the 0.7.1 rule "a judge runs the gate once, fresh": the evidence is now written only by the gate
     (or by CI) and the guard denies every other writer, so a judge READS it and runs the gate only when there is none."""

@@ -18,6 +18,12 @@ Computes the tier the diff <base>...HEAD deserves and compares it with the task'
 Declared lighter than computed -> exit 1 ("declared light, computed full"). An EMPTY diff is refused
 (exit 1): there is nothing to tier. --write raises `tier:` in the task file to the computed one.
 Exit 0 ok · 1 refused · 2 usage/git error.
+
+  reef-tier.py path <task-file>...     (workflow v3, phase 3) the PATH the tier decides for a feature's tasks:
+         `fast` when every task is light or full and none touches auth/pii/money/migration — the deterministic
+         check is the plan review, one worktree per row, no per-task verifier, one reviewer at the end;
+         `critical` otherwise — the hunter's plan pass, the plan-reviewer, a verifier per task, security per feature.
+         Rollups (R*) are fix rounds, not tasks of the plan. Prints one line; exit 2 without a task file.
 """
 import fnmatch
 import os
@@ -64,6 +70,27 @@ def numstat(repo, base):
 TOUCHES = {"pii": "critical", "money": "critical", "auth": "critical", "migration": "design"}
 
 
+def cmd_path(files):
+    """One rule, one parser: scripts/reef-plan-check.py's feature_path beside this script (the guard calls the same)."""
+    files = [p for p in files if not re.match(r"^R\d+[-.]", os.path.basename(p))]
+    if not files:
+        die("usage: reef-tier.py path <task-file>... (no task file given, or only rollups)")
+    for p in files:
+        if not os.path.isfile(p):
+            die(f"cannot read {p}")
+    import importlib.machinery
+    import importlib.util
+    pc = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
+    loader = importlib.machinery.SourceFileLoader("reef_plan_check", pc)
+    spec = importlib.util.spec_from_loader("reef_plan_check", loader)
+    mod = importlib.util.module_from_spec(spec)
+    sys.dont_write_bytecode = True
+    loader.exec_module(mod)
+    path, why = mod.feature_path(files)
+    print(f"path: critical — {why}" if path == "critical" else f"path: fast ({why})")
+    return 0
+
+
 def compute(rows, tiers, tasks_dir="tasks", touches=()):
     rows = [(p, a) for p, a in rows if not (p == tasks_dir or p.startswith(tasks_dir.rstrip("/") + "/"))
             and not re.search(r"(^|/)reef/features/[^/]+/tasks/", p)]
@@ -103,6 +130,8 @@ def compute(rows, tiers, tasks_dir="tasks", touches=()):
 
 
 def main(argv):
+    if argv and argv[0] == "path":
+        return cmd_path(argv[1:])
     base, repo, write, task = "main", None, False, None
     i = 0
     while i < len(argv):
