@@ -59,7 +59,7 @@ def is_process_doc(root, rel):
 
 
 def config_homes(root):
-    """The places .reef/config.json `paths.*` names (0.7.2, ai-coach 2026-10-24, item 17): init chose them, so the check accepts
+    """The places .reef/config.json `paths.*` names (0.7.2, first adoption 2026-10-24, item 17): init chose them, so the check accepts
     them whatever the version — `docs/adr` was flagged on a project whose config said `paths.adr: docs/adr`."""
     try:
         with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
@@ -75,7 +75,7 @@ PLAN_KEEP = re.compile(r"^(directory .+ read by|referenced by|waits: |the instru
 def plan_keeps(root):
     """The documents the recalibration plan kept ON PURPOSE because something still reads them (a directory read, a code or
     instruction-file reference, a reader to retire, an in-flight edit): the baseline, not a violation — the gate can be on from
-    day one and only a NEW stray document fails (ai-coach, 2026-10-25: `structure` found 507 such documents under specs/ and
+    day one and only a NEW stray document fails (first adoption, 2026-10-25: `structure` found 507 such documents under specs/ and
     design_handoff/ the plan had kept for `check:docs`, so the gate could not be switched on). A `keep` the owner chose by hand
     (reason edited) counts too: the plan is the owner's decision."""
     p = os.path.join(root, ".reef", "recalibration.json")
@@ -183,7 +183,7 @@ DATA_DIR = re.compile(r"(^|/)(i18n|locales|interface|translations)(/|$)")
 
 
 def size_violations(root):
-    """0.7.2 (ai-coach, 2026-10-24, item 14): big files only grew. A baselined product file may not grow past its baseline; a
+    """0.7.2 (first adoption, 2026-10-24, item 14): big files only grew. A baselined product file may not grow past its baseline; a
     new one may not exceed `structure.new_file_lines`; shrinking lowers the baseline in the same run (the ratchet). Cost: one
     read per file changed since HEAD, never the whole tree."""
     import fnmatch

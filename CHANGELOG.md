@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **No adopted project is named in Reef's code or prose** (the owner's decision, 2026-10-25). 44 history notes in scripts
+  and skills named the first project Reef adopted; they now say "the first adoption" (#117 did the same for the trial
+  project). `tests/test_generality.py` fails on the name anywhere in scripts, hooks, skills, agents, commands or templates,
+  comments included; the generality baseline is empty. The CHANGELOG keeps the record. tests/size-budget.json: unchanged.
 - **Adoption keeps an existing project's documents in place** (the owner's decision, 2026-10-25). Moving decisions, specs
   and stray documents into Reef's tree was the riskiest and least valuable part of adoption: every guess about who reads a
   file was a broken check somewhere (ai-coach: 603 `check:docs` errors from the first full plan; `docs/adr` moved under a

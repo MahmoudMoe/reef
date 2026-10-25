@@ -90,6 +90,12 @@ class GeneralityRatchet(unittest.TestCase):
         self.assertEqual(grew, [], "a project's or a stack's name entered Reef's code: put stack knowledge in templates/stacks/")
         self.assertEqual(shrank, [], "removed, good: lower tests/generality-baseline.json in the same commit")
 
+    def test_no_adopted_project_is_named_even_in_a_comment(self):
+        # P6 (the owner, 2026-10-25): history notes say "the first adoption", never the project's name (#117 did the same
+        # for the trial project); the CHANGELOG keeps the record
+        named = [rel for rel in scanned_files() if "ai-coach" in open(os.path.join(ROOT, rel), encoding="utf-8", errors="replace").read()]
+        self.assertEqual(named, [])
+
 
 def git(d, *a):
     return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True, text=True).stdout
