@@ -18,7 +18,7 @@ RECAL = os.path.join(ROOT, "scripts", "reef-recalibrate")
 STRUCT = os.path.join(ROOT, "scripts", "reef-structure")
 GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
 INIT = os.path.join(ROOT, "scripts", "reef-init.py")
-PROPOSED = os.path.join(".reef", "recalibration", "proposed")   # the plan's; .reef/proposed/ is reef-init's
+PROPOSED = os.path.join(".git", "reef", "recalibration", "proposed")   # the plan's; .git/reef/proposed/ is reef-init's
 
 FAKE_GH = r'''#!/usr/bin/env python3
 import json, os, sys
@@ -589,13 +589,18 @@ class InstructionLayer(unittest.TestCase):
         self.assertIn("rule, start command: `Start every session with /loop-start and close with `npm run loop:close`.` (AGENTS.md:10)", layer)
         self.assertIn("pointer → `HANDOFF-FRESH.md` (AGENTS.md:9)", layer)
         self.assertIn("DUPLICATE of the primary CLAUDE file", layer)
-        self.assertIn("read the diff first: `git diff --no-index AGENTS.md .reef/recalibration/proposed/AGENTS.md`", open(os.path.join(d, "reef", "recalibration.md")).read())
+        self.assertIn("read the diff first: `git diff --no-index AGENTS.md .git/reef/recalibration/proposed/AGENTS.md`", open(os.path.join(d, "reef", "recalibration.md")).read())
         proposed = open(os.path.join(d, PROPOSED, "AGENTS.md")).read()
         self.assertIn(self.FOREIGN, proposed, "another tool's block is byte-identical")
         self.assertIn("An AI coach for runners: Next.js 16, Prisma, Vitest.", proposed, "product content kept verbatim")
         self.assertIn("there is deliberately no linter", proposed, "the project's rule stays")
         self.assertNotIn("/loop-start", proposed)
         self.assertIn("Process: this project runs on Reef. Read `HANDOFF.md` first", proposed)
+        # 0.7.3: the proposals live under the git dir — a scratch worktree's apply (plan --measure) reads them there and
+        # must never delete them; nothing of Reef's sits in the work tree for a project test that walks the disk
+        r = subprocess.run([sys.executable, RECAL, "plan", "--measure", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(open(os.path.join(d, PROPOSED, "AGENTS.md")).read(), proposed, "the measure's scratch apply keeps the proposal")
+        self.assertFalse(os.path.exists(os.path.join(d, ".reef", "recalibration", "proposed")))
         git(d, "add", "-A"); git(d, "commit", "-qm", "plan")
         r = subprocess.run([sys.executable, RECAL, "--apply", "--repo", d], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -634,11 +639,11 @@ class InstructionLayer(unittest.TestCase):
         rendering, and the next reef-update replaced AGENTS.md with the template: the product text and the project's rule gone."""
         d = self.fixture()
         write(d, ".gitignore", ".reef/proposed/\n.reef/recalibration/\n")
-        init_proposal = write(d, ".reef/proposed/AGENTS.md", "# reef-init's rendering of AGENTS.md, waiting for --accept or --keep\n")
+        init_proposal = write(d, ".git/reef/proposed/AGENTS.md", "# reef-init's rendering of AGENTS.md, waiting for --accept or --keep\n")
         git(d, "add", ".gitignore"); git(d, "commit", "-qm", "init")
         r = subprocess.run([sys.executable, RECAL, "plan", "--repo", d], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(sorted(os.listdir(os.path.join(d, ".reef", "proposed"))), ["AGENTS.md"], "the plan adds nothing to reef-init's proposals")
+        self.assertEqual(sorted(os.listdir(os.path.join(d, ".git", "reef", "proposed"))), ["AGENTS.md"], "the plan adds nothing to reef-init's proposals")
         self.assertEqual(open(init_proposal).read(), "# reef-init's rendering of AGENTS.md, waiting for --accept or --keep\n")
         self.assertTrue(os.path.isfile(os.path.join(d, PROPOSED, "AGENTS.md")))
         git(d, "add", "-A"); git(d, "commit", "-qm", "plan")

@@ -245,6 +245,17 @@ class InitKeepsYours(unittest.TestCase):
                       "when its AGENTS.md lacks the `.reef/**` exclusions, say so.", skill)
 
 
+
+class ProposalsUnderTheGitDir(unittest.TestCase):
+    def test_every_reader_facing_text_names_the_git_dir_never_the_work_tree(self):
+        # 0.7.3 (ai-coach, 2026-10-25): a project test that walks the disk counted Reef's .reef/proposed/ files as its own;
+        # the proposals moved under <git dir>/reef/, and every text that tells a reader where to look says so
+        for parts in (("skills", "reef-init", "SKILL.md"), ("README.md",), ("templates", "project", "reef-README.md"),
+                      ("templates", "project", "day-zero.md"), ("docs", "index.html"), ("docs", "manual", "ar", "index.html")):
+            text = read(*parts)
+            self.assertIn(".git/reef/proposed/", text, "/".join(parts))
+            self.assertNotIn(".reef/proposed/", text.replace(".git/reef/proposed/", ""), "/".join(parts))
+
 class AssessMeasures(unittest.TestCase):
     def test_the_assess_skill_counts_before_it_scores(self):
         # 0.7.2 (ai-coach, 2026-10-24, item 10): module boundaries were scored by feel; the largest files were tests and data

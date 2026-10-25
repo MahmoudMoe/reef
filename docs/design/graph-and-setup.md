@@ -56,7 +56,7 @@ The project loop is the same graph one level up: `docs/queue.md` holds one row p
 | `docs/day-zero.md` | the checklist, each line a command or a gate | — |
 | `scripts/reef-queue.py` | status derived from task files, ready rows (current batch, planned first), consistency check, ADR numbering at merge | the queue, the task files |
 
-Idempotence: absent → written; identical → skipped; **different → never overwritten** — the rendering goes to `.reef/proposed/<path>` with a printed diff; `--accept <path>` applies one. A second run with nothing changed writes nothing.
+Idempotence: absent → written; identical → skipped; **different → never overwritten** — the rendering goes to `.git/reef/proposed/<path>` with a printed diff; `--accept <path>` applies one. A second run with nothing changed writes nothing.
 
 ## 7. Migration
 

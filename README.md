@@ -56,7 +56,7 @@ Then, inside your project:
 | You have | Run | What happens |
 |---|---|---|
 | **A new project** | `/reef-init` | One batched set of questions (your branches, and the architecture grill: host, shape, scale, store, auth boundary, one-year non-goals). Reef renders one tree adapted to your stack: the config, `AGENTS.md`, the constitution, the queue with row 1 = the walking skeleton, the architecture with draft decisions, the journal, a release-only CI, the git hooks. Idempotent: a second run with nothing changed writes nothing. |
-| **An existing project** | `/reef-init`, then `/reef-assess` | Nothing you wrote is overwritten: a differing rendering lands in `.reef/proposed/<path>` with a diff and `python3 scripts/reef-init.py --accept <path>` applies the ones you choose. `/reef-assess` reads how the project works and was written, every claim with a proving path, then moves its documents into the tree under one approval. Archive, never delete; one `git revert` undoes it. |
+| **An existing project** | `/reef-init`, then `/reef-assess` | Nothing you wrote is overwritten: a differing rendering lands in `.git/reef/proposed/<path>` with a diff and `python3 scripts/reef-init.py --accept <path>` applies the ones you choose. `/reef-assess` reads how the project works and was written, every claim with a proving path, then moves its documents into the tree under one approval. Archive, never delete; one `git revert` undoes it. |
 | **A feature to build** | `/reef-plan <row>` → `/reef-task <slug>` → `/reef-review <slug>` | The grill; the spec and the tasks drafted in the feature worktree; the hunter and a fresh reviewer in parallel; then the one question for you, last — nothing after it voids your approval. Every ready task at once, each in its own worktree, each verified by a fresh judge. The PR, the acceptance against the spec, the diff review, the merge and the close. |
 | **A queue of rows** | `/reef-loop` | Every ready row through the four commands above, in parallel where rows do not collide. It stops only for your decisions, a missing credential, a wrong spec, or a cap, and batches its questions. |
 | **The loop in the background** | `/reef-run` | Reef's runner, started from Claude Code and detached: `/reef-loop` in a fresh headless session whenever the last one fills its context, until the loop waits on you, stops or parks. `/reef-run status` shows it, `/reef-run stop` ends it after its current session. |
@@ -163,7 +163,7 @@ flowchart LR
 
 **What it never does**
 
-- Overwrite a file you wrote. A differing rendering goes to `.reef/proposed/` with a diff; only `--accept` applies it.
+- Overwrite a file you wrote. A differing rendering goes to `.git/reef/proposed/` with a diff; only `--accept` applies it.
 - Delete a document. Recalibration archives into `reef/archive/<date>/` in one commit that one `git revert` undoes.
 - Let a judge write. The verifier, the adversary and the plan reviewer are read-only, and a tree hash proves it.
 - Merge the release. The release PR is yours. There is no gate on push by design; CI is the wall.
