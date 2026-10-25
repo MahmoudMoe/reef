@@ -9,7 +9,7 @@ argument-hint: <task-ref | "diff">
 Judge, don't fix. Fresh eyes on the diff (`git diff` or the named task's changes) against its acceptance criteria.
 
 - FIRST, before reading the diff: read only the task file and write one rule per acceptance criterion — `RULE AC<n>: PASS iff <observable result>; FAIL if <observable result>` (name the test, command or file you will look at). These lines open your report, above any verdict. A rule written after reading the code bends to fit the code; a rule changed after reading the diff must be shown as changed, with the reason.
-- Re-run the full gate yourself, once and fresh (`REEF_GATE_NO_CACHE=1 sh scripts/reef-gate.sh full`), and quote its last lines; never trust a hand-off's claim, and never re-run a red gate until it passes: report it with its log. Later runs on the unchanged snapshot answer `cached` with that run's summary.
+- The suite's result is read, not made: `python3 scripts/reef-evidence.py` (CI's check-runs, else the gate's record for this snapshot; nothing else may write it); quote its line as `GATE:`. None (exit 2) → run `sh scripts/reef-gate.sh full` once. Never trust a hand-off's claim; a red gate is reported with its log, never re-run until green.
 - Verdict per AC, judged by ITS RULE, WITH evidence: test name, file:line, or command output. No evidence = FAIL that criterion.
   - Good: "AC2 PASS — `test_empty_input` (tests/test_summarize.py:17) asserts `months == {}`; suite re-run by me: 34 passed."
   - Bad: "AC2 PASS — implementer's tests cover this." (Trusting the hand-off is the exact failure this role exists to prevent.)

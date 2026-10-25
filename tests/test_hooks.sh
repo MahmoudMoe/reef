@@ -482,6 +482,17 @@ git worktree add -q "$TMP/r14-wt" HEAD >/dev/null 2>&1
 ( cd "$TMP/r14-wt" && REEF_GATE_NO_CACHE=1 sh scripts/reef-gate.sh full ) >/dev/null 2>&1
 [ "$(wc -l < .reef/ci-local/runs.jsonl | tr -d ' ')" -eq 4 ] && [ ! -f "$TMP/r14-wt/.reef/ci-local/runs.jsonl" ]
 t "  a run in a task worktree lands in the MAIN checkout's log (the worktree is gone after the merge)" 0
+# v3 phase 2: a full run writes ONE evidence file per tree in the MAIN checkout (.reef/evidence/<snapshot>.json): the green tree
+# and the red one above, the worktree's run (the same tree as the first green run) rewriting the same file; the fast gate writes none
+[ "$(ls "$TMP/r14/.reef/evidence" | wc -l | tr -d ' ')" -eq 2 ] && grep -lq '"exit": 0' "$TMP/r14"/.reef/evidence/*.json \
+  && grep -lq '"exit": 1' "$TMP/r14"/.reef/evidence/*.json && [ ! -d "$TMP/r14-wt/.reef/evidence" ]
+t "the full gate writes .reef/evidence/<snapshot>.json in the MAIN checkout: one file per tree, exit 0 and exit 1 apart" 0
+grep -q '"snapshot": "'"$(cd "$TMP/r14-wt" && sh scripts/reef-snapshot.sh)"'"' "$TMP/r14"/.reef/evidence/*.json \
+  && grep -q '"tail"' "$TMP/r14"/.reef/evidence/*.json && grep -q '"head": "'"$(git -C "$TMP/r14" rev-parse HEAD)"'"' "$TMP/r14"/.reef/evidence/*.json
+t "  the file names the snapshot, the head and the run's last lines" 0
+( cd "$TMP/r14" && REEF_GATE_NO_CACHE=1 sh scripts/reef-gate.sh fast ) >/dev/null 2>&1
+[ "$(ls "$TMP/r14/.reef/evidence" | wc -l | tr -d ' ')" -eq 2 ]
+t "  the fast gate (the commit gate) writes no evidence" 0
 
 echo
 echo "hooks suite: $PASS passed, $FAILED failed"

@@ -44,6 +44,7 @@ else
   [ -n "$CMD" ] || { echo "reef-gate: USER ACTION REQUIRED — no test command found; run /reef-init or set gates.full in .reef/config.json" >&2; exit 1; }
 fi
 echo "reef-gate ($MODE): $CMD" >&2
+GATE_CMD_TEXT=$CMD
 # 0.7: a hung gate ends — gates.timeout_s (default 1200, 0 = none) kills the gate's whole process group and exits 124
 # with a line that says so (2026-10-18, qassimha 1103: a test waiting on a port it had leaked held vitest for 21 minutes
 # and the graph-mode workflow for three hours; chat mode's Bash would have stopped at ten). Without python3 the gate
@@ -100,31 +101,58 @@ PY
 # 0.7: the gate is deterministic on a tree, so one green run per snapshot is enough (2026-10-18: the same tree ran the
 # full gate five times in one task — implementer, orchestrator, verifier, pre-commit twice). The marker is written only
 # by a green run here and read only when REEF_GATE_NO_CACHE is unset; the pre-commit sets it and always runs the gate.
+MAINROOT=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); [ -n "$MAINROOT" ] || MAINROOT=$ROOT
 SNAP=''
-if [ -z "${REEF_GATE_NO_CACHE:-}" ] && [ -x scripts/reef-snapshot.sh ] || { [ -z "${REEF_GATE_NO_CACHE:-}" ] && [ -f scripts/reef-snapshot.sh ]; }; then
-  SNAP=$(sh scripts/reef-snapshot.sh 2>/dev/null) || SNAP=''
-fi
-if [ -n "$SNAP" ] && [ -f ".reef/ci-local/gate-$MODE-$SNAP.ok" ]; then
+# v3 phase 2: the snapshot is always taken — the evidence below is keyed by it; the cache is read only without REEF_GATE_NO_CACHE
+if [ -f scripts/reef-snapshot.sh ]; then SNAP=$(sh scripts/reef-snapshot.sh 2>/dev/null) || SNAP=''; fi
+if [ -z "${REEF_GATE_NO_CACHE:-}" ] && [ -n "$SNAP" ] && [ -f ".reef/ci-local/gate-$MODE-$SNAP.ok" ]; then
   echo "reef-gate ($MODE): cached — exit 0 on this snapshot ($(printf %s "$SNAP" | cut -c1-12)); the tree is unchanged since that run (REEF_GATE_NO_CACHE=1 forces a run)"
   # 0.7.1: the evidence comes with it (2026-10-24: judges re-ran the gate about four times a verdict to see a count)
   [ -s ".reef/ci-local/gate-$MODE-$SNAP.ok" ] && { echo "reef-gate ($MODE): that green run ended:"; sed 's/^/  /' ".reef/ci-local/gate-$MODE-$SNAP.ok"; }
   [ -f ".reef/ci-local/gate-$MODE-$SNAP.green.log" ] && echo "reef-gate ($MODE): its full log: .reef/ci-local/gate-$MODE-$SNAP.green.log"
+  [ -f "$MAINROOT/.reef/evidence/$SNAP.json" ] && echo "reef-gate ($MODE): its evidence: .reef/evidence/$SNAP.json (python3 scripts/reef-evidence.py reads it)"
   exit 0
 fi
 # v3 phase 1 (2026-10-25, the first adoption: the full suite ran three times on one commit and nothing counted it — this
 # log is overwritten by the next run, the green marker removed by the next green): every REAL run appends one line to
 # the MAIN checkout's .reef/ci-local/runs.jsonl — at, mode, snapshot, head, branch, exit, seconds. A cached answer is
 # not a run. The main checkout's, because a task worktree is gone at the merge; reef-cost.py rows counts from it.
-MAINROOT=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); [ -n "$MAINROOT" ] || MAINROOT=$ROOT
 T0=$(date +%s)
 log_run() {   # log_run <exit>
   mkdir -p "$MAINROOT/.reef/ci-local" 2>/dev/null || return 0
   printf '{"at": "%s", "mode": "%s", "snapshot": "%s", "head": "%s", "branch": "%s", "exit": %s, "seconds": %s}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$MODE" "$SNAP" "$(git rev-parse -q --verify HEAD 2>/dev/null || echo none)" \
     "$(git branch --show-current 2>/dev/null | tr -d '"\\')" "$1" "$(( $(date +%s) - T0 ))" >> "$MAINROOT/.reef/ci-local/runs.jsonl" 2>/dev/null || true
+  write_evidence "$1"
+}
+# v3 phase 2 (2026-10-25): ONE result per tree. A full run writes .reef/evidence/<snapshot>.json in the MAIN checkout —
+# exit, the suite's counts, its last lines, head, branch, command, seconds, time. scripts/reef-evidence.py reads it (or
+# CI's check-runs for the commit); the guard denies every other writer, as for .reef/review/. Judges read it; nobody
+# re-runs a tree that has its result (the first adoption ran the full suite three times on one commit).
+write_evidence() {   # write_evidence <exit>
+  [ "$MODE" = full ] && [ -n "$SNAP" ] || return 0
+  mkdir -p "$MAINROOT/.reef/evidence" 2>/dev/null || return 0
+  python3 - "$MAINROOT/.reef/evidence/$SNAP.json" "$1" "$SNAP" "$(git rev-parse -q --verify HEAD 2>/dev/null || echo none)" \
+    "$(git branch --show-current 2>/dev/null)" "$(( $(date +%s) - T0 ))" ".reef/ci-local/gate-$MODE.log" "${GATE_CMD_TEXT:-}" <<'PY' 2>/dev/null || true
+import json, re, sys, time
+out, rc, snap, head, branch, secs, log, cmd = sys.argv[1:9]
+try:
+    lines = [l.rstrip() for l in open(log, encoding="utf-8", errors="replace") if l.strip()]
+except OSError:
+    lines = []
+counts = {}
+for word in ("passed", "failed", "skipped", "errors", "error"):   # the last count per word in the run's tail: pytest, vitest, jest, cargo
+    hits = re.findall(r"(\d+) " + word + r"\b", "\n".join(lines[-50:]))
+    if hits:
+        counts["error" if word == "errors" else word] = int(hits[-1])
+with open(out, "w", encoding="utf-8") as f:
+    json.dump({"snapshot": snap, "head": head, "branch": branch, "mode": "full", "exit": int(rc), "seconds": int(secs), "command": cmd,
+               "counts": counts, "tail": lines[-3:], "log": log, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f, indent=1)
+    f.write("\n")
+PY
 }
 mark_green() {   # the marker keeps the green run's last lines, its log is kept beside it (0.7.1)
-  [ -n "$SNAP" ] || return 0; mkdir -p .reef/ci-local; rm -f .reef/ci-local/gate-"$MODE"-*.ok .reef/ci-local/gate-"$MODE"-*.green.log
+  [ -n "$SNAP" ] && [ -z "${REEF_GATE_NO_CACHE:-}" ] || return 0; mkdir -p .reef/ci-local; rm -f .reef/ci-local/gate-"$MODE"-*.ok .reef/ci-local/gate-"$MODE"-*.green.log
   L=".reef/ci-local/gate-$MODE.log"
   if [ -f "$L" ]; then cp "$L" ".reef/ci-local/gate-$MODE-$SNAP.green.log"; grep -v '^[[:space:]]*$' "$L" | tail -n 3 > ".reef/ci-local/gate-$MODE-$SNAP.ok"
   else : > ".reef/ci-local/gate-$MODE-$SNAP.ok"; fi

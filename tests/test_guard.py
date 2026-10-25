@@ -669,6 +669,52 @@ class FeatureStamp(unittest.TestCase):
 
 
 
+class EvidenceIsTheGates(unittest.TestCase):
+    """v3 phase 2: .reef/evidence/<snapshot>.json is the suite's one result per tree, written by scripts/reef-gate.sh full
+    and read by every judge. A hand-written file there would be a suite run that never happened — denied like a record
+    under .reef/review/; running the gate, or reading the evidence, is never a write to it."""
+
+    def test_every_writer_but_the_gate_is_denied_and_readers_pass(self):
+        for cmd in ("echo '{\"exit\": 0}' > .reef/evidence/0123456789abcdef.json",
+                    "cp /tmp/claude-1/x/scratchpad/e.json .reef/evidence/0123456789abcdef.json",
+                    "tee .reef/evidence/0123456789abcdef.json < /tmp/e.json",
+                    "python3 - <<'EOF'\nopen('.reef/evidence/x.json', 'w').write('{}')\nEOF\nmv x.json .reef/evidence/y.json",
+                    "rm -rf .reef/evidence",
+                    "cd .reef/worktrees/1101 && printf '{}' >> ../../evidence/abc.json",
+                    # the security review of this change (2026-10-25): a case-insensitive disk, dd's of=, a whole folder
+                    # copied, synced or unpacked into .reef/, and the deletes that take the folder with them
+                    "echo '{}' > .reef/Evidence/0123456789abcdef.json",
+                    "dd if=/tmp/e.json of=.reef/evidence/0123456789abcdef.json",
+                    "mkdir -p /tmp/x/evidence && cp -r /tmp/x/evidence .reef/",
+                    "rsync -a /tmp/x/evidence .reef/",
+                    "mv /tmp/x/review .reef",
+                    "tar -C .reef -xf /tmp/x.tar",
+                    "rm -rf .reef",
+                    "find .reef/evidence -delete",
+                    "find .reef -name '*.json' -delete",
+                    "git clean -fdX .reef/evidence",
+                    "git clean -fdx .reef"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(bash(cmd).returncode, 2, cmd)
+        for cmd in ("rm -rf .reef/worktrees/1101", "find .reef/ci-local -name '*.log'", "git clean -fd .reef/worktrees",
+                    "cp /tmp/claude-1/x/scratchpad/notes.md .reef/", "tar -czf /tmp/claude-1/x/scratchpad/wt.tgz .reef/worktrees/1101", "ls .reef"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(bash(cmd).returncode, 0, cmd + ": " + bash(cmd).stderr)
+        for cmd in ("sh scripts/reef-gate.sh full > /tmp/claude-1/x/scratchpad/gate.log 2>&1",
+                    "REEF_GATE_NO_CACHE=1 sh scripts/reef-gate.sh full > /tmp/gate.log 2>&1; echo $?",
+                    "python3 scripts/reef-evidence.py HEAD", "python3 scripts/reef-evidence.py --format json > /tmp/e.json",
+                    "cat .reef/evidence/0123456789abcdef.json", "ls .reef/evidence 2>/dev/null"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(bash(cmd).returncode, 0, cmd + ": " + bash(cmd).stderr)
+        for tool in ("Write", "Edit"):
+            r = run_guard({"tool_name": tool, "tool_input": {"file_path": ".reef/evidence/0123456789abcdef.json", "content": "{}", "old_string": "a", "new_string": "b"}})
+            self.assertEqual(r.returncode, 2, tool + " writes the evidence by hand")
+            self.assertIn("evidence", r.stderr)
+        r = run_guard({"tool_name": "Write", "agent_id": "a0e1e40f", "agent_type": "reef:verifier",
+                       "tool_input": {"file_path": ".reef/evidence/0123456789abcdef.json", "content": "{}"}})
+        self.assertEqual(r.returncode, 2, "a judge is no exception: it reads the evidence, it never writes it")
+
+
 class EvidenceIsTheAgents(unittest.TestCase):
     """0.7: a hand-back or a judge's report typed by the orchestrator is evidence nobody but the orchestrator wrote
     (2026-10-17: a hunter report "written from the hand-back", a 1101 hand-back written "so the next session can verify it")."""

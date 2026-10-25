@@ -384,6 +384,19 @@ class ReviewSkill(unittest.TestCase):
         self.assertNotRegex(self.text, r"cap 5\b")
 
 
+class EvidenceIsReadNotMade(unittest.TestCase):
+    """v3 phase 2 retires the 0.7.1 rule "a judge runs the gate once, fresh": the evidence is now written only by the gate
+    (or by CI) and the guard denies every other writer, so a judge READS it and runs the gate only when there is none."""
+
+    def test_the_verifier_and_reef_verify_read_the_evidence_and_run_the_gate_only_when_none(self):
+        for path in (("skills", "reef-verify", "SKILL.md"), ("agents", "verifier.md")):
+            text = read(*path)
+            self.assertIn("scripts/reef-evidence.py", text, "/".join(path))
+            self.assertNotIn("REEF_GATE_NO_CACHE", text, "/".join(path) + ": the forced fresh run is retired")
+            self.assertRegex(text, r"(?i)none.{0,40}run `sh scripts/reef-gate.sh full` once", "/".join(path))
+            self.assertLessEqual(len(text.splitlines()), 60, "/".join(path))
+
+
 class VerifierRulesFirst(unittest.TestCase):
     def test_rule_per_criterion_before_the_diff(self):
         for path in (("skills", "reef-verify", "SKILL.md"), ("agents", "verifier.md")):

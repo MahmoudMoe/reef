@@ -19,6 +19,9 @@ if [ -f "$GITDIR/index" ]; then cp "$GITDIR/index" "$TMPIDX"; else : >"$TMPIDX";
 # cache test edited a file within the second and the snapshot did not move)
 touch -t 198001010000 "$TMPIDX"   # not the epoch: a zero index timestamp switches git's racy check OFF
 set -- .
+# v3 phase 2: the gate's own artifacts never move the hash they are keyed by — its logs and markers (.reef/ci-local/) and
+# its evidence (.reef/evidence/<snapshot>.json) are left out whether or not the project ignores them
+set -- "$@" ":(exclude).reef/ci-local" ":(exclude).reef/evidence"
 while IFS= read -r wt; do
   [ -n "$wt" ] || continue
   w=$(cd "$wt" 2>/dev/null && pwd -P) || continue   # macOS: /var -> /private/var

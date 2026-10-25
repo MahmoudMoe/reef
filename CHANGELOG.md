@@ -1,6 +1,26 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **Evidence once per tree: the full gate writes it, the guard protects it, judges read it** (workflow v3, phase 2a;
+  2026-10-25). The first adoption ran the full suite three times on one commit — the gate, then two proofs, then the
+  verifier "once and fresh" by the 0.7.1 rule, which existed because a cached green could have been planted by the
+  implementer. `scripts/reef-gate.sh full` now writes `.reef/evidence/<snapshot>.json` in the MAIN checkout on every real
+  run (exit, the suite's counts, its last lines, head, branch, command, seconds, time; a worktree's run lands in the main
+  checkout, the same tree the same file), and the guard denies every other writer — Bash, Write, Edit, a judge, the main
+  session — as it does for `.reef/review/`: a hand-written evidence file would be a suite run that never happened. New
+  `scripts/reef-evidence.py [<commit>]` READS the one result and never makes it: with `ci.feature_gate: ci` and gh reaching
+  the forge, the commit's check-runs (a machine the author cannot touch); else the gate's record, found by this checkout's
+  live snapshot or by the snapshot a clean checkout at that commit has; exit 0 green, 1 red, 3 pending, 2 none. Its one line
+  carries `exit 0` or `exit 1` and stands as a report's `GATE:` line. `agents/verifier.md` and `skills/reef-verify/SKILL.md`
+  read the evidence and run the gate only when there is none — the 0.7.1 "once and fresh" rule is retired, because the
+  evidence is now written only by the gate or by CI, under the guard. `reef-init` ignores `.reef/evidence/`. A security review
+  of the change found, and this entry fixes with red tests: a dirty tree inherited HEAD's record (now: the live snapshot only, and
+  a record counts only when its own `snapshot` and `head` say so); a skipped or neutral CI check read as green (now: not a suite
+  result — `ci.check_name`, the required check, alone decides when the commit has it, else every check must be green); and the guard missed
+  `.reef/Evidence/` on a case-insensitive disk, `dd of=`, a records folder copied, synced or unpacked into `.reef/`, and the
+  deletes that take it along (`rm -rf .reef`, `find -delete`, `git clean`). An interpreter writing the path from inside stays
+  the guard's known tripwire gap (its header says so). tests/size-budget.json: `script_lines` 14,809 → 15,043;
+  `prose_words` lowered 21,227 → 21,222 (the verifier and reef-verify say less).
 - **The pipeline is measured per merged row, and the morning report shows it beside the last batch** (workflow v3, phase 1;
   2026-10-25). The first adoption's field review counted by hand — the full suite three times on one commit, about 195k judge
   tokens on a row with no blocker, a five-line fix behind four steps — and nothing in Reef could say whether the next change
