@@ -378,7 +378,30 @@ PURE_ADD = re.compile(r"^[ugoa]*\+[rwxXst]+$")
 
 PREFIX_WORDS = {"env", "nohup", "nice", "time", "sudo", "command", "exec", "ionice", "stdbuf"}
 GATE_SCRIPTS = {"reef-gate.sh", "reef-ci-local.sh"}
-RUNNERS = {"pytest", "vitest", "jest"}
+# 0.7.3 (the owner's rule: Reef works on any stack): a gate is a command the project configured in gates.*, a task runner's
+# test/check/ci target, or a common test runner — never one project's script name
+RUNNERS = {"pytest", "vitest", "jest", "mocha", "rspec", "phpunit", "tox", "nox", "ctest"}
+TASK_RUNNERS = {"npm", "pnpm", "yarn", "bun", "make", "just", "task", "composer", "deno", "mix", "dotnet", "mvn", "mvnw", "gradle", "gradlew"}
+VERIFY_TARGET = re.compile(r"^(test|tests|check|ci|verify|spec)([:._-].*)?$")   # lint, typecheck: a gate when configured
+
+
+def configured_gates():
+    """The project's own gate commands (.reef/config.json gates.full, fast, extra.*, release.*), each `&&` part as words."""
+    if "gate_words" not in CTX:
+        roots = sorted(CTX.get("roots") or [CTX.get("cwd") or os.getcwd()])
+        g = next((read_config(r) for r in roots if os.path.isfile(os.path.join(r, ".reef", "config.json"))), {}).get("gates") or {}
+        cmds = [g.get("full"), g.get("fast")] + [v for k in ("extra", "release") for v in ((g.get(k) or {}).values() if isinstance(g.get(k), dict) else [])]
+        words = []
+        for c in cmds:
+            for part in (c.split("&&") if isinstance(c, str) else []):
+                try:
+                    w = shlex.split(part)
+                except ValueError:
+                    continue
+                if w and w[0] not in ("true", ":"):
+                    words.append(w)
+        CTX["gate_words"] = words
+    return CTX["gate_words"]
 
 
 def is_gate(seg):
@@ -395,8 +418,13 @@ def is_gate(seg):
     head, rest = os.path.basename(seg[i]), seg[i + 1:]
     if head in GATE_SCRIPTS or head in RUNNERS:
         return True
-    if head == "npm":
-        return "test" in rest[:1] or "ci:local" in rest[:2]
+    if any(seg[i:i + len(w)] == w or (os.path.basename(seg[i]) == os.path.basename(w[0]) and seg[i + 1:i + len(w)] == w[1:])
+           for w in configured_gates()):
+        return True
+    if head in TASK_RUNNERS:
+        args = [a for a in rest if not a.startswith("-")]
+        target = args[1] if args[:1] in (["run"], ["run-script"]) and len(args) > 1 else args[0] if args else ""
+        return bool(VERIFY_TARGET.match(target))
     if head in ("cargo", "go"):
         return rest[:1] == ["test"]
     if head in SHELLS:
