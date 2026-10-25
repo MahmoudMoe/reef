@@ -134,6 +134,7 @@ class Evidence(unittest.TestCase):
 
     def test_with_ci_on_feature_prs_the_check_runs_are_the_evidence_and_local_is_the_fallback(self):
         self.config({"gates": {"full": "echo '3 passed'"}, "ci": {"feature_gate": "ci"}})
+        git(self.d, "add", "-A"); git(self.d, "commit", "-qm", "cfg")   # CI answers for a COMMIT: the tree must be that commit (the review, 2026-10-25)
         git(self.d, "remote", "add", "origin", "https://github.com/o/r.git")
         r = self.evidence(GH_CHECKS="success")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -149,19 +150,36 @@ class Evidence(unittest.TestCase):
         r = self.evidence(GH_CHECKS="skipped")
         self.assertEqual(r.returncode, 2, "a skipped check is not a green suite: " + r.stdout)
         self.config({"gates": {"full": "echo '3 passed'"}, "ci": {"feature_gate": "ci", "check_name": "CodeQL"}})
+        git(self.d, "add", "-A"); git(self.d, "commit", "-qm", "cfg")
         self.assertEqual(self.evidence(GH_CHECKS="skipped").returncode, 0, "ci.check_name, the required check, alone decides when the commit has it")
         self.config({"gates": {"full": "echo '3 passed'"}, "ci": {"feature_gate": "ci", "check_name": "test (ubuntu-latest)"}})
+        git(self.d, "add", "-A"); git(self.d, "commit", "-qm", "cfg")
         self.assertEqual(self.evidence(GH_CHECKS="skipped").returncode, 2, "the suite's check was skipped: none")
         self.assertEqual(self.evidence(GH_CHECKS="success").returncode, 0)
         self.config({"gates": {"full": "echo '3 passed'"}, "ci": {"feature_gate": "ci"}})
+        git(self.d, "add", "-A"); git(self.d, "commit", "-qm", "cfg")
         self.assertEqual(self.gate().returncode, 0)
         for mode in ("none", "down"):
             r = self.evidence(GH_CHECKS=mode)
             self.assertEqual(r.returncode, 0, f"{mode}: {r.stdout}{r.stderr}")
             self.assertIn("evidence: local", r.stdout)
+        # the review (2026-10-25): CI tested the COMMIT; a dirty tree at HEAD is not that commit
+        git(self.d, "add", "-A"); git(self.d, "commit", "-qm", "ci config", "--allow-empty")
+        self.assertEqual(self.evidence(GH_CHECKS="success").returncode, 0, "clean HEAD: CI's result is this tree's")
+        with open(os.path.join(self.d, "app.py"), "a") as f:
+            f.write("z = 3\n")
+        r = self.evidence(GH_CHECKS="success")
+        self.assertEqual(r.returncode, 2, "dirty HEAD: CI's green is not this tree's: " + r.stdout)
+        self.assertIn("differs from HEAD", r.stdout)
+        # a head not fetched here (a web edit, another machine): the forge still answers for it
+        remote = "a" * 40
+        self.assertEqual(self.evidence(remote, GH_CHECKS="success").returncode, 0, "a commit the forge knows and this checkout does not")
+        r = self.evidence(remote, GH_CHECKS="none")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("not in this checkout", r.stdout)
         self.config({"gates": {"full": "echo '3 passed'"}, "ci": {"feature_gate": "local"}})
         r = self.evidence(GH_CHECKS="failure")
-        self.assertNotIn("evidence: ci", r.stdout, "feature_gate local: CI is not asked (the config edit is a new tree: none)")
+        self.assertNotIn("evidence: ci", r.stdout, "feature_gate local: CI is not asked")
 
 
 if __name__ == "__main__":

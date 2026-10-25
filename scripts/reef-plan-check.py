@@ -976,9 +976,11 @@ def main():
                     # v3 phase 2 (the first adoption: proofs were shell one-liners inside markdown cells — a test name run as
                     # shell, a script read as a file name, a build raced for the CPU): a proof is a NAMED TEST the project's
                     # runner runs by name; a long shell line is refused unless it must write files ([mechanic])
-                    shell = re.search(r"&&|\|\||[|;<>]|\$\(|\s--?[a-zA-Z]", cells[1]) or re.match(r"^`?(sh|bash|zsh|env|npx|npm|pnpm|yarn|bun|node|deno|python3?|pytest|uv|go|cargo|make|curl|docker)\b", cells[1])
-                    if len(cells[1]) > 120 and shell and "[mechanic]" not in cells[1]:
-                        fail(f"{rel}: Proof for {re.sub(r'^AC-?', 'AC-', m.group(1))} is {len(cells[1])} characters of shell in a markdown cell — name a test "
+                    # measured on the whole row after the AC cell: the row was split on `|`, and a pipe inside the proof is shell too
+                    whole = line.strip().strip("|").split("|", 1)[1].strip() if "|" in line.strip().strip("|") else cells[1]
+                    shell = re.search(r"&&|\|\||[|;<>]|\$\(|\s--?[a-zA-Z]", whole)
+                    if len(whole) > 120 and shell and "[mechanic]" not in whole:
+                        fail(f"{rel}: Proof for {re.sub(r'^AC-?', 'AC-', m.group(1))} is {len(whole)} characters of shell in a markdown cell — name a test "
                              f"(converge.test_cmd runs it by name) or put the command in a script and name the script; `[mechanic]` only for a proof that must write files")
         # 0.6 dual shape: with a ## Proof table the criterion is ONE declarative sentence and the proof
         # lives in its row; without it, the 0.5 shape (the criterion names its test inline) stays valid

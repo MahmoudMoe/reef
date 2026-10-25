@@ -674,7 +674,7 @@ class ConvergeReadsTheEvidence(unittest.TestCase):
         self.d = tempfile.mkdtemp(prefix="reef-conv2.")
         subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
         os.makedirs(os.path.join(self.d, "scripts"))
-        for name in ("reef-gate.sh", "reef-snapshot.sh", "reef-graph.py"):
+        for name in ("reef-gate.sh", "reef-snapshot.sh", "reef-graph.py", "reef-evidence.py"):
             shutil.copy(os.path.join(ROOT, "scripts", name), os.path.join(self.d, "scripts", name))
         self.marker = os.path.join(tempfile.mkdtemp(prefix="reef-conv2-ran."), "ran.log")   # outside the tree: a file in it would move the snapshot
         self.cfg({"gates": {"full": f"echo ran >> {self.marker}; echo '2 passed'"}, "paths": {"features": "reef/features"}})
@@ -693,20 +693,26 @@ class ConvergeReadsTheEvidence(unittest.TestCase):
     def snapshot(self):
         return subprocess.run(["sh", "scripts/reef-snapshot.sh"], cwd=self.d, capture_output=True, text=True).stdout.strip()
 
-    def evidence(self, exit_code):
+    def evidence(self, exit_code, head=None):
         os.makedirs(os.path.join(self.d, ".reef", "evidence"), exist_ok=True)
-        write(self.d, f".reef/evidence/{self.snapshot()}.json", json.dumps({"snapshot": self.snapshot(), "exit": exit_code, "at": "2030-01-01T00:00:00Z", "mode": "full"}))
+        head = head or subprocess.run(["git", "-C", self.d, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        write(self.d, f".reef/evidence/{self.snapshot()}.json", json.dumps({"snapshot": self.snapshot(), "head": head, "exit": exit_code, "at": "2030-01-01T00:00:00Z", "mode": "full"}))
 
     def test_a_whole_suite_proof_reads_the_evidence_and_runs_the_gate_only_when_there_is_none(self):
         self.evidence(0)
         r = self.converge()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("whole suite: evidence .reef/evidence/", r.stdout)
+        self.assertIn("whole suite: evidence: local snapshot", r.stdout)
         self.assertFalse(os.path.exists(self.marker), "green evidence for this tree: the suite is not run again")
+        self.evidence(0, head="0" * 40)   # the review (2026-10-25): a record is read through reef-evidence, which checks its head
+        r = self.converge()
+        self.assertIn("whole suite: the gate, run once", r.stdout + r.stderr)
+        self.assertTrue(os.path.exists(self.marker), "a record whose head is not this commit is no evidence: the gate ran")
+        os.unlink(self.marker)
         self.evidence(1)
         r = self.converge()
         self.assertEqual(r.returncode, 1)
-        self.assertIn("contradicts — test_csv_header_and_rows exists but the full suite is red (exit 1: evidence", r.stdout)
+        self.assertIn("contradicts — test_csv_header_and_rows exists but the full suite is red (exit 1: evidence: local", r.stdout)
         self.assertFalse(os.path.exists(self.marker), "red evidence is read too: the tree has not changed")
         shutil.rmtree(os.path.join(self.d, ".reef", "evidence"))
         # the rollup file converge wrote is part of the tree now; no evidence for it: the gate runs once and writes this tree's
@@ -727,10 +733,14 @@ class ConvergeReadsTheEvidence(unittest.TestCase):
         with open(slot, "a") as held:
             fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
             r = self.converge()
-            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-            self.assertIn("fails (exit 75)", r.stdout, "the named test waited for the held slot and gave up: it ran under the lock")
+            # the review (2026-10-25): a held slot is not a red test — nothing written, exit 3, run again
+            self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+            self.assertIn("BUSY: 2 proof(s) could not run", r.stdout)
+            self.assertNotIn("contradicts", r.stdout)
+            self.assertFalse(any(f.startswith("R") for f in os.listdir(os.path.join(self.d, "reef/features/csv-export-for-orders/tasks"))), "no rollup for a busy slot")
         r = self.converge()
-        self.assertEqual(r.returncode, 0, "slot free: the named tests run and pass; the earlier finding stays on the rollup: " + r.stdout + r.stderr)
+        self.assertEqual(r.returncode, 0, "slot free: the named tests run under the lock and pass: " + r.stdout + r.stderr)
+        self.assertIn("Converged", r.stdout)
 
 
 class PlanCheckRefusesShellInACell(unittest.TestCase):
@@ -755,6 +765,14 @@ class PlanCheckRefusesShellInACell(unittest.TestCase):
         self.assertGreater(len(long_name), 120)
         self.assertEqual(self.run_check(long_name), [], "a long test name is a name, not shell")
         self.assertEqual(self.run_check("`npx vitest run -t \"two decimals\"`"), [], "short shell stays a warning at most")
+        # the review (2026-10-25): the row is split on `|`, so a shell line was measured only up to its first pipe; and a
+        # test name that begins with a command word is a name
+        piped = "`npx vitest run tests/export.test.ts --reporter=verbose --coverage --coverage.reporter=text --run 2>&1 | tee /tmp/vitest.log | tail -40`"
+        self.assertGreater(len(piped), 120)
+        self.assertEqual(len(self.run_check(piped)), 1, "measured whole, pipes included")
+        name = "`node has two children when the order is split across a comma locale and more than one hundred lines are exported to csv`"
+        self.assertGreater(len(name), 120)
+        self.assertEqual(self.run_check(name), [], "a name beginning with a command word is still a name")
 
 
 class Converge(unittest.TestCase):

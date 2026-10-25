@@ -2,7 +2,8 @@
 # CLASS: code
 """Reef converge — the feature's Proof table executed against the branch: `missing` (test or command absent),
 `contradicts` (present but red), appended to the ONE rollup under a dated ## Converge; `Converged` writes nothing.
-Usage: reef-converge <feature> [--repo DIR] [--base BRANCH] [--dry-run]     Exit 0 converged · 1 findings · 2 usage
+Usage: reef-converge <feature> [--repo DIR] [--base BRANCH] [--dry-run]     Exit 0 converged · 1 findings · 2 usage · 3 busy
+(3: a gates.resources slot was held past gates.timeout_s — not a red test; nothing is written, run again.)
 A bare test name runs through converge.test_cmd ({name}) when set, else the whole suite's EVIDENCE for this tree
 (.reef/evidence/<snapshot>.json, written by the gate; the gate runs once only when there is none). Every command and
 named test runs holding gates.resources (reef-graph.py lock), so a proof never races a build for the CPU or a database.
@@ -232,19 +233,23 @@ def shell_runner(root, cfg):
 
 
 def suite_result(root):
-    """(exit, how): the whole suite's result for THIS tree — the evidence the gate wrote for the current snapshot (read,
-    never re-run: v3 phase 2), else one gate run, which writes it."""
-    snap_sh = os.path.join(root, "scripts", "reef-snapshot.sh")
-    snap = subprocess.run(["sh", snap_sh], cwd=root, capture_output=True, text=True).stdout.strip() if os.path.isfile(snap_sh) else ""
-    path = os.path.join(main_checkout(root), ".reef", "evidence", f"{snap}.json") if snap else ""
-    if path and os.path.isfile(path):
+    """(exit, how): the whole suite's result for THIS tree, read through scripts/reef-evidence.py — the one reader, which
+    checks a record's own snapshot and head (v3 phase 2: read, never re-run) — else one gate run, which writes it."""
+    p = os.path.join(root, "scripts", "reef-evidence.py")
+    if os.path.isfile(p):
+        import importlib.machinery
+        import importlib.util
+        spec = importlib.util.spec_from_loader("reef_evidence", importlib.machinery.SourceFileLoader("reef_evidence", p))
+        ev = importlib.util.module_from_spec(spec)
         try:
-            rec = json.loads(read(path))
-            return int(rec.get("exit")), f"evidence .reef/evidence/{snap[:12]}.json (exit {rec.get('exit')}, {rec.get('at')})"
-        except (ValueError, TypeError, OSError):
+            spec.loader.exec_module(ev)
+            e = ev.evidence(root)
+            if e.get("state") in ("green", "red"):
+                return int(e["exit"]), ev.text(e)
+        except Exception:
             pass
     r = subprocess.run(["sh", os.path.join("scripts", "reef-gate.sh"), "full"], cwd=root, capture_output=True, text=True)
-    return r.returncode, f"the gate, run once (exit {r.returncode}; its evidence is written for this tree)"
+    return r.returncode, f"the gate, run once (exit {r.returncode})"
 
 
 def main(argv):
@@ -282,7 +287,7 @@ def main(argv):
         die(f"no task files for feature {feature!r}", 2)
     test_cmd = str((cfg.get("converge") or {}).get("test_cmd", "") or "")
     gate, run = None, shell_runner(root, cfg)
-    findings, mechanic_rows, superseded, prose = [], [], [], []
+    findings, mechanic_rows, superseded, prose, busy = [], [], [], [], []   # busy: a held slot (exit 75) is not a red test
     for path, text in tasks:
         for ac_id, proof, kind in proofs(text):
             label = f"{os.path.basename(path)} {ac_id}"
@@ -295,7 +300,9 @@ def main(argv):
             if kind == "prints":
                 cmd, want = proof.split("\0", 1)
                 r = run(cmd)
-                if r.returncode == 127:
+                if r.returncode == 75:
+                    busy.append(label)
+                elif r.returncode == 127:
                     findings.append(f"{label}: missing — `{cmd}` (exit 127)")
                 elif r.stdout.strip() != want:
                     findings.append(f"{label}: contradicts — `{cmd}` prints {r.stdout.strip()[:40]!r}, not {want!r}")
@@ -305,7 +312,9 @@ def main(argv):
                 continue
             if kind == "cmd":
                 r = run(proof)
-                if r.returncode == 127 or "not found" in (r.stderr or "").lower() and r.returncode != 0:
+                if r.returncode == 75:
+                    busy.append(label)
+                elif r.returncode == 127 or "not found" in (r.stderr or "").lower() and r.returncode != 0:
                     findings.append(f"{label}: missing — `{proof}` ({r.stderr.strip()[:80] or 'exit 127'})")
                 elif r.returncode != 0:
                     findings.append(f"{label}: contradicts — `{proof}` exit {r.returncode}")
@@ -315,7 +324,9 @@ def main(argv):
                 continue
             if test_cmd:
                 r = run(test_cmd.replace("{name}", proof))
-                if r.returncode != 0:
+                if r.returncode == 75:
+                    busy.append(label)
+                elif r.returncode != 0:
                     findings.append(f"{label}: contradicts — {proof} fails (exit {r.returncode})")
             else:
                 if gate is None:
@@ -342,6 +353,10 @@ def main(argv):
                 print(f"whole suite: {how}")
             if gate != 0:
                 findings.append(f"{label}: contradicts — the full suite is red (exit {gate}: {how}); behaviour is not shown preserved")
+    if busy:
+        print(f"BUSY: {len(busy)} proof(s) could not run — a gates.resources slot was held past gates.timeout_s ({', '.join(busy)}); "
+              "nothing written, run again when the build or suite holding it is done")
+        return 3
     if superseded:
         print(f"{len(superseded)} superseded row(s) skipped (a later task's Proof replaces them):")
         for m_ in superseded:

@@ -10,7 +10,12 @@
   green evidence for the PR head — CI's check-runs when the project runs CI on feature PRs (red: refused; still running:
   "record when it is done"), else the gate's record for the commit's tree — and the record carries the evidence's source; a
   FAIL needs none. `scripts/reef-plan-check.py` fails an untagged shell proof over 120 characters: a proof is a test the
-  project's runner runs by name, or a script named by its path; `[mechanic]` only for a proof that must write files. tests/size-budget.json raised: `script_lines` 15,043 → 15,119.
+  project's runner runs by name, or a script named by its path; `[mechanic]` only for a proof that must write files. A fresh
+  review of the change found, fixed with red tests: a `gates.resources` slot held past `gates.timeout_s` read as a red test
+  (now `BUSY`, exit 3, nothing written); converge's own evidence reader trusted a file by its name (now the one reader,
+  `reef-evidence.py`, which checks the record's snapshot and head); CI's green stood in for a dirty tree at HEAD (now a dirty
+  HEAD skips CI and says so), a head not fetched locally never reached the forge (now asked), and the plan check measured a
+  proof only up to its first pipe (now the whole row). tests/size-budget.json raised: `script_lines` 15,043 → 15,144.
 - **Evidence once per tree: the full gate writes it, the guard protects it, judges read it** (workflow v3, phase 2a;
   2026-10-25). The first adoption ran the full suite three times on one commit — the gate, then two proofs, then the
   verifier "once and fresh" by the 0.7.1 rule, which existed because a cached green could have been planted by the

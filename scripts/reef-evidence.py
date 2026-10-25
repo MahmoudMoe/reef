@@ -11,6 +11,7 @@ Text: ONE line starting `evidence:` carrying `exit 0` or `exit 1`, fit for a rep
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -90,12 +91,20 @@ def evidence(repo, commit=None):
     main = main_checkout(root)
     cfg = config(main)
     sha = git(root, "rev-parse", "--verify", (commit or "HEAD") + "^{commit}")
+    remote_only = False
+    if not sha and commit and re.fullmatch(r"[0-9a-f]{7,40}", commit):
+        sha, remote_only = commit, True   # not fetched here (a web edit, another machine): the forge may still know it
     if not sha:
         return {"source": "none", "state": "none", "commit": commit, "exit": None, "why": f"no commit {commit!r} in {root}"}
-    is_head = sha == git(root, "rev-parse", "HEAD")
+    is_head = not remote_only and sha == git(root, "rev-parse", "HEAD")
     out = {"commit": sha, "source": "none", "state": "none", "exit": None}
+    # THIS tree's snapshot when the commit is HEAD, else the snapshot a clean checkout at that commit has; a dirty tree at
+    # HEAD is not the commit CI tested nor the one the gate's record names — neither stands in for it
+    live = live_snapshot(root) if is_head else ""
+    clean = clean_snapshot(root, sha) if not remote_only else ""
+    dirty = bool(live and clean and live != clean)
     ci = cfg.get("ci") if isinstance(cfg.get("ci"), dict) else {}
-    if str(ci.get("feature_gate", "ci") or "ci") == "ci":
+    if str(ci.get("feature_gate", "ci") or "ci") == "ci" and not dirty:
         checks = ci_checks(root, sha)
         # ci.check_name (default `every gate, once`, the template's CI job and reef-repo's required check) is the check-run that
         # IS the suite: when the commit has it, it alone decides; else every check must be green
@@ -115,12 +124,11 @@ def evidence(repo, commit=None):
                 return out
             out["why"] = "CI ran, but a check was skipped or neutral (" + ", ".join(c["name"] for c in checks if c["conclusion"] != "success") + \
                          "): not a suite result — ci.check_name names the suite's check-run, or run the gate"
-    # the local record: THIS tree's snapshot when the commit is HEAD (a dirty tree never inherits HEAD's record), else the
-    # snapshot a clean checkout at that commit has
-    live = live_snapshot(root) if is_head else ""
-    clean = clean_snapshot(root, sha)
+    if remote_only:
+        out["why"] = f"commit {sha[:12]} is not in this checkout and the forge has no check run for it — fetch it, or wait for CI"
+        return out
     snaps = [live] if live else ([clean] if clean else [])
-    if live and clean and live != clean:
+    if dirty:
         out["dirty"] = True
         out.setdefault("why", f"the tree differs from HEAD {sha[:12]} — its record is not this tree's; run `sh scripts/reef-gate.sh full` here")
     out["snapshot"] = snaps[0] if snaps else None
