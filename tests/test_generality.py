@@ -183,5 +183,34 @@ class AnyStack(unittest.TestCase):
         self.adopt("ruby")
 
 
+
+class TheProjectsOwnCommands(unittest.TestCase):
+    """P2: the project's named commands come from whichever task runner it uses — package.json, a Makefile, a justfile, a
+    Taskfile, tox or pyproject — never package.json alone: `plan --measure` runs every check-family command there, and an old
+    loop's start/close/handoff/adr commands are listed for the owner to retire."""
+
+    def project(self, files):
+        d = stack_project("go")
+        for rel, text in files.items():
+            write(d, rel, text)
+        write(d, ".reef/config.json", json.dumps({"gates": {"full": "true"}, "paths": {"adr": "docs/adr"}}))
+        git(d, "add", "-A"); git(d, "commit", "-qm", "the project's own commands")
+        return d
+
+    def test_check_commands_and_old_loop_commands_on_any_task_runner(self):
+        d = self.project({"Makefile": ".PHONY: check-docs handoff\ncheck-docs:\n\tsh -c 'test -d docs/adr'\nhandoff:\n\techo bye\nbuild:\n\tgo build ./...\n",
+                          "justfile": "check-links:\n    true\nloop-close:\n    echo done\n",
+                          "Taskfile.yml": "version: '3'\ntasks:\n  check:types:\n    cmds: [true]\n  adr:new:\n    cmds: [true]\n",
+                          "tox.ini": "[tox]\nenvlist = py312\n[testenv:check]\ncommands = true\n"})
+        recal = os.path.join(SCRIPTS, "reef-recalibrate")
+        r = subprocess.run([sys.executable, recal, "plan", "--measure", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        table = open(os.path.join(d, "reef", "recalibration.md")).read()
+        for cmd in ("make check-docs", "just check-links", "task check:types", "tox -e check"):
+            self.assertIn(f"| {cmd} |", table, cmd)
+        self.assertNotIn("make build", table, "only the check family runs")
+        plan = json.load(open(os.path.join(d, ".reef", "recalibration.json")))
+        self.assertEqual(sorted(plan["adoption"]["old_scripts"]), ["adr:new", "handoff", "loop-close"])
+
 if __name__ == "__main__":
     unittest.main()
