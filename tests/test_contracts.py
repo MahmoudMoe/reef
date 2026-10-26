@@ -416,6 +416,19 @@ class ReviewSkill(unittest.TestCase):
         self.assertNotRegex(self.text, r"cap 5\b")
 
 
+class ScriptsOrchestrate(unittest.TestCase):
+    """v3 phase 5: /reef-loop reads a row's state and next step from scripts/reef-row.py; a wait renders the handoff by
+    itself and the skill no longer tells the orchestrator to write one; reef-init copies the row script."""
+
+    def test_the_loop_skill_names_the_row_script_and_the_wait_renders_the_handoff(self):
+        text = read("skills", "reef-loop", "SKILL.md")
+        self.assertIn("scripts/reef-row.py", text)
+        self.assertRegex(text, r"(?i)wait.{0,80}renders `HANDOFF\.md`")
+        self.assertNotIn("reef-handoff --write", text, "the wait does it; nobody is told to write a handoff")
+        self.assertLessEqual(len(text.splitlines()), 60)
+        self.assertIn("reef-row.py", read("scripts", "reef-init.py"))
+
+
 class FinishBeforeStarting(unittest.TestCase):
     """v3 phase 4: /reef-loop names the rows-in-flight cap; /reef-review's loop merge runs reef-merge-base first and the
     guard refuses a head without the base's tip or without green evidence; merge.by's default is said once, by the rule."""

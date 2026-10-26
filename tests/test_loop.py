@@ -259,6 +259,32 @@ class Tick(unittest.TestCase):
         self.assertIn("101", st["dispatch_now"])
 
 
+class WaitWritesTheHandoff(unittest.TestCase):
+    """Workflow v3, phase 5: every wait renders HANDOFF.md from measured state — `reef-loop.py wait` does it, so no
+    session ends on a hand-written handoff or on none."""
+
+    def test_wait_renders_the_handoff_before_recording(self):
+        d = project()
+        self.assertEqual(open(os.path.join(d, "HANDOFF.md")).read(), "# Handoff\nline 1\n")
+        r = loop(d, "wait", "owner: approve row 2")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("HANDOFF.md written", r.stdout)
+        self.assertIn("loop: waiting — owner: approve row 2", r.stdout)
+        text = open(os.path.join(d, "HANDOFF.md")).read()
+        self.assertIn("# Handoff —", text)
+        self.assertNotEqual(text, "# Handoff\nline 1\n", "rendered, not the fixture's")
+        # the review (2026-10-26): a failing or missing handoff script is said, and the wait is still recorded
+        write(d, "scripts/reef-handoff", "#!/usr/bin/env python3\nimport sys\nsys.exit(3)\n")
+        r = loop(d, "wait", "owner: again")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("HANDOFF.md NOT written (reef-handoff exit 3)", r.stdout)
+        self.assertIn("loop: waiting — owner: again", r.stdout)
+        os.unlink(os.path.join(d, "scripts", "reef-handoff"))
+        r = loop(d, "wait", "owner: once more")
+        self.assertIn("HANDOFF.md not rendered: scripts/reef-handoff is missing", r.stdout)
+        self.assertIn("loop: waiting — owner: once more", r.stdout)
+
+
 class RowsInFlight(unittest.TestCase):
     """Workflow v3, phase 4 — finish before starting: the tick plans a new row only while fewer than loop.rows_in_flight
     (default 2) rows are between plan and close (building, or done and awaiting close); the held rows are named."""
