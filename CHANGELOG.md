@@ -11,7 +11,13 @@
   guard refuses a hand-written `HANDOFF.md` from the main session and every agent (Bash, Write, Edit; the plugin's
   template is not a project's handoff); its ceiling message no longer suggests writing one by hand. `reef-init` copies
   the row script. The design spike for the rest of phase 5 — a Workflow that drives a row's states without the chat
-  orchestrator — is in the PR body, not built. tests/size-budget.json raised: `script_lines` 15,499 → 15,743. `prose_words` lowered 21,156 → 21,144 (the loop skill lost five asides and gained the row script).
+  orchestrator — is in the PR body, not built. A fresh review of the change, folded in: a row is read from the worktree on
+  ITS branch, else the main checkout — never from another row's worktree, which holds the folder too once the base was
+  merged in; a squash-merged row reads as merged offline through the PR number in its review record against the base's
+  subjects; the handoff rule sees a copy INTO a directory and `$PWD`, and no longer refuses a scratch HANDOFF.md after a
+  `cd`; `reef-loop.py wait` says when the handoff script is missing or failed and still records the wait.
+  tests/size-budget.json: `script_lines` 15,499 → 15,777; `prose_words` lowered 21,156 → 21,143 (the loop skill lost five
+  asides and gained the row script).
 - **Finish before starting, a merge queue of two** (workflow v3, phase 4; 2026-10-26). The first adoption had rows waiting
   on the owner for an integration merge, and a batch that started every ready row at once. The tick now plans a new row
   only while fewer than `loop.rows_in_flight` (new key, default 2; 0 = no cap) rows are between plan and close — building,

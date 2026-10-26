@@ -273,6 +273,16 @@ class WaitWritesTheHandoff(unittest.TestCase):
         text = open(os.path.join(d, "HANDOFF.md")).read()
         self.assertIn("# Handoff —", text)
         self.assertNotEqual(text, "# Handoff\nline 1\n", "rendered, not the fixture's")
+        # the review (2026-10-26): a failing or missing handoff script is said, and the wait is still recorded
+        write(d, "scripts/reef-handoff", "#!/usr/bin/env python3\nimport sys\nsys.exit(3)\n")
+        r = loop(d, "wait", "owner: again")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("HANDOFF.md NOT written (reef-handoff exit 3)", r.stdout)
+        self.assertIn("loop: waiting — owner: again", r.stdout)
+        os.unlink(os.path.join(d, "scripts", "reef-handoff"))
+        r = loop(d, "wait", "owner: once more")
+        self.assertIn("HANDOFF.md not rendered: scripts/reef-handoff is missing", r.stdout)
+        self.assertIn("loop: waiting — owner: once more", r.stdout)
 
 
 class RowsInFlight(unittest.TestCase):

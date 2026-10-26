@@ -678,8 +678,13 @@ class HandoffIsRendered(unittest.TestCase):
                     "cp /tmp/claude-1/x/scratchpad/h.md HANDOFF.md", "sed -i '' 's/a/b/' HANDOFF.md"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(bash(cmd).returncode, 2, cmd)
+        # the review (2026-10-26): a copy INTO a directory lands the handoff; `$PWD` is the cwd
+        for cmd in ("cp /tmp/claude-1/x/scratchpad/HANDOFF.md .", "cp /tmp/claude-1/x/scratchpad/HANDOFF.md ./", "echo x > $PWD/HANDOFF.md", "echo x > ${PWD}/HANDOFF.md"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(bash(cmd).returncode, 2, cmd)
         for cmd in ("python3 scripts/reef-handoff --write", "python3 scripts/reef-loop.py wait \"/clear requested\"", "cat HANDOFF.md",
-                    "head -40 HANDOFF.md", "cp HANDOFF.md /tmp/claude-1/x/scratchpad/handoff-copy.md", "echo x > HANDOFF-notes.md"):
+                    "head -40 HANDOFF.md", "cp HANDOFF.md /tmp/claude-1/x/scratchpad/handoff-copy.md", "echo x > HANDOFF-notes.md",
+                    "cd /tmp/claude-1/x/scratchpad && cat > HANDOFF.md <<'EOF'\nscratch\nEOF", "git add HANDOFF.md", "git mv HANDOFF.md docs/HANDOFF.md"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(bash(cmd).returncode, 0, cmd + ": " + bash(cmd).stderr)
         for tool in ("Write", "Edit"):

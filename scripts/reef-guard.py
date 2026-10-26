@@ -223,6 +223,7 @@ def _check_bash(cmd, depth=0):
     if depth > MAX_DEPTH:
         deny("shell nesting too deep to analyze — refusing a command that hides commands this many layers down")
     cmd = expand_simple_vars(cmd)
+    cmd = re.sub(r"\$\{?PWD\}?", (CTX.get("cwd") or os.getcwd()).replace("\\", "\\\\"), cmd)   # $PWD is the session's cwd (the review, 2026-10-26)
     cmd = re.sub(r"\\\r?\n", " ", cmd)     # backslash line continuations JOIN a command
     cmd = re.sub(r"(\d*>&\d+|&>>?)", " ", cmd)  # fd redirections are not operators (2>&1, &>)
     toks = tokenize(cmd)                    # one pass: quotes span newlines, comments end at theirs
@@ -319,7 +320,7 @@ def is_project_handoff(path, here):
     if os.path.basename(p) != "HANDOFF.md":
         return False
     roots = {os.path.realpath(r) for r in (CTX.get("roots") or [])} | {os.path.realpath(CTX.get("cwd") or os.getcwd())}
-    return os.path.realpath(os.path.dirname(p)) in roots or path in ("HANDOFF.md", "./HANDOFF.md")
+    return os.path.realpath(os.path.dirname(p)) in roots
 
 
 def check_record_dirs(seg):
@@ -336,8 +337,18 @@ def check_record_dirs(seg):
     is_reef = lambda t: os.path.basename(os.path.normpath(resolved(t))).lower() == ".reef"
     head = next((os.path.basename(x) for x in seg if os.path.basename(x) in WRITE_HEADS or os.path.basename(x) in ("find", "git")), None)
     args = [a for a in seg if not a.startswith("-") and a not in REDIRECTS]
-    # v3 phase 5: the project's HANDOFF.md is rendered, never written by hand — a copy's SOURCE is a read, only its destination counts
-    if any(is_project_handoff(t, here) for t in (targets[-1:] if head in COPY_HEADS else targets)):
+    # v3 phase 5: the project's HANDOFF.md is rendered, never written by hand — a copy's SOURCE is a read, only its destination
+    # counts; a copy INTO a directory lands the source's name there (the review, 2026-10-26)
+    handoff_targets = list(targets)
+    copy_head = next((os.path.basename(x) for x in seg if os.path.basename(x) in WRITE_HEADS), None)   # `git mv a b` is a move too
+    if copy_head in COPY_HEADS and len(targets) >= 2:
+        dest = targets[-1]
+        dest_abs = os.path.normpath(os.path.join(here, os.path.expanduser(dest))) if here and not os.path.isabs(dest) else os.path.normpath(dest)
+        if dest in (".", "./") or dest.endswith("/") or os.path.isdir(dest_abs):
+            handoff_targets = [os.path.join(dest, os.path.basename(targets[-2]))]
+        else:
+            handoff_targets = [dest]
+    if any(is_project_handoff(t, here) for t in handoff_targets):
         deny(HANDOFF_DENIAL)
     if head in ("cp", "mv", "rsync", "install") and any(is_reef(t) for t in targets) \
        and any(os.path.basename(os.path.normpath(a)).lower() in RECORD_NAMES for a in args):

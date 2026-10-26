@@ -571,6 +571,8 @@ def main(argv):
         if os.path.isfile(hs):
             rc_h, out_h = run([sys.executable, hs, "--repo", root, "--write"], root, timeout=60)
             print((out_h.strip().splitlines() or ["HANDOFF.md written"])[-1] if rc_h == 0 else f"HANDOFF.md NOT written (reef-handoff exit {rc_h})")
+        else:
+            print("HANDOFF.md not rendered: scripts/reef-handoff is missing (reef-update copies it)")
         st["wait"] = " ".join(argv[1:]) or "unspecified"
         save_state(root, st)
         release_hold(root)   # the /clear hand-over: the next session starts at once

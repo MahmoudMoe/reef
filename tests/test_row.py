@@ -147,6 +147,32 @@ class RowStateMachine(unittest.TestCase):
         r = self.row("next", "2")
         self.assertEqual(r.stdout.strip(), "/reef-plan 2")
 
+    def test_a_row_is_read_from_its_own_worktree_and_a_squash_merge_counts_offline(self):
+        # the review (2026-10-26): after reef-merge-base every other row's worktree holds a merged row's folder too — the
+        # row is read from the worktree on ITS branch, else the main checkout; and a squash merge leaves no ancestor,
+        # so the PR number in the review record is matched against the base's subjects
+        feat = os.path.join(self.main, ".reef", "worktrees", "demo-row-one")
+        self.assertEqual(git(self.main, "worktree", "add", "-q", "-b", "feat/demo-row-one", feat, "main").returncode, 0)
+        write(feat, "reef/features/demo-row-one/SPEC.md", SPEC)
+        write(feat, "reef/features/demo-row-one/tasks/done/101-slice.md", TASK.replace("status: pending", "status: done"))
+        write(feat, "src/a.py", "a = 2\n")
+        git(feat, "add", "-A"); git(feat, "commit", "-qm", "the slice")
+        digest = subprocess.run([sys.executable, os.path.join(feat, "scripts", "reef-plan-check.py"), feat, "--digest", "--feature", "demo-row-one"],
+                                capture_output=True, text=True).stdout.split()[-1]
+        write(self.main, ".reef/approvals/demo-row-one.json", json.dumps({"digest16": digest[:16], "approved_at": "2026-10-26T00:00:00Z"}))
+        head = git(feat, "rev-parse", "HEAD").stdout.strip()
+        write(self.main, ".reef/review/demo-row-one.json", json.dumps({"sha": head, "verdict": "GREEN", "pr": 7}))
+        # a second row's worktree, with the base merged in AFTER row one landed on it as a squash
+        git(self.main, "merge", "-q", "--squash", "feat/demo-row-one"); git(self.main, "commit", "-qm", "Row 1: the slice (#7)")
+        other = os.path.join(self.main, ".reef", "worktrees", "demo-row-two")
+        self.assertEqual(git(self.main, "worktree", "add", "-q", "-b", "feat/demo-row-two", other, "main").returncode, 0)
+        write(other, "src/b.py", "b = 1\n"); git(other, "add", "-A"); git(other, "commit", "-qm", "row two work")
+        s = self.state("1")
+        self.assertEqual(s["state"], "close", s)
+        self.assertIn("#7", s["detail"])
+        git(self.main, "worktree", "remove", "--force", feat); git(self.main, "branch", "-D", "feat/demo-row-one")
+        self.assertEqual(self.state("1")["state"], "close", "read from the main checkout once its worktree is gone")
+
 
 if __name__ == "__main__":
     unittest.main()

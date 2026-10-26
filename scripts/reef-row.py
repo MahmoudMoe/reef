@@ -56,25 +56,28 @@ def merge_by(cfg):
 
 
 def checkouts(main, prefix):
-    """Every feature worktree (branch under branches.feature_prefix) first — the row is built there — then the main checkout,
-    which holds a merged feature's folder too."""
-    out, entry, branch = [], None, None
+    """{branch name: worktree} for every feature worktree (branch under branches.feature_prefix), and the main checkout."""
+    out, entry, branch = {}, None, None
     for l in git(main, "worktree", "list", "--porcelain").splitlines() + [""]:
         if l.startswith("worktree "):
             entry, branch = l[len("worktree "):].strip(), None
         elif l.startswith("branch "):
             branch = l[len("branch "):].strip()
         elif not l and entry and os.path.realpath(entry) != os.path.realpath(main) and branch and branch.startswith("refs/heads/" + prefix):
-            out.append(entry)
+            out[branch[len("refs/heads/"):]] = entry
             entry = None
-    return out + [main]
+    return out
 
 
 def find_folder(main, cfg, key):
-    """(checkout, slug, folder, row id) for a row id or a slug, or None."""
+    """(checkout, slug, folder, row id) for a row id or a slug, or None. The row is read from the worktree on ITS branch
+    (feature_prefix + slug), else the main checkout — never from another row's worktree, which holds this row's folder
+    too once reef-merge-base brought the base in (the review, 2026-10-26)."""
     features = str((cfg.get("paths") or {}).get("features", "reef/features") or "reef/features")
     prefix = str((cfg.get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
-    for co in checkouts(main, prefix):
+    wts = checkouts(main, prefix)
+    found = []   # (checkout, slug, folder, row id), any checkout
+    for co in list(wts.values()) + [main]:
         for spec in sorted(glob.glob(os.path.join(co, features, "*", "SPEC.md"))):
             slug = os.path.basename(os.path.dirname(spec))
             try:
@@ -84,8 +87,16 @@ def find_folder(main, cfg, key):
                 continue
             rid = m.group(1) if m else ""
             if key in (slug, rid):
-                return co, slug, os.path.dirname(spec), rid
-    return None
+                found.append((co, slug, os.path.dirname(spec), rid))
+    if not found:
+        return None
+    for co, slug, folder, rid in found:
+        if wts.get(prefix + slug) and os.path.realpath(co) == os.path.realpath(wts[prefix + slug]):
+            return co, slug, folder, rid
+    for co, slug, folder, rid in found:
+        if os.path.realpath(co) == os.path.realpath(main):
+            return co, slug, folder, rid
+    return found[0]
 
 
 def queue_rows(main):
@@ -167,9 +178,19 @@ def state_of(repo, key):
         fhead = git(main, "rev-parse", "-q", "--verify", f"refs/heads/{prefix}{slug}") or head
         rc, _ = run(["git", "merge-base", "--is-ancestor", fhead, base], main)
         merged = rc == 0
+        if not merged:   # a squash merge leaves no ancestor: the review record's PR number against the base's subjects
+            try:
+                with open(os.path.join(main, ".reef", "review", f"{slug}.json"), encoding="utf-8") as f:
+                    pr_no = int(json.load(f).get("pr") or 0)
+            except (OSError, ValueError, TypeError):
+                pr_no = 0
+            subjects = git(main, "log", "--first-parent", "-200", "--format=%s", base)
+            if pr_no and re.search(rf"\(#{pr_no}\)\s*$", subjects, re.M):
+                merged, pr = True, {"number": pr_no, "state": "MERGED"}
     if merged:
         if out["row"] in rows:
-            out.update(state="close", next="/reef-loop  (the close step: adr-number, archive, journal)", detail="merged, row still in the queue")
+            out.update(state="close", next="/reef-loop  (the close step: adr-number, archive, journal)",
+                       detail="merged" + (f" (PR #{pr['number']})" if pr else "") + ", row still in the queue")
             return out, 0
         out.update(state="closed", next="-", detail="merged and archived")
         return out, 0
