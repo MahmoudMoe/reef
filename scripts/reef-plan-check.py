@@ -1138,10 +1138,13 @@ def main():
         sec = cfg.get(section, {})
         v = sec.get(key, default) if isinstance(sec, dict) else default
         return v if v not in ("", None) else default
-    merge_by = setting("merge", "by", "human")
     feature_gate = setting("ci", "feature_gate", "ci")
     base = setting("branches", "base", "main")
     release = setting("branches", "release", "main")
+    # v3 phase 4: merge.by's default — loop when CI gates every feature PR and the base is not the release branch
+    merge_default = "loop" if feature_gate == "ci" and base != release else "human"
+    merge_by = setting("merge", "by", merge_default)
+    merge_src = "" if setting("merge", "by", "") else f" (default: ci.feature_gate {feature_gate}, base {'≠' if base != release else '='} release)"
     bad = []
     if merge_by not in MERGE_BY:
         bad.append(f"merge.by {merge_by!r} not in {list(MERGE_BY)}")
@@ -1150,6 +1153,11 @@ def main():
     for name, v in (("branches.base", base), ("branches.release", release)):
         if not isinstance(v, str) or not v.strip():
             bad.append(f"{name} {v!r} is not a branch name")
+    rif = (cfg.get("loop") or {}).get("rows_in_flight", 2) if isinstance(cfg.get("loop"), dict) else 2
+    if not (isinstance(rif, int) and not isinstance(rif, bool) and rif >= 0):
+        bad.append(f"loop.rows_in_flight {rif!r} is not a whole number (0 = no cap)")
+    if merge_by == "loop" and not setting("merge", "by", "") and base != release:
+        print("warning: merge.by is not set and resolves to loop (ci.feature_gate ci, base ≠ release): the loop merges feature PRs — set merge.by to say so")
     if merge_by == "loop" and base == release:
         bad.append(f"merge.by 'loop' with branches.base == branches.release ({base!r}) — the loop "
                    "would merge into the release branch; releases are merged by the human. "
@@ -1157,7 +1165,7 @@ def main():
     if bad:
         fail(".reef/config.json: " + "; ".join(bad))
     else:
-        ok(f".reef/config.json: merge.by={merge_by} ci.feature_gate={feature_gate} "
+        ok(f".reef/config.json: merge.by={merge_by}{merge_src} ci.feature_gate={feature_gate} "
            f"branches.base={base} branches.release={release}")
 
     # the stamp is per-worktree state: tracked, it travels across branches and conflicts

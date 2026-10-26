@@ -353,6 +353,14 @@ def tick(root):
     planned_elsewhere = {r for r in planned_elsewhere if r in live}
     to_plan = [r for r in to_plan if r[0] not in planned_elsewhere]
     building = building + [[r] for r in sorted(planned_elsewhere) if r not in {b[0] for b in building}]
+    # v3 phase 4 — finish before starting: at most loop.rows_in_flight rows (default 2; 0 = no cap) between plan and close
+    # (building, or done and awaiting close); a new row is planned only when there is room, the rest are named as held
+    cap_rows = int((cfg.get("loop") or {}).get("rows_in_flight", 2) or 0)
+    rows_in_flight = sorted({b[0] for b in building} | {r[0] for r in to_close}, key=lambda x: (len(x), x))
+    held_rows = []
+    if cap_rows:
+        room = max(0, cap_rows - len(rows_in_flight))
+        held_rows, to_plan = [r[0] for r in to_plan[room:]], to_plan[:room]
     # rule 7: found rows two batches old with no task file — the triage question is the orchestrator's at the batch boundary
     rc_t, triage = run([py, os.path.join(scripts, "reef-queue.py"), "triage", "--count", "--repo", root], root)
     triage_line = triage.strip().splitlines()[0] if rc_t == 1 and triage.strip() else ""
@@ -370,7 +378,8 @@ def tick(root):
         except (OSError, ValueError):
             pass
     state = {
-        "rows_to_plan": [r[0] for r in to_plan], "dispatch_now": [t["id"] for t in dispatch_now], "verify_now": verify_now, "awaiting": awaiting, "files": files,
+        "rows_to_plan": [r[0] for r in to_plan], "rows_held": held_rows, "rows_in_flight": rows_in_flight, "rows_cap": cap_rows,
+        "dispatch_now": [t["id"] for t in dispatch_now], "verify_now": verify_now, "awaiting": awaiting, "files": files,
         "prs_to_review": [f"#{p['number']} {p['headRefName']}" for p in prs], "other_prs": len(other_prs),
         "rows_to_close": [r[0] for r in to_close],
         "in_flight": sorted(inflight_ids) + [f"verifying:{m['id']}" for m in verifying if not m["stale"]],
@@ -419,7 +428,8 @@ def render(state):
           ("plan: " + ", ".join(state["rows_to_plan"])) if state["rows_to_plan"] else \
           ("awaiting: " + "; ".join(state.get("awaiting") or [])) if state.get("awaiting") else "nothing ready — stop or wait"
     lines = [f"tick {state['hash']}  loop={'active' if state['active'] else 'inactive'}" + (f"  wait={state['wait']!r}" if state["wait"] else "") + (f"  STOP={state['stop']}" if state["stop"] else ""),
-             f"rows to plan: {', '.join(state['rows_to_plan']) or '-'}",
+             f"rows to plan: {', '.join(state['rows_to_plan']) or '-'}"
+             + (f" (held by loop.rows_in_flight {state['rows_cap']}: {', '.join(state['rows_held'])}; in flight: {', '.join(state['rows_in_flight'])})" if state.get("rows_held") else ""),
              f"dispatch now: {', '.join(state['dispatch_now']) or '-'}" + (f"  verify now: {', '.join(state['verify_now'])} (handed back, uncommitted — gate + verifier, no implementer)" if state.get("verify_now") else ""),
              f"awaiting: {'; '.join(state.get('awaiting') or []) or '-'}",
              f"PRs to review: {', '.join(state['prs_to_review']) or '-'}" + (f"  ({state['other_prs']} other PR(s) into the base, not the loop's)" if state.get("other_prs") else ""),

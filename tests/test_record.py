@@ -233,6 +233,62 @@ class ForgeMerge(_Repo, unittest.TestCase):
         r = self.record("FAIL", GH_CHECKS="none")
         self.assertEqual(r.returncode, 0, "a FAIL needs no evidence: it is evidence")
 
+    def test_the_loop_merges_only_a_head_that_contains_the_base_tip_with_green_evidence(self):
+        # workflow v3, phase 4: a merge queue of two — the base is merged into the feature first (reef-merge-base) and the
+        # gate runs on the MERGED commit; the loop merges nothing else
+        self.record()
+        git(self.d, "checkout", "-q", "main")
+        with open(os.path.join(self.d, "other.py"), "w") as f:
+            f.write("z = 9\n")
+        git(self.d, "add", "other.py")
+        git(self.d, "commit", "-qm", "main moved")
+        git(self.d, "checkout", "-q", "feat")
+        r = self.merge()
+        self.assertEqual(r.returncode, 2, "the base moved and the head does not contain it: " + r.stderr)
+        self.assertIn("does not contain main", r.stderr)
+        self.assertIn("reef-merge-base", r.stderr)
+        git(self.d, "merge", "-q", "--no-edit", "main")
+        r = self.merge(GH_CHECKS="pending")
+        self.assertEqual(r.returncode, 2, "the merged commit's gate is still running: " + r.stderr)
+        self.assertIn("no green gate on the merged commit", r.stderr)
+        r = self.merge(GH_CHECKS="failure")
+        self.assertEqual(r.returncode, 2)
+        r = self.merge(GH_CHECKS="success")
+        self.assertEqual(r.returncode, 0, "the head contains the base's tip and its gate is green: " + r.stderr)
+
+    def test_under_ci_the_loop_merge_waits_for_cis_result_and_never_takes_a_local_record(self):
+        # the security review of v3 phase 4 (2026-10-26): with ci.feature_gate ci, a head CI has not run yet fell through to
+        # the gate's local record — the author's machine. The merge waits for CI; the local record stands in only under local.
+        self.record()
+        sha, tree = git(self.d, "rev-parse", "feat"), git(self.d, "rev-parse", "feat^{tree}")
+        snap = subprocess.run(["git", "-C", self.d, "hash-object", "--stdin"], input=f"{sha}\n{tree}\n{tree}\n", capture_output=True, text=True).stdout.strip()
+        os.makedirs(os.path.join(self.d, ".reef", "evidence"), exist_ok=True)
+        with open(os.path.join(self.d, ".reef", "evidence", f"{snap}.json"), "w") as f:
+            json.dump({"snapshot": snap, "head": sha, "exit": 0, "mode": "full"}, f)
+        r = self.merge(GH_CHECKS="none")
+        self.assertEqual(r.returncode, 2, "no CI run for the head: the merge waits, a local record is not CI: " + r.stderr)
+        self.assertIn("CI has no run for this head yet", r.stderr)
+        with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"full": "true"}, "merge": {"by": "loop"}, "ci": {"feature_gate": "local"}, "branches": {"base": "main", "release": "release"}}, f)
+        self.assertEqual(self.merge(GH_CHECKS="none").returncode, 0, "without CI on feature PRs the gate's record is the evidence")
+        r = self.merge("gh pr merge 7 --squash --delete-branch -R o/other")
+        self.assertEqual(r.returncode, 2, "another repository's PR is not this checkout's: " + r.stderr)
+        self.assertIn("this checkout", r.stderr)
+
+    def test_merge_by_defaults_to_loop_under_ci_on_a_two_branch_project(self):
+        # workflow v3, phase 4: merge.by absent -> loop when ci.feature_gate is ci (the default) and base != release
+        with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"full": "true"}, "branches": {"base": "main", "release": "release"}}, f)
+        r = self.merge()
+        self.assertEqual(r.returncode, 2, "the loop's gate applies without the key: " + r.stderr)
+        self.assertIn("no PASS/GREEN review record", r.stderr)
+        with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"full": "true"}, "branches": {"base": "main", "release": "main"}}, f)
+        self.assertEqual(self.merge().returncode, 0, "one branch: the human merges, the record gates nothing")
+        with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"full": "true"}, "ci": {"feature_gate": "local"}, "branches": {"base": "main", "release": "release"}}, f)
+        self.assertEqual(self.merge().returncode, 0, "no CI on feature PRs: the human merges")
+
     def test_a_conflicted_base_merge_that_leaves_the_feature_unchanged_carries_over(self):
         # both sides appended to the journal, as parallel features do: the merge conflicts, the resolution keeps both
         # lines, and the feature's own change is byte-for-byte the one reviewed — no re-record needed
@@ -252,7 +308,9 @@ class ForgeMerge(_Repo, unittest.TestCase):
                 git(self.d, "add", "other.py")
             git(self.d, "commit", "-qam", f"{branch} journal row")
         self.record()
-        subprocess.run(["git", "-C", self.d, "merge", "-q", "--no-edit", "main"], capture_output=True)
+        # with an identity (CI has none configured): a merge that resolves clean must still produce the merge commit, or the
+        # head never contains the base's tip and the v3 phase 4 gate rightly refuses it (2026-10-26, seen on the runner only)
+        subprocess.run(["git", "-C", self.d, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q", "--no-edit", "main"], capture_output=True)
         with open(os.path.join(self.d, "journal.md"), "w") as f:
             f.write("# Journal\n| base row |\n| feature row |\n")
         git(self.d, "add", "journal.md")

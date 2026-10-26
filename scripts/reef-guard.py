@@ -113,10 +113,21 @@ EVIDENCE_DENIAL = ("the main session does not write an agent's evidence ({path})
                    "its worktree's .reef/ci-local/, a judge's report into the scratchpad) and the orchestrator copies it with cp. "
                    "Missing? Resume that agent (SendMessage) with 'write your report to <path>' — never type it from its message")
 GUARD_FILES = re.compile(r"(^|/)(scripts/reef-[^/]+|\.githooks/[^/]+|hooks/hooks\.json|\.reef/config\.json)$")
-PROTECTED_KEYS = ("roles", "caps", "gates", "tiers")
+PROTECTED_KEYS = ("roles", "caps", "gates", "tiers", "merge", "ci", "branches", "loop")   # merge/ci/branches/loop: v3 phase 4 — the merge gate's own switches
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "5"))
 PR_MERGE_API = re.compile(r"repos/([^/]+)/([^/]+)/pulls/(\d+)/merge")
 GOOD_VERDICTS = ("PASS", "GREEN", "APPROVED")
+
+
+def merge_by(cfg):
+    """merge.by, or its default (v3 phase 4): `loop` when ci.feature_gate is `ci` and branches.base differs from
+    branches.release — CI gates every feature PR, so the loop may merge it; else `human`."""
+    v = str((cfg.get("merge") or {}).get("by", "") or "").strip()
+    if v:
+        return v
+    b = cfg.get("branches") or {}
+    ci = str((cfg.get("ci") or {}).get("feature_gate", "ci") or "ci") == "ci"
+    return "loop" if ci and str(b.get("base", "main") or "main") != str(b.get("release", "main") or "main") else "human"
 
 DEFAULT_CAP = 3
 OPS = {";", "&", "|", "&&", "||", ";;", ";&", "|&", "(", ")", "\n"}
@@ -640,6 +651,8 @@ def check_forge_merge(seg, ctx):
     rest = seg[i + 1:]
     ident = None
     if rest[:2] == ["pr", "merge"]:
+        if any(a in ("-R", "--repo") or a.startswith("--repo=") for a in rest):
+            deny("gh pr merge with -R/--repo names another repository — the loop merges the PR of this checkout only (the record and the gate are this checkout's)")
         ident = next((a for a in rest[2:] if not a.startswith("-")), None)
     elif rest[:1] == ["api"] and any(PR_MERGE_API.search(a) for a in rest[1:]) and any(a in ("-X", "--method") and "PUT" in rest for a in rest):
         ident = PR_MERGE_API.search(next(a for a in rest[1:] if PR_MERGE_API.search(a))).group(3)
@@ -649,7 +662,7 @@ def check_forge_merge(seg, ctx):
         return
     roots = sorted(ctx.get("roots") or [ctx.get("cwd") or os.getcwd()])
     cfg = next((read_config(r) for r in roots if os.path.isfile(os.path.join(r, ".reef", "config.json"))), {})
-    if str((cfg.get("merge") or {}).get("by", "human")).strip() != "loop":
+    if merge_by(cfg) != "loop":
         return   # under merge.by: human the record is evidence, not a gate (the human merges)
     cwd = ctx.get("cwd") or os.getcwd()
     view = json.loads(gh(["pr", "view", *([ident] if ident else []), "--json", "headRefOid,baseRefName,url"], cwd) or "{}")
@@ -657,6 +670,26 @@ def check_forge_merge(seg, ctx):
     m = re.search(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)", url)
     if not re.fullmatch(r"[0-9a-f]{40}", head) or not m:
         deny(f"gh pr view gave no usable head/url for {ident or 'the current PR'}: {view}")
+    owner, repo = m.group(1), m.group(2)
+    # v3 phase 4 — a merge queue of two: the loop merges only a head that CONTAINS the base's tip (scripts/reef-merge-base
+    # brought it in) and whose gate ran green on that merged commit (CI's check-runs, or the gate's own record)
+    base_tip = gh(["api", f"repos/{owner}/{repo}/git/ref/heads/{base}", "--jq", ".object.sha"], cwd)
+    if not re.fullmatch(r"[0-9a-f]{40}", base_tip):
+        deny(f"the forge gave no tip for {base}: {base_tip[:80]!r} — refusing to merge blind")
+    if subprocess.run(["git", "cat-file", "-e", f"{base_tip}^{{commit}}"], cwd=cwd, capture_output=True).returncode != 0:
+        deny(f"{base}'s tip {base_tip[:12]} is not in this checkout — fetch it, then scripts/reef-merge-base in the feature worktree and push")
+    if subprocess.run(["git", "merge-base", "--is-ancestor", base_tip, head], cwd=cwd, capture_output=True).returncode != 0:
+        deny(f"PR head {head[:12]} does not contain {base} at {base_tip[:12]} — run scripts/reef-merge-base in the feature worktree, push, "
+             "and let the gate run on the merged commit (a clean base merge carries the GREEN record over)")
+    ev = load_plugin_module("reef-evidence.py", "reef_evidence").evidence(cwd, head)
+    if ev.get("state") != "green":
+        deny(f"no green gate on the merged commit {head[:12]} ({ev.get('state')}{': ' + str(ev.get('why')) if ev.get('why') else ''}) — "
+             "the loop merges only after a green gate on the merged commit (CI, or scripts/reef-gate.sh full there)")
+    if str((cfg.get("ci") or {}).get("feature_gate", "ci") or "ci") == "ci" and ev.get("source") != "ci":
+        # the security review (2026-10-26): a head CI had not run yet fell through to the gate's local record — the author's
+        # machine. Under CI the merge waits for CI; the local record stands in only where no CI gates feature PRs
+        deny(f"CI has no run for this head yet ({head[:12]}): the loop merges on CI's result under ci.feature_gate: ci — wait for it; "
+             "a local record stands in only under ci.feature_gate: local")
     records = []
     for r in roots:
         d = os.path.join(r, ".reef", "review")
