@@ -15,7 +15,9 @@
   reads (`merge`, `ci`, `branches`) and the loop's cap (`loop`) join the guard's protected config keys — an agent could
   have edited them and disarmed the gate it is subject to; under `ci.feature_gate: ci` the loop merge waits for CI's result
   and never takes the gate's local record (the author's machine); `gh pr merge -R` names another repository and is refused;
-  `reef-plan-check.py` validates `loop.rows_in_flight` and warns when an absent `merge.by` resolves to `loop`.
+  `reef-plan-check.py` validates `loop.rows_in_flight` and warns when an absent `merge.by` resolves to `loop`. CI then caught a fixture whose raw `git merge` ran
+  without an identity (none on the runner): no merge commit, so the new check refused a head that did not contain the base — the
+  fixture passes the identity now.
   tests/size-budget.json: `script_lines` 15,448 → 15,499; `prose_words` lowered 21,170 → 21,156; `config_keys` unchanged
   (one key in, one out).
 - **The fast path builds in one worktree per row, in order, with no judge per task** (workflow v3, phase 3b; 2026-10-26).

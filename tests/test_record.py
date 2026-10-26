@@ -308,7 +308,9 @@ class ForgeMerge(_Repo, unittest.TestCase):
                 git(self.d, "add", "other.py")
             git(self.d, "commit", "-qam", f"{branch} journal row")
         self.record()
-        subprocess.run(["git", "-C", self.d, "merge", "-q", "--no-edit", "main"], capture_output=True)
+        # with an identity (CI has none configured): a merge that resolves clean must still produce the merge commit, or the
+        # head never contains the base's tip and the v3 phase 4 gate rightly refuses it (2026-10-26, seen on the runner only)
+        subprocess.run(["git", "-C", self.d, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q", "--no-edit", "main"], capture_output=True)
         with open(os.path.join(self.d, "journal.md"), "w") as f:
             f.write("# Journal\n| base row |\n| feature row |\n")
         git(self.d, "add", "journal.md")
