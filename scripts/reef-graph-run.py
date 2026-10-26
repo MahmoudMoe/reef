@@ -16,21 +16,24 @@ Usage:
                                                       .reef/graph/run-<hash>.js — the script the orchestrator hands to
                                                       the Workflow tool (scriptPath). Refused while gate.json is not ok.
   reef-graph-run.py row         <row-id|slug> [--repo DIR]   (v3 phase 5b)
-                                                      ONE workflow for the row: its open tasks in id order — implementer, gate,
-                                                      the judges on the critical path, the close in place (reef-merge-close by
-                                                      the mechanic) — then the full gate and converge, merge-base + push + PR,
-                                                      the guard pass and security on the critical path, and the ONE reviewer;
-                                                      .reef/graph/row-<slug>-<hash>.js. Refused at plan/approval (the owner's
-                                                      steps), at merge/close (scripts), with a task in flight, or gate not ok.
+                                                      ONE workflow for a FAST-PATH row in build: its open tasks in id order —
+                                                      implementer, gate, the close in place (reef-merge-close by the mechanic) —
+                                                      then merge-base + push + PR, the full gate and converge on that head, and
+                                                      the ONE reviewer; .reef/graph/row-<slug>-<hash>.js. Refused for the
+                                                      critical path (a worktree per task and its judges: /reef-graph, then
+                                                      /reef-review), at any other state, with a task in flight, gate not ok.
   reef-graph-run.py settle      <results.json> [--repo DIR]
                                                       the workflow's return value: per task, the gate exit, the hand-back
                                                       check, the snapshot before and after the judges, the verdicts and
                                                       report files → the report checks and the guard-pass record run here;
                                                       READY TO MERGE <id> or FAIL <id>: <why> (attempt counted). A row's
-                                                      result: every close checked on disk, the evidence re-read, the review
-                                                      report copied and recorded (reef-record), then ROW <id> READY TO MERGE
-                                                      with the one bare `gh pr merge` the orchestrator runs (the guard checks
-                                                      it there; settle never merges) — or ROW <id> WAITS <state>: <why>.
+                                                      result: the row's identity, every close (a Closes-task commit, the file
+                                                      under done/), a clean tree and no open task read from DISK; the evidence
+                                                      re-read, converge re-checked; the review report (from the run's scratch
+                                                      dir, its VERDICT line) copied and recorded (reef-record); then ROW <id>
+                                                      READY TO MERGE and the row script's one bare merge command the
+                                                      orchestrator runs (the guard checks it there; settle never merges) — or
+                                                      ROW <id> WAITS <state>: <why>.
 
 Why a script and not the chat: a workflow script has no filesystem and runs only agents, so every mechanical step
 (reef-attempt, the gate, the snapshot, reef-claims) is done by a `reef:mechanic` agent inside the pipeline or by
@@ -155,10 +158,10 @@ JUDGE_SCHEMA = {"type": "object", "properties": {"verdict": {"type": "string", "
 REVIEW_SCHEMA = {"type": "object", "properties": {"verdict": {"type": "string", "enum": ["GREEN", "FAIL"]}, "report_path": {"type": "string"},
                                                   "summary": {"type": "string"}}, "required": ["verdict", "report_path"]}
 CLOSE_SCHEMA = {"type": "object", "properties": {"closed": {"type": "boolean"}, "output": {"type": "string"}}, "required": ["closed", "output"]}
-EVIDENCE_SCHEMA = {"type": "object", "properties": {"gate_exit": {"type": "integer"}, "converge_exit": {"type": "integer"}, "evidence": {"type": "string"},
-                                                    "notes": {"type": "string"}}, "required": ["gate_exit", "converge_exit", "evidence"]}
-PR_SCHEMA = {"type": "object", "properties": {"number": {"type": ["integer", "null"]}, "head": {"type": "string"}, "output": {"type": "string"}},
-             "required": ["number", "head", "output"]}
+EVIDENCE_SCHEMA = {"type": "object", "properties": {"gate_exit": {"type": "integer"}, "converge_exit": {"type": "integer"}, "evidence_exit": {"type": "integer"},
+                                                    "evidence": {"type": "string"}, "notes": {"type": "string"}}, "required": ["gate_exit", "converge_exit", "evidence_exit", "evidence"]}
+PR_SCHEMA = {"type": "object", "properties": {"merged_base": {"type": "boolean"}, "number": {"type": ["integer", "null"]}, "head": {"type": "string"},
+                                              "output": {"type": "string"}}, "required": ["merged_base", "number", "head", "output"]}
 MODELS = {"opus", "sonnet", "haiku"}
 
 
@@ -210,15 +213,21 @@ def last_failure(task_path):
     return fails[-1].strip() if fails else ""
 
 
-def plan_home(path):
-    """reef-graph.py's plan_home, from this script's own directory: the feature worktree's copy of a task file."""
+def load_script(name):
+    """A sibling script (reef-graph.py, reef-row.py) as a module, from this script's own directory — one loader shape."""
     import importlib.machinery
     import importlib.util
-    loader = importlib.machinery.SourceFileLoader("reef_graph_home", os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-graph.py"))
+    loader = importlib.machinery.SourceFileLoader(re.sub(r"\W", "_", name), os.path.join(os.path.dirname(os.path.abspath(__file__)), name))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     mod = importlib.util.module_from_spec(spec)
+    sys.dont_write_bytecode = True   # no scripts/__pycache__ written into the tree
     loader.exec_module(mod)
-    return mod.plan_home(path)
+    return mod
+
+
+def plan_home(path):
+    """reef-graph.py's plan_home: the feature worktree's copy of a task file."""
+    return load_script("reef-graph.py").plan_home(path)
 
 
 def mark_dispatched(root, task_path, tid, implementer=True):
@@ -254,8 +263,7 @@ def attempt_lines(root, task_path):
 
 def cmd_generate(root, only):
     if not gate_ok(root):
-        die("graph mode is OFF: no .reef/graph/gate.json with ok=true — run `reef-graph-run.py probe`, hand .reef/graph/probe.js to the "
-            "Workflow tool, then `probe-check` its return value. Chat mode (/reef-task) keeps every guarantee meanwhile.", 1)
+        graph_off()
     tasks, state = ready_tasks(root, only)
     if not tasks:
         print("nothing to dispatch: the tick's `dispatch now` is empty")
@@ -505,27 +513,42 @@ def settle_task(root, r, extra_why=(), row=False):
 
 
 # ---------------------------------------------------------------- row (v3 phase 5b)
-def row_module(root):
-    import importlib.machinery
-    sys.dont_write_bytecode = True
-    return importlib.machinery.SourceFileLoader("reef_row", script(root, "reef-row.py")).load_module()
+def graph_off():
+    die("graph mode is OFF: no .reef/graph/gate.json with ok=true — run `reef-graph-run.py probe`, hand .reef/graph/probe.js to the "
+        "Workflow tool, then `probe-check` its return value. Chat mode (/reef-task, /reef-review) keeps every guarantee meanwhile.", 1)
+
+
+def report_base(root):
+    """This project's scratch for the agents' report files; a row's run gets its own folder under it, and settle accepts a
+    report only from under here (the review, 2026-10-26: any readable path could be copied in as a record)."""
+    return os.path.join("/tmp", f"reef-graph-{hashlib.sha1(root.encode()).hexdigest()[:8]}")
+
+
+def open_tasks(fdir):
+    """[(id, path)] of the row's open task files, in id order (rollups after tasks)."""
+    out = []
+    for p in glob.glob(os.path.join(fdir, "tasks", "*.md")):
+        m = re.match(r"(R?)(\d+)-", os.path.basename(p))
+        if m:
+            out.append((m.group(1) == "R", int(m.group(2)), m.group(1) + m.group(2), p))
+    return [(tid, p) for _, _, tid, p in sorted(out)]
 
 
 def cmd_row(root, key):
-    """ONE workflow for a row (v3 phase 5b): the row's open tasks in id order, each implemented, gated, judged on the critical
-    path and closed in place by the mechanic before the next starts; then the full gate and converge, merge-base + push + PR,
-    the critical path's guard pass and security, and the one reviewer. The orchestrator makes three calls per row: this,
-    the Workflow tool, settle. Refused at the owner's steps (plan, approval), at the scripts' (merge, close), with a task of
-    the row in flight, and while graph mode is off."""
+    """ONE workflow for a FAST-PATH row (v3 phase 5b): its open tasks in id order, each implemented, gated and closed in place
+    by the mechanic before the next starts; then merge-base + push + PR, the full gate and converge on that head, and the one
+    reviewer. The orchestrator makes three calls per row: this, the Workflow tool, settle. The critical path keeps the
+    per-task graph and /reef-review (the review, 2026-10-26: a judged task's close needs records settle writes after the
+    judges, and a task worktree cut at generation lacks the previous close) — refused here with the next command. Also
+    refused: a row not in build (the owner's and the scripts' steps), a blocked task, a task in flight, graph mode off."""
     if not gate_ok(root):
-        die("graph mode is OFF: no .reef/graph/gate.json with ok=true — run `reef-graph-run.py probe`, hand .reef/graph/probe.js to the "
-            "Workflow tool, then `probe-check` its return value. Chat mode (/reef-task, /reef-review) keeps every guarantee meanwhile.", 1)
-    rm = row_module(root)
+        graph_off()
+    rm = load_script("reef-row.py")
     st, rc = rm.state_of(root, key)
     if rc != 0:
         die(f"row {key}: {st.get('detail') or 'unknown'}", 2)
-    if st["state"] not in ("build", "evidence", "review"):
-        print(f"row {st['row']}: {st['state']} — {st['detail']} · not the driver's step · next: {st['next']}")
+    if st["state"] != "build":
+        print(f"row {st['row']}: {st['state']} — {st['detail']} · not the driver's step (it takes a row in build) · next: {st['next']}")
         return 1
     main = rm.main_checkout(root)
     cfg = rm.config(main)
@@ -536,108 +559,86 @@ def cmd_row(root, key):
     if branch.strip() != prefix + slug:
         print(f"row {rid}: no feature worktree on {prefix}{slug} (the folder is read from {co}) — /reef-plan {rid} creates it")
         return 1
-    tasks = []
-    for p in sorted(glob.glob(os.path.join(fdir, "tasks", "*.md"))):
-        m = re.match(r"(R?)(\d+)-", os.path.basename(p))
-        if m:
-            tasks.append((m.group(1) == "R", int(m.group(2)), m.group(1) + m.group(2), p))
-    tasks.sort()
-    for _, _, tid, p in tasks:
+    tasks = open_tasks(fdir)
+    for tid, p in tasks:
         with open(p, encoding="utf-8") as f:
             if re.search(r"^status:\s*blocked", f.read(), re.M):
                 print(f"row {rid}: task {tid} is blocked (at the cap or parked) — the owner unblocks it (attempts: 0, status: pending, last_failure_sig: \"\")")
                 return 1
-    flying = [tid for _, _, tid, _ in tasks if os.path.isfile(os.path.join(main, ".reef", "inflight", tid))]
+    flying = [tid for tid, _ in tasks if os.path.isfile(os.path.join(main, ".reef", "inflight", tid))]
     if flying:
         print(f"row {rid}: in flight: {', '.join(flying)} — a workflow may be running; the tick frees a stale marker after loop.inflight_stale_minutes")
         return 1
-    rc, pout, _ = run([sys.executable, script(root, "reef-tier.py"), "path"] + [p for _, _, _, p in tasks], co)
-    critical = pout.strip().startswith("path: critical")
-    report_dir = os.path.join("/tmp", f"reef-graph-{hashlib.sha1(root.encode()).hexdigest()[:8]}")
+    rc, pout, _ = run([sys.executable, script(root, "reef-tier.py"), "path"] + [p for _, p in tasks], co)
+    if pout.strip().startswith("path: critical"):
+        print(f"row {rid}: {pout.strip()[:140]} — the driver takes the fast path only; the critical path runs a worktree per task with its judges "
+              f"(/reef-graph generate, settle) and then /reef-review {slug}")
+        return 1
+    report_dir = os.path.join(report_base(root), f"row-{slug}-{hashlib.sha1(f'{rid}{time.time()}'.encode()).hexdigest()[:10]}")
     os.makedirs(report_dir, exist_ok=True)
     items = []
-    for _, _, tid, p in tasks:
+    for tid, p in tasks:
         it = task_item(root, tid, p, False, report_dir)
         if isinstance(it, str):
             print(f"skipped {it} — the row runs up to it")
             break
         it["close_prompt"] = (
             f"REEF-TASK: {it['task']}\nMechanic: the task's work is in {it['worktree']} (uncommitted). (1) Write the task's journal block to "
-            f"{report_dir}/journal-{tid}.md: ONE runlog row `| {tid} | <author model> | <verifier or -> | <attempts> | PASS | <the ACs met> | - |` from the "
-            f"hand-back {it['worktree']}/.reef/ci-local/handback-{tid}.md and `python3 scripts/reef-cost.py growth {tid} --repo {main}` (its growth as "
-            f"the Orchestrator cell or `· growth N` on Result). (2) In the feature worktree {co}, with a 10-minute timeout and the output to a file: "
-            f"`python3 scripts/reef-merge-close {it['task']} --subject \"<type>: <the task's title after the dash>\" --journal {report_dir}/journal-{tid}.md "
-            f"--repo {co}` — closed is true only when its exit was 0; output is its last 10 lines. Change nothing else. Return the JSON only.")
+            f"{report_dir}/journal-{tid}.md: ONE runlog row `| {tid} | <author model> | - | <attempts> | gate green | <the AC keys the hand-back names> | - |` "
+            f"copied from the hand-back {it['worktree']}/.reef/ci-local/handback-{tid}.md (its RUN line) and `python3 scripts/reef-cost.py growth {tid} --repo {main}` "
+            f"(its growth as the Orchestrator cell or `· growth N` on Result) — facts from those two files, no judgment of yours. (2) In the feature worktree {co}, "
+            f"with a 10-minute timeout and the output to a file: `python3 scripts/reef-merge-close {it['task']} --subject \"<type>: <the task's title after the dash>\" "
+            f"--journal {report_dir}/journal-{tid}.md --repo {co}` — closed is true only when its exit was 0; output is its last 10 lines. Change nothing else. Return the JSON only.")
         items.append(it)
     if not items:
         return 1
-    heaviest = items[-1]["task"]
+    roles = cfg.get("roles") if isinstance(cfg.get("roles"), dict) else {}
     row = {
-        "row": rid, "feature": slug, "worktree": co, "main": main, "base": base, "path": "critical" if critical else "fast",
+        "row": rid, "feature": slug, "worktree": co, "main": main, "base": base, "path": "fast", "report_dir": report_dir,
+        "reviewer_model": roles.get("reviewer") if roles.get("reviewer") in MODELS else None,
+        "pr_prompt": f"REEF-FEATURE: {slug}\nMechanic, in {co}: (1) python3 scripts/reef-merge-base --repo {co} — merged_base is true on exit 0; exit 2 is a conflict "
+                     f"for a person: merged_base false, say so in output, do nothing more; (2) git push -u origin {prefix}{slug}; (3) `gh pr view --json number` — "
+                     f"none: `gh pr create --fill --base {base}`; no remote or no gh: number null, say so. head is `git rev-parse HEAD` here afterwards. Return the JSON only.",
         "evidence_prompt": f"REEF-FEATURE: {slug}\nMechanic, in {co}, each output to a file: (1) sh scripts/reef-gate.sh full --failures — its exit code in gate_exit and, "
                            f"when red, the failing block (under 60 lines) in notes; (2) python3 scripts/reef-converge {slug} --repo {co} — its exit code in converge_exit, "
-                           f"its `missing`/`contradicts` lines in notes; (3) python3 scripts/reef-evidence.py --repo {co} — its one line in evidence. Change no file. Return the JSON only.",
-        "pr_prompt": f"REEF-FEATURE: {slug}\nMechanic, in {co}: (1) python3 scripts/reef-merge-base --repo {co} — exit 2 is a conflict for a person: number null, "
-                     f"say so in output, stop; (2) git push -u origin {prefix}{slug}; (3) `gh pr view --json number` — none: `gh pr create --fill --base {base}`; "
-                     f"no remote or no gh: number null, say so. head is `git rev-parse HEAD` here. Change no file. Return the JSON only.",
+                           f"its `missing`/`contradicts` lines in notes; (3) python3 scripts/reef-evidence.py --repo {co} — its exit code in evidence_exit, its one line in "
+                           f"evidence. Change no file. Return the JSON only.",
         "review_prompt": f"REEF-FEATURE: {slug}\nReview the feature {slug}: folder {fdir}, worktree {co}, PR head {{HEAD}} — against its SPEC.md, its diff "
                          f"against {base}, and every Proof row against the evidence (`python3 scripts/reef-evidence.py {{HEAD}}` in {co}). Write your report FILE to "
                          f"{report_dir}/review-{slug}.md: first line `HEAD: <12 hex>`, last line `VERDICT: GREEN|FAIL`; return verdict and report_path.",
-        "guard_prompt": f"REEF-TASK: {heaviest}\nREEF-FEATURE: {slug}\npass=guard on the whole feature diff (`git diff {base}...HEAD` in {co}, read-only): "
-                        f"how can every check be green while the defect happens? Write your report FILE to {report_dir}/guard-{slug}.md; return verdict (FAIL iff a BLOCKER) and report_path.",
-        "security_prompt": f"REEF-FEATURE: {slug}\nSecurity review of the feature diff (`git diff {base}...HEAD` in {co}, read-only). Write your report FILE to "
-                           f"{report_dir}/security-{slug}.md ending with `VERDICT: PASS|FAIL`; return verdict and report_path.",
     }
     tasks_json, row_json = json.dumps(items, indent=1), json.dumps(row, indent=1)
     js = f"""export const meta = {{
   name: 'reef-row',
-  description: 'Reef row {rid} ({slug}): its tasks in order, each closed in place; the evidence; the PR; the one review — in fresh contexts',
-  phases: [{{ title: 'Tasks' }}, {{ title: 'Evidence' }}, {{ title: 'PR' }}, {{ title: 'Review' }}],
+  description: 'Reef row {rid} ({slug}): its tasks in order, each closed in place; merge-base, push and the PR; the evidence on that head; the one review — in fresh contexts',
+  phases: [{{ title: 'Tasks' }}, {{ title: 'PR' }}, {{ title: 'Evidence' }}, {{ title: 'Review' }}],
 }}
 const ROW = {row_json}
 const TASKS = {tasks_json}
 const SNAP = {json.dumps(SNAP_SCHEMA)}
-const RESNAP = {json.dumps(RESNAP_SCHEMA)}
-const JUDGE = {json.dumps(JUDGE_SCHEMA)}
 const REVIEW = {json.dumps(REVIEW_SCHEMA)}
 const CLOSE = {json.dumps(CLOSE_SCHEMA)}
 const EVIDENCE = {json.dumps(EVIDENCE_SCHEMA)}
 const PR = {json.dumps(PR_SCHEMA)}
 const opt = (o) => Object.fromEntries(Object.entries(o).filter(([k, v]) => v !== null && v !== undefined))
-const out = {{ row: ROW.row, feature: ROW.feature, worktree: ROW.worktree, tasks: [], evidence: null, pr: null, guard: null, security: null, review: null, stopped: null }}
-log(`reef row ${{ROW.row}} (${{ROW.feature}}, ${{ROW.path}} path): ${{TASKS.length}} task(s) in order: ${{TASKS.map(t => t.id).join(', ')}}`)
+const out = {{ row: ROW.row, feature: ROW.feature, worktree: ROW.worktree, report_dir: ROW.report_dir, tasks: [], pr: null, evidence: null, review: null, stopped: null }}
+log(`reef row ${{ROW.row}} (${{ROW.feature}}, fast path): ${{TASKS.length}} task(s) in order: ${{TASKS.map(t => t.id).join(', ')}}`)
 for (const t of TASKS) {{
-  if (t.implement_prompt) await agent(t.implement_prompt, opt({{ label: `implement:${{t.id}}`, phase: 'Tasks', agentType: 'reef:implementer', model: t.author_model, effort: t.effort }}))
+  await agent(t.implement_prompt, opt({{ label: `implement:${{t.id}}`, phase: 'Tasks', agentType: 'reef:implementer', model: t.author_model, effort: t.effort }}))
   const gate = await agent(t.gate_prompt, {{ label: `gate:${{t.id}}`, phase: 'Tasks', agentType: 'reef:mechanic', schema: SNAP, effort: 'low' }})
-  let judges = []
-  if (gate.gate_exit === 0 && t.judge) {{
-    const thunks = [() => agent(t.verifier_prompt, opt({{ label: `verify:${{t.id}}`, phase: 'Tasks', agentType: 'reef:verifier', schema: JUDGE, model: t.verifier_model }})).then(v => ({{ role: 'verifier', ...v }}))]
-    if (t.hunter) thunks.push(() => agent(t.hunter_prompt, opt({{ label: `hunt:${{t.id}}`, phase: 'Tasks', agentType: 'reef:loophole-hunter', schema: JUDGE, model: t.adversary_model }})).then(h => ({{ role: 'hunter', ...h }})))
-    judges = (await parallel(thunks)).filter(Boolean)
-  }}
-  const after = judges.length
-    ? (await agent(t.resnap_prompt, {{ label: `snapshot:${{t.id}}`, phase: 'Tasks', agentType: 'reef:mechanic', schema: RESNAP, effort: 'low' }})).snapshot
-    : gate.snapshot
   const ok = gate.gate_exit === 0 && String(gate.handback_check || '').toLowerCase().startsWith('ok')
-    && (!t.judge || (judges.length && judges.every(j => j.verdict === 'PASS') && after === gate.snapshot))
   const close = ok ? await agent(t.close_prompt, {{ label: `close:${{t.id}}`, phase: 'Tasks', agentType: 'reef:mechanic', schema: CLOSE, effort: 'low' }}) : null
-  out.tasks.push({{ task: t.id, worktree: t.worktree, task_file: t.task, judge: t.judge, hunter: t.hunter, gate, judges, snapshot_after: after, close }})
+  out.tasks.push({{ task: t.id, worktree: t.worktree, task_file: t.task, judge: false, hunter: false, gate, judges: [], snapshot_after: gate.snapshot, close }})
   if (!ok || !close || !close.closed) {{ out.stopped = `task ${{t.id}}`; return out }}
 }}
+out.pr = await agent(ROW.pr_prompt, {{ label: 'pr', phase: 'PR', agentType: 'reef:mechanic', schema: PR, effort: 'low' }})
+if (!out.pr.merged_base) {{ out.stopped = 'merge-base'; return out }}
 out.evidence = await agent(ROW.evidence_prompt, {{ label: 'evidence', phase: 'Evidence', agentType: 'reef:mechanic', schema: EVIDENCE, effort: 'low' }})
 if (out.evidence.gate_exit !== 0) {{ out.stopped = 'evidence'; return out }}
 if (out.evidence.converge_exit !== 0) {{ out.stopped = 'converge'; return out }}
-out.pr = await agent(ROW.pr_prompt, {{ label: 'pr', phase: 'PR', agentType: 'reef:mechanic', schema: PR, effort: 'low' }})
-const head = out.pr.head || ''
-if (ROW.path === 'critical') {{
-  const [g, s] = await parallel([
-    () => agent(ROW.guard_prompt, {{ label: 'guard', phase: 'Review', agentType: 'reef:loophole-hunter', schema: JUDGE }}),
-    () => agent(ROW.security_prompt, {{ label: 'security', phase: 'Review', agentType: 'reef:security', schema: JUDGE }}),
-  ])
-  out.guard = g; out.security = s
-  if (g.verdict !== 'PASS' || s.verdict !== 'PASS') {{ out.stopped = 'guard'; return out }}
-}}
-out.review = await agent(ROW.review_prompt.split('{{HEAD}}').join(head.slice(0, 12)), {{ label: 'review', phase: 'Review', agentType: 'reef:acceptance', schema: REVIEW }})
+if (out.evidence.evidence_exit !== 0) {{ out.stopped = out.evidence.evidence_exit === 3 ? 'evidence (CI running)' : 'evidence'; return out }}
+const head = String(out.pr.head || '').slice(0, 12)
+out.review = await agent(ROW.review_prompt.split('{{HEAD}}').join(head), opt({{ label: 'review', phase: 'Review', agentType: 'reef:acceptance', schema: REVIEW, model: ROW.reviewer_model }}))
 return out
 """
     d = os.path.join(root, GRAPH_DIR)
@@ -646,76 +647,114 @@ return out
     path = os.path.join(d, f"row-{slug}-{h}.js")
     with open(path, "w", encoding="utf-8") as f:
         f.write(js)
-    print(f"row: {rid} ({slug}) tasks in order: {', '.join(i['id'] for i in items)} · path: {row['path']}  reports: {report_dir}")
+    print(f"row: {rid} ({slug}) tasks in order: {', '.join(i['id'] for i in items)} · path: fast  reports: {report_dir}")
     print(f"script: {path}")
-    print(f"next: call the Workflow tool with scriptPath {path}; when it completes, `reef-graph-run.py settle <the output file its completion notice names>`")
+    print(f"next: call the Workflow tool with scriptPath {path}; when it completes, `reef-graph-run.py settle <the output file its completion notice names`")
     return 0
 
 
+def verdict_of(path):
+    """The last `VERDICT:` line of a report file, or ''."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            found = re.findall(r"^VERDICT:\s*([A-Z]+)", f.read(), re.M)
+    except OSError:
+        return ""
+    return found[-1] if found else ""
+
+
 def settle_row(root, res):
-    """A row's result: every task's close checked on disk, the evidence re-read, the critical path's guard pass recorded,
-    the review report copied and recorded by reef-record; then the one bare merge command for the orchestrator (the guard
-    checks the record, the base tip and the evidence there — a script's `gh pr merge` would pass no hook), or ROW WAITS."""
-    rm = row_module(root)
+    """A row's result against the DISK (the result is a summary): the row's identity from its feature folder, every task's
+    close as a `Closes-task:` commit on the branch with the file under done/, no open task and a clean tree, the evidence
+    re-read, converge re-checked, the review report from the run's own scratch dir and its VERDICT line, recorded by
+    reef-record; then the row script's own next command — the one bare merge the orchestrator runs where the guard sees
+    it (settle never merges) — or ROW WAITS <state>: <why>."""
+    rm = load_script("reef-row.py")
     main = rm.main_checkout(root)
     cfg = rm.config(main)
-    rid, slug, co = str(res.get("row")), str(res.get("feature") or ""), str(res.get("worktree") or "")
+    rid = str(res.get("row") or "")
+    found = rm.find_folder(main, cfg, rid)
+    if not found:
+        die(f"row {rid}: no feature folder on disk", 1)
+    co, slug, fdir, rid = found
+    if str(res.get("feature") or "") != slug or os.path.realpath(str(res.get("worktree") or "")) != os.path.realpath(co):
+        die(f"row {rid}: the result names feature {res.get('feature')!r} in {res.get('worktree')!r}; the disk says {slug} in {co} — a result is a summary, the disk is the evidence", 1)
+    prefix = str((cfg.get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
+    base = str((cfg.get("branches") or {}).get("base", "main") or "main")
+    scratch = os.path.realpath(report_base(root))
+    inside = lambda p: bool(p) and os.path.realpath(str(p)).startswith(scratch + os.sep) and os.path.isfile(str(p))
+    results = res.get("tasks") if isinstance(res.get("tasks"), list) else []
+    seen = {str(r.get("task")) for r in results if isinstance(r, dict)}
+    for tid, _ in open_tasks(fdir):   # the workflow stops at the first failure: the tasks after it never started
+        marker = os.path.join(main, ".reef", "inflight", tid)
+        if tid not in seen and os.path.isfile(marker):
+            os.unlink(marker)
+    rc, log, _ = run(["git", "log", f"{base}..HEAD", "--format=%(trailers:key=Closes-task,valueonly)"], co)
+    trailers = {l.strip() for l in log.splitlines() if l.strip()}
     failed = 0
-    for r in res.get("tasks") or []:
-        close, task_file = r.get("close") or {}, str(r.get("task_file") or "")
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        tid, close, task_file = str(r.get("task")), r.get("close") or {}, str(r.get("task_file") or "")
         extra = []
         if not close.get("closed"):
             extra.append("not closed: " + (str(close.get("output") or "").strip().splitlines() or ["the close step did not run"])[-1][:200])
-        elif not task_file or os.path.isfile(task_file) or not os.path.isfile(os.path.join(os.path.dirname(task_file), "done", os.path.basename(task_file))):
-            extra.append("not closed on disk: the task file is not under done/ (the mechanic's claim is not the evidence)")
         else:
-            r = dict(r, task_file=os.path.join(os.path.dirname(task_file), "done", os.path.basename(task_file)))   # closed: the file moved
-        f, found = settle_task(root, r, extra, row=True)
+            done = os.path.join(os.path.dirname(task_file), "done", os.path.basename(task_file))
+            if not task_file or os.path.isfile(task_file) or not os.path.isfile(done):
+                extra.append("not closed on disk: the task file is not under done/ (the mechanic's claim is not the evidence)")
+            elif not any(t.startswith(f"{tid}-") for t in trailers):
+                extra.append(f"not closed on disk: no commit with `Closes-task: {tid}-…` on {prefix}{slug} since {base} (a task file moved by hand is not a close)")
+            else:
+                r = dict(r, task_file=done)
+        f, lines = settle_task(root, r, extra, row=True)
         failed += f
-        for line in found:
+        for line in lines:
             print(line)
     if failed:
         print(f"ROW {rid} WAITS build: {failed} task(s) failed — the attempt is counted; the next `row {rid}` re-dispatches with the failure under the cap")
         return 1
-    ev = res.get("evidence") or {}
-    if res.get("stopped") in ("evidence", "converge") or not ev:
-        print(f"ROW {rid} WAITS evidence: {res.get('stopped') or 'no result'} — {str(ev.get('notes') or ev.get('evidence') or '')[:300]}")
+    rc, dirty, _ = run(["git", "status", "--porcelain"], co)
+    if dirty.strip():
+        print(f"ROW {rid} WAITS build: uncommitted changes in {co} after the closes — a close commits everything it finds; nothing is recorded")
         return 1
-    rc, out, _ = run([sys.executable, script(root, "reef-evidence.py"), "--repo", co], co)
-    if rc != 0:
-        print(f"ROW {rid} WAITS evidence: {(out.strip().splitlines() or ['no evidence'])[0]} — sh scripts/reef-gate.sh full in {co}")
+    left = open_tasks(fdir)
+    if left:
+        print(f"ROW {rid} WAITS build: open task(s) on disk: {', '.join(t for t, _ in left)} — the next `row {rid}` runs them")
+        return 1
+    if res.get("stopped") == "merge-base":
+        print(f"ROW {rid} WAITS merge-base: a conflict for a person — {str((res.get('pr') or {}).get('output') or '')[:200]}")
         return 1
     rc, head, _ = run(["git", "rev-parse", "HEAD"], co)
     head = head.strip()
-    os.makedirs(os.path.join(co, ".reef", "ci-local"), exist_ok=True)
-
-    def copied(rec, name):
-        rp = str((rec or {}).get("report_path") or "")
-        if not os.path.isfile(rp):
-            return None
-        dest = os.path.join(co, ".reef", "ci-local", name)
-        with open(rp, "rb") as a, open(dest, "wb") as b:
-            b.write(a.read())   # a copy: the agent's words unchanged
-        return dest
-    for role, name in (("guard", f"guard-{slug}.md"), ("security", f"security-{slug}.md")):
-        rec = res.get(role)
-        if rec:
-            dest = copied(rec, name)
-            if rec.get("verdict") != "PASS" or not dest:
-                print(f"ROW {rid} WAITS review: {role} {rec.get('verdict')} — {str(rec.get('summary', ''))[:160]} — its findings go on the rollup")
-                return 1
-            if role == "guard":
-                rc, out, err = run([sys.executable, script(root, "reef-adversarial"), "--feature", slug, "guard", dest], co)
-                if rc != 0:
-                    print(f"ROW {rid} WAITS review: the guard-pass record was refused — {(err or out).strip().splitlines()[-1][:160] if (err or out).strip() else rc}")
-                    return 1
-    rev = res.get("review") or {}
-    dest = copied(rev, f"review-{slug}-{head[:12]}.md")
-    if res.get("stopped") or not dest:
-        print(f"ROW {rid} WAITS review: {res.get('stopped') or 'no report file'} — /reef-review {slug}")
+    rc, ev, _ = run([sys.executable, script(root, "reef-evidence.py"), "--repo", co], co)
+    if rc == 3:
+        print(f"ROW {rid} WAITS evidence: CI is running on {head[:12]} — `python3 scripts/reef-row.py next {rid}` when it is green")
         return 1
-    verdict = "GREEN" if rev.get("verdict") == "GREEN" else "FAIL"
-    pr = res.get("pr") or {}
+    if rc != 0:
+        print(f"ROW {rid} WAITS evidence: {(ev.strip().splitlines() or ['no evidence'])[0]} — sh scripts/reef-gate.sh full in {co}")
+        return 1
+    rc, cout, cerr = run([sys.executable, script(root, "reef-converge"), slug, "--repo", co, "--dry-run"], co, timeout=1200)
+    if rc == 3:
+        print(f"ROW {rid} WAITS evidence: a gates.resources slot was busy — run settle again")
+        return 1
+    if rc != 0:
+        print(f"ROW {rid} WAITS review: converge — {(cout.strip().splitlines() or [cerr.strip()[:200]])[-1][:200]} — on the rollup, then /reef-task")
+        return 1
+    rev = res.get("review") if isinstance(res.get("review"), dict) else {}
+    rp = str(rev.get("report_path") or "")
+    if res.get("stopped") or not inside(rp):
+        print(f"ROW {rid} WAITS review: {res.get('stopped') or 'no report file in the run\'s scratch dir'} — /reef-review {slug}")
+        return 1
+    os.makedirs(os.path.join(co, ".reef", "ci-local"), exist_ok=True)
+    dest = os.path.join(co, ".reef", "ci-local", f"review-{slug}-{head[:12]}.md")
+    with open(rp, "rb") as a, open(dest, "wb") as b:
+        b.write(a.read())   # a copy: the agent's words unchanged
+    verdict = verdict_of(dest)
+    if verdict not in ("GREEN", "FAIL"):
+        print(f"ROW {rid} WAITS review: the report ends with no `VERDICT: GREEN|FAIL` line ({dest}) — /reef-review {slug}")
+        return 1
+    pr = res.get("pr") if isinstance(res.get("pr"), dict) else {}
     n = pr.get("number")
     if not n:
         print(f"ROW {rid} REVIEWED {verdict} at {head[:12]}, no PR ({str(pr.get('output') or '')[:160] or 'no remote'}) — nothing recorded; the owner merges")
@@ -727,10 +766,10 @@ def settle_row(root, res):
     if verdict == "FAIL":
         print(f"ROW {rid} WAITS review: FAIL — {str(rev.get('summary', ''))[:160]} — its findings go on the rollup (reef-attempt), then /reef-task")
         return 1
-    if rm.merge_by(cfg) == "loop":
-        print(f"ROW {rid} READY TO MERGE (PR #{n} at {head[:12]}) — run it bare, nothing chained: gh pr merge {n} --squash --delete-branch ; then python3 scripts/reef-row.py next {rid}")
-    else:
-        print(f"ROW {rid} REVIEWED GREEN (PR #{n} at {head[:12]}) — the owner merges (merge.by: human)")
+    st, _ = rm.state_of(root, rid)   # the record is on disk: the row script names the merge, once, for every reader
+    print(f"ROW {rid} READY TO MERGE (PR #{n} at {head[:12]}) — the one command, bare, nothing chained:")
+    print(f"  {st.get('next')}")
+    print(f"  then: python3 scripts/reef-row.py next {rid}")
     return 0
 
 
