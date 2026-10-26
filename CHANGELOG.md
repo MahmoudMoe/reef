@@ -1,6 +1,16 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **One Workflow per row: the orchestrator makes three calls per row, not three per task plus the review's own**
+  (workflow v3, phase 5b; 2026-10-26). `python3 scripts/reef-graph-run.py row <row>` writes `.reef/graph/row-<slug>-<hash>.js`:
+  the row's open tasks in id order, each implemented, gated, judged on the critical path and closed in place by the mechanic
+  (`reef-merge-close`) before the next starts; then the full gate and `reef-converge` once, `reef-merge-base` + push + PR, the
+  critical path's guard pass and security, and the one reviewer (`reef:acceptance`). `settle` checks every close on disk,
+  re-reads the evidence, copies and records the reports (`reef-record`, `reef-adversarial --feature … guard`) and prints
+  `ROW <id> READY TO MERGE … gh pr merge <n> --squash --delete-branch` — the one bare command the orchestrator runs, where the
+  guard checks the record, the base tip and the evidence (a script's merge would pass no hook) — or `ROW <id> WAITS <state>`.
+  Refused at the owner's steps (plan, approval), the scripts' (merge, close), with a task in flight, or while graph mode is
+  off. `/reef-graph` "The row" and `/reef-loop` step 2 send a row in build to it. tests/size-budget.json raised: `prose_words` 21,143 → 21,373, `script_lines` 15,777 → 16,094.
 - **Scripts orchestrate: the row is a state machine on disk, every wait renders the handoff, nobody writes one by hand**
   (workflow v3, phase 5; 2026-10-26). The first adoption's orchestrator held the row's state in its context — 105k of
   150k after one review, a `/clear` and a hand-written handoff every few hours, a whole session with no product line.

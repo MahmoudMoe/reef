@@ -665,3 +665,20 @@ class Templates(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RowDriver(unittest.TestCase):
+    """v3 phase 5b: the graph skill names the row driver (three calls per row) and keeps the merge the orchestrator's one bare
+    command; the loop skill sends a row in build to it."""
+
+    def test_the_graph_skill_names_the_row_driver_and_the_merge_stays_the_orchestrators(self):
+        text = read("skills", "reef-graph", "SKILL.md")
+        self.assertIn("reef-graph-run.py row <row>", text)
+        self.assertIn("closed in place by the mechanic", text)
+        self.assertRegex(text, r"ROW <id> READY TO MERGE")
+        self.assertIn("you run that one command bare", text)
+        self.assertLessEqual(len(text.splitlines()), 60)
+        loop = read("skills", "reef-loop", "SKILL.md")
+        self.assertIn("reef-graph-run.py row <row>", loop)
+        self.assertLessEqual(len(loop.splitlines()), 60)
+        self.assertIn("def cmd_row", read("scripts", "reef-graph-run.py"))
