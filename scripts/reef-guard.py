@@ -109,7 +109,8 @@ HANDOFF_DENIAL = ("HANDOFF.md is rendered whole from measured state by scripts/r
 # evidence an AGENT produced: a hand-back, a verifier/hunter report, a plan review. The main session (no agent_id in
 # the payload) may copy one (cp/mv from the scratchpad) but never write its content (2026-10-17: a hunter report and
 # a hand-back were typed by the orchestrator "from the agent's message" — evidence nobody but the orchestrator wrote).
-EVIDENCE = re.compile(r"(^|/)\.reef/(ci-local/(handback|report|hunt|plan-review)-[^/]+\.md|hunt/[^/]+\.md)$")
+EVIDENCE = re.compile(r"(^|/)\.reef/(ci-local/(handback|report|hunt|plan-review)-[^/]+\.md|hunt/[^/]+\.md)$", re.I)   # re.I: a macOS disk opens .reef/CI-LOCAL/ as the same folder
+SCRATCH = re.compile(r"(^|/)(scratchpad|reef-graph-[0-9a-f]{8})(/|$)")   # where an agent writes its report: the session scratchpad, the graph's report dirs
 COPY_HEADS = {"cp", "mv", "install", "rsync"}
 EVIDENCE_DENIAL = ("the main session does not write an agent's evidence ({path}): the agent writes its own file (the hand-back into "
                    "its worktree's .reef/ci-local/, a judge's report into the scratchpad) and the orchestrator copies it with cp. "
@@ -369,11 +370,17 @@ def check_evidence_authoring(seg, ctx):
     if not ctx.get("main_session") or not is_write(seg):
         return
     head = next((os.path.basename(x) for x in seg if os.path.basename(x) in WRITE_HEADS), None)
-    if head in COPY_HEADS:
-        return   # a copy carries the agent's words unchanged
     hits = [x for x in write_targets(seg) if EVIDENCE.search(x)]
-    if hits:
-        deny(EVIDENCE_DENIAL.format(path=hits[0]))
+    if not hits:
+        return
+    if head in COPY_HEADS:   # a copy carries the agent's words unchanged — when it comes from where the agent wrote them
+        i = next(i for i, x in enumerate(seg) if os.path.basename(x) == head)
+        sources = [x for x in seg[i + 1:] if not x.startswith("-")][:-1]
+        if sources and all(SCRATCH.search(os.path.realpath(x) if os.path.isabs(x) else x) for x in sources):
+            return
+        deny(f"an agent's report is copied from the scratchpad it wrote it to (or the graph's /tmp/reef-graph-* report dir), not from "
+             f"{', '.join(sources) or 'nowhere'}: a file from elsewhere is evidence nobody but the orchestrator wrote (the review, 2026-10-27)")
+    deny(EVIDENCE_DENIAL.format(path=hits[0]))
 
 
 def check_guard_files(seg, ctx):
@@ -517,6 +524,7 @@ def check_segment(seg, depth=0, next_op=";", pipefail=False):
     check_reviewer_lock(seg, CTX)
     check_forge_merge(seg, CTX)
     check_approval_cli(seg)
+    check_day_footnote(seg)
     check_release_pr(seg, CTX)
     if next_op in ("|", "|&") and not pipefail and is_gate(seg):
         deny(f"gate {' '.join(seg[:3])!r} piped into another command — the pipe reports the LAST "
@@ -632,6 +640,21 @@ def check_release_pr(seg, ctx):
          f"since the pass is audited again)")
 
 
+def check_day_footnote(seg):
+    """v3 phase 6: a `Mahmoud (proxy, day …)` footnote is the proxy's decision under the approved reef/proxy.md, written by
+    `reef-approval.py --proxy --day` from his own report; typed into `reef-queue.py footnote` it would pass any sentence off
+    as his (the night label stays the orchestrator's to write, as /reef-night says)."""
+    labelled = any(re.search(r"\(\s*(by\s+)?proxy\s*,\s*day\b", x, re.I) for x in seg)   # reef-run.py DAY_LABEL, spaces, case or `by` notwithstanding
+    queue_write = any(os.path.basename(x) == "reef-queue.py" for x in seg) and any(w in seg for w in ("footnote", "drop-row", "note", "add-row"))
+    writer = queue_write or (seg[:1] == ["gh"] and "issue" in seg[:2] and any(w in seg for w in ("comment", "create", "edit", "close")))
+    if queue_write and any(re.search(r"\$[({A-Za-z_]", x) for x in seg[1:]):
+        deny("a footnote, note or row carries the words themselves, never a shell variable or substitution (the guard reads the words)")
+    if labelled and writer:
+        deny("a `Mahmoud (proxy, day …)` footnote is written by `python3 scripts/reef-approval.py --proxy --day --kind <kind> --row <id> "
+             "--report .reef/ci-local/report-mahmoud-day-<row>.md` from his report, under the approved reef/proxy.md — never typed, "
+             "into no footnote, note, row or issue")
+
+
 def check_approval_cli(seg):
     """The plan and night approvals are the owner's: the AskUserQuestion hook, or `reef-approval.py --owner` in the owner's
     own terminal (OpenCode). An agent runs the script only with --proxy (a delegated night); piping a made-up answered
@@ -645,7 +668,12 @@ def check_approval_cli(seg):
             i += 1
     if i < len(seg) and os.path.basename(seg[i]) == "reef-approval.py" and "--proxy" not in seg[i + 1:]:
         deny("reef-approval.py records the OWNER's approval: the AskUserQuestion hook, or `reef-approval.py --owner "
-             "\"<question>\"` run by the owner in their own terminal — an agent runs it only with --proxy, during a night")
+             "\"<question>\"` run by the owner in their own terminal — an agent runs it only with --proxy (a night's plan "
+             "approval, or --proxy --day under the approved reef/proxy.md)")
+    who = str(CTX.get("agent_type") or "").split(":")[-1]
+    if i < len(seg) and os.path.basename(seg[i]) == "reef-approval.py" and "--proxy" in seg[i + 1:] and who and who != "mahmoud":
+        deny(f"reef-approval.py --proxy records MAHMOUD's decision from his own report: the orchestrator runs it after copying that "
+             f"report, or Mahmoud himself — not a {who} (the review, 2026-10-27)")
 
 
 def same_feature_change(cwd, base_tip, reviewed, head):
@@ -1389,6 +1417,10 @@ def check_edit(tool_input, payload, ctx):
              "a hand-written one is an approval nobody gave, or a suite run that never happened")
     if ctx.get("main_session") and (EVIDENCE.search(path) or EVIDENCE.search(rel)):
         deny(EVIDENCE_DENIAL.format(path=rel))
+    if not ctx.get("main_session"):
+        qrel = str((read_config(main_checkout(ctx.get("cwd") or os.getcwd())).get("paths") or {}).get("queue", "docs/queue.md") or "docs/queue.md").strip("/")
+        if rel.replace(os.sep, "/") in (qrel, qrel.rsplit("/", 1)[0] + "/queue-archive.md") or path.replace(os.sep, "/").endswith("/" + qrel):
+            deny(f"{qrel} is edited by commands only (scripts/reef-queue.py footnote|add-row|note|drop-row …), never by an agent's Edit or Write (the review, 2026-10-27)")
     if is_project_handoff(path, ctx.get("cwd") or ""):
         deny(HANDOFF_DENIAL)
     if not (GUARD_FILES.search(path) or GUARD_FILES.search(rel)):

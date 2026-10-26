@@ -682,3 +682,22 @@ class RowDriver(unittest.TestCase):
         self.assertIn("reef-graph-run.py row <row>", loop)
         self.assertLessEqual(len(loop.splitlines()), 60)
         self.assertIn("def cmd_row", read("scripts", "reef-graph-run.py"))
+
+
+class ProxyByDay(unittest.TestCase):
+    """v3 phase 6: the loop skill sends a process or wording question to the proxy under the approved reef/proxy.md and has the
+    script write his footnote; the proxy agent names the day's kinds and the WAIT; the owner's kinds are named in both."""
+
+    def test_the_loop_skill_and_the_proxy_agent_name_the_day_contract_and_the_owners_kinds(self):
+        loop = read("skills", "reef-loop", "SKILL.md")
+        self.assertIn("reef-run.py contract --day", loop)
+        self.assertIn("--proxy --day", loop)
+        self.assertIn("Approve proxy by day at <digest16>?", loop)
+        self.assertRegex(loop, r"Product, money, data, look, security and the release are never his")
+        self.assertLessEqual(len(loop.splitlines()), 60)
+        agent = read("agents", "mahmoud.md")
+        self.assertIn("reef/proxy.md", agent)
+        self.assertIn("`process`", agent); self.assertIn("`wording`", agent)
+        self.assertIn("day=<date> kind=<kind>", agent)
+        self.assertLessEqual(len(agent.splitlines()), 60)
+        self.assertIn("def check_day_footnote", read("scripts", "reef-guard.py"))

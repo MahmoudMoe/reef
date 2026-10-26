@@ -5,9 +5,14 @@ Writes .reef/approvals/<feature>.json = {digest16, approved_at, files} only when
 is answered exactly `Approve` and the 16 hex equal the current digest (reef-plan-check.py --digest); a timeout
 (afkTimeoutMs), another label or a stale digest writes nothing. Always exit 0; the guard enforces the record.
 Usage: cat payload.json | reef-approval.py [--root DIR]
-       reef-approval.py --owner "Approve plan <feature> at <digest16>?" | "Approve night <date> at <digest16>?"
+       reef-approval.py --owner "Approve plan <feature> at <digest16>?" | "Approve night <date> at <digest16>?" | "Approve proxy by day at <digest16>?"
          the owner, in their own terminal, where the AskUserQuestion hook does not exist (OpenCode); the guard refuses
-         an agent running this script, except --proxy during a night
+         an agent running this script, except --proxy during a night and --proxy --day under the approved reef/proxy.md
+       reef-approval.py --proxy --day --kind <process|wording> --row <id> --report .reef/ci-local/report-mahmoud-day-<row>.md
+         (v3 phase 6) Mahmoud's decision by day, from his own report (`RUN: agent=mahmoud day=<date> kind=<kind> …`, a
+         `DECIDE <question> — <answer> — <why>` line): written as the queue footnote `Mahmoud (proxy, day <date>, <kind>): …`
+         on the row and logged in .reef/approvals/day-decisions.jsonl; a `WAIT` line is exit 3 (the owner's: reef-queue.py
+         ask); a kind reef/proxy.md does not name, a stale or missing day approval, a foreign report: refused, nothing written
 """
 import json
 import os
@@ -18,6 +23,7 @@ import time
 
 QUESTION = re.compile(r"^Approve plan (?P<feature>[A-Za-z0-9][A-Za-z0-9._-]*) at (?P<digest>[0-9a-f]{16})\?$")
 NIGHT_Q = re.compile(r"^Approve night (?P<date>\d{4}-\d\d-\d\d) at (?P<digest>[0-9a-f]{16})\?$")
+DAY_Q = re.compile(r"^Approve proxy by day at (?P<digest>[0-9a-f]{16})\?$")
 
 
 def runner():
@@ -197,17 +203,90 @@ def cmd_proxy(argv):
     return 0
 
 
+def cmd_proxy_day(argv):
+    """v3 phase 6: the proxy's decision by day, under reef/proxy.md approved at its digest, for a kind that file names, from
+    Mahmoud's own report under .reef/ci-local/ — the footnote carries his label, written here and never typed."""
+    opt = lambda k: argv[argv.index(k) + 1] if k in argv and argv.index(k) + 1 < len(argv) else ""
+    kind, row, report = opt("--kind").strip().lower(), opt("--row").strip(), opt("--report")
+    if not kind or not row or not report:
+        print("usage: reef-approval.py --proxy --day --kind <process|wording> --row <id> --report .reef/ci-local/report-mahmoud-day-<row>.md")
+        return 2
+    cwd = os.getcwd()
+    root = main_checkout(cwd)
+    refuse = lambda why: (print(f"reef-approval: day, row {row}: REFUSED — {why}; nothing written"), 1)[1]
+    if os.path.isfile(os.path.join(root, ".reef", "night", "active")):
+        return refuse("a night is running (.reef/night/active): its contract governs; the day contract waits for the morning")
+    rr = runner()
+    ok, why = rr.day_ok(root)
+    if not ok:
+        return refuse(why)
+    kinds = rr.day_kinds(root)
+    if kind not in kinds:
+        return refuse(f"`{kind}` is the owner's (reef/proxy.md decides: {', '.join(kinds) or '-'}) — file it: `python3 scripts/reef-queue.py ask \"<question>\" --row {row} --recommended \"<answer>\"`")
+    if not re.search(r"(^|/)\.reef/ci-local/report-mahmoud-day-" + re.escape(row) + r"(-[A-Za-z0-9_]+)?\.md$", report.replace(os.sep, "/")):
+        return refuse(f"the report must be Mahmoud's own file copied to .reef/ci-local/report-mahmoud-day-{row}.md")
+    try:
+        with open(report if os.path.isabs(report) else os.path.join(cwd, report), encoding="utf-8") as f:
+            text = f.read()
+    except OSError as e:
+        return refuse(f"cannot read the report: {e}")
+    run_line = re.search(r"^RUN:[ \t]*agent=mahmoud\b(.*)$", text, re.M)
+    if not run_line:
+        return refuse("the report's first line is not `RUN: agent=mahmoud …`")
+    today = time.strftime("%Y-%m-%d")
+    date = re.search(r"\bday=(\d{4}-\d\d-\d\d)", run_line.group(1))
+    rkind = re.search(r"\bkind=([a-z]+)", run_line.group(1))
+    if not date or not rkind or rkind.group(1) != kind:
+        return refuse(f"the RUN line must carry `day=<date> kind={kind}` (a night report is not a day decision)")
+    if date.group(1) != today:
+        return refuse(f"the RUN line says day={date.group(1)}, today is {today} — a decision is dated by the clock, not the report")
+    wait = re.search(r"^WAIT\b(.*)$", text, re.M)
+    dec = re.search(r"^DECIDE (?P<q>.+?) — (?P<a>.+?) — (?P<why>.+)$", text, re.M)
+    if wait:
+        print(f"reef-approval: day, row {row}: WAIT — {wait.group(1).strip()[:200]} — the owner's: `python3 scripts/reef-queue.py ask \"<question>\" --row {row} --recommended \"<answer>\"`")
+        return 3
+    if not dec:
+        return refuse("no `DECIDE <question> — <answer> — <why>` or `WAIT` line in the report")
+    note = f"Mahmoud (proxy, day {today}, {kind}): {dec.group('a').strip()} — {dec.group('why').strip()}"
+    import hashlib
+    sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    log_p = os.path.join(root, ".reef", "approvals", "day-decisions.jsonl")
+    try:
+        with open(log_p, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    old = json.loads(line)
+                except ValueError:
+                    continue
+                if old.get("row") == row and old.get("report_sha256") == sha:
+                    return refuse(f"this report is already recorded (footnote {old.get('footnote')}) — one decision, one footnote")
+    except OSError:
+        pass
+    here = os.path.dirname(os.path.abspath(__file__))
+    r = subprocess.run([sys.executable, os.path.join(here, "reef-queue.py"), "footnote", note, "--row", row, "--repo", root], capture_output=True, text=True, cwd=root)
+    if r.returncode != 0:
+        return refuse(f"the footnote was refused: {(r.stderr or r.stdout).strip().splitlines()[-1][:200] if (r.stderr or r.stdout).strip() else r.returncode}")
+    mark = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+    os.makedirs(os.path.dirname(log_p), exist_ok=True)
+    with open(log_p, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "row": row, "kind": kind, "question": dec.group("q").strip(),
+                            "decision": dec.group("a").strip(), "why": dec.group("why").strip(), "footnote": mark, "day": rr.day_digest(root)[:16],
+                            "report_sha256": sha}) + "\n")
+    print(f"reef-approval: day, row {row} ({kind}): footnote {mark} — {note[:120]}")
+    return 0
+
+
 def main(argv):
     if "--proxy" in argv:
-        return cmd_proxy(argv)
+        return cmd_proxy_day(argv) if "--day" in argv else cmd_proxy(argv)
     root = None
     if "--root" in argv:
         root = argv[argv.index("--root") + 1]
     owner = "--owner" in argv
     if owner:
         q = (argv[argv.index("--owner") + 1] if argv.index("--owner") + 1 < len(argv) else "").strip()
-        if not (QUESTION.match(q) or NIGHT_Q.match(q)):
-            print('usage: reef-approval.py --owner "Approve plan <feature> at <digest16>?" | "Approve night <date> at <digest16>?"')
+        if not (QUESTION.match(q) or NIGHT_Q.match(q) or DAY_Q.match(q)):
+            print('usage: reef-approval.py --owner "Approve plan <feature> at <digest16>?" | "Approve night <date> at <digest16>?" | "Approve proxy by day at <digest16>?"')
             return 2
         payload = {"tool_name": "AskUserQuestion", "cwd": os.getcwd(), "tool_response": {"answers": {q: "Approve"}}}
     else:
@@ -231,6 +310,25 @@ def main(argv):
     root = root or main_checkout(payload.get("cwd") or os.getcwd())
     wrote = 0
     for question, label in answers.items():
+        dq = DAY_Q.match(str(question).strip())
+        if dq:
+            # v3 phase 6: the owner approves the proxy's day contract + their profile ONCE, at their digest
+            if str(label).strip() != "Approve":
+                print(f"reef-approval: proxy by day: answer was {label!r} — nothing written")
+                continue
+            rr = runner()
+            dg = rr.day_digest(root)
+            if not dg or dg[:16] != dq.group("digest"):
+                print(f"reef-approval: proxy by day: the question's digest {dq.group('digest')} is not the files' ({dg[:16] or 'missing'}) (stale) — nothing written")
+                continue
+            d = os.path.join(root, ".reef", "approvals")
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "day.json"), "w", encoding="utf-8") as f:
+                json.dump({"digest16": dg[:16], "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f, indent=1)
+                f.write("\n")
+            print(f"reef-approval: proxy by day approved at {dg[:16]} (decides: {', '.join(rr.day_kinds(root)) or '-'}) -> .reef/approvals/day.json")
+            wrote += 1
+            continue
         n = NIGHT_Q.match(str(question).strip())
         if n:
             # super Reef (2026-10-21): the owner approves tonight's contract + their profile ONCE, at their digest
