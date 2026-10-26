@@ -1,6 +1,16 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **The proxy decides process and wording by day, inside a contract the owner approves once; the owner's questions per
+  batch are counted** (workflow v3, phase 6; 2026-10-26). `python3 scripts/reef-run.py contract --day` seeds `reef/proxy.md`
+  (its `Decides:` line: `process`, `wording`; its `Never:` line: product, money, data, look, security, the release, a plan
+  approval) and prints `Approve proxy by day at <digest16>?` — one AskUserQuestion, recorded as `.reef/approvals/day.json`;
+  an edit to `reef/proxy.md` or `reef/owner.md` voids it. In the day loop a question of those kinds goes to `reef:mahmoud`
+  first; `python3 scripts/reef-approval.py --proxy --day --kind <kind> --row <id> --report .reef/ci-local/report-mahmoud-day-<row>.md`
+  writes his decision as the footnote `Mahmoud (proxy, day <date>, <kind>): <answer> — <why>` and logs it in
+  `.reef/approvals/day-decisions.jsonl`; a `WAIT` is the owner's (`reef-queue.py ask`); the guard refuses that label typed into
+  `reef-queue.py footnote`. `reef-cost.py rows` counts the owner's footnotes and the proxy's day decisions per batch; the
+  morning report shows both beside the last night's. tests/size-budget.json raised: `prose_words` 21,373 → 21,566, `script_lines` 16,094 → 16,265.
 - **One Workflow per row: the orchestrator makes three calls per row, not three per task plus the review's own**
   (workflow v3, phase 5b; 2026-10-26). `python3 scripts/reef-graph-run.py row <row>` writes `.reef/graph/row-<slug>-<hash>.js`:
   the row's open tasks in id order, each implemented, gated, judged on the critical path and closed in place by the mechanic

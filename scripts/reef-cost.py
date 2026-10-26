@@ -668,7 +668,18 @@ def pipeline_rows(repo, since):
         at = iso(rec.get("recorded_at"))
         if rec.get("verdict") == "FAIL" and (since_dt is None or at is None or at >= since_dt):
             fails += 1
+    # v3 phase 6 — the owner's questions per batch: footnotes added to the queue file in the window, the owner's against the
+    # proxy's day decisions (`Mahmoud (proxy, day …)`); a night's proxy footnotes are neither
+    queue_rel = str(paths_cfg.get("queue", "docs/queue.md") or "docs/queue.md").strip("/")
+    owner_q = proxy_day = 0
+    for line in git_out(repo, "log", f"--since={since}", "-p", "--format=", "--", queue_rel).splitlines():
+        if re.match(r"\+[\u2070-\u2079\u00b9\u00b2\u00b3]+ ", line):
+            if "(proxy, day" in line:
+                proxy_day += 1
+            elif "(proxy" not in line:
+                owner_q += 1
     batch = {"rows": len(rows), "process_commits": process, "product_commits": product, "security_fails": fails,
+             "owner_questions": owner_q, "proxy_day_decisions": proxy_day,
              "rollups": sum(r["rollups"] for r in rows), "reverts": sum(r["reverts"] for r in rows),
              "lead_min_median": median(r["lead_min"] for r in rows),
              "approval_to_merge_min_median": median(r["approval_to_merge_min"] for r in rows),
@@ -720,7 +731,8 @@ def cmd_rows(argv):
                   f"approval_to_merge_min={r['approval_to_merge_min']} tokens={r['tokens']} suite_runs={r['suite_runs']} rollups={r['rollups']} reverts={r['reverts']}")
         b = rep["batch"]
         print(f"batch rows={b['rows']} process_commits={b['process_commits']} product_commits={b['product_commits']} security_fails={b['security_fails']} "
-              f"lead_min_median={b['lead_min_median']} approval_to_merge_min_median={b['approval_to_merge_min_median']} tokens_median={b['tokens_median']} suite_runs_median={b['suite_runs_median']}")
+              f"lead_min_median={b['lead_min_median']} approval_to_merge_min_median={b['approval_to_merge_min_median']} tokens_median={b['tokens_median']} suite_runs_median={b['suite_runs_median']} "
+              f"owner_questions={b['owner_questions']} proxy_day_decisions={b['proxy_day_decisions']}")
     return 0
 
 

@@ -517,6 +517,7 @@ def check_segment(seg, depth=0, next_op=";", pipefail=False):
     check_reviewer_lock(seg, CTX)
     check_forge_merge(seg, CTX)
     check_approval_cli(seg)
+    check_day_footnote(seg)
     check_release_pr(seg, CTX)
     if next_op in ("|", "|&") and not pipefail and is_gate(seg):
         deny(f"gate {' '.join(seg[:3])!r} piped into another command — the pipe reports the LAST "
@@ -630,6 +631,15 @@ def check_release_pr(seg, ctx):
     deny(f"release PR into {release} at {head[:12]}: no PASS security record for that commit — dispatch reef:security on "
          f"`git diff {release}...{base}`, then `scripts/reef-record security PASS --report <its report>` (a base that moved "
          f"since the pass is audited again)")
+
+
+def check_day_footnote(seg):
+    """v3 phase 6: a `Mahmoud (proxy, day …)` footnote is the proxy's decision under the approved reef/proxy.md, written by
+    `reef-approval.py --proxy --day` from his own report; typed into `reef-queue.py footnote` it would pass any sentence off
+    as his (the night label stays the orchestrator's to write, as /reef-night says)."""
+    if any(os.path.basename(x) == "reef-queue.py" for x in seg) and "footnote" in seg and any("(proxy, day" in x for x in seg):
+        deny("a `Mahmoud (proxy, day …)` footnote is written by `python3 scripts/reef-approval.py --proxy --day --kind <kind> --row <id> "
+             "--report .reef/ci-local/report-mahmoud-day-<row>.md` from his report, under the approved reef/proxy.md — never typed")
 
 
 def check_approval_cli(seg):
