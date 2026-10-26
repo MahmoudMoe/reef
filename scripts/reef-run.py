@@ -282,18 +282,34 @@ def in_flight(root):
     return sorted(set(ids))
 
 
-def night_digest(root):
-    """sha256 over the contract and the owner's profile, in one place (the hook and --proxy import this): an edit to
-    either after the owner's approval approves nothing."""
+def files_digest(root, rels):
+    """sha256 over named files (the night's contract + profile, the day's proxy.md + profile), in one place: the hook
+    and --proxy import this, and an edit to any of them after the owner's approval approves nothing."""
     import hashlib
     h = hashlib.sha256()
-    for rel in (os.path.join(NIGHT_DIR, "contract.md"), os.path.join("reef", "owner.md")):
+    for rel in rels:
         try:
             with open(os.path.join(root, rel), "rb") as f:
                 h.update(rel.encode() + b"\0" + f.read() + b"\0")
         except OSError:
             return ""
     return h.hexdigest()
+
+
+def record_ok(root, name, digest, what, hint):
+    """(ok, why): .reef/approvals/<name>.json carries the current digest of `what`."""
+    try:
+        with open(os.path.join(root, ".reef", "approvals", f"{name}.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+    except (OSError, ValueError):
+        return None, f"no .reef/approvals/{name}.json — {hint}"
+    if not digest or rec.get("digest16") != digest[:16]:
+        return None, f"{what} changed since the owner approved it ({rec.get('digest16')} vs {digest[:16] or 'missing'}) — {hint}"
+    return rec, ""
+
+
+def night_digest(root):
+    return files_digest(root, (os.path.join(NIGHT_DIR, "contract.md"), os.path.join("reef", "owner.md")))
 
 
 def night_rows(root):
@@ -308,15 +324,10 @@ def night_rows(root):
 
 
 def night_ok(root):
-    """(ok, why): night.json carries the current night digest."""
-    try:
-        with open(os.path.join(root, ".reef", "approvals", "night.json"), encoding="utf-8") as f:
-            rec = json.load(f)
-    except (OSError, ValueError):
-        return False, "no .reef/approvals/night.json — run /reef-night in Claude Code first (the owner approves tonight's contract)"
-    dg = night_digest(root)
-    if not dg or rec.get("digest16") != dg[:16]:
-        return False, f"the contract or reef/owner.md changed since the owner approved it ({rec.get('digest16')} vs {dg[:16] or 'missing'}) — /reef-night again"
+    """(ok, why): night.json carries the current night digest, for tonight, with an open row."""
+    rec, why = record_ok(root, "night", night_digest(root), "the contract or reef/owner.md", "/reef-night again (the owner approves tonight's contract in Claude Code)")
+    if rec is None:
+        return False, why
     # 2026-10-21 (qassimha): last night's approval, rows 3 and 12 both closed since, still passed; the night ran one
     # 29-second session and waited. An approval is for one night, and a contract with no open row has nothing to do.
     import datetime
@@ -346,17 +357,12 @@ Never: product, money, data, look, security, the release, a plan approval, a nig
 """
 
 
+DAY_LABEL = r"Mahmoud \(proxy,\s*day\b"   # the footnote label reef-approval.py --proxy --day writes; the guard refuses it typed by hand
+
+
 def day_digest(root):
-    """sha256 over reef/proxy.md and reef/owner.md (v3 phase 6): the owner approves both once; an edit voids it."""
-    import hashlib
-    h = hashlib.sha256()
-    for rel in DAY_FILES:
-        try:
-            with open(os.path.join(root, rel), "rb") as f:
-                h.update(rel.encode() + b"\0" + f.read() + b"\0")
-        except OSError:
-            return ""
-    return h.hexdigest()
+    """v3 phase 6: reef/proxy.md + reef/owner.md; the owner approves both once; an edit voids it."""
+    return files_digest(root, DAY_FILES)
 
 
 def day_kinds(root):
@@ -372,15 +378,8 @@ def day_kinds(root):
 
 def day_ok(root):
     """(ok, why): .reef/approvals/day.json carries the current day digest."""
-    try:
-        with open(os.path.join(root, ".reef", "approvals", "day.json"), encoding="utf-8") as f:
-            rec = json.load(f)
-    except (OSError, ValueError):
-        return False, "no .reef/approvals/day.json — `python3 scripts/reef-run.py contract --day`, then the owner answers its question once"
-    dg = day_digest(root)
-    if not dg or rec.get("digest16") != dg[:16]:
-        return False, f"reef/proxy.md or reef/owner.md changed since the owner approved it ({rec.get('digest16')} vs {dg[:16] or 'missing'}) — `reef-run.py contract --day` again"
-    return True, ""
+    rec, why = record_ok(root, "day", day_digest(root), "reef/proxy.md or reef/owner.md", "`python3 scripts/reef-run.py contract --day`, then the owner answers its question once")
+    return rec is not None, why
 
 
 def queue_open_rows(root):
@@ -544,10 +543,23 @@ def morning_report(root, started, log):
         cfg = {}
     queue = os.path.join(root, (cfg.get("paths") or {}).get("queue", "docs/queue.md"))
     try:
-        foot = [f"- {l.strip()}" for l in open(queue, encoding="utf-8") if "Mahmoud (proxy" in l]
+        foot = [f"- {l.strip()}" for l in open(queue, encoding="utf-8") if "Mahmoud (proxy, night" in l]   # the day's decisions are not the night's list
     except OSError:
         pass
     lines += ["## Mahmoud's other decisions (queue footnotes — undo: edit the footnote)", *(foot or ["- none"]), ""]
+    day = []
+    try:
+        with open(os.path.join(root, ".reef", "approvals", "day-decisions.jsonl"), encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if str(rec.get("at", "")) >= started:
+                    day.append(f"- row {rec.get('row')} ({rec.get('kind')}): {rec.get('question')} → {rec.get('decision')} — undo: edit footnote {rec.get('footnote')}")
+    except OSError:
+        pass
+    lines += ["## The proxy's decisions by day (what he called process or wording — read the question)", *(day or ["- none"]), ""]
     base = str((cfg.get("branches") or {}).get("base", "main") or "main")
     r = subprocess.run(["git", "-C", root, "log", "--merges", "--format=- %h %s", f"--since={started}", base], capture_output=True, text=True)
     lines += [f"## Merges into {base} (undo: git revert -m 1 <sha>)", *(r.stdout.splitlines() or ["- none"]), ""]

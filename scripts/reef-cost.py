@@ -671,13 +671,25 @@ def pipeline_rows(repo, since):
     # v3 phase 6 — the owner's questions per batch: footnotes added to the queue file in the window, the owner's against the
     # proxy's day decisions (`Mahmoud (proxy, day …)`); a night's proxy footnotes are neither
     queue_rel = str(paths_cfg.get("queue", "docs/queue.md") or "docs/queue.md").strip("/")
-    owner_q = proxy_day = 0
-    for line in git_out(repo, "log", f"--since={since}", "-p", "--format=", "--", queue_rel).splitlines():
-        if re.match(r"\+[\u2070-\u2079\u00b9\u00b2\u00b3]+ ", line):
-            if "(proxy, day" in line:
-                proxy_day += 1
-            elif "(proxy" not in line:
-                owner_q += 1
+    marks = set()   # one count per footnote mark: an edited footnote (the owner's undo) is the same question, not a second
+    for line in git_out(repo, "log", "--first-parent", base, f"--since={since}", "-p", "--format=", "--", queue_rel).splitlines():
+        m = re.match(r"\+([\u2070-\u2079\u00b9\u00b2\u00b3]+) (.*)", line)
+        if m and not re.search(r"\(proxy\b", m.group(2), re.I) and not re.match(r"row \d+ deleted \(rule 7\)", m.group(2)):
+            marks.add(m.group(1))
+    owner_q = len(marks)
+    proxy_day = 0   # the proxy's day decisions: their record, not a grep of the label
+    try:
+        with open(os.path.join(repo, ".reef", "approvals", "day-decisions.jsonl"), encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                at = iso(rec.get("at"))
+                if since_dt is None or at is None or at >= since_dt:
+                    proxy_day += 1
+    except OSError:
+        pass
     batch = {"rows": len(rows), "process_commits": process, "product_commits": product, "security_fails": fails,
              "owner_questions": owner_q, "proxy_day_decisions": proxy_day,
              "rollups": sum(r["rollups"] for r in rows), "reverts": sum(r["reverts"] for r in rows),

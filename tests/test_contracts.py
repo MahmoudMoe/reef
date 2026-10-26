@@ -695,7 +695,7 @@ class ProxyByDay(unittest.TestCase):
         self.assertIn("Approve proxy by day at <digest16>?", loop)
         self.assertRegex(loop, r"Product, money, data, look, security and the release are never his")
         self.assertLessEqual(len(loop.splitlines()), 60)
-        agent = read("agents", "mahmoud", ".md") if False else read("agents", "mahmoud.md")
+        agent = read("agents", "mahmoud.md")
         self.assertIn("reef/proxy.md", agent)
         self.assertIn("`process`", agent); self.assertIn("`wording`", agent)
         self.assertIn("day=<date> kind=<kind>", agent)

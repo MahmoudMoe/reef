@@ -214,6 +214,8 @@ def cmd_proxy_day(argv):
     cwd = os.getcwd()
     root = main_checkout(cwd)
     refuse = lambda why: (print(f"reef-approval: day, row {row}: REFUSED — {why}; nothing written"), 1)[1]
+    if os.path.isfile(os.path.join(root, ".reef", "night", "active")):
+        return refuse("a night is running (.reef/night/active): its contract governs; the day contract waits for the morning")
     rr = runner()
     ok, why = rr.day_ok(root)
     if not ok:
@@ -231,10 +233,13 @@ def cmd_proxy_day(argv):
     run_line = re.search(r"^RUN:[ \t]*agent=mahmoud\b(.*)$", text, re.M)
     if not run_line:
         return refuse("the report's first line is not `RUN: agent=mahmoud …`")
+    today = time.strftime("%Y-%m-%d")
     date = re.search(r"\bday=(\d{4}-\d\d-\d\d)", run_line.group(1))
     rkind = re.search(r"\bkind=([a-z]+)", run_line.group(1))
     if not date or not rkind or rkind.group(1) != kind:
         return refuse(f"the RUN line must carry `day=<date> kind={kind}` (a night report is not a day decision)")
+    if date.group(1) != today:
+        return refuse(f"the RUN line says day={date.group(1)}, today is {today} — a decision is dated by the clock, not the report")
     wait = re.search(r"^WAIT\b(.*)$", text, re.M)
     dec = re.search(r"^DECIDE (?P<q>.+?) — (?P<a>.+?) — (?P<why>.+)$", text, re.M)
     if wait:
@@ -242,19 +247,31 @@ def cmd_proxy_day(argv):
         return 3
     if not dec:
         return refuse("no `DECIDE <question> — <answer> — <why>` or `WAIT` line in the report")
-    note = f"Mahmoud (proxy, day {date.group(1)}, {kind}): {dec.group('a').strip()} — {dec.group('why').strip()}"
+    note = f"Mahmoud (proxy, day {today}, {kind}): {dec.group('a').strip()} — {dec.group('why').strip()}"
+    import hashlib
+    sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    log_p = os.path.join(root, ".reef", "approvals", "day-decisions.jsonl")
+    try:
+        with open(log_p, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    old = json.loads(line)
+                except ValueError:
+                    continue
+                if old.get("row") == row and old.get("report_sha256") == sha:
+                    return refuse(f"this report is already recorded (footnote {old.get('footnote')}) — one decision, one footnote")
+    except OSError:
+        pass
     here = os.path.dirname(os.path.abspath(__file__))
     r = subprocess.run([sys.executable, os.path.join(here, "reef-queue.py"), "footnote", note, "--row", row, "--repo", root], capture_output=True, text=True, cwd=root)
     if r.returncode != 0:
         return refuse(f"the footnote was refused: {(r.stderr or r.stdout).strip().splitlines()[-1][:200] if (r.stderr or r.stdout).strip() else r.returncode}")
     mark = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
-    import hashlib
-    d = os.path.join(root, ".reef", "approvals")
-    os.makedirs(d, exist_ok=True)
-    with open(os.path.join(d, "day-decisions.jsonl"), "a", encoding="utf-8") as f:
+    os.makedirs(os.path.dirname(log_p), exist_ok=True)
+    with open(log_p, "a", encoding="utf-8") as f:
         f.write(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "row": row, "kind": kind, "question": dec.group("q").strip(),
                             "decision": dec.group("a").strip(), "why": dec.group("why").strip(), "footnote": mark, "day": rr.day_digest(root)[:16],
-                            "report_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()}) + "\n")
+                            "report_sha256": sha}) + "\n")
     print(f"reef-approval: day, row {row} ({kind}): footnote {mark} — {note[:120]}")
     return 0
 
@@ -307,7 +324,7 @@ def main(argv):
             d = os.path.join(root, ".reef", "approvals")
             os.makedirs(d, exist_ok=True)
             with open(os.path.join(d, "day.json"), "w", encoding="utf-8") as f:
-                json.dump({"digest16": dg[:16], "decides": rr.day_kinds(root), "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f, indent=1)
+                json.dump({"digest16": dg[:16], "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f, indent=1)
                 f.write("\n")
             print(f"reef-approval: proxy by day approved at {dg[:16]} (decides: {', '.join(rr.day_kinds(root)) or '-'}) -> .reef/approvals/day.json")
             wrote += 1
