@@ -15,6 +15,10 @@ Usage (the owner's terminal, in the project's main checkout):
   reef-run.py watch [--repo DIR]   the live steps of the run in progress (any terminal; Ctrl-C to leave)
   reef-run.py status [--repo DIR]  one look: running or not, the night, the last steps and the last session
   reef-run.py stop [--repo DIR]    (0.7.1) the running runner ends after its current session (never mid-merge)
+  --row <id>: one row only — every session's prompt is `/reef-loop <id>` (v3 phase 7: the factory job builds the row its
+      issue named; a laptop uses it the same way). REEF_CLAUDE_ARGS: extra `claude` arguments, split like a shell would
+      (`--plugin-dir <dir>` loads the Reef plugin where no marketplace installed it, as in the Actions sandbox); the probe's
+      session gets them too, so the gate proves that guard.
   --detach: after every check passes, the runner leaves the session that started it (its own process session,
             output to .reef/run/runner.out) and the command returns at once, so /reef-night can start the night
   reef-run.py contract --day           (v3 phase 6) seed reef/proxy.md when missing and print the day digest (reef/proxy.md +
@@ -37,6 +41,7 @@ import html
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -167,7 +172,8 @@ def session(root, prompt, mode, say=None):
     claude = os.environ.get("REEF_CLAUDE", "claude")
     t0 = time.time()
     try:
-        p = subprocess.Popen([claude, "-p", prompt, "--permission-mode", mode, "--output-format", "stream-json", "--verbose"],
+        p = subprocess.Popen([claude, "-p", prompt, "--permission-mode", mode, "--output-format", "stream-json", "--verbose",
+                              *shlex.split(os.environ.get("REEF_CLAUDE_ARGS", ""))],
                              cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                              env=dict(os.environ, REEF_RUNNER="1",
                                       CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=os.environ.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", BG_WAIT_MS)))
@@ -673,7 +679,7 @@ def cmd_status(root):
     return 0
 
 
-def cmd_run(root, mode, cap, night=False, detached=False):
+def cmd_run(root, mode, cap, night=False, detached=False, row=None):
     if night:
         ok, why = night_ok(root)
         if not ok:
@@ -720,7 +726,8 @@ def cmd_run(root, mode, cap, night=False, detached=False):
     try:
         for i in range(1, cap + 1):
             say("session started" + (" (night)" if night else ""))
-            out = session(root, PROMPT + (NIGHT_PROMPT if night else ""), mode, say)
+            prompt = (f"/reef-loop {row}" + PROMPT[len("/reef-loop"):]) if row else PROMPT
+            out = session(root, prompt + (NIGHT_PROMPT if night else ""), mode, say)
             release_hold(root, out.get("session_id"))
             st = loop_state(root)
             wait, stop, parked = st.get("wait") or "", st.get("stop") or "", st.get("parked") or ""
@@ -798,7 +805,10 @@ def main(argv):
         return cmd_probe(root, mode)
     if args[:1] == ["contract"]:
         return cmd_contract(root, args[args.index("--from") + 1] if "--from" in args else None, day="--day" in args)
-    return cmd_run(root, mode, cap, night="--night" in args, detached="--detach" in args)
+    row = args[args.index("--row") + 1] if "--row" in args and args.index("--row") + 1 < len(args) else None
+    if "--row" in args and not (row or "").isdigit():
+        die("--row takes a queue row id")
+    return cmd_run(root, mode, cap, night="--night" in args, detached="--detach" in args, row=row)
 
 
 if __name__ == "__main__":

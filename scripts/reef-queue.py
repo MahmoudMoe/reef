@@ -41,6 +41,10 @@ Usage:
   reef-queue.py ask "<question>" --row ID [--recommended "<answer>"]   (0.7.2) a question for the owner: its line in
                                                  .reef/questions.md and, on issues, an issue labelled reef-question assigned to the owner
   reef-queue.py answered <#issue> "<answer>"       (0.7.2, issues) close the question's issue with the owner's answer
+  reef-queue.py issue-row <#issue>                 (v3 phase 7, issues) the row id of an issue (the factory job reads it)
+  reef-queue.py label-state ID                     (v3 phase 7, issues) the row's state (reef-row.py) as ONE label on its issue:
+                                                   reef-waiting-owner (plan, approval, a merge that is the owner's), reef-building
+                                                   (build, evidence), reef-review (review, merge); reef-ready is consumed
   reef-queue.py next-id [--repo DIR]                       (0.7.1) the next row id, in either mode
   reef-queue.py import-rows [--apply] [--repo DIR]         (0.7.1, issues) rows another tool wrote into the queue file
                                                  (reef-recalibrate) become issues, their ids kept; a dry run without --apply
@@ -212,6 +216,8 @@ LABEL = "reef-row"
 LABELS = {LABEL: "0e8a16", "planned": "1d76db", "found": "fbca04", "p1": "b60205", "p2": "d93f0b", "p3": "c5def5",
           "reef-note": "c2e0c6", "reef-question": "5319e7"}
 NOTE = "reef-note"   # 0.7.2 (item 8): on issues a note is an issue with this label, never a row
+STATE_LABELS = {"reef-ready": "0052cc", "reef-building": "fbca04", "reef-review": "5319e7", "reef-waiting-owner": "d93f0b"}   # v3 phase 7: the
+# factory's trigger and the row's state — created when first applied, not by the migration (its label set is the queue's own)
 PRIORITIES = ("p1", "p2", "p3")
 _SNAPS = {}
 
@@ -387,7 +393,7 @@ def settle_id(root, snap, new_id, number, title):
 
 def ensure_labels(root, *names):
     for n in names:
-        gh_write(root, "label", "create", n, "--force", "--color", LABELS[n])
+        gh_write(root, "label", "create", n, "--force", "--color", {**LABELS, **STATE_LABELS}[n])
 
 
 def ensure_milestone(root, snap, batch):
@@ -1016,6 +1022,48 @@ def cmd_answered(root, number, answer):
     return 0
 
 
+def cmd_issue_row(root, number):
+    n = int(number.lstrip("#"))
+    snap = sync(root)
+    r = next((x for x in snap["rows"] + snap.get("closed", []) if int(x.get("_issue") or 0) == n), None)
+    if r is None:
+        die(f"issue #{n} is not a row (no `[id]` title with the label {LABEL})", 1)
+    print(r["Id"])
+    return 0
+
+
+def cmd_label_state(root, row_id):
+    """v3 phase 7: the row's state, read by reef-row.py (disk and forge), as one label on its issue — the factory's log a
+    person reads from the issue list; the trigger label reef-ready is consumed."""
+    if not issues_mode(config(root)):
+        die("label-state is for queue.home: issues", 1)
+    n = row_issue(root, row_id)
+    here = os.path.dirname(os.path.abspath(__file__))
+    r = subprocess.run([sys.executable, os.path.join(here, "reef-row.py"), "state", row_id, "--json", "--repo", root], capture_output=True, text=True, cwd=root)
+    try:
+        st = json.loads(r.stdout)
+    except ValueError:
+        die(f"reef-row.py state {row_id}: {(r.stderr or r.stdout).strip()[:200]}", 1)
+    state, nxt = str(st.get("state") or ""), str(st.get("next") or "")
+    label = ("reef-waiting-owner" if state in ("plan", "approval") or (state == "merge" and "owner" in nxt)
+             else "reef-building" if state in ("build", "evidence") else "reef-review" if state in ("review", "merge") else None)
+    try:
+        current = [l.get("name") for l in json.loads(gh(root, "issue", "view", n, "--json", "labels", read=True)).get("labels") or []]
+    except (GhError, ValueError):
+        current = []
+    args = []
+    if label and label not in current:
+        ensure_labels(root, label)
+        args += ["--add-label", label]
+    for l in STATE_LABELS:
+        if l in current and l != label:
+            args += ["--remove-label", l]
+    if args:
+        gh_write(root, "issue", "edit", n, *args)
+    print(f"{row_id}\t{state}\t{label or '-'}\t#{n}")
+    return 0
+
+
 def cmd_close(root, row_id, pr):
     if not issues_mode(config(root)):
         die("close is for queue.home: issues; the file queue moves the row to its archive (rule 5)", 1)
@@ -1293,6 +1341,10 @@ def main(argv):
         return cmd_set_batch(root, argv[1], argv[2])
     if cmd == "close" and len(argv) >= 2 and "--pr" in argv:
         return cmd_close(root, argv[1], opt("--pr"))
+    if cmd == "issue-row" and len(argv) >= 2:
+        return cmd_issue_row(root, argv[1])
+    if cmd == "label-state" and len(argv) >= 2:
+        return cmd_label_state(root, argv[1])
     if cmd == "admit" and len(argv) >= 2:
         if opt("--source", "planned") not in ("planned", "found") or opt("--priority") not in ("",) + PRIORITIES:
             die("--source is planned or found; --priority is p1, p2 or p3")

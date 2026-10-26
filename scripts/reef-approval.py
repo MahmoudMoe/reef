@@ -8,6 +8,10 @@ Usage: cat payload.json | reef-approval.py [--root DIR]
        reef-approval.py --owner "Approve plan <feature> at <digest16>?" | "Approve night <date> at <digest16>?" | "Approve proxy by day at <digest16>?"
          the owner, in their own terminal, where the AskUserQuestion hook does not exist (OpenCode); the guard refuses
          an agent running this script, except --proxy during a night and --proxy --day under the approved reef/proxy.md
+       reef-approval.py --from-issue <row>   (v3 phase 7, queue.home: issues) the owner's approval posted on the row's issue —
+         a comment whose first line is exactly `Approve plan <slug> at <digest16>?` by a collaborator with ADMIN permission, at
+         the plan's current digest — becomes the record the hook would have written (`by: owner (issue #n, @login)`); run by
+         the factory job before the build, or by the owner in a terminal; another author, a stale digest, no comment: nothing
        reef-approval.py --proxy --day --kind <process|wording> --row <id> --report .reef/ci-local/report-mahmoud-day-<row>.md
          (v3 phase 6) Mahmoud's decision by day, from his own report (`RUN: agent=mahmoud day=<date> kind=<kind> …`, a
          `DECIDE <question> — <answer> — <why>` line): written as the queue footnote `Mahmoud (proxy, day <date>, <kind>): …`
@@ -276,7 +280,98 @@ def cmd_proxy_day(argv):
     return 0
 
 
+def cmd_from_issue(argv):
+    """v3 phase 7: the plan approval from the forge. Only an admin's comment at the current digest counts (the owner's
+    repository, the owner's word); the newest matching comment decides; the record is the hook's shape plus who and where."""
+    import glob
+    i = argv.index("--from-issue")
+    row = argv[i + 1].strip() if i + 1 < len(argv) else ""
+    if not row.isdigit():
+        print("usage: reef-approval.py --from-issue <row>")
+        return 2
+    cwd = os.getcwd()
+    root = main_checkout(cwd)
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        cfg = {}
+    if (cfg.get("queue") or {}).get("home") != "issues":
+        print("reef-approval: --from-issue is for queue.home: issues (the file queue's approvals are the AskUserQuestion hook's)")
+        return 1
+    features = str((cfg.get("paths") or {}).get("features", "reef/features") or "reef/features")
+    slug = ""
+    for co in worktrees(cwd):
+        for spec in sorted(glob.glob(os.path.join(co, features, "*", "SPEC.md"))):
+            try:
+                with open(spec, encoding="utf-8") as f:
+                    if re.search(r"^Row:\s*" + re.escape(row) + r"\s*$", f.read(), re.M):
+                        slug = os.path.basename(os.path.dirname(spec))
+            except OSError:
+                continue
+    if not slug:
+        print(f"reef-approval: row {row}: no feature folder with `Row: {row}` — /reef-plan {row} first")
+        return 1
+    gh = lambda *a: subprocess.run(["gh", *a], cwd=root, capture_output=True, text=True, timeout=60)
+    r = gh("issue", "list", "--label", "reef-row", "--state", "open", "--limit", "1000", "--json", "number,title")
+    try:
+        issues = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []
+    except ValueError:
+        issues = []
+    n = next((x.get("number") for x in issues if str(x.get("title", "")).startswith(f"[{row}]")), None)
+    if n is None:
+        print(f"reef-approval: row {row}: no open issue titled `[{row}] …` with the label reef-row")
+        return 1
+    digests = plan_digests(cwd, slug)
+    if not digests:
+        print(f"reef-approval: row {row}: no checkout holds the plan {slug}")
+        return 1
+    where, dg = next(iter(digests.items()))
+    question = f"Approve plan {slug} at {dg[:16]}?"
+    r = gh("api", f"repos/{{owner}}/{{repo}}/issues/{n}/comments", "--paginate")
+    try:
+        comments = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []
+    except ValueError:
+        comments = []
+    hits = []
+    for c in comments if isinstance(comments, list) else []:
+        first = (str(c.get("body") or "").strip().splitlines() or [""])[0].strip()
+        m = QUESTION.match(first)
+        if m and m.group("feature") == slug:
+            hits.append((c, m))
+    if not hits:
+        print(f"reef-approval: row {row} (issue #{n}): no approval comment — the owner posts exactly this line on the issue: {question}")
+        return 0
+    c, m = hits[-1]
+    login = str((c.get("user") or {}).get("login") or "")
+    if m.group("digest") != dg[:16]:
+        print(f"reef-approval: row {row} (issue #{n}): @{login}'s comment approves {m.group('digest')}, the plan is at {dg[:16]} (stale) — the owner posts: {question}")
+        return 0
+    r = gh("api", f"repos/{{owner}}/{{repo}}/collaborators/{login}/permission")
+    try:
+        perm = str(json.loads(r.stdout).get("permission") or "") if r.returncode == 0 and r.stdout.strip() else ""
+    except ValueError:
+        perm = ""
+    if perm != "admin":
+        print(f"reef-approval: row {row} (issue #{n}): @{login} has {perm or 'no'} permission on the repository, not admin — only the owner approves; nothing written")
+        return 0
+    d = os.path.join(root, ".reef", "approvals")
+    os.makedirs(d, exist_ok=True)
+    rec = {"digest16": dg[:16], "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+           "by": f"owner (issue #{n}, @{login})", "comment_id": c.get("id")}
+    files = plan_files(where, slug)
+    if files:
+        rec["files"] = files
+    with open(os.path.join(d, f"{slug}.json"), "w", encoding="utf-8") as f:
+        json.dump(rec, f, indent=1)
+        f.write("\n")
+    print(f"reef-approval: {slug} approved at {dg[:16]} by @{login} on issue #{n} -> .reef/approvals/{slug}.json")
+    return 0
+
+
 def main(argv):
+    if "--from-issue" in argv:
+        return cmd_from_issue(argv)
     if "--proxy" in argv:
         return cmd_proxy_day(argv) if "--day" in argv else cmd_proxy(argv)
     root = None

@@ -15,3 +15,6 @@ Not a long session moved to the background: that one re-reads a full context at 
 5. No loop work in this session afterwards: the runner's sessions hold the project.
 
 End with the pid, then `reef-run.py status`, `watch` (a terminal) and `stop`.
+
+## The factory (v3 phase 7) — rows built without the owner's machine
+`reef-init` OFFERS `.github/workflows/reef-factory.yml` and never writes it: the owner reads its header (minutes, the model key as the repository secret `ANTHROPIC_API_KEY`, the six-hour limit) and places it with `reef-init --accept .github/workflows/reef-factory.yml`. Then a row's issue labelled `reef-ready` builds in the Actions sandbox: the job proves the guard reaches a headless session there (`reef-run.py probe`, fail closed), records the owner's plan approval from a comment on the row's issue (`reef-approval.py --from-issue <row>` — exactly `Approve plan <slug> at <digest16>?`, by an admin), runs `reef-run.py --row <row>` with the plugin loaded (`REEF_CLAUDE_ARGS=--plugin-dir …`), and writes the row's state back as one label (`reef-queue.py label-state <row>`: `reef-building`, `reef-review`, `reef-waiting-owner`); the nightly schedule runs every ready row. The job's log and its `reef-run` artifact are the observability; the owner's questions reach them as `reef-question` issues.

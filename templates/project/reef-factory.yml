@@ -1,0 +1,85 @@
+name: Reef factory
+
+# The factory on GitHub Actions (workflow v3, phase 7): a queue row builds in the Actions sandbox instead of on the
+# owner's machine. A row's issue labelled `reef-ready` starts a job that runs the row's state machine headless
+# (`scripts/reef-run.py --row <id>`: /reef-loop in fresh sessions with the Reef plugin and its guard loaded), opens the
+# PR, and writes the row's state back as labels (`reef-building`, `reef-review`, `reef-waiting-owner`). The owner
+# approves a plan by commenting its question on the row's issue (`Approve plan <slug> at <digest16>?`): the job records
+# it (`reef-approval.py --from-issue`, the author must have admin permission). The nightly schedule runs every ready
+# row the same way; the job's log and `.reef/run/` (an artifact) are the observability.
+#
+# To weigh before accepting (reef-init proposes this file, never writes it): minutes on a private repository, the model
+# key as the repository secret ANTHROPIC_API_KEY, the six-hour job limit (the state machine resumes across jobs: every
+# step is on disk and at the forge), and merges under branch protection: the loop's merge needs the guard's records,
+# which this job carries like a laptop would.
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      row:
+        description: "the queue row id to build"
+        required: true
+  schedule:
+    - cron: "0 2 * * *"
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: reef-factory
+  cancel-in-progress: false   # one orchestrator at a time, as on a laptop
+
+jobs:
+  row:
+    if: github.event_name != 'issues' || github.event.label.name == 'reef-ready'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REEF_CLAUDE_ARGS: --plugin-dir ${{ runner.temp }}/reef
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: {{base}}
+          fetch-depth: 0
+{{setup_steps}}
+      - name: Claude Code and the Reef plugin at the commit this project's scripts came from
+        run: |
+          npm i -g @anthropic-ai/claude-code
+          git clone -q {{reef_repo}} "$RUNNER_TEMP/reef"
+          git -C "$RUNNER_TEMP/reef" checkout -q {{reef_ref}}
+          git config user.name "reef-factory"
+          git config user.email "reef-factory@users.noreply.github.com"
+          git config core.hooksPath .githooks
+      - name: The row (the labelled issue, the input, or every ready row on the schedule)
+        id: row
+        run: |
+          case "${{ github.event_name }}" in
+            issues) echo "id=$(python3 scripts/reef-queue.py issue-row ${{ github.event.issue.number }})" >> "$GITHUB_OUTPUT" ;;
+            workflow_dispatch) echo "id=${{ inputs.row }}" >> "$GITHUB_OUTPUT" ;;
+            *) echo "id=" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - name: The guard reaches a headless session here (fail closed)
+        run: python3 scripts/reef-run.py probe --permission-mode auto
+      - name: The owner's plan approval, from the row's issue
+        if: steps.row.outputs.id != ''
+        run: python3 scripts/reef-approval.py --from-issue ${{ steps.row.outputs.id }}
+      - name: Build (exit 2 waits on the owner, 3 parked, 4 the cap — the labels say which; 1 is a refusal)
+        run: |
+          set +e
+          python3 scripts/reef-run.py ${{ steps.row.outputs.id != '' && format('--row {0}', steps.row.outputs.id) || '' }} --max-iterations 4 --permission-mode auto
+          rc=$?
+          [ "$rc" != 1 ] || exit 1
+      - name: The row's state, as labels on its issue
+        if: always() && steps.row.outputs.id != ''
+        run: python3 scripts/reef-queue.py label-state ${{ steps.row.outputs.id }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reef-run
+          path: .reef/run/
+          if-no-files-found: ignore
