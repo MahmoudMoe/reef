@@ -2,7 +2,7 @@
 # CLASS: code
 """Reef loop — the loop engine's one read of the world: the TICK.
   reef-loop.py tick [--repo DIR] [--json] [--assert-no-idle] [--session-start [--hook]] [--hash]
-  reef-loop.py start | stop | wait "<reason>" | clear-wait | unlock
+  reef-loop.py start | stop | wait "<reason>" | clear-wait | unlock      (wait renders HANDOFF.md first — v3)
   (0.7.1) the guard lets one session hold the loop; `wait` and `stop` release it, `unlock` takes it over for this session
 The next-action set as data under 30 lines (rows to plan, dispatch now, PRs, rows to close, in flight from
 .reef/inflight/ — stale after loop.inflight_stale_minutes = returned — parked, wait, stop). loop.no_progress_ticks
@@ -565,6 +565,12 @@ def main(argv):
         print("loop: inactive")
         return 0
     if cmd == "wait":
+        # v3 phase 5: every wait renders HANDOFF.md from measured state first — a session never ends on a hand-written
+        # handoff (the guard refuses one) or on none
+        hs = os.path.join(root, "scripts", "reef-handoff")
+        if os.path.isfile(hs):
+            rc_h, out_h = run([sys.executable, hs, "--repo", root, "--write"], root, timeout=60)
+            print((out_h.strip().splitlines() or ["HANDOFF.md written"])[-1] if rc_h == 0 else f"HANDOFF.md NOT written (reef-handoff exit {rc_h})")
         st["wait"] = " ".join(argv[1:]) or "unspecified"
         save_state(root, st)
         release_hold(root)   # the /clear hand-over: the next session starts at once

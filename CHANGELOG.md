@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **Scripts orchestrate: the row is a state machine on disk, every wait renders the handoff, nobody writes one by hand**
+  (workflow v3, phase 5; 2026-10-26). The first adoption's orchestrator held the row's state in its context — 105k of
+  150k after one review, a `/clear` and a hand-written handoff every few hours, a whole session with no product line.
+  New `scripts/reef-row.py state|next <row>` reads a row's state from disk and the forge — plan → approval → build →
+  evidence → review → merge → close → closed — and prints the ONE next command (the approval digest to ask for, the open
+  tasks, the gate to run, the review, the merge, the close); `/reef-loop` dispatches the agent the step names and never
+  decides the step. `reef-loop.py wait` renders `HANDOFF.md` from measured state before recording the wait, and the
+  guard refuses a hand-written `HANDOFF.md` from the main session and every agent (Bash, Write, Edit; the plugin's
+  template is not a project's handoff); its ceiling message no longer suggests writing one by hand. `reef-init` copies
+  the row script. The design spike for the rest of phase 5 — a Workflow that drives a row's states without the chat
+  orchestrator — is in the PR body, not built. tests/size-budget.json raised: `script_lines` 15,499 → 15,743. `prose_words` lowered 21,156 → 21,144 (the loop skill lost five asides and gained the row script).
 - **Finish before starting, a merge queue of two** (workflow v3, phase 4; 2026-10-26). The first adoption had rows waiting
   on the owner for an integration merge, and a batch that started every ready row at once. The tick now plans a new row
   only while fewer than `loop.rows_in_flight` (new key, default 2; 0 = no cap) rows are between plan and close — building,

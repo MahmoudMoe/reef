@@ -259,6 +259,22 @@ class Tick(unittest.TestCase):
         self.assertIn("101", st["dispatch_now"])
 
 
+class WaitWritesTheHandoff(unittest.TestCase):
+    """Workflow v3, phase 5: every wait renders HANDOFF.md from measured state — `reef-loop.py wait` does it, so no
+    session ends on a hand-written handoff or on none."""
+
+    def test_wait_renders_the_handoff_before_recording(self):
+        d = project()
+        self.assertEqual(open(os.path.join(d, "HANDOFF.md")).read(), "# Handoff\nline 1\n")
+        r = loop(d, "wait", "owner: approve row 2")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("HANDOFF.md written", r.stdout)
+        self.assertIn("loop: waiting — owner: approve row 2", r.stdout)
+        text = open(os.path.join(d, "HANDOFF.md")).read()
+        self.assertIn("# Handoff —", text)
+        self.assertNotEqual(text, "# Handoff\nline 1\n", "rendered, not the fixture's")
+
+
 class RowsInFlight(unittest.TestCase):
     """Workflow v3, phase 4 — finish before starting: the tick plans a new row only while fewer than loop.rows_in_flight
     (default 2) rows are between plan and close (building, or done and awaiting close); the held rows are named."""

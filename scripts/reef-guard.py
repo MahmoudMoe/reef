@@ -104,6 +104,8 @@ STATUS_LINE = re.compile(r"in flight:.*?/\s*waiting on:.*?/\s*next:\s*\S", re.S)
 # removed is caught in check_record_dirs (the security review of v3 phase 2, 2026-10-25)
 RECORD_DIRS = re.compile(r"(^|[/=])\.reef/(approvals|review|night|evidence)(/|$)", re.I)
 RECORD_NAMES = {"approvals", "review", "night", "evidence"}
+HANDOFF_DENIAL = ("HANDOFF.md is rendered whole from measured state by scripts/reef-handoff --write (python3 scripts/reef-loop.py wait "
+                  "\"<reason>\" runs it) — never written by hand: a handoff from memory is a map that lies (v3 phase 5)")
 # evidence an AGENT produced: a hand-back, a verifier/hunter report, a plan review. The main session (no agent_id in
 # the payload) may copy one (cp/mv from the scratchpad) but never write its content (2026-10-17: a hunter report and
 # a hand-back were typed by the orchestrator "from the agent's message" — evidence nobody but the orchestrator wrote).
@@ -311,6 +313,15 @@ def is_scratch(path):
     return bool(jobs) or p.startswith((tmp + "/", "/tmp/", "/private/tmp/", "/var/folders/"))
 
 
+def is_project_handoff(path, here):
+    """The project's HANDOFF.md (at a project root or the cwd), never a file of that name elsewhere (the plugin's template)."""
+    p = os.path.normpath(os.path.join(here, os.path.expanduser(path))) if here and not os.path.isabs(path) else os.path.normpath(path)
+    if os.path.basename(p) != "HANDOFF.md":
+        return False
+    roots = {os.path.realpath(r) for r in (CTX.get("roots") or [])} | {os.path.realpath(CTX.get("cwd") or os.getcwd())}
+    return os.path.realpath(os.path.dirname(p)) in roots or path in ("HANDOFF.md", "./HANDOFF.md")
+
+
 def check_record_dirs(seg):
     """.reef/approvals/ and .reef/review/ are written by scripts/reef-approval.py and scripts/reef-record
     only: a hand-written record would be an approval nobody gave (tripwire; the digest check is the code)."""
@@ -325,6 +336,9 @@ def check_record_dirs(seg):
     is_reef = lambda t: os.path.basename(os.path.normpath(resolved(t))).lower() == ".reef"
     head = next((os.path.basename(x) for x in seg if os.path.basename(x) in WRITE_HEADS or os.path.basename(x) in ("find", "git")), None)
     args = [a for a in seg if not a.startswith("-") and a not in REDIRECTS]
+    # v3 phase 5: the project's HANDOFF.md is rendered, never written by hand — a copy's SOURCE is a read, only its destination counts
+    if any(is_project_handoff(t, here) for t in (targets[-1:] if head in COPY_HEADS else targets)):
+        deny(HANDOFF_DENIAL)
     if head in ("cp", "mv", "rsync", "install") and any(is_reef(t) for t in targets) \
        and any(os.path.basename(os.path.normpath(a)).lower() in RECORD_NAMES for a in args):
         deny("copying or syncing a records folder (approvals, review, night, evidence) into .reef/ — those are written only by Reef's scripts")
@@ -1364,6 +1378,8 @@ def check_edit(tool_input, payload, ctx):
              "a hand-written one is an approval nobody gave, or a suite run that never happened")
     if ctx.get("main_session") and (EVIDENCE.search(path) or EVIDENCE.search(rel)):
         deny(EVIDENCE_DENIAL.format(path=rel))
+    if is_project_handoff(path, ctx.get("cwd") or ""):
+        deny(HANDOFF_DENIAL)
     if not (GUARD_FILES.search(path) or GUARD_FILES.search(rel)):
         return
     if ctx["plugin_root"] or ctx["critical_inflight"]:
@@ -1488,8 +1504,8 @@ def checkpoint(root, tp, stop):
             except Exception as e:
                 why = f"reef-handoff did not run: {e}"
             break
-    return (f"HANDOFF.md NOT written ({why}) — the one thing left to do here: write HANDOFF.md by hand from `python3 "
-            f"scripts/reef-loop.py tick` and this session's facts, and tell the owner the handoff script failed")
+    return (f"HANDOFF.md NOT written ({why}) — fix that cause and run `python3 scripts/reef-handoff --write` (never by hand); "
+            "tell the owner the handoff script failed")
 
 
 def check_context_ceiling(payload, tool_input=None):

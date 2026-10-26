@@ -669,6 +669,29 @@ class FeatureStamp(unittest.TestCase):
 
 
 
+class HandoffIsRendered(unittest.TestCase):
+    """v3 phase 5: HANDOFF.md is rendered whole by scripts/reef-handoff --write (the loop's wait and the guard's checkpoint
+    run it); a hand-written one is a map drawn from memory — denied for the main session and every agent, in every tool."""
+
+    def test_no_hand_written_handoff(self):
+        for cmd in ("cat > HANDOFF.md <<'EOF'\n# Handoff\nEOF", "echo '# Handoff' > HANDOFF.md", "printf 'x' >> ./HANDOFF.md",
+                    "cp /tmp/claude-1/x/scratchpad/h.md HANDOFF.md", "sed -i '' 's/a/b/' HANDOFF.md"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(bash(cmd).returncode, 2, cmd)
+        for cmd in ("python3 scripts/reef-handoff --write", "python3 scripts/reef-loop.py wait \"/clear requested\"", "cat HANDOFF.md",
+                    "head -40 HANDOFF.md", "cp HANDOFF.md /tmp/claude-1/x/scratchpad/handoff-copy.md", "echo x > HANDOFF-notes.md"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(bash(cmd).returncode, 0, cmd + ": " + bash(cmd).stderr)
+        for tool in ("Write", "Edit"):
+            r = run_guard({"tool_name": tool, "tool_input": {"file_path": "HANDOFF.md", "content": "# Handoff", "old_string": "a", "new_string": "b"}})
+            self.assertEqual(r.returncode, 2, tool)
+            self.assertIn("reef-handoff --write", r.stderr)
+        r = run_guard({"tool_name": "Write", "tool_input": {"file_path": "templates/project/HANDOFF.md", "content": "# template"}})
+        self.assertEqual(r.returncode, 0, "the plugin's own template is not a project's handoff")
+        r = run_guard({"tool_name": "Write", "agent_id": "a0e1e40f", "agent_type": "reef:implementer", "tool_input": {"file_path": "HANDOFF.md", "content": "x"}})
+        self.assertEqual(r.returncode, 2, "no agent writes it either")
+
+
 class EvidenceIsTheGates(unittest.TestCase):
     """v3 phase 2: .reef/evidence/<snapshot>.json is the suite's one result per tree, written by scripts/reef-gate.sh full
     and read by every judge. A hand-written file there would be a suite run that never happened — denied like a record

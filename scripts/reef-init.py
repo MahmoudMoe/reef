@@ -54,8 +54,8 @@ SCRIPTS = ["reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.
            "reef-repo", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-migrate", "reef-merge-base", "reef-merge-close",
            # 0.7 (2026-10-18: /reef-graph on the trial found no scripts/reef-graph-run.py — it was never in this list)
            "reef-graph-run.py", "reef-run.py",
-           # v3 phase 2: judges read the suite's one result
-           "reef-evidence.py",
+           # v3 phase 2: judges read the suite's one result; phase 5: the row's state machine
+           "reef-evidence.py", "reef-row.py",
            # 0.7.3: the stack profiles (data the measure and the raw-SQL gate read)
            "reef-stacks.json",
            # 2026-10-23: the night prompt runs `python3 scripts/reef-approval.py --proxy`; no project had it
