@@ -10,7 +10,7 @@
   `ROW <id> READY TO MERGE … gh pr merge <n> --squash --delete-branch` — the one bare command the orchestrator runs, where the
   guard checks the record, the base tip and the evidence (a script's merge would pass no hook) — or `ROW <id> WAITS <state>`.
   Refused at the owner's steps (plan, approval), the scripts' (merge, close), with a task in flight, or while graph mode is
-  off. `/reef-graph` "The row" and `/reef-loop` step 2 send a row in build to it. tests/size-budget.json raised: `prose_words` 21,143 → 21,373, `script_lines` 15,777 → 16,093.
+  off. `/reef-graph` "The row" and `/reef-loop` step 2 send a row in build to it. tests/size-budget.json raised: `prose_words` 21,143 → 21,373, `script_lines` 15,777 → 16,094.
 - **Scripts orchestrate: the row is a state machine on disk, every wait renders the handoff, nobody writes one by hand**
   (workflow v3, phase 5; 2026-10-26). The first adoption's orchestrator held the row's state in its context — 105k of
   150k after one review, a `/clear` and a hand-written handoff every few hours, a whole session with no product line.
