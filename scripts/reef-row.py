@@ -125,7 +125,7 @@ def state_of(repo, key):
     main = main_checkout(git(repo, "rev-parse", "--show-toplevel") or os.path.abspath(repo))
     cfg = config(main)
     rows, ready = queue_rows(main)
-    out = {"row": key, "slug": None, "state": None, "next": None, "detail": ""}
+    out = {"row": key, "slug": None, "state": None, "next": None, "detail": "", "merge_by": merge_by(cfg)}
     if key in archived(main, cfg) and key not in rows:
         out.update(state="closed", next="-", detail="archived")
         return out, 0

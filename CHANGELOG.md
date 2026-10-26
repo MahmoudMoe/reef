@@ -1,6 +1,20 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **Rows build without the owner's machine: the factory on GitHub Actions** (workflow v3, phase 7; 2026-10-26). `reef-init`
+  OFFERS `.github/workflows/reef-factory.yml` — rendered under the proposals dir, never written unasked (minutes, the model
+  key as the secret `ANTHROPIC_API_KEY`, the six-hour limit are the owner's call; `reef-init --accept` places it, then it is
+  refreshed like every Reef file). A row's issue labelled `reef-ready` starts a job that installs Claude Code and the Reef
+  plugin at the commit the project's scripts came from, proves the guard reaches a headless session there (`reef-run.py
+  probe`, fail closed), records the owner's plan approval from the row's issue (`reef-approval.py --from-issue <row>`: a
+  comment that is exactly `Approve plan <slug> at <digest16>?`, by a collaborator with admin permission, at the current
+  digest), runs `reef-run.py --row <row>` (every session's prompt `/reef-loop <row>`; `REEF_CLAUDE_ARGS` loads the plugin
+  with `--plugin-dir`), and writes the row's state back as one label (`reef-queue.py label-state <row>`: `reef-waiting-owner`,
+  `reef-building`, `reef-review`; `reef-ready` is consumed; `reef-queue.py issue-row <#n>` names the row); the nightly schedule
+  runs every ready row; the job's log and its `reef-run` artifact are the observability. tests/size-budget.json raised: The reviews folded: the job runs ONE command, `scripts/reef-factory.py row` — the labeler and the issue's author must be
+  admins, the base branch protected, the row's branch resumed from the forge and pushed back, the approval read only from an
+  UNEDITED admin comment (newest admin comment decides), `--paginate --slurp`; no schedule until it drains `reef-ready` rows.
+  `prose_words` 21,573 → 21,773, `script_lines` 16,328 → 16,713.
 - **The proxy decides process and wording by day, inside a contract the owner approves once; the owner's questions per
   batch are counted** (workflow v3, phase 6; 2026-10-26). `python3 scripts/reef-run.py contract --day` seeds `reef/proxy.md`
   (its `Decides:` line: `process`, `wording`; its `Never:` line: product, money, data, look, security, the release, a plan

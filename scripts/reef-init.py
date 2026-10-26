@@ -56,6 +56,8 @@ SCRIPTS = ["reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.
            "reef-graph-run.py", "reef-run.py",
            # v3 phase 2: judges read the suite's one result; phase 5: the row's state machine
            "reef-evidence.py", "reef-row.py",
+           # v3 phase 7: the factory's one command
+           "reef-factory.py",
            # 0.7.3: the stack profiles (data the measure and the raw-SQL gate read)
            "reef-stacks.json",
            # 2026-10-23: the night prompt runs `python3 scripts/reef-approval.py --proxy`; no project had it
@@ -84,6 +86,10 @@ TEMPLATES_COMMON = {   # published path -> template under templates/project (or 
     ".github/dependabot.yml": "project/dependabot.yml",
     ".githooks/pre-commit": "pre-commit",
     ".githooks/pre-merge-commit": "pre-commit",
+}
+OFFERED = {   # v3 phase 7: rendered into the proposals dir and OFFERED, never written unasked (minutes, a secret, the owner's call);
+              # `reef-init --accept <path>` places it, and from then on it is refreshed like every other Reef file
+    ".github/workflows/reef-factory.yml": "project/reef-factory.yml",
 }
 LAYOUTS = {   # the files whose place depends on the layout (0.5 flat vs 0.6 one tree); paths.* follow them
     "0.5": {"constitution": ".specify/constitution.md", "queue": "docs/queue.md", "adr_readme": "docs/adr/README.md",
@@ -380,6 +386,17 @@ def sha(data):
     return hashlib.sha256(data if isinstance(data, bytes) else data.encode("utf-8")).hexdigest()
 
 
+def plugin_origin():
+    """(ref, url) of the plugin this init runs from: the commit, so a project's factory installs the Reef its scripts came from,
+    and the clone's origin as https (a private Reef needs a token in the job; the template's header says so)."""
+    r = subprocess.run(["git", "-C", PLUGIN, "rev-parse", "HEAD"], capture_output=True, text=True)
+    ref = r.stdout.strip() if r.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", r.stdout.strip()) else "main"
+    r = subprocess.run(["git", "-C", PLUGIN, "remote", "get-url", "origin"], capture_output=True, text=True)
+    url = r.stdout.strip() if r.returncode == 0 else ""
+    m = re.match(r"^(?:git@github\.com:|https://github\.com/)([^/\s]+/[^/\s]+?)(?:\.git)?/?$", url)
+    return ref, f"https://github.com/{m.group(1)}" if m else "https://github.com/MahmoudMoe/reef"
+
+
 def reef_dir(root):
     """0.7.3 (first adoption, 2026-10-25): Reef's proposals live under the git dir — every tool, test and linter skips .git; under
     .reef/proposed/ a project test that walks the disk counted .dependency-cruiser.cjs and a .claude/ folder as its own.
@@ -431,7 +448,7 @@ def save_manifest(root, manifest):
 class Writer:
     def __init__(self, root, dry, write_once=()):
         self.root, self.dry = root, dry
-        self.written, self.updated, self.skipped, self.proposed = [], [], [], []
+        self.written, self.updated, self.skipped, self.proposed, self.offered = [], [], [], [], []
         self.manifest = load_manifest(root)
         self.write_once = set(write_once)
 
@@ -486,6 +503,18 @@ class Writer:
                 os.chmod(target, os.stat(target).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
             self.manifest[rel] = sha(split_foreign(content)[0])   # the core, as the other paths record it (the owner block is not Reef's)
         self.written.append(rel)
+
+    def offer(self, rel, content):
+        """An optional file: rendered under the proposals dir for `--accept`, never into the project; once accepted it is the
+        project's file and goes through `place` like the rest."""
+        if os.path.exists(os.path.join(self.root, rel)):
+            return self.place(rel, content)
+        prop = os.path.join(reef_dir(self.root), "proposed", rel)
+        if not self.dry:
+            os.makedirs(os.path.dirname(prop), exist_ok=True)
+            with open(prop, "w", encoding="utf-8", newline="") as f:
+                f.write(content)
+        self.offered.append(rel)
 
     def append_lines(self, rel, lines):
         """Lines added to a file the human owns (.gitignore, Makefile): never rewritten."""
@@ -571,6 +600,8 @@ def run(root, facts, dry):
     facts.setdefault("feature_prefix", str(((_c.get("branches") or {}).get("feature_prefix")) or "feat/"))
     facts.setdefault("glossary_path", lay["glossary"])
     facts.setdefault("constitution_path", facts.get("constitution") or lay["constitution"])
+    facts.setdefault("reef_ref", plugin_origin()[0])
+    facts.setdefault("reef_repo", plugin_origin()[1])
     targets = dict(TEMPLATES_COMMON)
     w.manifest.setdefault("_init", {"date": facts["date"], "name": facts["name"]})
     for key, tpl in TEMPLATE_OF.items():
@@ -588,6 +619,12 @@ def run(root, facts, dry):
     for rel, tpl in targets.items():
         with open(os.path.join(PLUGIN, "templates", tpl), encoding="utf-8") as f:
             w.place(rel, render(f.read(), facts), executable=rel.startswith(".githooks/"))
+    for rel, tpl in OFFERED.items():
+        if not re.fullmatch(r"[0-9a-f]{40}", str(facts.get("reef_ref") or "")):
+            w.skipped.append(rel + " (not offered: the plugin here is not a git clone at a commit, and the factory installs the Reef this project's scripts came from)")
+            continue
+        with open(os.path.join(PLUGIN, "templates", tpl), encoding="utf-8") as f:
+            w.offer(rel, render(f.read(), facts))
     for name_, text in (facts.get("draft_adrs") or {}).items():
         w.write_once.add(f"{lay['adr']}/{name_}")   # a decision record is written at birth, never re-rendered
         w.place(f"{lay['adr']}/{name_}", text)
@@ -751,6 +788,8 @@ def main(argv):
         print("".join("    " + l for l in diff.splitlines(True)), end="")
     if w.proposed:
         print(f"  to apply one after reading its diff: python3 {os.path.abspath(__file__)} --root {os.path.abspath(root)} --accept <path>")
+    for r in w.offered:
+        print(f"  OFFERED  {r} — optional, never written unasked (minutes, a secret): read its header, then python3 {os.path.abspath(__file__)} --root {os.path.abspath(root)} --accept {r}")
     if not facts["test"]:
         print("  NOTE: no test command detected — gates.full is empty and the gate FAILS LOUDLY until you set it")
     print(f"  {len(w.written)} written, " + (f"{len(w.updated)} updated, " if w.updated else "") +

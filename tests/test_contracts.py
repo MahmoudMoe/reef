@@ -701,3 +701,19 @@ class ProxyByDay(unittest.TestCase):
         self.assertIn("day=<date> kind=<kind>", agent)
         self.assertLessEqual(len(agent.splitlines()), 60)
         self.assertIn("def check_day_footnote", read("scripts", "reef-guard.py"))
+
+
+class Factory(unittest.TestCase):
+    """v3 phase 7: the run skill names the offered factory workflow, its trigger label, the approval from the issue and the
+    state labels; the template exists and reef-init offers it."""
+
+    def test_the_run_skill_and_the_template_name_the_factory(self):
+        text = read("skills", "reef-run", "SKILL.md")
+        for needle in ("reef-factory.yml", "reef-ready", "--from-issue", "label-state", "reef-waiting-owner", "ANTHROPIC_API_KEY"):
+            self.assertIn(needle, text, needle)
+        self.assertLessEqual(len(text.splitlines()), 60)
+        tpl = read("templates", "project", "reef-factory.yml")
+        self.assertIn("reef-ready", tpl); self.assertIn("scripts/reef-factory.py row", tpl)
+        self.assertNotIn("reef-run.py probe", tpl, "the YAML runs one command; the probe is the script's step, under the suite")
+        self.assertIn("reef-factory.py", read("scripts", "reef-init.py"))
+        self.assertIn('"project/reef-factory.yml"', read("scripts", "reef-init.py"))

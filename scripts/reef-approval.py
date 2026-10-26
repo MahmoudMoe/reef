@@ -8,6 +8,10 @@ Usage: cat payload.json | reef-approval.py [--root DIR]
        reef-approval.py --owner "Approve plan <feature> at <digest16>?" | "Approve night <date> at <digest16>?" | "Approve proxy by day at <digest16>?"
          the owner, in their own terminal, where the AskUserQuestion hook does not exist (OpenCode); the guard refuses
          an agent running this script, except --proxy during a night and --proxy --day under the approved reef/proxy.md
+       reef-approval.py --from-issue <row>   (v3 phase 7, queue.home: issues) the owner's approval posted on the row's issue —
+         a comment whose first line is exactly `Approve plan <slug> at <digest16>?` by a collaborator with ADMIN permission, at
+         the plan's current digest — becomes the record the hook would have written (`by: owner (issue #n, @login)`); run by
+         the factory job before the build, or by the owner in a terminal; another author, a stale digest, no comment: nothing
        reef-approval.py --proxy --day --kind <process|wording> --row <id> --report .reef/ci-local/report-mahmoud-day-<row>.md
          (v3 phase 6) Mahmoud's decision by day, from his own report (`RUN: agent=mahmoud day=<date> kind=<kind> …`, a
          `DECIDE <question> — <answer> — <why>` line): written as the queue footnote `Mahmoud (proxy, day <date>, <kind>): …`
@@ -276,7 +280,111 @@ def cmd_proxy_day(argv):
     return 0
 
 
+def cmd_from_issue(argv):
+    """v3 phase 7: the plan approval from the forge. Only an admin's comment at the current digest counts (the owner's
+    repository, the owner's word); the newest matching comment decides; the record is the hook's shape plus who and where."""
+    import glob
+    i = argv.index("--from-issue")
+    row = argv[i + 1].strip() if i + 1 < len(argv) else ""
+    if not row.isdigit():
+        print("usage: reef-approval.py --from-issue <row>")
+        return 2
+    cwd = os.getcwd()
+    root = main_checkout(cwd)
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        cfg = {}
+    if (cfg.get("queue") or {}).get("home") != "issues":
+        print("reef-approval: --from-issue is for queue.home: issues (the file queue's approvals are the AskUserQuestion hook's)")
+        return 1
+    features = str((cfg.get("paths") or {}).get("features", "reef/features") or "reef/features")
+    slug = ""
+    for co in worktrees(cwd):
+        for spec in sorted(glob.glob(os.path.join(co, features, "*", "SPEC.md"))):
+            try:
+                with open(spec, encoding="utf-8") as f:
+                    if re.search(r"^Row:\s*" + re.escape(row) + r"\s*$", f.read(), re.M):
+                        slug = os.path.basename(os.path.dirname(spec))
+            except OSError:
+                continue
+    if not slug:
+        print(f"reef-approval: row {row}: no feature folder with `Row: {row}` yet — nothing to approve (/reef-plan {row} first)")
+        return 0
+    here = os.path.dirname(os.path.abspath(__file__))
+    r = subprocess.run([sys.executable, os.path.join(here, "reef-queue.py"), "row-issue", row, "--repo", root], cwd=root, capture_output=True, text=True, timeout=120)
+    n = r.stdout.strip().splitlines()[-1].strip() if r.returncode == 0 and r.stdout.strip() else ""
+    if not n.isdigit():
+        print(f"reef-approval: row {row}: {(r.stderr or r.stdout).strip().splitlines()[-1][:200] if (r.stderr or r.stdout).strip() else 'no issue'}")
+        return 1
+    n = int(n)
+    gh = lambda *a: subprocess.run(["gh", *a], cwd=root, capture_output=True, text=True, timeout=60)
+    digests = plan_digests(cwd, slug)
+    if not digests:
+        print(f"reef-approval: row {row}: no checkout holds the plan {slug}")
+        return 1
+    where, dg = next(iter(digests.items()))
+    question = f"Approve plan {slug} at {dg[:16]}?"
+    r = gh("api", f"repos/{{owner}}/{{repo}}/issues/{n}/comments", "--paginate", "--slurp")
+    try:
+        pages = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []
+    except ValueError:
+        pages = []
+    comments = [c for page in (pages if isinstance(pages, list) else []) for c in (page if isinstance(page, list) else [page])]
+    hits = []
+    for c in comments:
+        if not isinstance(c, dict):
+            continue
+        first = (str(c.get("body") or "").strip().splitlines() or [""])[0].strip()
+        m = QUESTION.match(first)
+        if m and m.group("feature") == slug:
+            hits.append((c, m))
+    if not hits:
+        print(f"reef-approval: row {row} (issue #{n}): no approval comment — the owner posts exactly this line on the issue: {question}")
+        return 0
+    perms = {}
+    chosen = None
+    for c, m in reversed(hits):   # the newest comment by an ADMIN decides; anyone else's line is noise, not a veto
+        login = str((c.get("user") or {}).get("login") or "")
+        if login not in perms:
+            r = gh("api", f"repos/{{owner}}/{{repo}}/collaborators/{login}/permission")
+            try:
+                perms[login] = str(json.loads(r.stdout).get("permission") or "") if r.returncode == 0 and r.stdout.strip() else ""
+            except ValueError:
+                perms[login] = ""
+        if perms[login] == "admin":
+            chosen = (c, m, login)
+            break
+    if chosen is None:
+        print(f"reef-approval: row {row} (issue #{n}): the approval line was posted by {', '.join('@' + k + ' (' + (v or 'no permission') + ')' for k, v in perms.items())}, "
+              f"not by an admin — only the owner approves; nothing written")
+        return 0
+    c, m, login = chosen
+    # an edited comment is not the owner's word: a write collaborator can rewrite anyone's remark (the review, 2026-10-27)
+    if str(c.get("updated_at") or "") not in ("", str(c.get("created_at") or "")):
+        print(f"reef-approval: row {row} (issue #{n}): @{login}'s approval comment was edited after it was posted ({c.get('updated_at')}) — not taken; the owner posts a fresh one: {question}")
+        return 0
+    if m.group("digest") != dg[:16]:
+        print(f"reef-approval: row {row} (issue #{n}): @{login}'s comment approves {m.group('digest')}, the plan is at {dg[:16]} (stale) — the owner posts: {question}")
+        return 0
+    d = os.path.join(root, ".reef", "approvals")
+    os.makedirs(d, exist_ok=True)
+    rec = {"digest16": dg[:16], "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+           "by": f"owner (issue #{n}, @{login})", "comment_id": c.get("id")}
+    files = plan_files(where, slug)
+    if files:
+        rec["files"] = files
+    with open(os.path.join(d, f"{slug}.json"), "w", encoding="utf-8") as f:
+        json.dump(rec, f, indent=1)
+        f.write("\n")
+    print(f"reef-approval: {slug} approved at {dg[:16]} by @{login} on issue #{n} -> .reef/approvals/{slug}.json")
+    return 0
+
+
 def main(argv):
+    if "--from-issue" in argv:
+        return cmd_from_issue(argv)
     if "--proxy" in argv:
         return cmd_proxy_day(argv) if "--day" in argv else cmd_proxy(argv)
     root = None
