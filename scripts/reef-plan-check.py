@@ -1138,10 +1138,13 @@ def main():
         sec = cfg.get(section, {})
         v = sec.get(key, default) if isinstance(sec, dict) else default
         return v if v not in ("", None) else default
-    merge_by = setting("merge", "by", "human")
     feature_gate = setting("ci", "feature_gate", "ci")
     base = setting("branches", "base", "main")
     release = setting("branches", "release", "main")
+    # v3 phase 4: merge.by's default — loop when CI gates every feature PR and the base is not the release branch
+    merge_default = "loop" if feature_gate == "ci" and base != release else "human"
+    merge_by = setting("merge", "by", merge_default)
+    merge_src = "" if setting("merge", "by", "") else f" (default: ci.feature_gate {feature_gate}, base {'≠' if base != release else '='} release)"
     bad = []
     if merge_by not in MERGE_BY:
         bad.append(f"merge.by {merge_by!r} not in {list(MERGE_BY)}")
@@ -1157,7 +1160,7 @@ def main():
     if bad:
         fail(".reef/config.json: " + "; ".join(bad))
     else:
-        ok(f".reef/config.json: merge.by={merge_by} ci.feature_gate={feature_gate} "
+        ok(f".reef/config.json: merge.by={merge_by}{merge_src} ci.feature_gate={feature_gate} "
            f"branches.base={base} branches.release={release}")
 
     # the stamp is per-worktree state: tracked, it travels across branches and conflicts

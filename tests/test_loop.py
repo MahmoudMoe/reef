@@ -259,6 +259,33 @@ class Tick(unittest.TestCase):
         self.assertIn("101", st["dispatch_now"])
 
 
+class RowsInFlight(unittest.TestCase):
+    """Workflow v3, phase 4 — finish before starting: the tick plans a new row only while fewer than loop.rows_in_flight
+    (default 2) rows are between plan and close (building, or done and awaiting close); the held rows are named."""
+
+    def project_with_two_rows_building(self, cfg=None):
+        d = project(cfg)
+        write(d, "reef/queue.md", "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n"
+                                 "| 1 | first | | planned | 1 | |\n| 3 | third | | planned | 1 | |\n| 2 | second | | planned | 1 | |\n")
+        write(d, "tasks/103-c.md", task(103, "3", status="in-progress"))
+        return d
+
+    def test_a_third_row_waits_while_two_are_in_flight(self):
+        d = self.project_with_two_rows_building()
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["rows_in_flight"], ["1", "3"])
+        self.assertEqual(st["rows_to_plan"], [], "two rows between plan and close: nothing new is planned")
+        self.assertEqual(st["rows_held"], ["2"])
+        text = loop(d, "tick").stdout
+        self.assertIn("rows to plan: - (held by loop.rows_in_flight 2: 2; in flight: 1, 3)", text)
+        d = self.project_with_two_rows_building({"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md", "runlog": "reef/journal.md"}, "loop": {"rows_in_flight": 3}})
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["rows_to_plan"], ["2"], "room for a third row: it is planned")
+        self.assertEqual(st["rows_held"], [])
+        d = self.project_with_two_rows_building({"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md", "runlog": "reef/journal.md"}, "loop": {"rows_in_flight": 0}})
+        self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["rows_to_plan"], ["2"], "0 = no cap")
+
+
 class HunterStampBeforeTheGate(unittest.TestCase):
     """2026-10-18 (qassimha): 202 and 203 were listed for dispatch with hunter stamps their review-round edits had
     staled; only the guard's denial, days later and past the round cap, said so. The tick names it with the command."""

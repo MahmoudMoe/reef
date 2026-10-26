@@ -385,7 +385,7 @@
 <tr><td><code>caps.task_growth</code></td><td>سقف نمو سياق المنسّق للمهمة الواحدة عبر الجلسات (من <code>.reef/cost/</code>)؛ النبضة تسمّي ما تجاوزه؛ صفر = مطفأ</td></tr>
 <tr><td><code>caps.context_tokens</code> / <code>caps.context_warn</code> / <code>caps.dispatch_reserve</code></td><td>سقف سياق الجلسة المرسِلة، والتحذير قبله، والمساحة الواجب بقاؤها لبدء مهمة جديدة؛ صفر = مطفأ (الافتراضي في مشروع مرحَّل من 0.5)</td></tr>
 <tr><td><code>caps.feature_tokens</code> / <code>caps.batch_tokens</code></td><td>ميزانيات tokens لميزة أو دفعة؛ صفر = مطفأ</td></tr>
-<tr><td><code>merge.by</code></td><td><code>human</code> (الافتراضي): أنت تدمج PR الميزة؛ <code>loop</code>: الحلقة تدمجه على سجل أخضر لرأس الـPR. الإصدار دائمًا بيدك</td></tr>
+<tr><td><code>merge.by</code></td><td><code>loop</code> افتراضيًا حين يكون <code>ci.feature_gate</code> هو <code>ci</code> والفرع الأساسي غير فرع الإصدار (v3)، وإلا <code>human</code>: أنت تدمج PR الميزة؛ <code>loop</code>: الحلقة تدمجه على سجل أخضر لرأس يحوي طرف الفرع الأساسي وبوابة خضراء عليه. الإصدار دائمًا بيدك</td></tr>
 <tr><td><code>branches.base</code> / <code>branches.release</code></td><td>فرع التكامل / فرع الإصدار (<code>/reef-init</code> يقترح <code>develop</code> / <code>main</code>)</td></tr>
 <tr><td><code>ci.feature_gate</code></td><td>بوابة PR الميزة: CI أم السكربت المحلي</td></tr>
 <tr><td><code>tiers.&lt;tier&gt;.roles</code> / <code>.effort</code> / <code>.paths</code></td><td>النموذج لكل دور في الطبقة، الجهد، وأصناف المسارات التي تفرض الطبقة (design: auth وcrypto والأسرار والترحيل؛ critical: ملفات الحارس والخطافات و<code>.reef/config.json</code>)</td></tr>
@@ -399,7 +399,7 @@
 <tr><td><code>review.split_lines</code></td><td>المراجع الواحد (v3) يقسم فرقًا أكبر من هذا العدد من الأسطر حسب المهمة (4000)؛ لم تعد هناك مراجعة فرق منفصلة</td></tr>
 <tr><td><code>graph.mode</code></td><td><code>auto</code> (الافتراضي): مهمة جديدة تعمل كـworkflow حين يكون فحص الجهاز مسجَّلًا وفي المحادثة غير ذلك؛ <code>chat</code>: أبدًا؛ <code>graph</code>: كـauto وغياب الفحص يُسمّى BROKEN</td></tr>
 <tr><td><code>writing.*</code></td><td>حدود الكتابة للمهمة والتسليم والتقرير والجملة والمعيار؛ صفر (الافتراضي منذ 0.7) = مطفأة</td></tr>
-<tr><td><code>loop.inflight_stale_minutes</code> / <code>loop.no_progress_ticks</code></td><td>متى تُعاد مهمة علامتها قديمة؛ كم نبضة متطابقة قبل أن تركن الحلقة</td></tr>
+<tr><td><code>loop.inflight_stale_minutes</code> / <code>loop.no_progress_ticks</code> / <code>loop.rows_in_flight</code></td><td>متى تُعاد مهمة علامتها قديمة؛ كم نبضة متطابقة قبل أن تركن الحلقة؛ كم صفًا بين التخطيط والإغلاق قبل تخطيط صف جديد (2؛ صفر = بلا سقف)</td></tr>
 </tbody></table>
 
 <footer>Reef 0.7.2 (الإصدار المنشور) · <a href="https://github.com/MahmoudMoe/reef">github.com/MahmoudMoe/reef</a> · <a href="../../index.html">الصفحة</a> · التصميم: <code>docs/design/graph-and-setup.md</code> · كل ادعاء في هذا الدليل له اختبار في <code>tests/</code> يُظهره أحمر قبل الإصلاح.</footer>

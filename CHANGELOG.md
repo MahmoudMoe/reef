@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **Finish before starting, a merge queue of two** (workflow v3, phase 4; 2026-10-26). The first adoption had rows waiting
+  on the owner for an integration merge, and a batch that started every ready row at once. The tick now plans a new row
+  only while fewer than `loop.rows_in_flight` (new key, default 2; 0 = no cap) rows are between plan and close — building,
+  or done and awaiting close — and names the held rows on its `rows to plan` line. Under `merge.by: loop` the guard refuses
+  `gh pr merge` unless the PR head CONTAINS the base's current tip (`scripts/reef-merge-base` in the feature worktree, then a
+  push) and the merged commit has green evidence (`reef-evidence.py`: CI's check-runs, or the gate's record) — the gate runs
+  on the merged result, never on the branch as written; a clean base merge still carries the GREEN record over. `merge.by`
+  defaults to `loop` when `ci.feature_gate` is `ci` and `branches.base` differs from `branches.release` (CI gates every
+  feature PR, so the loop may merge), else `human`; the template no longer pins `human` (`reef-init` already wrote `loop` on
+  two-branch projects), and `reef-plan-check.py` says which default applied. One contract test changed on purpose
+  (`tests/test_contracts.py`: the template's merge default). tests/size-budget.json raised: `script_lines` 15,448 → 15,487. `prose_words` lowered 21,170 → 21,156; `config_keys` unchanged (one key in, one out).
 - **The fast path builds in one worktree per row, in order, with no judge per task** (workflow v3, phase 3b; 2026-10-26).
   The first adoption paid a worktree per task (`npm ci`, generate, typegen, build each time, or about 60 tests red) and a
   verifier per task on rows whose risk the tier had called ordinary. `scripts/reef-attempt` now prints the row's `path:`;

@@ -790,6 +790,12 @@ class Config(unittest.TestCase):
     def test_merge_by_must_be_human_or_loop(self):
         self.check({"merge": {"by": "robot"}}, False, "merge.by")
 
+    def test_merge_by_defaults_to_loop_under_ci_on_two_branches_else_human(self):
+        # workflow v3, phase 4
+        self.check({"branches": {"base": "develop", "release": "main"}}, True, "merge.by=loop (default:")
+        self.check(None, True, "merge.by=human (default:")
+        self.check({"ci": {"feature_gate": "local"}, "branches": {"base": "develop", "release": "main"}}, True, "merge.by=human (default:")
+
     def test_ci_feature_gate_must_be_ci_or_local(self):
         self.check({"ci": {"feature_gate": "sometimes"}}, False, "ci.feature_gate")
 

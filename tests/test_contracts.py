@@ -47,8 +47,10 @@ class ConfigTemplate(unittest.TestCase):
     def setUp(self):
         self.cfg = json.loads(read("templates", "config.json"))
 
-    def test_defaults_preserve_human_merge_and_ci(self):
-        self.assertEqual(self.cfg["merge"]["by"], "human")
+    def test_defaults_preserve_computed_merge_and_ci(self):
+        # changed on purpose for v3 phase 4 (2026-10-26): merge.by is no longer pinned to human in the template; its default
+        # is computed (loop under ci.feature_gate ci on a two-branch project, else human) — see FinishBeforeStarting
+        self.assertNotIn("merge", self.cfg)
         self.assertEqual(self.cfg["ci"]["feature_gate"], "ci")
         self.assertEqual(self.cfg["branches"], {"base": "main", "release": "main"})
 
@@ -412,6 +414,23 @@ class ReviewSkill(unittest.TestCase):
     def test_one_rollup_one_cap(self):
         self.assertNotIn("--cap 5", self.text, "acceptance, diff and CI share ONE cap")
         self.assertNotRegex(self.text, r"cap 5\b")
+
+
+class FinishBeforeStarting(unittest.TestCase):
+    """v3 phase 4: /reef-loop names the rows-in-flight cap; /reef-review's loop merge runs reef-merge-base first and the
+    guard refuses a head without the base's tip or without green evidence; merge.by's default is said once, by the rule."""
+
+    def test_the_skills_say_the_cap_the_merge_base_and_the_default(self):
+        loop_text = read("skills", "reef-loop", "SKILL.md")
+        self.assertIn("loop.rows_in_flight", loop_text)
+        self.assertIn("scripts/reef-merge-base", loop_text)
+        review = read("skills", "reef-review", "SKILL.md")
+        self.assertRegex(review, r"`merge\.by` \(default: `loop` when `ci\.feature_gate` is `ci`")
+        self.assertIn("scripts/reef-merge-base", review)
+        with open(os.path.join(ROOT, "templates", "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+        self.assertNotIn("merge", cfg, "the default is computed; the template no longer pins human")
+        self.assertEqual(cfg["loop"]["rows_in_flight"], 2)
 
 
 class ThePathSizesTheBuild(unittest.TestCase):

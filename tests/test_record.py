@@ -233,6 +233,43 @@ class ForgeMerge(_Repo, unittest.TestCase):
         r = self.record("FAIL", GH_CHECKS="none")
         self.assertEqual(r.returncode, 0, "a FAIL needs no evidence: it is evidence")
 
+    def test_the_loop_merges_only_a_head_that_contains_the_base_tip_with_green_evidence(self):
+        # workflow v3, phase 4: a merge queue of two — the base is merged into the feature first (reef-merge-base) and the
+        # gate runs on the MERGED commit; the loop merges nothing else
+        self.record()
+        git(self.d, "checkout", "-q", "main")
+        with open(os.path.join(self.d, "other.py"), "w") as f:
+            f.write("z = 9\n")
+        git(self.d, "add", "other.py")
+        git(self.d, "commit", "-qm", "main moved")
+        git(self.d, "checkout", "-q", "feat")
+        r = self.merge()
+        self.assertEqual(r.returncode, 2, "the base moved and the head does not contain it: " + r.stderr)
+        self.assertIn("does not contain main", r.stderr)
+        self.assertIn("reef-merge-base", r.stderr)
+        git(self.d, "merge", "-q", "--no-edit", "main")
+        r = self.merge(GH_CHECKS="pending")
+        self.assertEqual(r.returncode, 2, "the merged commit's gate is still running: " + r.stderr)
+        self.assertIn("no green gate on the merged commit", r.stderr)
+        r = self.merge(GH_CHECKS="failure")
+        self.assertEqual(r.returncode, 2)
+        r = self.merge(GH_CHECKS="success")
+        self.assertEqual(r.returncode, 0, "the head contains the base's tip and its gate is green: " + r.stderr)
+
+    def test_merge_by_defaults_to_loop_under_ci_on_a_two_branch_project(self):
+        # workflow v3, phase 4: merge.by absent -> loop when ci.feature_gate is ci (the default) and base != release
+        with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"full": "true"}, "branches": {"base": "main", "release": "release"}}, f)
+        r = self.merge()
+        self.assertEqual(r.returncode, 2, "the loop's gate applies without the key: " + r.stderr)
+        self.assertIn("no PASS/GREEN review record", r.stderr)
+        with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"full": "true"}, "branches": {"base": "main", "release": "main"}}, f)
+        self.assertEqual(self.merge().returncode, 0, "one branch: the human merges, the record gates nothing")
+        with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"full": "true"}, "ci": {"feature_gate": "local"}, "branches": {"base": "main", "release": "release"}}, f)
+        self.assertEqual(self.merge().returncode, 0, "no CI on feature PRs: the human merges")
+
     def test_a_conflicted_base_merge_that_leaves_the_feature_unchanged_carries_over(self):
         # both sides appended to the journal, as parallel features do: the merge conflicts, the resolution keeps both
         # lines, and the feature's own change is byte-for-byte the one reviewed — no re-record needed

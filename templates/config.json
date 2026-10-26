@@ -25,9 +25,6 @@
     "proxy": "fable",
     "mechanic": "sonnet"
   },
-  "merge": {
-    "by": "human"
-  },
   "ci": {
     "feature_gate": "ci"
   },
@@ -159,7 +156,8 @@
   },
   "loop": {
     "inflight_stale_minutes": 90,
-    "no_progress_ticks": 3
+    "no_progress_ticks": 3,
+    "rows_in_flight": 2
   },
   "context": {
     "failure_lines": 60,
