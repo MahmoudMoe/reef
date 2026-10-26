@@ -651,6 +651,11 @@ class GuardGuardsItself(unittest.TestCase):
         bad = dict(cfg, caps={"attempts": 99})
         self.assertEqual(self.edit(".reef/config.json", content=json.dumps(bad)).returncode, 2)
         self.assertEqual(self.edit(".reef/config.json", old_string='"attempts": 3', new_string='"attempts": 30').returncode, 2)
+        # the security review of v3 phase 4 (2026-10-26): the merge gate reads merge, ci and branches; the loop its cap —
+        # an agent editing them would disarm the gate it is subject to
+        for key, value in (("merge", {"by": "human"}), ("ci", {"feature_gate": "local"}), ("branches", {"base": "main", "release": "main"}), ("loop", {"rows_in_flight": 0})):
+            with self.subTest(key=key):
+                self.assertEqual(self.edit(".reef/config.json", content=json.dumps(dict(cfg, **{key: value}))).returncode, 2, key)
         good = dict(cfg, graph={"parallel": 4}, paths={"tasks": "tasks"})
         self.assertEqual(self.edit(".reef/config.json", content=json.dumps(good)).returncode, 0, "other keys are the owner's")
         self.assertEqual(self.edit(".reef/config.json", old_string='"attempts": 3', new_string='"attempts": 3 ').returncode, 0, "a no-op edit")

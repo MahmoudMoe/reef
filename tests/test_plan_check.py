@@ -793,6 +793,11 @@ class Config(unittest.TestCase):
     def test_merge_by_defaults_to_loop_under_ci_on_two_branches_else_human(self):
         # workflow v3, phase 4
         self.check({"branches": {"base": "develop", "release": "main"}}, True, "merge.by=loop (default:")
+        r = self.check({"branches": {"base": "develop", "release": "main"}}, True, "warning: merge.by is not set and resolves to loop")
+        self.assertNotIn("warning: merge.by", self.check({"merge": {"by": "loop"}, "branches": {"base": "develop", "release": "main"}}, True).stdout, "set explicitly: no warning")
+        self.check({"loop": {"rows_in_flight": -1}}, False, "loop.rows_in_flight")
+        self.check({"loop": {"rows_in_flight": "two"}}, False, "loop.rows_in_flight")
+        self.check({"loop": {"rows_in_flight": 0}}, True)
         self.check(None, True, "merge.by=human (default:")
         self.check({"ci": {"feature_gate": "local"}, "branches": {"base": "develop", "release": "main"}}, True, "merge.by=human (default:")
 

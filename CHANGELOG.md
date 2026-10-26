@@ -11,7 +11,13 @@
   defaults to `loop` when `ci.feature_gate` is `ci` and `branches.base` differs from `branches.release` (CI gates every
   feature PR, so the loop may merge), else `human`; the template no longer pins `human` (`reef-init` already wrote `loop` on
   two-branch projects), and `reef-plan-check.py` says which default applied. One contract test changed on purpose
-  (`tests/test_contracts.py`: the template's merge default). tests/size-budget.json raised: `script_lines` 15,448 → 15,487. `prose_words` lowered 21,170 → 21,156; `config_keys` unchanged (one key in, one out).
+  (`tests/test_contracts.py`: the template's merge default). A security review of the change: the keys the merge gate
+  reads (`merge`, `ci`, `branches`) and the loop's cap (`loop`) join the guard's protected config keys — an agent could
+  have edited them and disarmed the gate it is subject to; under `ci.feature_gate: ci` the loop merge waits for CI's result
+  and never takes the gate's local record (the author's machine); `gh pr merge -R` names another repository and is refused;
+  `reef-plan-check.py` validates `loop.rows_in_flight` and warns when an absent `merge.by` resolves to `loop`.
+  tests/size-budget.json: `script_lines` 15,448 → 15,499; `prose_words` lowered 21,170 → 21,156; `config_keys` unchanged
+  (one key in, one out).
 - **The fast path builds in one worktree per row, in order, with no judge per task** (workflow v3, phase 3b; 2026-10-26).
   The first adoption paid a worktree per task (`npm ci`, generate, typegen, build each time, or about 60 tests red) and a
   verifier per task on rows whose risk the tier had called ordinary. `scripts/reef-attempt` now prints the row's `path:`;

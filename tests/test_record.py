@@ -256,6 +256,25 @@ class ForgeMerge(_Repo, unittest.TestCase):
         r = self.merge(GH_CHECKS="success")
         self.assertEqual(r.returncode, 0, "the head contains the base's tip and its gate is green: " + r.stderr)
 
+    def test_under_ci_the_loop_merge_waits_for_cis_result_and_never_takes_a_local_record(self):
+        # the security review of v3 phase 4 (2026-10-26): with ci.feature_gate ci, a head CI has not run yet fell through to
+        # the gate's local record — the author's machine. The merge waits for CI; the local record stands in only under local.
+        self.record()
+        sha, tree = git(self.d, "rev-parse", "feat"), git(self.d, "rev-parse", "feat^{tree}")
+        snap = subprocess.run(["git", "-C", self.d, "hash-object", "--stdin"], input=f"{sha}\n{tree}\n{tree}\n", capture_output=True, text=True).stdout.strip()
+        os.makedirs(os.path.join(self.d, ".reef", "evidence"), exist_ok=True)
+        with open(os.path.join(self.d, ".reef", "evidence", f"{snap}.json"), "w") as f:
+            json.dump({"snapshot": snap, "head": sha, "exit": 0, "mode": "full"}, f)
+        r = self.merge(GH_CHECKS="none")
+        self.assertEqual(r.returncode, 2, "no CI run for the head: the merge waits, a local record is not CI: " + r.stderr)
+        self.assertIn("CI has no run for this head yet", r.stderr)
+        with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"full": "true"}, "merge": {"by": "loop"}, "ci": {"feature_gate": "local"}, "branches": {"base": "main", "release": "release"}}, f)
+        self.assertEqual(self.merge(GH_CHECKS="none").returncode, 0, "without CI on feature PRs the gate's record is the evidence")
+        r = self.merge("gh pr merge 7 --squash --delete-branch -R o/other")
+        self.assertEqual(r.returncode, 2, "another repository's PR is not this checkout's: " + r.stderr)
+        self.assertIn("this checkout", r.stderr)
+
     def test_merge_by_defaults_to_loop_under_ci_on_a_two_branch_project(self):
         # workflow v3, phase 4: merge.by absent -> loop when ci.feature_gate is ci (the default) and base != release
         with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:

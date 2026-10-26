@@ -1153,6 +1153,11 @@ def main():
     for name, v in (("branches.base", base), ("branches.release", release)):
         if not isinstance(v, str) or not v.strip():
             bad.append(f"{name} {v!r} is not a branch name")
+    rif = (cfg.get("loop") or {}).get("rows_in_flight", 2) if isinstance(cfg.get("loop"), dict) else 2
+    if not (isinstance(rif, int) and not isinstance(rif, bool) and rif >= 0):
+        bad.append(f"loop.rows_in_flight {rif!r} is not a whole number (0 = no cap)")
+    if merge_by == "loop" and not setting("merge", "by", "") and base != release:
+        print("warning: merge.by is not set and resolves to loop (ci.feature_gate ci, base ≠ release): the loop merges feature PRs — set merge.by to say so")
     if merge_by == "loop" and base == release:
         bad.append(f"merge.by 'loop' with branches.base == branches.release ({base!r}) — the loop "
                    "would merge into the release branch; releases are merged by the human. "

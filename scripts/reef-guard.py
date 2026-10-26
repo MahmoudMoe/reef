@@ -113,7 +113,7 @@ EVIDENCE_DENIAL = ("the main session does not write an agent's evidence ({path})
                    "its worktree's .reef/ci-local/, a judge's report into the scratchpad) and the orchestrator copies it with cp. "
                    "Missing? Resume that agent (SendMessage) with 'write your report to <path>' — never type it from its message")
 GUARD_FILES = re.compile(r"(^|/)(scripts/reef-[^/]+|\.githooks/[^/]+|hooks/hooks\.json|\.reef/config\.json)$")
-PROTECTED_KEYS = ("roles", "caps", "gates", "tiers")
+PROTECTED_KEYS = ("roles", "caps", "gates", "tiers", "merge", "ci", "branches", "loop")   # merge/ci/branches/loop: v3 phase 4 — the merge gate's own switches
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "5"))
 PR_MERGE_API = re.compile(r"repos/([^/]+)/([^/]+)/pulls/(\d+)/merge")
 GOOD_VERDICTS = ("PASS", "GREEN", "APPROVED")
@@ -651,6 +651,8 @@ def check_forge_merge(seg, ctx):
     rest = seg[i + 1:]
     ident = None
     if rest[:2] == ["pr", "merge"]:
+        if any(a in ("-R", "--repo") or a.startswith("--repo=") for a in rest):
+            deny("gh pr merge with -R/--repo names another repository — the loop merges the PR of this checkout only (the record and the gate are this checkout's)")
         ident = next((a for a in rest[2:] if not a.startswith("-")), None)
     elif rest[:1] == ["api"] and any(PR_MERGE_API.search(a) for a in rest[1:]) and any(a in ("-X", "--method") and "PUT" in rest for a in rest):
         ident = PR_MERGE_API.search(next(a for a in rest[1:] if PR_MERGE_API.search(a))).group(3)
@@ -683,6 +685,11 @@ def check_forge_merge(seg, ctx):
     if ev.get("state") != "green":
         deny(f"no green gate on the merged commit {head[:12]} ({ev.get('state')}{': ' + str(ev.get('why')) if ev.get('why') else ''}) — "
              "the loop merges only after a green gate on the merged commit (CI, or scripts/reef-gate.sh full there)")
+    if str((cfg.get("ci") or {}).get("feature_gate", "ci") or "ci") == "ci" and ev.get("source") != "ci":
+        # the security review (2026-10-26): a head CI had not run yet fell through to the gate's local record — the author's
+        # machine. Under CI the merge waits for CI; the local record stands in only where no CI gates feature PRs
+        deny(f"CI has no run for this head yet ({head[:12]}): the loop merges on CI's result under ci.feature_gate: ci — wait for it; "
+             "a local record stands in only under ci.feature_gate: local")
     records = []
     for r in roots:
         d = os.path.join(r, ".reef", "review")
