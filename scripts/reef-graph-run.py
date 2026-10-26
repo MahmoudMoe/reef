@@ -744,7 +744,8 @@ def settle_row(root, res):
     rev = res.get("review") if isinstance(res.get("review"), dict) else {}
     rp = str(rev.get("report_path") or "")
     if res.get("stopped") or not inside(rp):
-        print(f"ROW {rid} WAITS review: {res.get('stopped') or 'no report file in the run\'s scratch dir'} — /reef-review {slug}")
+        why = res.get("stopped") or "no report file in the run's scratch dir"
+        print(f"ROW {rid} WAITS review: {why} — /reef-review {slug}")
         return 1
     os.makedirs(os.path.join(co, ".reef", "ci-local"), exist_ok=True)
     dest = os.path.join(co, ".reef", "ci-local", f"review-{slug}-{head[:12]}.md")
