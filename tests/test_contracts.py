@@ -713,5 +713,7 @@ class Factory(unittest.TestCase):
             self.assertIn(needle, text, needle)
         self.assertLessEqual(len(text.splitlines()), 60)
         tpl = read("templates", "project", "reef-factory.yml")
-        self.assertIn("reef-ready", tpl); self.assertIn("scripts/reef-run.py probe", tpl)
+        self.assertIn("reef-ready", tpl); self.assertIn("scripts/reef-factory.py row", tpl)
+        self.assertNotIn("reef-run.py probe", tpl, "the YAML runs one command; the probe is the script's step, under the suite")
+        self.assertIn("reef-factory.py", read("scripts", "reef-init.py"))
         self.assertIn('"project/reef-factory.yml"', read("scripts", "reef-init.py"))

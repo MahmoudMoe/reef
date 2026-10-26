@@ -41,7 +41,8 @@ Usage:
   reef-queue.py ask "<question>" --row ID [--recommended "<answer>"]   (0.7.2) a question for the owner: its line in
                                                  .reef/questions.md and, on issues, an issue labelled reef-question assigned to the owner
   reef-queue.py answered <#issue> "<answer>"       (0.7.2, issues) close the question's issue with the owner's answer
-  reef-queue.py issue-row <#issue>                 (v3 phase 7, issues) the row id of an issue (the factory job reads it)
+  reef-queue.py issue-row <#issue>                 (v3 phase 7, issues) the row id of an issue (the factory reads it)
+  reef-queue.py row-issue ID                       (v3 phase 7, issues) the issue number of a row; refused when two issues carry the id
   reef-queue.py label-state ID                     (v3 phase 7, issues) the row's state (reef-row.py) as ONE label on its issue:
                                                    reef-waiting-owner (plan, approval, a merge that is the owner's), reef-building
                                                    (build, evidence), reef-review (review, merge); reef-ready is consumed
@@ -1022,6 +1023,14 @@ def cmd_answered(root, number, answer):
     return 0
 
 
+def cmd_row_issue(root, row_id):
+    rows = [x for x in sync(root)["rows"] if x["Id"] == row_id]
+    if len(rows) > 1:
+        die(f"row {row_id} has {len(rows)} open issues (#{', #'.join(str(x['_issue']) for x in rows)}) — one row, one issue: close the duplicate", 1)
+    print(row_issue(root, row_id))
+    return 0
+
+
 def cmd_issue_row(root, number):
     n = int(number.lstrip("#"))
     snap = sync(root)
@@ -1044,9 +1053,9 @@ def cmd_label_state(root, row_id):
         st = json.loads(r.stdout)
     except ValueError:
         die(f"reef-row.py state {row_id}: {(r.stderr or r.stdout).strip()[:200]}", 1)
-    state, nxt = str(st.get("state") or ""), str(st.get("next") or "")
-    label = ("reef-waiting-owner" if state in ("plan", "approval") or (state == "merge" and "owner" in nxt)
-             else "reef-building" if state in ("build", "evidence") else "reef-review" if state in ("review", "merge") else None)
+    state = str(st.get("state") or "")
+    label = ("reef-waiting-owner" if state in ("plan", "approval") or (state == "merge" and st.get("merge_by") != "loop")
+             else "reef-building" if state in ("build", "evidence") else "reef-review" if state in ("review", "merge", "close") else None)
     try:
         current = [l.get("name") for l in json.loads(gh(root, "issue", "view", n, "--json", "labels", read=True)).get("labels") or []]
     except (GhError, ValueError):
@@ -1343,6 +1352,8 @@ def main(argv):
         return cmd_close(root, argv[1], opt("--pr"))
     if cmd == "issue-row" and len(argv) >= 2:
         return cmd_issue_row(root, argv[1])
+    if cmd == "row-issue" and len(argv) >= 2:
+        return cmd_row_issue(root, argv[1])
     if cmd == "label-state" and len(argv) >= 2:
         return cmd_label_state(root, argv[1])
     if cmd == "admit" and len(argv) >= 2:

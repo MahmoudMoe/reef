@@ -170,10 +170,13 @@ def session(root, prompt, mode, say=None):
     if mode == "opencode":
         return session_opencode(root, prompt, say)
     claude = os.environ.get("REEF_CLAUDE", "claude")
+    try:
+        extra = shlex.split(os.environ.get("REEF_CLAUDE_ARGS", ""))
+    except ValueError as e:
+        die(f"REEF_CLAUDE_ARGS is not a shell word list: {e}")
     t0 = time.time()
     try:
-        p = subprocess.Popen([claude, "-p", prompt, "--permission-mode", mode, "--output-format", "stream-json", "--verbose",
-                              *shlex.split(os.environ.get("REEF_CLAUDE_ARGS", ""))],
+        p = subprocess.Popen([claude, "-p", prompt, "--permission-mode", mode, "--output-format", "stream-json", "--verbose", *extra],
                              cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                              env=dict(os.environ, REEF_RUNNER="1",
                                       CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=os.environ.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", BG_WAIT_MS)))

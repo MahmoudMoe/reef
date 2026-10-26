@@ -310,31 +310,32 @@ def cmd_from_issue(argv):
             except OSError:
                 continue
     if not slug:
-        print(f"reef-approval: row {row}: no feature folder with `Row: {row}` — /reef-plan {row} first")
+        print(f"reef-approval: row {row}: no feature folder with `Row: {row}` yet — nothing to approve (/reef-plan {row} first)")
+        return 0
+    here = os.path.dirname(os.path.abspath(__file__))
+    r = subprocess.run([sys.executable, os.path.join(here, "reef-queue.py"), "row-issue", row, "--repo", root], cwd=root, capture_output=True, text=True, timeout=120)
+    n = r.stdout.strip().splitlines()[-1].strip() if r.returncode == 0 and r.stdout.strip() else ""
+    if not n.isdigit():
+        print(f"reef-approval: row {row}: {(r.stderr or r.stdout).strip().splitlines()[-1][:200] if (r.stderr or r.stdout).strip() else 'no issue'}")
         return 1
+    n = int(n)
     gh = lambda *a: subprocess.run(["gh", *a], cwd=root, capture_output=True, text=True, timeout=60)
-    r = gh("issue", "list", "--label", "reef-row", "--state", "open", "--limit", "1000", "--json", "number,title")
-    try:
-        issues = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []
-    except ValueError:
-        issues = []
-    n = next((x.get("number") for x in issues if str(x.get("title", "")).startswith(f"[{row}]")), None)
-    if n is None:
-        print(f"reef-approval: row {row}: no open issue titled `[{row}] …` with the label reef-row")
-        return 1
     digests = plan_digests(cwd, slug)
     if not digests:
         print(f"reef-approval: row {row}: no checkout holds the plan {slug}")
         return 1
     where, dg = next(iter(digests.items()))
     question = f"Approve plan {slug} at {dg[:16]}?"
-    r = gh("api", f"repos/{{owner}}/{{repo}}/issues/{n}/comments", "--paginate")
+    r = gh("api", f"repos/{{owner}}/{{repo}}/issues/{n}/comments", "--paginate", "--slurp")
     try:
-        comments = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []
+        pages = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []
     except ValueError:
-        comments = []
+        pages = []
+    comments = [c for page in (pages if isinstance(pages, list) else []) for c in (page if isinstance(page, list) else [page])]
     hits = []
-    for c in comments if isinstance(comments, list) else []:
+    for c in comments:
+        if not isinstance(c, dict):
+            continue
         first = (str(c.get("body") or "").strip().splitlines() or [""])[0].strip()
         m = QUESTION.match(first)
         if m and m.group("feature") == slug:
@@ -342,18 +343,30 @@ def cmd_from_issue(argv):
     if not hits:
         print(f"reef-approval: row {row} (issue #{n}): no approval comment — the owner posts exactly this line on the issue: {question}")
         return 0
-    c, m = hits[-1]
-    login = str((c.get("user") or {}).get("login") or "")
+    perms = {}
+    chosen = None
+    for c, m in reversed(hits):   # the newest comment by an ADMIN decides; anyone else's line is noise, not a veto
+        login = str((c.get("user") or {}).get("login") or "")
+        if login not in perms:
+            r = gh("api", f"repos/{{owner}}/{{repo}}/collaborators/{login}/permission")
+            try:
+                perms[login] = str(json.loads(r.stdout).get("permission") or "") if r.returncode == 0 and r.stdout.strip() else ""
+            except ValueError:
+                perms[login] = ""
+        if perms[login] == "admin":
+            chosen = (c, m, login)
+            break
+    if chosen is None:
+        print(f"reef-approval: row {row} (issue #{n}): the approval line was posted by {', '.join('@' + k + ' (' + (v or 'no permission') + ')' for k, v in perms.items())}, "
+              f"not by an admin — only the owner approves; nothing written")
+        return 0
+    c, m, login = chosen
+    # an edited comment is not the owner's word: a write collaborator can rewrite anyone's remark (the review, 2026-10-27)
+    if str(c.get("updated_at") or "") not in ("", str(c.get("created_at") or "")):
+        print(f"reef-approval: row {row} (issue #{n}): @{login}'s approval comment was edited after it was posted ({c.get('updated_at')}) — not taken; the owner posts a fresh one: {question}")
+        return 0
     if m.group("digest") != dg[:16]:
         print(f"reef-approval: row {row} (issue #{n}): @{login}'s comment approves {m.group('digest')}, the plan is at {dg[:16]} (stale) — the owner posts: {question}")
-        return 0
-    r = gh("api", f"repos/{{owner}}/{{repo}}/collaborators/{login}/permission")
-    try:
-        perm = str(json.loads(r.stdout).get("permission") or "") if r.returncode == 0 and r.stdout.strip() else ""
-    except ValueError:
-        perm = ""
-    if perm != "admin":
-        print(f"reef-approval: row {row} (issue #{n}): @{login} has {perm or 'no'} permission on the repository, not admin — only the owner approves; nothing written")
         return 0
     d = os.path.join(root, ".reef", "approvals")
     os.makedirs(d, exist_ok=True)

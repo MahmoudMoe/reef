@@ -56,6 +56,8 @@ SCRIPTS = ["reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.
            "reef-graph-run.py", "reef-run.py",
            # v3 phase 2: judges read the suite's one result; phase 5: the row's state machine
            "reef-evidence.py", "reef-row.py",
+           # v3 phase 7: the factory's one command
+           "reef-factory.py",
            # 0.7.3: the stack profiles (data the measure and the raw-SQL gate read)
            "reef-stacks.json",
            # 2026-10-23: the night prompt runs `python3 scripts/reef-approval.py --proxy`; no project had it
@@ -618,6 +620,9 @@ def run(root, facts, dry):
         with open(os.path.join(PLUGIN, "templates", tpl), encoding="utf-8") as f:
             w.place(rel, render(f.read(), facts), executable=rel.startswith(".githooks/"))
     for rel, tpl in OFFERED.items():
+        if not re.fullmatch(r"[0-9a-f]{40}", str(facts.get("reef_ref") or "")):
+            w.skipped.append(rel + " (not offered: the plugin here is not a git clone at a commit, and the factory installs the Reef this project's scripts came from)")
+            continue
         with open(os.path.join(PLUGIN, "templates", tpl), encoding="utf-8") as f:
             w.offer(rel, render(f.read(), facts))
     for name_, text in (facts.get("draft_adrs") or {}).items():

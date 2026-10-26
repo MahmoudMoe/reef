@@ -11,7 +11,10 @@
   digest), runs `reef-run.py --row <row>` (every session's prompt `/reef-loop <row>`; `REEF_CLAUDE_ARGS` loads the plugin
   with `--plugin-dir`), and writes the row's state back as one label (`reef-queue.py label-state <row>`: `reef-waiting-owner`,
   `reef-building`, `reef-review`; `reef-ready` is consumed; `reef-queue.py issue-row <#n>` names the row); the nightly schedule
-  runs every ready row; the job's log and its `reef-run` artifact are the observability. tests/size-budget.json raised: `prose_words` 21,573 → 21,717, `script_lines` 16,328 → 16,519.
+  runs every ready row; the job's log and its `reef-run` artifact are the observability. tests/size-budget.json raised: The reviews folded: the job runs ONE command, `scripts/reef-factory.py row` — the labeler and the issue's author must be
+  admins, the base branch protected, the row's branch resumed from the forge and pushed back, the approval read only from an
+  UNEDITED admin comment (newest admin comment decides), `--paginate --slurp`; no schedule until it drains `reef-ready` rows.
+  `prose_words` 21,573 → 21,773, `script_lines` 16,328 → 16,713.
 - **The proxy decides process and wording by day, inside a contract the owner approves once; the owner's questions per
   batch are counted** (workflow v3, phase 6; 2026-10-26). `python3 scripts/reef-run.py contract --day` seeds `reef/proxy.md`
   (its `Decides:` line: `process`, `wording`; its `Never:` line: product, money, data, look, security, the release, a plan
