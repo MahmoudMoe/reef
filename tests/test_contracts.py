@@ -779,3 +779,24 @@ class SetupProvenOnce(unittest.TestCase):
         self.assertTrue(stacks["node"].get("setup"), "the node profile names what a fresh tree needs beyond install and generate")
         for entry in stacks["node"]["setup"]:
             self.assertTrue(entry.get("when_deps") and entry.get("run") and entry.get("why"))
+class FactorySkill(unittest.TestCase):
+    """2026-10-28 (the owner: "can tickets fire an agent on GitHub, and is there a shortcut inside Reef?"): the factory had
+    no skill and the owner's four setup steps lived only in a workflow header. `/reef-factory` is the one command (status,
+    a row to build, a row's state and log), the workflow takes a subscriber token or an API key, and the README, the site
+    and the manual say so where their other commands live."""
+
+    def test_the_skill_the_template_and_the_three_surfaces(self):
+        skill = read("skills", "reef-factory", "SKILL.md")
+        self.assertLessEqual(len(skill.splitlines()), 60)
+        for needle in ("reef-init.py --accept .github/workflows/reef-factory.yml", "gh secret list", "CLAUDE_CODE_OAUTH_TOKEN",
+                       "ANTHROPIC_API_KEY", "claude setup-token", "--add-label reef-ready", "gh run list --workflow reef-factory.yml",
+                       "Approve plan <slug> at <digest16>?", "branches/", "REEF_TOKEN"):
+            self.assertIn(needle, skill, needle)
+        tpl = read("templates", "project", "reef-factory.yml")
+        self.assertIn("ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}", tpl)
+        self.assertIn("CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}", tpl)
+        for parts in (("README.md",), ("docs", "index.html"), ("docs", "manual", "ar", "index.html")):
+            text = read(*parts)
+            self.assertIn("/reef-factory", text, parts)
+            self.assertIn("reef-ready", text, parts)
+            self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", text, parts)
