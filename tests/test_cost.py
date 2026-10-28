@@ -62,6 +62,28 @@ def cost(*args, stdin=None):
     return subprocess.run([sys.executable, COST, *args], capture_output=True, text=True, input=stdin)
 
 
+class BareDateSince(unittest.TestCase):
+    """2026-10-28: `rows --since 2026-10-28` found no row while the morning's merge sat on the base — git fills a bare date's
+    missing time with the current time of day. A bare date is that day's UTC midnight, for git too."""
+
+    def test_a_bare_date_is_midnight_and_sees_todays_merge(self):
+        import datetime
+        d = tempfile.mkdtemp(prefix="reef-cost-since.")
+        g = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
+        os.makedirs(os.path.join(d, ".reef"))
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump({"branches": {"base": "main"}, "paths": {"queue": "reef/queue.md"}}, f)
+        with open(os.path.join(d, "a.txt"), "w") as f:
+            f.write("a\n")
+        g("init", "-q", "-b", "main"); g("add", "-A"); g("commit", "-qm", "Row 1: a (#5)")
+        today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+        r = cost("rows", "--repo", d, "--since", today, "--format", "json")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(len(json.loads(r.stdout)["rows"]), 1, "a commit made today is inside `--since <today>`: " + r.stdout)
+        r = cost("rows", "--repo", d, "--since", "not-a-date")
+        self.assertNotEqual(r.returncode, 0)
+
+
 class KnownCounts(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp(prefix="reef-cost.")

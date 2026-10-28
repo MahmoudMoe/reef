@@ -43,6 +43,35 @@ def git(cwd, *args, timeout=20):
         return 1, str(e)
 
 
+def process_alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def plugin_enabled():
+    """(level, what, fix): is the Reef plugin ENABLED in Claude Code (2026-10-28: a marketplace update left it disabled and
+    nothing said so — no guard in any session, and the runner's probe failed)."""
+    try:
+        r = subprocess.run(["claude", "plugin", "list"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return "WARN", "plugin enabled: cannot tell (`claude` is not on the PATH here)", ""
+    if r.returncode != 0:
+        return "WARN", f"plugin enabled: cannot tell — `claude plugin list` exited {r.returncode}: {(r.stderr or r.stdout).strip()[:100]}", ""
+    block, name = "", ""
+    for chunk in re.split(r"\n(?=\s*❯ )", r.stdout):
+        m = re.search(r"❯\s*(reef@\S+)", chunk)
+        if m:
+            block, name = chunk, m.group(1)
+    if not block:
+        return "WARN", "plugin enabled: no reef@… plugin is installed in Claude Code", "/plugin marketplace add … then install reef"
+    if re.search(r"Status:.*(disabled|✘)", block):
+        return "FAIL", f"plugin enabled: NO — {name} is disabled: no guard in any session, the runner's probe fails", f"claude plugin enable {name}"
+    return "OK", f"plugin enabled: {name}", ""
+
+
 def plugin_root(arg):
     for cand in (arg, os.environ.get("CLAUDE_PLUGIN_ROOT"), os.path.dirname(HERE)):
         if cand and os.path.isfile(os.path.join(cand, ".claude-plugin", "plugin.json")):
@@ -213,6 +242,36 @@ def main(argv):
         say("OK", f"loop: {state}, waiting — {str(st['wait'])[:100]}")
     else:
         say("OK", f"loop: {state}")
+    # 2026-10-28 (the owner, after the first night): what stopped a normal round that day, each with the one command
+    hp = os.path.join(root, ".reef", "run", "orchestrator.json")
+    try:
+        with open(hp, encoding="utf-8") as f:
+            held = json.load(f)
+        hpid = int(held.get("pid") or 0)
+        alive = bool(hpid) and process_alive(hpid)
+        say("OK" if alive else "WARN", f"hold: session {str(held.get('session', '?'))[:8]} holds the loop (process {hpid or '?'} {'alive' if alive else 'dead'})",
+            "" if alive else "python3 scripts/reef-loop.py unlock   (a dead session's hold; the runner takes one over by itself)")
+    except (OSError, ValueError, TypeError):
+        say("OK", "hold: nobody holds the loop")
+    try:
+        with open(os.path.join(root, ".reef", "run", "gate.json"), encoding="utf-8") as f:
+            gate = json.load(f)
+    except (OSError, ValueError):
+        gate = {}
+    say("OK" if gate.get("ok") else "WARN", f"gate probe: GATE OK for --permission-mode {gate.get('mode')}" if gate.get("ok") else "gate probe: none — the runner refuses to start",
+        "" if gate.get("ok") else "python3 scripts/reef-run.py probe")
+    setup_s = os.path.join(root, "scripts", "reef-setup.py")
+    if os.path.isfile(setup_s):
+        try:
+            r_s = subprocess.run([sys.executable, setup_s, "state", "--repo", root], capture_output=True, text=True, timeout=60)
+            line = (r_s.stdout.strip().splitlines() or ["setup: ?"])[0]
+            say("OK" if r_s.returncode == 0 else "WARN", line[:140],
+                "" if r_s.returncode == 0 else "python3 scripts/reef-setup.py prove" if r_s.returncode == 3 else "edit .reef/config.json worktree.setup, then python3 scripts/reef-setup.py prove")
+        except (OSError, subprocess.TimeoutExpired):
+            say("WARN", "setup: reef-setup.py state did not run", "")
+    else:
+        say("WARN", "setup: scripts/reef-setup.py is missing (the proof that a fresh worktree passes the gate)", "python3 <plugin>/scripts/reef-update.py --commit")
+    say(*plugin_enabled())
     page = os.path.join(root, ".reef", "status.html")
     say("OK" if os.path.isfile(page) else "WARN", f"status page: {page}" if os.path.isfile(page) else "status page: not written yet",
         "" if os.path.isfile(page) else "the next tick writes it (python3 scripts/reef-loop.py tick)")

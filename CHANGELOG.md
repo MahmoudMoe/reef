@@ -1,6 +1,29 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **A normal round: the runner the owner starts is the orchestrator, every stop names its command, `reef` is the one entry
+  point** (2026-10-28, the owner after the first night: "so many locks and guardrails … stopping me from normal rounds" — seven
+  stops that day, each a message without the one command; three night sessions burned on a hold a dead desktop session
+  left). `reef-run.py` takes a loop hold another session left and says so; two sessions ending on the same wait stop it
+  (no progress) instead of a tenth session; its owner waits print the terminal command for each part — `reef-approval.py
+  --owner "<question>"` for an approval, a `reef-queue.py footnote … --row <id>` for a filed question — and a missing
+  night approval prints `contract` + the approval line with the digest. `reef-row.py`: the approval state names the
+  terminal command; a review FAIL at the head names the ROLLUP (never a new plan). `reef-doctor.py` checks the hold
+  (dead → `reef-loop.py unlock`), the runner's probe, the setup proof and whether the plugin is ENABLED in Claude Code.
+  New `scripts/reef` (copied by `reef-init`, staged by `reef-update`): the banner, one status line, the owner's verbs with
+  a line each (status, doctor, run, night, watch, stop, setup, update, factory, cost); `reef update` = plugin pull +
+  project update commit + the setup proof when the digest changed; `--all` lists every script's purpose. Bugs the
+  morning report exposed: `reef-cost.py rows --since <date>` read the date at the current time of day (git fills it) and
+  missed the morning's merge — a bare date is UTC midnight; the report lists squash merges (`(#n)` subjects) under
+  merges with their undo; `reef-setup.py` quotes a runner's FAIL marker before a sentence with the word "failed". A
+  contract test forbids "interactive session" anywhere in Reef. The reviews folded: `scripts/reef` is a guard file (the
+  own-files rule required the dash) and a sub-agent never runs the runner's writing verbs or `reef-loop.py unlock`; the
+  runner takes over only a DEAD or stale hold (idle past the guard's 30 min) and otherwise refuses naming `unlock` — the
+  check runs before detaching so the caller sees it; no progress is the same STATE twice (the base's head, the handoff,
+  the questions, the wait), not the same wait text (the loop's merge waves end on the bare `/clear requested`); `reef`'s
+  verbs are one shape and resolve a script the project lacks (`reef-doctor.py`) from the plugin clone, found by the
+  marketplace's `installLocation` and Reef's plugin name; the night hint prints the digest only when both files exist.
+  tests/size-budget.json raised: `prose_words` 22,459 → 22,576, `script_lines` 17,053 → 17,239.
 - **0.7.3 released** (2026-10-28): plugin.json, the marketplace, reef-init's version, the README badge and status, the site
   and the manual read 0.7.3; migrations/0.7.2-to-0.7.3.py is a no-change step so .reef/version walks with no gap.
 

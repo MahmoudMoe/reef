@@ -732,6 +732,12 @@ def cmd_rows(argv):
             die(f"rows: unknown option {a!r} (usage: rows [--repo DIR] [--since ISO] [--format text|md|json])")
     if since is None:
         since = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # 2026-10-28: git fills a bare date's missing time with NOW (`--since=2026-10-28` at 14:00 means 14:00), so the morning's
+    # merged row vanished from `rows --since <today>`; the window is one instant, read once here, UTC
+    since_dt = iso(since)
+    if since_dt is None:
+        die(f"rows: --since {since!r} is not a date or an ISO time")
+    since = since_dt.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     rep = pipeline_rows(os.path.abspath(repo), since)
     if fmt == "json":
         print(json.dumps(rep, indent=1))

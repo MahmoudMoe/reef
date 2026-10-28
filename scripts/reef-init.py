@@ -47,7 +47,7 @@ import subprocess
 import sys
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCRIPTS = ["reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.py", "reef-graph.py",
+SCRIPTS = ["reef", "reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.py", "reef-graph.py",
            "reef-adversarial", "reef-claims.py", "reef-ci-local.sh", "reef-tier.py", "reef-queue.py",
            # 0.6
            "reef-converge", "reef-record", "reef-structure", "reef-recalibrate", "reef-c4.py", "reef-threat.py",

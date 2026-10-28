@@ -186,7 +186,8 @@ def state_of(repo, key):
         approved = False
     if not approved:
         out.update(state="approval", next=f"/reef-plan {out['row']}",
-                   detail=f"the gate: Approve plan {slug} at {digest[:16] or '?'}?" if digest else "the plan check is red: fix it first")
+                   detail=(f"the gate: Approve plan {slug} at {digest[:16]}? — in the terminal: python3 scripts/reef-approval.py --owner "
+                           f"\"Approve plan {slug} at {digest[:16]}?\"") if digest else "the plan check is red: fix it first")
         return out, 0
     open_tasks = sorted(os.path.basename(p) for p in glob.glob(os.path.join(fdir, "tasks", "*.md")))
     if open_tasks:
@@ -238,6 +239,7 @@ def state_of(repo, key):
         out.update(state="evidence", next=f"sh scripts/reef-gate.sh full  (in {os.path.relpath(co, main) or '.'})" if rc != 3 else "(wait: CI is running)",
                    detail=ev.strip().splitlines()[0] if ev.strip() else "no evidence")
         return out, 0
+    rec = {}
     try:
         with open(os.path.join(main, ".reef", "review", f"{slug}.json"), encoding="utf-8") as f:
             rec = json.load(f)
@@ -245,6 +247,11 @@ def state_of(repo, key):
     except (OSError, ValueError):
         reviewed = False
     if not reviewed:
+        if str(rec.get("verdict", "")).upper() == "FAIL" and rec.get("sha") == head:
+            # 2026-10-28: a review's findings are a ROLLUP, never a new plan (the loop sent the owner to /reef-plan for two nits)
+            out.update(state="review", next=f"the rollup: tasks/R<NN>-{slug}.md from the review's blockers (reef-review § One rollup, one cap — no plan pass, no approval) → /reef-task {slug} → /reef-review {slug}",
+                       detail=f"review FAIL at {head[:12]}")
+            return out, 0
         out.update(state="review", next=f"/reef-review {slug}", detail=f"no GREEN record at {head[:12]}")
         return out, 0
     if pr:

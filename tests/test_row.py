@@ -103,6 +103,8 @@ class RowStateMachine(unittest.TestCase):
         self.assertEqual((s["state"], s["slug"]), ("approval", "demo-row-one"))
         self.assertIn("Approve plan demo-row-one at", s["detail"])
         self.assertEqual(s["next"], "/reef-plan 1")
+        self.assertIn('python3 scripts/reef-approval.py --owner "Approve plan demo-row-one at ', s["detail"],
+                      "2026-10-28: the approval has a terminal command, and the row names it (the owner was told 'an interactive session' twice)")
         digest = subprocess.run([sys.executable, os.path.join(feat, "scripts", "reef-plan-check.py"), feat, "--digest", "--feature", "demo-row-one"],
                                 capture_output=True, text=True).stdout.split()[-1]
         write(self.main, ".reef/approvals/demo-row-one.json", json.dumps({"digest16": digest[:16], "approved_at": "2026-10-26T00:00:00Z"}))

@@ -115,7 +115,7 @@ COPY_HEADS = {"cp", "mv", "install", "rsync"}
 EVIDENCE_DENIAL = ("the main session does not write an agent's evidence ({path}): the agent writes its own file (the hand-back into "
                    "its worktree's .reef/ci-local/, a judge's report into the scratchpad) and the orchestrator copies it with cp. "
                    "Missing? Resume that agent (SendMessage) with 'write your report to <path>' — never type it from its message")
-GUARD_FILES = re.compile(r"(^|/)(scripts/reef-[^/]+|\.githooks/[^/]+|hooks/hooks\.json|\.reef/config\.json)$")
+GUARD_FILES = re.compile(r"(^|/)(scripts/reef(-[^/]+)?|\.githooks/[^/]+|hooks/hooks\.json|\.reef/config\.json)$")   # 2026-10-28: scripts/reef, the owner's entry point, too
 PROTECTED_KEYS = ("roles", "caps", "gates", "tiers", "merge", "ci", "branches", "loop",   # merge/ci/branches/loop: v3 phase 4 — the merge gate's own switches
                   "worktree")   # 2026-10-28: worktree.setup is a command scripts/reef-setup.py runs under the main checkout, unseen by this hook
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "5"))
@@ -527,6 +527,7 @@ def check_segment(seg, depth=0, next_op=";", pipefail=False):
     check_reviewer_lock(seg, CTX)
     check_forge_merge(seg, CTX)
     check_approval_cli(seg)
+    check_runner_cli(seg)
     check_day_footnote(seg)
     check_release_pr(seg, CTX)
     if next_op in ("|", "|&") and not pipefail and is_gate(seg):
@@ -656,6 +657,29 @@ def check_day_footnote(seg):
         deny("a `Mahmoud (proxy, day …)` footnote is written by `python3 scripts/reef-approval.py --proxy --day --kind <kind> --row <id> "
              "--report .reef/ci-local/report-mahmoud-day-<row>.md` from his report, under the approved reef/proxy.md — never typed, "
              "into no footnote, note, row or issue")
+
+
+def check_runner_cli(seg):
+    """The runner and the loop's takeover are the owner's (the review of PR 202, 2026-10-28): a sub-agent that ran
+    `reef-run.py --detach` or `reef-loop.py unlock` would take the project's loop from the owner's session. The main
+    session runs the runner (/reef-run); a sub-agent reads it only (status, watch, probe, contract)."""
+    if not CTX.get("agent_type"):
+        return
+    i = 0
+    while i < len(seg) and (ENV_ASSIGN.match(seg[i]) or seg[i] in PREFIX_WORDS or seg[i].startswith("-")):
+        i += 1
+    if i < len(seg) and re.match(r"python[0-9.]*$", os.path.basename(seg[i])):
+        i += 1
+        while i < len(seg) and seg[i].startswith("-"):
+            i += 1
+    if i >= len(seg):
+        return
+    head, rest = os.path.basename(seg[i]), seg[i + 1:]
+    who = str(CTX.get("agent_type"))
+    if head == "reef-run.py" and not (rest[:1] and rest[0] in ("status", "watch", "probe", "contract")):
+        deny(f"{who}: scripts/reef-run.py starts the runner, which takes the project's loop — the owner starts it (a terminal, or /reef-run in the main session); a sub-agent reads it: status, watch")
+    if head == "reef-loop.py" and "unlock" in rest:
+        deny(f"{who}: `reef-loop.py unlock` takes the loop from the session that holds it — the owner's own command, never an agent's")
 
 
 def check_approval_cli(seg):

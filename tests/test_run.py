@@ -152,7 +152,7 @@ class OnOpenCode(unittest.TestCase):
         open(os.path.join(d, ".reef", "questions.md"), "w").write("- row 5: the look? — recommended: approve\n")
         r = run(d, ["wait:owner: row 5 look"], "--host", "opencode")
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
-        self.assertIn("run /reef-loop in OpenCode to answer them", r.stdout)
+        self.assertIn("/reef-loop in OpenCode", r.stdout, "the host is named")
         argv = [json.loads(l) for l in open(os.path.join(d, ".fake-argv"))][-1]
         self.assertEqual(argv[:5], ["run", "--format", "json", "--command", "reef-loop"])
         self.assertTrue(argv[5].startswith("a reef-run iteration"), "the command carries the skill; the message is its arguments")
@@ -195,7 +195,7 @@ class Loop(unittest.TestCase):
 
     def test_a_ceiling_handoff_starts_the_next_session_and_an_owner_wait_ends_the_run(self):
         open(os.path.join(self.d, ".reef", "questions.md"), "w").write("- row 12: share links in host logs? — recommended: accept\n")
-        r = run(self.d, ["wait:/clear requested — ceiling", "wait:/clear requested — ceiling", "wait:owner: approve row 12"])
+        r = run(self.d, ["wait:/clear requested — ceiling after 1201", "wait:/clear requested — ceiling after 1202", "wait:owner: approve row 12"])
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertEqual(len(calls(self.d)), 3)
         self.assertIn("waiting on you — owner: approve row 12", r.stdout)
@@ -295,3 +295,71 @@ class Loop(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NormalRound(unittest.TestCase):
+    """2026-10-28 (the owner, after the first night: "so many locks and guardrails … stopping me from normal rounds"): the
+    runner the owner starts IS the orchestrator — it takes a loop hold another session left (three night sessions burned on a
+    dead desktop session's hold), it stops after two sessions that make no progress (the same wait twice), and every wait it
+    prints names the ONE terminal command that answers it — never "open an interactive session"."""
+
+    def setUp(self):
+        self.d = project()
+        self.assertEqual(run(self.d, ["probe-deny"], "probe").returncode, 0)
+        open(os.path.join(self.d, ".fake-calls"), "w").write("")
+
+    def test_the_runner_takes_a_hold_another_session_left(self):
+        p = os.path.join(self.d, ".reef", "run", "orchestrator.json")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            json.dump({"session": "6ee3355f-2fe4-dead", "at": time.time(), "pid": 999999}, f)
+        r = run(self.d, ["stop:done"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("taking over the loop held by session 6ee3355f", r.stdout)
+        self.assertFalse(os.path.exists(p), "the dead session's hold is gone before the first session")
+        # a live holder with a recent action keeps the loop: one orchestrator at a time, and the takeover is the owner's own command
+        with open(p, "w") as f:
+            json.dump({"session": "a1b2c3d4-live", "at": time.time(), "pid": os.getpid()}, f)
+        open(os.path.join(self.d, ".fake-calls"), "w").write("")
+        r = run(self.d, ["stop:done"])
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("reef-loop.py unlock", r.stderr + r.stdout)
+        self.assertEqual(calls(self.d), [], "no session started against a live holder")
+        self.assertTrue(os.path.exists(p), "the live hold stands")
+        # a live holder whose last action is old is stale: taken over
+        with open(p, "w") as f:
+            json.dump({"session": "a1b2c3d4-stale", "at": time.time() - 31 * 60, "pid": os.getpid()}, f)
+        r = run(self.d, ["stop:done"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("taking over the loop held by session a1b2c3d4", r.stdout)
+
+    def test_two_sessions_on_the_same_wait_stop_the_runner(self):
+        r = run(self.d, ["wait:/clear requested — row 3 blocked, same handoff", "wait:/clear requested — row 3 blocked, same handoff", "stop:never"])
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertEqual(len(calls(self.d)), 2, "no third session when two in a row changed nothing")
+        self.assertIn("no progress", r.stdout)
+        open(os.path.join(self.d, ".fake-calls"), "w").write("")
+        r = run(self.d, ["wait:/clear requested — step one", "wait:/clear requested — step two", "stop:done"])
+        self.assertEqual(r.returncode, 0, "a different handoff is progress: " + r.stdout)
+        self.assertEqual(len(calls(self.d)), 3)
+
+    def test_an_owner_wait_names_the_command_that_answers_it(self):
+        r = run(self.d, ["wait:owner: the gate: Approve plan demo-row at 0123456789abcdef?"])
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn('python3 scripts/reef-approval.py --owner "Approve plan demo-row at 0123456789abcdef?"', r.stdout)
+        self.assertNotIn("interactive session", r.stdout)
+        open(os.path.join(self.d, ".reef", "questions.md"), "w").write("- row 12: share links in host logs? — recommended: accept\n")
+        r = run(self.d, ["wait:owner: row 12 — share links?"])
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("reef-queue.py footnote", r.stdout, "a free question has a terminal answer too")
+        self.assertIn("--row 12", r.stdout)
+
+    def test_a_missing_night_approval_names_the_two_commands(self):
+        os.makedirs(os.path.join(self.d, ".reef", "night"), exist_ok=True)
+        os.makedirs(os.path.join(self.d, "reef"), exist_ok=True)
+        open(os.path.join(self.d, ".reef", "night", "contract.md"), "w").write("Rows: 1\n\n# Night contract — tonight\n")
+        open(os.path.join(self.d, "reef", "owner.md"), "w").write("# The owner\n")
+        r = run(self.d, ["stop:x"], "--night")
+        self.assertEqual(r.returncode, 1)
+        self.assertRegex(r.stderr + r.stdout, r'reef-approval\.py --owner "Approve night \d{4}-\d\d-\d\d at [0-9a-f]{16}\?"')
+        self.assertNotIn("in Claude Code)", r.stderr + r.stdout)

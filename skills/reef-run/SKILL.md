@@ -14,6 +14,8 @@ Not a long session moved to the background: that one re-reads a full context at 
 4. `python3 scripts/reef-run.py --detach` (`--max-iterations <n>` when `$ARGUMENTS` is a number). It refuses before detaching, or returns the runner's pid.
 5. No loop work in this session afterwards: the runner's sessions hold the project.
 
+The runner the owner starts IS the orchestrator (2026-10-28, the first night: three sessions burned on a hold a dead desktop session left): it takes a loop hold another session left and says so; two sessions ending on the same wait stop it as no progress. Every wait it prints names the terminal command that answers it — `python3 scripts/reef-approval.py --owner "<the exact question>"` for an approval, `reef-queue.py footnote … --row <id>` for a filed question — never a pointer to another session. From a terminal, `reef` is the owner's one entry point (`reef run`, `reef night start`, `reef status`, `reef doctor`, `reef update`, `reef setup prove`, `reef factory <row>`, `reef cost`); `reef --all` lists every script.
+
 End with the pid, then `reef-run.py status`, `watch` (a terminal) and `stop`.
 
 ## The factory (v3 phase 7) — rows built without the owner's machine

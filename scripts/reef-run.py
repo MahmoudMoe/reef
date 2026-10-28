@@ -334,7 +334,12 @@ def night_rows(root):
 
 def night_ok(root):
     """(ok, why): night.json carries the current night digest, for tonight, with an open row."""
-    rec, why = record_ok(root, "night", night_digest(root), "the contract or reef/owner.md", "/reef-night again (the owner approves tonight's contract in Claude Code)")
+    dg = night_digest(root)
+    both = os.path.isfile(os.path.join(root, NIGHT_DIR, "contract.md")) and os.path.isfile(os.path.join(root, "reef", "owner.md"))
+    hint = (f"approve it in the terminal: python3 scripts/reef-approval.py --owner \"Approve night {time.strftime('%Y-%m-%d')} at {dg[:16]}?\"  "
+            "(python3 scripts/reef-run.py contract prints that question too; or /reef-night in a Claude Code session)"
+            if dg and both else "python3 scripts/reef-run.py contract prints the approval question (it seeds reef/owner.md when missing); /reef-night drafts the contract")
+    rec, why = record_ok(root, "night", dg, "the contract or reef/owner.md", hint)
     if rec is None:
         return False, why
     # 2026-10-21 (qassimha): last night's approval, rows 3 and 12 both closed since, still passed; the night ran one
@@ -406,6 +411,63 @@ def queue_open_rows(root):
             return {m.group(1) for m in re.finditer(r"^\|\s*(\d+)\s*\|", f.read(), re.M)}
     except (OSError, ValueError):
         return None
+
+
+HOLD_MINUTES = 30   # the guard's own rule (reef-guard.py HOLD_MINUTES): a holder idle this long is stale
+APPROVE_Q = re.compile(r"Approve (?:plan [A-Za-z0-9._-]+|night \d{4}-\d\d-\d\d|proxy by day) at [0-9a-f]{16}\?")
+
+
+def process_alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def progress_signature(root, wait):
+    """What a session leaves behind: the base's head, the handoff's content, the wait — two sessions with the same signature
+    did nothing (the review of PR 202: the loop's merge waves end on the bare `/clear requested`, so the text alone is no signal)."""
+    import hashlib
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        cfg = {}
+    base = str((cfg.get("branches") or {}).get("base", "main") or "main")
+    r = subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", base], capture_output=True, text=True)
+    parts = [r.stdout.strip(), wait]
+    for rel in ("HANDOFF.md", os.path.join(".reef", "questions.md"), os.path.join(".reef", "loop.json")):
+        try:
+            with open(os.path.join(root, rel), "rb") as f:
+                parts.append(hashlib.sha256(f.read()).hexdigest())
+        except OSError:
+            parts.append("-")
+    return "|".join(parts)
+
+
+def owner_wait_lines(root, wait, mode):
+    """The wait, and the ONE terminal command that answers each part of it (2026-10-28, the owner: a stop that names no command is
+    a bug): an approval question → reef-approval.py --owner with that exact question; a filed question → a footnote on its row."""
+    host = "OpenCode" if mode == "opencode" else "Claude Code"
+    lines = [f"reef-run: waiting on you — {wait}"]
+    cmds = [f'python3 scripts/reef-approval.py --owner "{q}"' for q in dict.fromkeys(APPROVE_Q.findall(wait))]
+    q = os.path.join(root, ".reef", "questions.md")
+    if os.path.isfile(q):
+        lines.append(f"  your questions: {q}")
+        try:
+            with open(q, encoding="utf-8") as f:
+                rows = list(dict.fromkeys(re.findall(r"^- row (\d+):", f.read(), re.M)))
+        except OSError:
+            rows = []
+        cmds += [f'python3 scripts/reef-queue.py footnote "<your answer>" --row {r}' for r in rows]
+    if cmds:
+        lines.append("  answer in the terminal:")
+        lines += [f"    {c}" for c in cmds]
+        lines.append(f"  then start the runner again — or answer in /reef-loop in {host}")
+    else:
+        lines.append(f"  answer in /reef-loop in {host}")
+    return "\n".join(lines)
 
 
 def release_hold(root, sid):
@@ -576,7 +638,11 @@ def morning_report(root, started, log):
     lines += ["## The proxy's decisions by day (what he called process or wording — read the question)", *(day or ["- none"]), ""]
     base = str((cfg.get("branches") or {}).get("base", "main") or "main")
     r = subprocess.run(["git", "-C", root, "log", "--merges", "--format=- %h %s", f"--since={started}", base], capture_output=True, text=True)
-    lines += [f"## Merges into {base} (undo: git revert -m 1 <sha>)", *(r.stdout.splitlines() or ["- none"]), ""]
+    # 2026-10-28: the loop merges by squash (`gh pr merge --squash`), which leaves no merge commit — the first night's report
+    # said "none" under a merged row; a first-parent commit whose subject ends in (#n) is that merge
+    sq = subprocess.run(["git", "-C", root, "log", "--first-parent", "--no-merges", "--format=- %h %s", f"--since={started}", base], capture_output=True, text=True)
+    merged = r.stdout.splitlines() + [l + "  (squash — undo: git revert <sha>)" for l in sq.stdout.splitlines() if re.search(r"\(#\d+\)\s*$", l)]
+    lines += [f"## Merges into {base} (undo: git revert -m 1 <sha>)", *(merged or ["- none"]), ""]
     q = os.path.join(root, ".reef", "questions.md")
     lines += ["## Waiting for you", *(open(q, encoding="utf-8").read().splitlines() if os.path.isfile(q) else ["- nothing"]), ""]
     sessions = [json.loads(l) for l in open(log, encoding="utf-8")] if os.path.isfile(log) else []
@@ -707,6 +773,23 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
         die(f"another reef-run (pid {other}) holds {lock} — one runner per checkout")
     except (OSError, ValueError):
         pass
+    # 2026-10-28 (the first night: three sessions burned on a hold a dead desktop session left): the runner the owner starts IS
+    # the orchestrator — a hold another session left is taken over, and said
+    held_p = os.path.join(root, ".reef", "run", "orchestrator.json")
+    try:
+        with open(held_p, encoding="utf-8") as f:
+            held = json.load(f)
+        hp = int(held.get("pid") or 0)
+        age_min = (time.time() - float(held.get("at") or 0)) / 60
+        alive = bool(hp) and process_alive(hp)
+        if alive and age_min < HOLD_MINUTES:   # one orchestrator at a time: a live, recent holder keeps the loop (the review of PR 202)
+            die(f"session {str(held.get('session', '?'))[:8]} holds this project's loop (process {hp} alive, its last loop action {int(age_min)} min ago) — "
+                f"stop that session, wait until it has been idle {HOLD_MINUTES} min, or take over: python3 scripts/reef-loop.py unlock")
+        os.unlink(held_p)
+        print(f"reef-run: taking over the loop held by session {str(held.get('session', '?'))[:8]} (process {hp or '?'} "
+              f"{'alive, idle ' + str(int(age_min)) + ' min' if alive else 'dead'}) — the runner the owner starts is the orchestrator", flush=True)
+    except (OSError, ValueError, TypeError):
+        pass
     if detached:
         detach(root)   # every refusal above printed to the caller; from here on the runner is on its own
     with open(lock, "w", encoding="utf-8") as f:
@@ -722,7 +805,7 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
     stop_req = os.path.join(root, RUN_DIR, "stop-request")
     if os.path.exists(stop_req):
         os.unlink(stop_req)   # a request from before this run is not about this run
-    i = 0
+    i, prev_sig = 0, None
 
     def say(text):
         line = f"{time.strftime('%H:%M')} s{i} {text}"
@@ -760,10 +843,14 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
                 print(f"reef-run: the loop parked — {parked}")
                 return 3
             if wait.startswith("/clear"):
+                sig = progress_signature(root, wait)
+                if sig == prev_sig:   # 2026-10-28: the same state twice (the base's head, the handoff, the wait) is no progress — not a tenth session on it
+                    print(f"reef-run: no progress — two sessions ended on the same wait with nothing changed: {wait[:160]} — fix what stops them (HANDOFF.md names it), then start again")
+                    return 3
+                prev_sig = sig
                 continue
             if wait:
-                q = os.path.join(root, ".reef", "questions.md")
-                print(f"reef-run: waiting on you — {wait}" + (f"\n  your questions: {q} — run /reef-loop in {'OpenCode' if mode == 'opencode' else 'Claude Code'} to answer them" if os.path.isfile(q) else ""))
+                print(owner_wait_lines(root, wait, mode))
                 return 2
             if flying:
                 # a session that returns with work in flight would start it twice next time; Bash background work is
