@@ -47,3 +47,13 @@ class EntryPoint(unittest.TestCase):
         r = reef("nonsense")
         self.assertEqual(r.returncode, 2)
         self.assertIn("nonsense", r.stderr + r.stdout)
+
+
+class UpdatePushes(unittest.TestCase):
+    """2026-10-28: `reef update` committed the project's new scripts and said "done" without pushing them — the owner found the
+    commit sitting local. The update pushes the base (`git push`), or says why it could not."""
+
+    def test_the_update_pushes_the_commit_it_makes(self):
+        src = open(ENTRY, encoding="utf-8").read()
+        self.assertIn('["git", "push"', src)
+        self.assertIn("reef update: pushed", src)

@@ -363,3 +363,28 @@ class NormalRound(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertRegex(r.stderr + r.stdout, r'reef-approval\.py --owner "Approve night \d{4}-\d\d-\d\d at [0-9a-f]{16}\?"')
         self.assertNotIn("in Claude Code)", r.stderr + r.stdout)
+
+
+FAKE_ROW = """import json, sys
+row = sys.argv[sys.argv.index('state') + 1]
+q = 'Approve plan kit-redesign at 0123456789abcdef?'
+print(json.dumps({'row': row, 'state': 'approval', 'next': '/reef-plan ' + row,
+                  'detail': 'the gate: ' + q + ' — in the terminal: python3 scripts/reef-approval.py --owner "' + q + '"'}))
+"""
+
+
+class TheWaitAsksTheRow(unittest.TestCase):
+    """2026-10-28, the owner's first round alone: the loop wrote its wait as "re-approve row 46's plan at <digest>" — not the exact
+    question — so the runner printed the footnote command for what was an approval. The runner asks the row machine
+    (reef-row.py state <row>) for each row the wait names, and prints the command the row's state carries."""
+
+    def test_an_approval_wait_prints_the_rows_own_command(self):
+        d = project()
+        self.assertEqual(run(d, ["probe-deny"], "probe").returncode, 0)
+        os.makedirs(os.path.join(d, "scripts"), exist_ok=True)
+        with open(os.path.join(d, "scripts", "reef-row.py"), "w") as f:   # a row machine that says: row 46 is at the gate
+            f.write(FAKE_ROW)
+        r = run(d, ["wait:owner: re-approve row 46's plan at 0123456789abcdef (#77) so R03 can dispatch"])
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn('python3 scripts/reef-approval.py --owner "Approve plan kit-redesign at 0123456789abcdef?"', r.stdout)
+        self.assertNotIn("reef-queue.py footnote", r.stdout, "an approval is not answered by a footnote")

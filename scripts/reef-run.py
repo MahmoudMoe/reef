@@ -453,14 +453,29 @@ def owner_wait_lines(root, wait, mode):
     lines = [f"reef-run: waiting on you — {wait}"]
     cmds = [f'python3 scripts/reef-approval.py --owner "{q}"' for q in dict.fromkeys(APPROVE_Q.findall(wait))]
     q = os.path.join(root, ".reef", "questions.md")
+    rows = list(dict.fromkeys(re.findall(r"\brow (\d+)", wait)))
     if os.path.isfile(q):
         lines.append(f"  your questions: {q}")
         try:
             with open(q, encoding="utf-8") as f:
-                rows = list(dict.fromkeys(re.findall(r"^- row (\d+):", f.read(), re.M)))
+                rows += [r for r in re.findall(r"^- row (\d+):", f.read(), re.M) if r not in rows]
         except OSError:
-            rows = []
-        cmds += [f'python3 scripts/reef-queue.py footnote "<your answer>" --row {r}' for r in rows]
+            pass
+    # the owner's first round alone (2026-10-28): the loop wrote "re-approve row 46's plan at <digest>", not the exact question,
+    # and a footnote command was offered for an approval — the ROW MACHINE knows the command its state needs; ask it
+    row_py = os.path.join(root, "scripts", "reef-row.py")
+    for r in rows:
+        detail = ""
+        if os.path.isfile(row_py):
+            try:
+                out = subprocess.run([sys.executable, row_py, "state", r, "--json", "--repo", root], capture_output=True, text=True, timeout=60).stdout
+                detail = str(json.loads(out).get("detail") or "")
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                detail = ""
+        m = re.search(r"python3 scripts/reef-approval\.py --owner \"[^\"]+\"", detail)
+        cmd = m.group(0) if m else f'python3 scripts/reef-queue.py footnote "<your answer>" --row {r}'
+        if cmd not in cmds:
+            cmds.append(cmd)
     if cmds:
         lines.append("  answer in the terminal:")
         lines += [f"    {c}" for c in cmds]
