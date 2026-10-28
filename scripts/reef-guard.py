@@ -116,7 +116,8 @@ EVIDENCE_DENIAL = ("the main session does not write an agent's evidence ({path})
                    "its worktree's .reef/ci-local/, a judge's report into the scratchpad) and the orchestrator copies it with cp. "
                    "Missing? Resume that agent (SendMessage) with 'write your report to <path>' — never type it from its message")
 GUARD_FILES = re.compile(r"(^|/)(scripts/reef-[^/]+|\.githooks/[^/]+|hooks/hooks\.json|\.reef/config\.json)$")
-PROTECTED_KEYS = ("roles", "caps", "gates", "tiers", "merge", "ci", "branches", "loop")   # merge/ci/branches/loop: v3 phase 4 — the merge gate's own switches
+PROTECTED_KEYS = ("roles", "caps", "gates", "tiers", "merge", "ci", "branches", "loop",   # merge/ci/branches/loop: v3 phase 4 — the merge gate's own switches
+                  "worktree")   # 2026-10-28: worktree.setup is a command scripts/reef-setup.py runs under the main checkout, unseen by this hook
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "5"))
 PR_MERGE_API = re.compile(r"repos/([^/]+)/([^/]+)/pulls/(\d+)/merge")
 GOOD_VERDICTS = ("PASS", "GREEN", "APPROVED")
@@ -416,6 +417,8 @@ def check_reviewer_lock(seg, ctx):
                 deny(f"{who}: sleep {rest[0]} — a sub-agent never waits a minute for the world to change")
     if not locked:
         return
+    if any(os.path.basename(t) == "reef-setup.py" for t in seg) and ({"prove", "apply"} & set(seg)):
+        deny(f"{who} is read-only: reef-setup.py prove/apply makes and removes worktrees and writes .reef/ci-local/ — judge, don't set up")
     for j, t in enumerate(seg):
         if os.path.basename(t) == "git":
             args = seg[j + 1:]

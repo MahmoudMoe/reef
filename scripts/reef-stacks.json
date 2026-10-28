@@ -60,6 +60,14 @@
    "session, cookie or token handling": "\\b(cookies\\(\\)|getServerSession|useSession|jsonwebtoken)",
    "sign-in route": "\\b(NextAuth|authOptions)\\b"
   },
+  "setup": [
+   {
+    "when_deps": ["next"],
+    "needs_script": "build",
+    "run": "npm run build",
+    "why": "the built app under .next that route-handler tests read, and the route types with it; only when the project has a build script (a bare `next typegen` is version-bound and invented)"
+   }
+  ],
   "generate": [
    {
     "when_deps": [

@@ -557,6 +557,41 @@ def plan_check(d):
     assert r.returncode == 0, f"fixture plan must pass plan-check:\n{r.stdout}"
 
 
+class SetupIsGuarded(unittest.TestCase):
+    """The security review of the setup proof (2026-10-28): `worktree.setup` is a command scripts/reef-setup.py runs under the
+    main checkout, and the hook sees only `python3 scripts/reef-setup.py prove` — so the worktree keys are the owner's, like
+    the gates, and a read-only judge never runs prove/apply (they make worktrees and write .reef/ci-local/)."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-setup-guard.")
+        subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
+        write_config(self.d, {"gates": {"full": "true"}, "worktree": {"setup": "npm ci", "dir": ".reef/worktrees"}, "writing": {"task_words": {}}})
+
+    def edit(self, old, new, who="reef:implementer"):
+        return run_guard({"tool_name": "Edit", "cwd": self.d, "agent_id": "a1", "agent_type": who,
+                          "tool_input": {"file_path": os.path.join(self.d, ".reef", "config.json"), "old_string": old, "new_string": new}})
+
+    def test_the_worktree_keys_are_the_owners(self):
+        r = self.edit('"setup": "npm ci"', '"setup": "printf {} > ../../evidence/x.json; npm ci"')
+        self.assertEqual(r.returncode, 2, "worktree.setup is a command the proof runs unseen: " + r.stderr)
+        self.assertIn("worktree", r.stderr)
+        r = self.edit('"dir": ".reef/worktrees"', '"dir": "/tmp/elsewhere"')
+        self.assertEqual(r.returncode, 2)
+        r = self.edit('"task_words": {}', '"task_words": {"light": 300}')
+        self.assertEqual(r.returncode, 0, "a key that is not the guard's stays editable: " + r.stderr)
+
+    def test_a_judge_never_proves_or_applies_the_setup(self):
+        for cmd in ("python3 scripts/reef-setup.py prove", "python3 scripts/reef-setup.py apply .reef/worktrees/x --repo .", "cd /x && python3 /x/scripts/reef-setup.py prove"):
+            with self.subTest(cmd=cmd):
+                r = run_guard({"tool_name": "Bash", "agent_type": "reef:verifier", "cwd": self.d, "tool_input": {"command": cmd}})
+                self.assertEqual(r.returncode, 2, "NOT DENIED: " + cmd)
+                self.assertIn("read-only", r.stderr)
+        for who, cmd in (("reef:verifier", "python3 scripts/reef-setup.py state"), ("reef:implementer", "python3 scripts/reef-setup.py prove")):
+            with self.subTest(who=who, cmd=cmd):
+                r = run_guard({"tool_name": "Bash", "agent_type": who, "cwd": self.d, "tool_input": {"command": cmd}})
+                self.assertEqual(r.returncode, 0, f"FALSE POSITIVE for {who}: {cmd}\n{r.stderr}")
+
+
 class JudgeScratch(unittest.TestCase):
     """Re-entry (2026-10-16): the loophole-hunter was refused `mkdir -p …/scratchpad/pk` to unpack a tarball it wanted
     to read, and `tar -xzO 2>/dev/null` as "writes a file". A judge never mutates the PROJECT; its scratch space and

@@ -1,6 +1,25 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **The worktree setup is proven once per change, never by a row's red** (2026-10-28, the current adoption). A fresh row
+  worktree had install, generate and typegen but no built app; 60 tests went red for reasons unrelated to the row, the
+  orchestrator guessed a build and the full suite ran twice per row — the design's phase 0 had left "a complete
+  worktree.setup" to the owner's hand. New `scripts/reef-setup.py`: `prove` makes a scratch worktree of the base, runs
+  `worktree.setup`, then `gates.full` ONCE as a plain command (no evidence, no snapshot cache: a tree lacking its setup is no
+  result about the base), records `.reef/ci-local/setup-<digest16>.json` and removes the worktree; `state` reads the record
+  for the digest of the setup command, the full gate and every lockfile — proven (0), unproven (3), INCOMPLETE (1) with the
+  failing lines. `reef-row.py next` names `prove` before a build and waits on the owner while INCOMPLETE; `reef-graph.py
+  worktree` refuses a task worktree on the same terms; `/reef-plan` starts the setup only on a proven state. `reef-init`
+  copies the script and derives `worktree.setup` from the stack profile's new `setup` entries (`scripts/reef-stacks.json`:
+  for Next, the route types and, when a build script exists, the built app the tests read), each only when its
+  dependency is present. The reviews folded: `worktree` joins the guard's protected config keys (the setup is a command
+  the proof runs unseen by the hook) and a read-only judge never runs `prove`/`apply`; the proof is named before
+  `/reef-plan` makes the row's worktree, not only before the build; `apply` runs the proven setup in a worktree once per
+  digest (marker `.reef/ci-local/setup.digest`), so a worktree set up under an older digest is re-set, and
+  `reef-graph.py worktree` sets a new task worktree up through it; the digest follows the manifests too; a `gates.full`
+  that names `reef-gate.sh` is refused (it would write the base's evidence); the INCOMPLETE line names the log; older
+  digests' records are pruned; the Next entry is the build alone (`next typegen` is version-bound and `next build`
+  writes the types). tests/size-budget.json raised: `prose_words` 21,799 → 21,825, `script_lines` 16,754 → 17,048.
 - **`/reef-factory`: the factory as one command; a subscriber token or an API key; the factory on the README, the site
   and the manual** (2026-10-28, the owner: "can tickets fire an agent on GitHub, and is there a shortcut inside Reef?"). The
   factory (phase 7) had no skill and its four setup steps lived only in a workflow header. New `skills/reef-factory/SKILL.md`:
