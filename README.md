@@ -27,9 +27,10 @@
 
 > *A coral reef grows one calcified layer at a time; each organism leaves a hard structure the next builds on. Reef works the same way: every spec, task, decision and journal line is a layer that outlives the session that wrote it.*
 
-You write a row in a queue. Reef plans it with you, builds it in parallel in isolated worktrees, has a fresh context
-verify every task, opens the pull request and closes the row. **You decide twice: you approve the plan and you merge
-the release.** Everything in between is decided by code on state the agent cannot write, not by a prompt.
+You write a row in a queue. Reef plans it with you, builds it in one worktree per row on the path its risk names,
+proves it with one test run per commit and one fresh reviewer, opens the pull request, merges it on a green gate and
+closes the row. **You decide twice: you approve the plan and you merge the release.** Everything in between is decided
+by code on state the agent cannot write, not by a prompt.
 
 | If you want | Go to |
 |---|---|
@@ -57,14 +58,16 @@ Then, inside your project:
 |---|---|---|
 | **A new project** | `/reef-init` | One batched set of questions (your branches, and the architecture grill: host, shape, scale, store, auth boundary, one-year non-goals). Reef renders one tree adapted to your stack: the config, `AGENTS.md`, the constitution, the queue with row 1 = the walking skeleton, the architecture with draft decisions, the journal, a release-only CI, the git hooks. Idempotent: a second run with nothing changed writes nothing. |
 | **An existing project** | `/reef-init`, then `/reef-assess` | Nothing you wrote is overwritten: a differing rendering lands in `.git/reef/proposed/<path>` with a diff and `python3 scripts/reef-init.py --accept <path>` applies the ones you choose. `/reef-assess` reads how the project works and was written, every claim with a proving path, then moves its documents into the tree under one approval. Archive, never delete; one `git revert` undoes it. |
-| **A feature to build** | `/reef-plan <row>` → `/reef-task <slug>` → `/reef-review <slug>` | The grill; the spec and the tasks drafted in the feature worktree; the hunter and a fresh reviewer in parallel; then the one question for you, last — nothing after it voids your approval. Every ready task at once, each in its own worktree, each verified by a fresh judge. The PR, one review (the spec, the diff, the evidence), the merge and the close. |
-| **A queue of rows** | `/reef-loop` | Every ready row through the four commands above, in parallel where rows do not collide. It stops only for your decisions, a missing credential, a wrong spec, or a cap, and batches its questions. |
+| **A feature to build** | `/reef-plan <row>` → `/reef-task <slug>` → `/reef-review <slug>` | The grill; the spec and the tasks drafted in the feature worktree; the deterministic check, and on the critical path the hunter and a fresh plan reviewer in parallel; then the one question for you, last — nothing after it voids your approval. One worktree for the row, its tasks in order, test-first, the fast gate on every commit; the full suite once on the final commit; the PR and ONE reviewer (the spec, the diff, every criterion against its named test in that result); the merge and the close. |
+| **A queue of rows** | `/reef-loop` | Every ready row through the three commands above, at most `loop.rows_in_flight` rows (two) between plan and close — a row finishes before a third starts. Each row's next step is read from disk (`python3 scripts/reef-row.py next <row>`), never decided from memory. It stops only for your decisions, a missing credential, a wrong spec, or a cap, and batches its questions. |
 | **The loop in the background** | `/reef-run` | Reef's runner, started from Claude Code and detached: `/reef-loop` in a fresh headless session whenever the last one fills its context, until the loop waits on you, stops or parks. `/reef-run status` shows it, `/reef-run stop` ends it after its current session. |
-| **To build without the loop, or to check a new machine** | `/reef-graph` | The same build step `/reef-loop` already uses for every fresh task (graph mode, chosen automatically): implementer, gate and verifier per task as one background workflow, one summary back. Run it yourself only to build a feature without the queue and loop, or once on a new machine to run the probe that proves the guard reaches workflow agents. Never next to a running loop: one orchestrator per project. |
+| **To build without the loop, or to check a new machine** | `/reef-graph` | The same build step `/reef-loop` already uses (graph mode, chosen automatically): a whole row as one background workflow — its tasks in order, each closed in place, then the evidence, the PR and the one reviewer — and one bare merge command back; or the ready tasks alone. Run it yourself only to build a feature without the queue and loop, or once on a new machine to run the probe that proves the guard reaches workflow agents. Never next to a running loop: one orchestrator per project. |
 | **The running app attacked** | `/reef-pentest <url>` | One adversary attacks every threat-model row against a live copy of the app, the way a user or a logged-in attacker could; each hole becomes a found queue row. On demand, at any point; needs `/reef-threat` first; only a target you own, never production unless you say so. |
 | **Something looks off** | `/reef-doctor` | One screen: the plugin clone's branch and freshness, scripts behind the plugin, the queue's home, worktrees, the loop's state, gh, Docker, waiting proposals — each with its fix. `reef/README.md` is the map of the tree; `.reef/status.html` the live page. |
 | **A night delegated to Mahmoud (super Reef)** | `/reef-night` | Mahmoud — your proxy, a chief architect and product manager who decides from your profile (`reef/owner.md`) and your own footnotes — drafts tonight's contract: the rows (by default every ready row of the batch, planned and found; the contract command warns of one left out), the decisions he may take (plan approvals, preview looks — his by default unless a footnote of yours keeps a named look —, product questions, holes after the hunter's rounds, triage), the hard limits (the release to `main`, secrets, money, deletion, Reef's own config, personal data leaving, any row not listed). You approve it once and `/reef-night` starts the runner itself, detached from the session (`reef-run.py --night --detach`): close the session, or Claude Code, and it works on. `python3 scripts/reef-run.py status` shows it from anywhere; `watch` follows it in a terminal. An approval holds 16 hours. In the morning `.reef/night/report.md` lists his decisions (undo: delete or edit) apart from the merges (undo: `git revert`), and the night in numbers beside the last night's — rows merged, first pass, stalls, cost, and (workflow v3) lead time per merged row in its spans, tokens, full-suite runs, rework and the process-to-product commit ratio; `python3 scripts/reef-cost.py rows` prints the same per row for any period. The release PR is refused while the night runs. A night is heavy: each session runs many Opus agents at once; on a subscription it draws on the plan's usage (the run log's `cost_usd` is the API-price equivalent, not a bill), and `caps.batch_tokens` parks the loop at a budget. Mahmoud runs on Fable — the owner's choice for this role. |
-| **A batch without restarting sessions** | `python3 scripts/reef-run.py probe` once, then `python3 scripts/reef-run.py` | Runs `/reef-loop` in fresh headless sessions one after another: at the context ceiling the next session takes over from the handoff. It stops when the loop needs you (your questions land in `.reef/questions.md`; the next interactive `/reef-loop` asks them as one set), stops, parks, leaves work in flight, or hits `--max-iterations` (10). Your terminal shows one line per step — an agent out and back with its verdict, a decision, a merge; `python3 scripts/reef-run.py watch` follows the same lines from another terminal, and `.reef/status.html` shows the last ten. The probe proves the guard denies a headless session's forbidden write first, or it refuses to run. One runner per checkout — the lock does not stop an interactive `/reef-loop` beside it, so run one orchestrator at a time. |
+| **A batch without restarting sessions** | `python3 scripts/reef-run.py probe` once, then `python3 scripts/reef-run.py` (`--row <id>` for one row) | Runs `/reef-loop` in fresh headless sessions one after another: at the context ceiling the next session takes over from the handoff. It stops when the loop needs you (your questions land in `.reef/questions.md`, on a GitHub queue also as issues labelled `reef-question`; the next interactive `/reef-loop` asks them as one set), stops, parks, leaves work in flight, or hits `--max-iterations` (10). Your terminal shows one line per step — an agent out and back with its verdict, a decision, a merge; `python3 scripts/reef-run.py watch` follows the same lines from another terminal, and `.reef/status.html` shows the last ten. The probe proves the guard denies a headless session's forbidden write first, or it refuses to run. One runner per checkout — the lock does not stop an interactive `/reef-loop` beside it, so run one orchestrator at a time. |
+| **Process questions to your proxy, by day** | `python3 scripts/reef-run.py contract --day`, then `Approve proxy by day at <digest16>?` | Seeds `reef/proxy.md`: what Mahmoud may decide while you work (`process`: a task's order or split, a rollup against a new row, a test's shape, which gate; `wording`: a subject, a journal or ADR line) and what he never decides (product, money, data, the look, security, the release, a plan approval). One approval at its digest; an edit to the contract or your profile voids it. Each decision is a footnote in his name, logged in `.reef/approvals/day-decisions.jsonl` and counted in the batch's numbers; a `WAIT` is yours. |
+| **A row built without your machine (the factory)** | `python3 scripts/reef-init.py --accept .github/workflows/reef-factory.yml`, then label a row's issue `reef-ready` | `/reef-init` OFFERS the workflow and never writes it (read its header first: Actions minutes, the model key as the repository secret `ANTHROPIC_API_KEY`, the six-hour job limit). Then an issue labelled `reef-ready` by an admin builds that row in the Actions sandbox through one command, `python3 scripts/reef-factory.py row`: the labeler and the issue's author must be admins and the base branch protected; the row's branch is resumed from the forge; the guard is proved to reach a headless session there; your plan approval is read from an unedited admin comment on the row's issue (`Approve plan <slug> at <digest16>?`); the branch is pushed back and the row's state written as one label (`reef-building`, `reef-review`, `reef-waiting-owner`). No schedule yet, one row per label. Pushes made with `GITHUB_TOKEN` start no CI: keep `ci.feature_gate: local` there, or add a fine-grained `REEF_TOKEN`. |
 | **A new Reef** | `python3 <plugin>/scripts/reef-update.py --commit` | Pulls the plugin clone, refreshes the project, commits Reef's own files, prints the two Claude Code commands. |
 | **A fresh clone** | `make setup` | Hooks are local git config and do not survive a clone. |
 
@@ -108,11 +111,11 @@ repository.
 
 ```mermaid
 flowchart LR
-    Q["Queue row<br/><i>you write it</i>"] --> P["/reef-plan<br/>grill · draft · hunter ‖ reviewer"]
+    Q["Queue row<br/><i>you write it</i>"] --> P["/reef-plan<br/>grill · draft · the check;<br/>hunter ‖ reviewer on the critical path"]
     P --> R["The gate<br/><i>you approve, last</i>"]
-    R --> T["/reef-task<br/>every ready task at once,<br/>each verified by a fresh judge"]
-    T --> V["/reef-review<br/>PR, one review, CI"]
-    V --> M["Merge &amp; close<br/><i>you merge the release</i>"]
+    R --> T["/reef-task · /reef-graph<br/>one worktree per row, tasks in order;<br/>a verifier per task on the critical path"]
+    T --> V["/reef-review<br/>PR, the suite once, one reviewer"]
+    V --> M["Merge &amp; close<br/>the loop merges the feature;<br/><i>you merge the release</i>"]
     M -.->|"state on disk"| Q
     classDef you fill:#F8DDD6,stroke:#D94F35,color:#182B33
     classDef code fill:#D9ECEA,stroke:#0E7C7B,color:#182B33
@@ -120,32 +123,52 @@ flowchart LR
     class P,T,V code
 ```
 
-1. **Plan.** `/reef-plan` grills you, once, about the row. A lean planner then drafts the feature folder in the
-   feature's own worktree: a spec with keyed requirements, one decision record with a diagram, and small
-   vertical-slice tasks (at most `plan.max_acs` criteria each) whose criteria cite those keys and whose proof is a
-   test name or a command. The deterministic check must be green before the planner returns.
-2. **Machine review, before you.** The loophole-hunter and a plan reviewer read the draft in parallel, in fresh
-   contexts: at most `hunter.plan_rounds` hunter rounds (two) and one fix round by the planner. Only a HALT, two of
-   your own documents contradicting each other, reaches you before the gate.
+**Risk decides the path** (workflow v3, [`docs/design/workflow-v3.md`](docs/design/workflow-v3.md)). The tier is
+decided by script from the paths a task touches and its `touches:` line. Tiers `light` and `full` take the **fast
+path** below. `design` with `touches` auth, pii, money or a migration, and `critical`, take the **critical path**: the
+same spine plus the hunter on the plan (one round, a second only on a blocker), a verifier per task, and the hunter's
+guard pass and the security agent once per feature, all reading the same test result. Nothing else differs.
+
+1. **Plan.** `/reef-plan` asks only what the spec leaves open, in the batch's one question set. A lean planner then
+   drafts the feature folder in the feature's own worktree: a spec with keyed requirements, one decision record with a
+   diagram, and small vertical-slice tasks (at most `plan.max_acs` criteria each) whose criteria cite those keys and
+   whose proof is a **named test**, run by your runner with a name filter (`converge.test_cmd`); a shell proof is the
+   tagged exception. The deterministic check (`reef-plan-check.py`) must be green before the planner returns.
+2. **Machine review, before you — on the critical path.** The loophole-hunter and a plan reviewer read the draft in
+   parallel, in fresh contexts: one round, a second only on a blocker, and one fix round by the planner. A fast-path
+   plan is reviewed by the check alone now and by the one reviewer's spec check at the end. Only a HALT, two of your
+   own documents contradicting each other, reaches you before the gate.
 3. **The gate, last.** One question: `Approve plan <slug> at <digest16>?` Your answer is recorded against that exact
    plan. Nothing after it voids your approval: reviewer notes and the ADR status line sit outside the digest, and
    only a HALT ruling or your own decision edits an approved plan.
-4. **Build.** Every ready task starts at once, each in its own worktree on its tier's model. A fresh task runs as one
-   background workflow where the host has one (graph mode, `/reef-graph`, Claude Code) once this machine's probe has proved the guard reaches workflow
-   agents, and so does a fix round (the implementer gets the failure, the verifier judges what it named); without that
-   proof it runs in the chat (`/reef-task`). The loop chooses; you don't. Per task: an implementer builds it test-first and hands
-   back; a verifier in a fresh context writes its pass or fail rule per criterion *before* reading the diff; a second
-   round judges only what the round changed; a hash of the tree proves the judges changed nothing. Three fix rounds
-   per task, then it stops and tells you.
-5. **Review and merge.** `/reef-review` pushes, opens the PR, checks every proof still holds, runs the hunter once
-   on the feature's whole diff, reviews the result against the spec, drives CI green, and records a green verdict
-   tied to the exact commit. A merge is allowed only against that record. By default you merge the feature PR.
-6. **Close.** Decision records get their final numbers, the row moves to the archive with your words, the journal
-   gets a line with what was measured and what the row cost, and `HANDOFF.md` is rewritten whole. A release PR
-   runs the release gates once, and you merge it.
-7. **Resume anywhere.** Everything is on disk. A new session, or a fresh one at the context ceiling (`/clear` in Claude Code), reads the handoff head and one
-   status tick, which names the next command and the files behind every id, and continues every row from its
-   last completed step. `.reef/status.html` is the same picture as a page; `reef/README.md` is the map of the tree.
+4. **Build.** One worktree for the row; its tasks run in order, each test-first on its tier's model, with the fast
+   gate on every commit. On the fast path a task is closed in place when its gate is green; on the critical path a
+   verifier in a fresh context judges it first, writing its pass or fail rule per criterion *before* reading the
+   diff, and a hash of the tree proves it changed nothing. Under graph mode the whole row runs as ONE background
+   workflow (`python3 scripts/reef-graph-run.py row <row>`, chosen by the loop once this machine's probe has proved
+   the guard reaches workflow agents); otherwise the task graph runs in the chat (`/reef-task`). Three fix rounds per
+   task, then it stops and tells you.
+5. **Evidence, once per commit.** The full suite runs once on the row's final commit, on a machine the author cannot
+   touch where there is one: with `ci.feature_gate: ci` the commit's check-runs are the evidence; otherwise
+   `sh scripts/reef-gate.sh full` writes `.reef/evidence/<snapshot>.json` and the guard denies every other writer.
+   Every judge reads that result (`python3 scripts/reef-evidence.py <commit>`); nobody reruns a suite on a commit
+   that already has one.
+6. **One review, then the loop merges.** `/reef-review` pushes, opens the PR, runs every named proof, and dispatches
+   ONE reviewer (`reef:acceptance`, fresh context, read-only): the feature against its spec from the user's side, the
+   diff against the base, and every criterion against its named test in the evidence. On the critical path the
+   hunter's guard pass and the security agent read the same diff first. A green verdict is a record tied to the exact
+   commit. Under `merge.by: loop` the loop then merges the feature into your base branch — only a head that contains
+   the base's tip (`reef-merge-base`) with green evidence on the merged commit; the guard refuses any other. The
+   release merge stays yours.
+7. **Close, and resume anywhere.** Decision records get their final numbers, the row moves to the archive with your
+   words, the journal gets a line with what was measured and what the row cost, and `HANDOFF.md` is rendered from
+   measured state at every wait (`reef-loop.py wait`; a hand-written one is refused). A release PR runs the release
+   gates once, and you merge it. A new session reads the handoff head and one status tick and continues every row
+   from its last completed step: `python3 scripts/reef-row.py next <row>` prints the one next command of any row
+   (plan → approval → build → evidence → review → merge → close). `.reef/status.html` is the same picture as a page;
+   `reef/README.md` is the map of the tree. The batch's numbers — lead time per row, tokens, full-suite runs,
+   rollups, reverts, the product-to-process commit ratio, your questions and the proxy's day decisions — come from
+   `python3 scripts/reef-cost.py rows`, and the morning report prints them beside the previous batch's.
 
 <p align="center"><img src="assets/divider-rain.svg" alt="" width="100%"></p>
 
@@ -176,6 +199,9 @@ flowchart LR
   the release still waits for you in the morning.
 - A row costs real tokens: planning, review, the task graph and the close are separate sessions, each on its tier's
   model. On a subscription that is plan usage, not an invoice.
+- The loop merges feature PRs into your base branch (`merge.by: loop`, the default when CI gates feature PRs and the
+  base is not the release branch) — only against a green record and green evidence on the merged commit; you merge
+  the release.
 - A forge is part of the loop: review verdicts are records tied to the PR head on GitHub. Without a remote, the loop
   hands the merge to you.
 
@@ -186,10 +212,13 @@ flowchart LR
 | You see | It means | You do |
 |---|---|---|
 | `Approve plan <slug> at <digest16>?` | The one question of a feature, asked after the machine review. The approval is recorded against that digest; reviewer notes and the ADR status line sit outside it. | Answer *Approve*, or say what to change; the planner amends, the machines re-check, and you are asked again. |
-| `awaiting: <feature> (machine review (hunter ‖ plan reviewer) before the gate)` in the tick | The draft has no review pass or no hunter pass at its current digest. | Run `/reef-plan <slug>`; it picks the feature up at the review. The tick will not offer its tasks until then. |
+| `rows to plan: <ids> (held by loop.rows_in_flight 2: <ids>; in flight: <ids>)` in the tick | Two rows are already between plan and close; the held ones wait their turn. | Nothing: a row closes and the next is planned. Raise `loop.rows_in_flight` if your rows never collide. |
+| `awaiting: <feature> (machine review (hunter ‖ plan reviewer) before the gate)` in the tick | The draft has no review pass or no hunter pass at its current digest (critical path only; a fast-path plan needs the check alone). | Run `/reef-plan <slug>`; it picks the feature up at the review. The tick will not offer its tasks until then. |
 | `awaiting: <feature> (hunter plan pass stale on <task>: …)` | A review-round edit moved the digest after the hunter passed. | A re-check within `hunter.plan_rounds`, or rule on the open hole yourself with the `--decided` command the line prints. |
 | `HALT` from the plan reviewer | Two of your own documents contradict each other. The reviewer does not pick a winner. | Decide which one is right; the planner amends and the machines re-check. |
 | `dispatch (graph): 101, 102 — python3 scripts/reef-graph-run.py generate` | Several tasks are ready and this machine's probe recorded `GATE OK`. | Nothing: `/reef-loop` runs them as one background workflow and settles the results. |
+| `ROW <id> WAITS <state>: <why>` from the row driver | The row's workflow stopped at a task, the evidence or the review; the failed task's attempt is counted. | Nothing: the next `/reef-loop` re-dispatches it with the failure, under the same cap. |
+| `evidence: … exit 1` or `pending` in a report's `GATE:` line | The suite's one result for that commit is red (its log is named) or CI has not finished. | Red: the fix round, under the cap. Pending: wait for CI; nobody reruns it. |
 | `verify now: <id> (handed back, uncommitted — gate + verifier, no implementer)` | An implementer handed the task back and nothing judged it yet. | Nothing: `/reef-loop` judges it (in the graph when this machine's probe passed, else `/reef-task` from the gate). |
 | `BROKEN: graph.mode is graph but this machine has no GATE OK` | You asked for graph mode and the probe has not proved the guard reaches workflow agents here. | `python3 scripts/reef-graph-run.py probe` once, then the probe-check it prints; chat mode runs meanwhile. |
 | `GROWTH over caps.task_growth: <ids> — say why in the journal` | A task cost the orchestrator more context than the cap you set. | Say why in the journal row, or split the task next time. |
@@ -204,7 +233,9 @@ flowchart LR
 | `Not verified in a browser:` in a verifier report | The judge could not open the app; it says so instead of claiming. | Check that part yourself, or give the task a browser proof row. |
 | `Approve night <YYYY-MM-DD> at <digest16>?` | The one question of a super Reef night: tonight's rows, the decisions your proxy may take, the hard limits. The approval is recorded against that contract and your profile. | Answer *Approve*: `/reef-night` starts the runner itself and gives its pid; or *Edit* the contract and be asked again. |
 | `the contract was approved …, more than 16 h ago: that was another night's — run /reef-night for tonight` | An approval covers one night: 16 hours from your *Approve*, and a contract whose rows are all closed is refused too. | Run `/reef-night` and approve tonight's contract. |
-| `reef-run: waiting on you — …` and `your questions: .reef/questions.md` | The headless runner reached a question only you can answer, and stopped. | Run `/reef-loop` in an interactive session; it asks the open questions as one set and continues. |
+| `reef-run: waiting on you — …` and `your questions: .reef/questions.md` | The headless runner reached a question only you can answer, and stopped; on a GitHub queue each question is also an issue labelled `reef-question`, with the runner's recommended answer. | Run `/reef-loop` in an interactive session; it asks the open questions as one set, footnotes your words and continues; then start the runner again. |
+| `Approve proxy by day at <digest16>?` | The one question of `reef-run.py contract --day`: what Mahmoud may decide while you work (process, wording) and what he never decides. | Answer *Approve*, or edit `reef/proxy.md` and be asked again. His decisions are footnotes in his name; `WAIT` comes to you. |
+| `reef-waiting-owner` on a row's issue | The factory built the row as far as it could in the Actions sandbox and needs your plan approval or an answer. | Comment `Approve plan <slug> at <digest16>?` on the issue (an admin, an unedited comment), or answer the question; label it `reef-ready` again. |
 | `release PR into <release> at <sha>: no PASS security record for that commit` | The release's security pass has not run on this exact head, or the base moved since it did. | Let the loop run `reef:security` on the release diff and record it; the PR opens on a PASS at the head. |
 | `a super Reef night is running (.reef/night/active): the release … is the owner's, in the morning` | A delegated night holds the release: Mahmoud may merge features, never the release. | Nothing tonight. Read `.reef/night/report.md` in the morning, then release yourself. |
 | Something looks off and you cannot say what | Two `AGENTS.md`, scripts behind the plugin, a plan nobody can find, a stuck worktree. | `/reef-doctor`: one screen, each finding with the command that fixes it. |
@@ -215,15 +246,16 @@ flowchart LR
 
 | Role | May write? | Does | Runs on |
 |---|---|---|---|
-| Orchestrator | dispatches | Your main session: reads one tick, starts the ready work, never writes code or evidence itself. In graph mode it supervises one workflow's summary instead of one agent result per turn. | your session |
+| Orchestrator | dispatches | Your main session: reads one tick and the row's one next step (`reef-row.py next`), runs that step, never writes code or evidence itself. In graph mode it makes three calls per row and reads one summary. | your session |
 | Planner | writes plan files | Drafts or amends one feature's spec, tasks and draft ADR in the feature worktree, lean, and returns only when the deterministic check is green. Never approves, never reviews, never writes code. | the tier's planner model |
 | Implementer | writes code | Builds one task test-first in its own worktree; never commits, never judges its own work. | the tier's author model |
-| Verifier | read-only | Decides its pass or fail rule per criterion before reading the diff; reports evidence per criterion; from the second round judges only what the round changed. | the tier's verifier model |
-| Loophole-hunter | read-only | The adversary: on a `critical` plan before code (at most two rounds), and once per feature on the finished diff before the green record. | the tier's adversary model |
-| Plan-reviewer | read-only | Reads a drafted plan for drift between spec, decisions, tasks and config, before you see it; halts on a contradiction between two of your own documents. | the tier's reviewer model |
-| Mechanic | writes, no claims | Rebase, run the gates, re-take a measurement, archive edits. Exit codes and diffs, never prose. | the cheapest model |
-| Mahmoud | read-only | Only in a super Reef night: the owner's proxy, deciding inside the contract the owner approved — plan approvals, design looks, product questions, holes after the hunter's rounds, triage. Never a hard limit; never outside the contract. | `roles.proxy` (Fable, the owner's choice) |
-| Security | read-only | Once per release: audits the release's diff against the threat model and the constitution, then argues what a scanner cannot reach (untrusted input, the authenticated attacker, the deployment surface). Its verdict is a record; the release PR opens only on a PASS at its head. | `roles.security` |
+| Verifier | read-only | Critical path only: decides its pass or fail rule per criterion before reading the diff; reports evidence per criterion, reading the commit's one test result; from the second round judges only what the round changed. A fast-path task is proved by the suite and the one reviewer. | the tier's verifier model |
+| Loophole-hunter | read-only | The adversary, critical path only: on the plan before code (one round, a second on a blocker), and once per feature on the finished diff before the green record. | the tier's adversary model |
+| Plan-reviewer | read-only | Critical path only: reads a drafted plan for drift between spec, decisions, tasks and config, before you see it; halts on a contradiction between two of your own documents. | the tier's reviewer model |
+| Acceptance | read-only | The row's ONE reviewer, every path: the feature against its spec from the user's side, the diff against the base, every criterion against its named test in the evidence. One report, `HEAD:` to `VERDICT:`; the green record binds to it. | `roles.reviewer` |
+| Mechanic | writes, no claims | Rebase, run the gates, re-take a measurement, archive edits; inside a row's workflow it closes each green task in place (`reef-merge-close`). Exit codes and diffs, never prose. | the cheapest model |
+| Mahmoud | read-only | The owner's proxy. In a super Reef night, inside the contract the owner approved: plan approvals, design looks, product questions, holes after the hunter's rounds, triage. By day, inside `reef/proxy.md`: process and wording questions only, each a footnote in his name. Never a hard limit; never product, money, data, the look, security or the release by day; never outside the contract. | `roles.proxy` (Fable, the owner's choice) |
+| Security | read-only | Once per feature on the critical path (`review.security_per_item`), and once per release: audits the diff against the threat model and the constitution, then argues what a scanner cannot reach (untrusted input, the authenticated attacker, the deployment surface). Its verdict is a record; the release PR opens only on a PASS at its head. | `roles.security` |
 
 The tier decides which model does the work, which model judges it, and how hard they try. You declare it on a task;
 the paths it touches can only move it up.
@@ -268,7 +300,8 @@ Every cap, model, branch name and path Reef uses is a key in this one file, writ
 | `writing.task_words.<tier>` · `handback_words` · **`report_words`** · `journal_words` / `queue_words` · **`sentence_words`** / **`criterion_words`** · **`session_start_tokens`** | `0` everywhere (off; 0.7 — a budget rejected honest hand-backs and reports into rewrite rounds; set a number to enforce) · `40000` / `35000` · `8000` | caps; `task_words`, the sentence and criterion rules fail only under 0.6 |
 | **`loop.inflight_stale_minutes`** / **`loop.no_progress_ticks`** / **`loop.rows_in_flight`** | `90` / `3` / `2` | an in-flight marker older than this is "returned"; identical ticks before the loop parks; rows between plan and close before a new one is planned (0 = no cap; v3) |
 | **`context.failure_lines` / `context.explore_files`** | `60` / `40` | the failing block's cap; (the Read tripwire was cut — the key is reserved); an Explore agent's file budget |
-| **`converge.test_cmd`** | `""` | how `reef-converge` runs one named test (`{name}`); empty = the full gate once |
+| **`converge.test_cmd`** | `""` | how `reef-converge` runs one named test (`{name}`, your runner's name filter — the v3 proof); empty = the full gate once |
+| **`review.security_per_item`** | `on` | the security agent once per feature on the critical path, before the green record (`off`: the release pass alone) |
 
 0.5 configs keep working: `gates.test` is an alias of `gates.full`; every new key defaults to the old behaviour;
 `scripts/reef-migrate` adds the keys once.
@@ -282,11 +315,11 @@ One tree, grouped by feature; machine state in `.reef/`; three files at the root
 AGENTS.md  CLAUDE.md (pointer)  HANDOFF.md                 # root: the three files every agent meets first
 .reef/                                                      # config and machine state
   config.json  version                                      #   committed
-  loop.json  inflight/  verifying/  review/  approvals/  worktrees/  proposed/  ci-local/  hunt/  cost/  graph/  status.html   # gitignored
+  loop.json  inflight/  verifying/  review/  approvals/  evidence/  worktrees/  proposed/  ci-local/  hunt/  cost/  graph/  status.html   # gitignored
   run/  night/  questions.md                                #   the runner's gate, log and lock; a night's contract, approval and report; your open questions
 reef/                                                       # every committed Reef artifact
   README.md                                                 #   the map of the tree, rendered by reef-init
-  owner.md                                                  #   your profile, the proxy's brief for a delegated night
+  owner.md  proxy.md                                        #   your profile, the proxy's brief for a delegated night; what he decides by day
   constitution.md  queue.md  queue-archive.md  journal.md  glossary.md  day-zero.md  recalibration.md
   architecture/   architecture.md  conventions.md  workspace.dsl  context.md  container.md  threat-model.md
                   adr/NNNN-<slug>.md                        # project-wide decisions only (stack, hosting, boundaries)
@@ -298,17 +331,19 @@ reef/                                                       # every committed Re
       tasks/NNNnn-<slug>.md   tasks/done/                   #   the plan; ids global; rollup lives here too
   archive/<date>/
 scripts/reef-*   .githooks/   .github/workflows/ci.yml      # tooling where git and CI expect it
+.github/workflows/reef-factory.yml                          # offered by reef-init, placed by --accept: a row built in the Actions sandbox
 ```
 
 The plugin itself: `skills/` (init, assess, explore, loop, plan, plan-review, task, graph, verify, review, c4, threat, pentest,
 doctor, night) · `commands/` · `agents/` (implementer, verifier, plan-reviewer, loophole-hunter, mechanic, planner, security,
-mahmoud) · `scripts/` (`reef-init.py`, `reef-update.py`, `reef-doctor.py`, `reef-run.py` [probe|contract|watch|--night], `reef-graph-run.py` [probe|generate|settle],
+mahmoud) · `scripts/` (`reef-init.py`, `reef-update.py`, `reef-doctor.py`, `reef-run.py` [probe|contract [--day]|watch|--night|--row], `reef-row.py` [state|next],
+`reef-graph-run.py` [probe|generate|row|settle], `reef-evidence.py`, `reef-factory.py`,
 `reef-migrate`, `reef-loop.py` [tick|start|stop|wait|unlock], `reef-handoff`, `reef-gate.sh` [fast|full|--failures],
 `reef-attempt`, `reef-guard.py`, `reef-approval.py`, `reef-record`, `reef-graph.py`, `reef-plan-check.py`
 [--rules|--digest|--needs-agent|--verify-stamp], `reef-converge`, `reef-adversarial`, `reef-claims.py`
 [check|--handback|report|claims-only], `reef-tier.py`, `reef-queue.py` [status|ready|check|adr-number|index|footnote|add-row|set-depends|triage|set-batch|drop-row|close|admit|set-priority|demote|journal|migrate-to-issues],
 `reef-structure`, `reef-recalibrate`, `reef-repo`, `reef-c4.py`, `reef-threat.py`, `reef-ci-local.sh` [--ci|--release],
-`reef-snapshot.sh`, `reef-cost.py`, `reef-watch`, `reef-eval`, `reef-guard-profile.py`) · `hooks/hooks.json` (PreToolUse Bash ·
+`reef-snapshot.sh`, `reef-cost.py` [rows|growth|--live], `reef-watch`, `reef-eval`, `reef-guard-profile.py`) · `hooks/hooks.json` (PreToolUse Bash ·
 Task|Agent · Edit|Write|MultiEdit; PostToolUse AskUserQuestion; Stop; SessionStart) · `migrations/` ·
 `schemas/task.schema.json` · `templates/` (config, task, spec, adr, glossary, runlog, pre-commit, stacks/, project/) ·
 `tests/eval/` (the corpus) · `tests/fixtures/payloads/` · `docs/perf/`
@@ -339,6 +374,11 @@ adapter (`scripts/reef-opencode.py`) · **Claude Code** when it needs a hook eve
 | Nobody writes an approval or a review record by hand | `reef-guard.py` denies Bash writes and Edit/Write/MultiEdit under `.reef/approvals/`, `.reef/review/` | portable | **tripwire** |
 | An agent never runs `reef-approval.py` except `--proxy` (a night); where no approval hook exists (OpenCode) the owner approves in their own terminal, `reef-approval.py --owner "<question>"`, at the plan's current digest | `reef-guard.py` matches the command; `reef-approval.py --owner` takes the hook's own path | portable | **tripwire** (an agent's own code writing the record meets the record-directory tripwire above) |
 | The release PR (`gh pr create` into `branches.release`) opens only on a PASS from `reef:security` recorded at the exact head it proposes (a PR from the base with no `--base` is treated as the release PR); a base that moved since the pass is audited again. A security record never opens a feature merge (it stores `head`, not `sha`). No rule when base == release. A PR opened in the forge's web UI is outside every hook | `scripts/reef-record security` (the agent's own VERDICT line, `report_sha256`); `reef-guard.py` `check_release_pr`; `tests/test_record.py::SecurityPass` | portable | **code** for the loop's path |
+| The suite's one result per commit: `scripts/reef-gate.sh full` alone writes `.reef/evidence/<snapshot>.json` (the guard denies every other writer); with `ci.feature_gate: ci` the commit's check-runs are the result; every judge and the merge read it, nobody reruns | `scripts/reef-evidence.py`, `reef-guard.py` on the evidence paths | portable | **code** |
+| The loop merges only a PR head that contains the base's tip, with green evidence on the merged commit (`merge.by: loop`) | `reef-guard.py` on `gh pr merge`; `scripts/reef-merge-base`; `scripts/reef-evidence.py` | portable | **code** |
+| A row's state and its one next step come from disk, never from memory; `HANDOFF.md` is rendered at every wait and a hand-written one is refused | `scripts/reef-row.py state\|next`; `scripts/reef-loop.py wait` → `reef-handoff --write`; `reef-guard.py` on `HANDOFF.md` | portable | **code** + **tripwire** |
+| The proxy's day decision is written only by `reef-approval.py --proxy --day` against an approved `reef/proxy.md` (kinds `process`, `wording`); its footnote label typed by hand is refused, as is a replay | `scripts/reef-approval.py`; `reef-guard.py` on the footnote label | portable | **code** + **tripwire** |
+| The factory builds only for an admin labeler and an admin author, on a protected base, after the guard is proved in the sandbox; the plan approval is read only from an unedited admin comment at the current digest | `scripts/reef-factory.py row`; `scripts/reef-approval.py --from-issue` | portable | **code** |
 | Review verdicts are RECORDS bound to the forge head; `gh pr merge` only against a GREEN record (clean base merge or claims-only commits are the only carry-overs; rebase, code push, slow or failed gh deny) — `merge.by: loop` only | `scripts/reef-record` (`gh pr view`, `gh api …/git/commits`); `reef-guard.py` on `gh pr merge` / `gh api …/merge` under its own gh deadline | portable | **code** (presence) |
 | Judges are read-only: verifier, loophole-hunter, plan-reviewer, Explore get no mutating git, no Bash write, no CI wait; a typeless sub-agent is locked while `.reef/verifying/<id>` exists; no sub-agent waits on CI or sleeps a minute | `reef-guard.py` reads `agent_type`/`agent_id` from the payload (verified live, 0.0); the snapshot hash is the backstop | portable | **code** + **tripwire** (the write detection is a token match) |
 | A hung guard denies; no python3 denies a dispatch | `signal.alarm` deadline inside the guard; `timeout` + `onFailure: block` on every PreToolUse matcher (`scripts/reef-guard-profile.py` sets them at ≥ 5 × p95) | portable | **code** |
@@ -442,8 +482,20 @@ headless sessions, so you are not the restart button); the release's security pa
 PR needs; `/reef-pentest` against the running app; super Reef, one delegated night under Mahmoud, your proxy, inside a
 contract you approve once, started by `/reef-night` itself; and OpenCode in early support (`scripts/reef-opencode.py`).
 
+**Workflow v3** (unreleased, every phase on `main`; [`docs/design/workflow-v3.md`](docs/design/workflow-v3.md)) came
+from the first adoption's measurements: the suite ran three times on one commit, three judges with overlapping angles
+found no blocker, a five-line fix waited behind four steps, and the orchestrator held the row's state in its context.
+Now risk decides the path (a fast path for `light` and `full`, the critical path for the rest); the suite runs once
+per commit and every judge reads that result; one reviewer per row; proofs are named tests; one worktree per row and
+at most two rows in flight; the loop merges a feature on green evidence of the merged commit; the row is a state machine
+on disk and every wait renders the handoff; the batch is measured (`reef-cost.py rows`); the proxy decides process and
+wording by day inside a contract; and an offered workflow builds a labelled row in the Actions sandbox. Each phase
+shipped as one PR with a test red first, and each is re-scored by its measure over two batches: rework above the
+baseline reverts the phase that loosened a check.
+
 Open: a release drill to `main` through the whole chain, a live capture of the AskUserQuestion payload, a sonnet
-author for the `light` tier once an author eval exists.
+author for the `light` tier once an author eval exists, the factory's schedule that drains `reef-ready` rows, and the
+first measured v3 batch.
 
 The plan after first contact for ease of use and autopilot maturity: [`docs/design/usability-autopilot-plan.md`](docs/design/usability-autopilot-plan.md).
 
