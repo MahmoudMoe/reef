@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The runner's wait asks the row machine for its command; `reef update` pushes** (2026-10-28, the owner's first round
+  alone). The loop wrote its wait as "re-approve row 46's plan at <digest>", not the exact question, and the runner
+  offered a footnote command for an approval. For every row the wait or the questions file names, the runner now reads
+  `reef-row.py state <row> --json` and prints the command that state carries (the approval line at the gate), a
+  footnote only when the row has none. `reef update` pushes the commit it makes, or says to push. tests/size-budget.json
+  raised: `script_lines` 17,292 → 17,307.
 - **A feature's digest covers the ADRs it owns or cites, not every decision in the project** (2026-10-28, the current
   adoption, two rows in flight: row 3's close amended two ADRs on the base; merging the base into row 46's branch moved
   row 46's digest and voided its approval with nothing of its plan changed — the owner re-approved by hand). The

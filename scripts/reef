@@ -145,6 +145,8 @@ def cmd_update(root, args):
         if subprocess.run(cmd, cwd=root).returncode != 0:
             print("reef update: stopped at that step", file=sys.stderr)
             return 1
+    r = subprocess.run(["git", "push"], cwd=root)   # the update's commit goes to the forge (2026-10-28: it sat local and the owner found it)
+    print("reef update: pushed" if r.returncode == 0 else "reef update: the push failed — push yourself: git push", flush=True)
     setup = script("reef-setup.py")
     if setup and subprocess.run([PY, setup, "state", "--repo", root], capture_output=True).returncode == 3:
         print("reef update: the setup digest changed — proving it (a scratch worktree, the setup, the full gate once)", flush=True)
