@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.7.3 (unreleased)
+## 0.7.4 (unreleased)
+- **0.7.3 released** (2026-10-28): plugin.json, the marketplace, reef-init's version, the README badge and status, the site
+  and the manual read 0.7.3; migrations/0.7.2-to-0.7.3.py is a no-change step so .reef/version walks with no gap.
+
+## 0.7.3 — Workflow v3: risk decides the path, evidence once per commit, one reviewer, the loop merges, the factory on Actions
 - **`reef-run.py contract --from` the installed contract no longer crashes** (2026-10-28, the current adoption:
   re-running the contract against `.reef/night/contract.md` itself raised `shutil.SameFileError` as a traceback).
   The same file is left in place; any other copy failure is one `reef-run:` line. `script_lines` 17,048 → 17,053.

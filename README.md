@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://mahmoudmoe.github.io/reef/"><img alt="website" src="https://img.shields.io/badge/website-mahmoudmoe.github.io%2Freef-0E7C7B?style=flat-square"></a>
-  <img alt="version" src="https://img.shields.io/badge/version-0.7.2-D94F35?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-0.7.3-D94F35?style=flat-square">
   <img alt="claude code" src="https://img.shields.io/badge/claude_code-plugin-182B33?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-4A5E66?style=flat-square">
   <a href="https://github.com/MahmoudMoe/reef/actions/workflows/ci.yml"><img alt="selftests" src="https://github.com/MahmoudMoe/reef/actions/workflows/ci.yml/badge.svg?branch=main"></a>
@@ -478,13 +478,15 @@ and never runs in CI; its fixture replay does.
 
 ### Status and what is next
 
-Reef 0.7.2 is the released version. It comes from the first adoption on an existing project (a Next.js, Prisma and Vitest
-codebase with its own loop): assess now measures instead of judging (`reef-recalibrate measure`), the recalibration plan keeps
+Reef 0.7.3 is the released version: workflow v3 (`docs/design/workflow-v3.md`) — risk decides the path, evidence once per
+commit, one reviewer, the loop merges, scripts orchestrate, the proxy by day, the factory on GitHub Actions (`/reef-factory`),
+and the worktree setup proven once per change. 0.7.2 came from the first adoption on an existing project (a Next.js, Prisma
+and Vitest codebase with its own loop): assess now measures instead of judging (`reef-recalibrate measure`), the recalibration plan keeps
 what the project's tools read and measures its own cost before the one question, the adoption is one ordered plan with an
 honest hand-off line, the instruction layer the agents read first is inventoried and rewritten, injection, layer boundaries
 and file sizes get deterministic checks with a baseline, a `refactor` task kind proves behaviour preserved, and the design
 tier reaches the project's real sensitive code. 0.7.1 moved the queue onto the project's GitHub issues and let one session
-hold a project's loop. Every entry under "0.7.2", "0.7.1" and "0.7.0" in `CHANGELOG.md` names
+hold a project's loop. Every entry under "0.7.3", "0.7.2", "0.7.1" and "0.7.0" in `CHANGELOG.md` names
 the first contact that caused it, and `docs/perf/` holds the measurements. What 0.7 brought (`docs/design/workflow-v2.md`): the owner's gate last, after the hunter and
 the plan reviewer run in parallel on the draft; a lean planner; tasks capped by criteria; graph mode (`/reef-graph`,
 gated by a probe of the guard); one command to update (`reef-update.py`), one screen to diagnose (`/reef-doctor`), a
