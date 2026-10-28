@@ -212,7 +212,13 @@ class SquashMergesAreListed(unittest.TestCase):
         self.assertEqual(R.run(d, ["probe-deny"], "probe").returncode, 0)
         approve_night(self, d)
         L.write(d, "src/x.py", "x = 1\n")
-        L.git(d, "add", "-A"); L.git(d, "commit", "-qm", "feat(share-links): the slice (#63)")
+        L.git(d, "add", "-A")
+        # the merge lands DURING the night (after the runner's start): a committer date two minutes ahead keeps it inside the
+        # window on any clock (the macOS leg once made the commit in the same second the runner started and read "none")
+        import datetime
+        ahead = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "feat(share-links): the slice (#63)"],
+                       check=True, env=dict(os.environ, GIT_COMMITTER_DATE=ahead, GIT_AUTHOR_DATE=ahead))
         r = R.run(d, ["stop:night done"], "--night")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         rep = open(os.path.join(d, ".reef", "night", "report.md")).read()
