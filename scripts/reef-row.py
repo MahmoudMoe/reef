@@ -122,13 +122,33 @@ def archived(main, cfg):
 
 
 def setup_state(main):
-    """(exit, first line) of scripts/reef-setup.py state — 0 proven, 3 unproven, 1 INCOMPLETE; a project whose scripts predate
-    the proof (no reef-setup.py yet) builds as before."""
+    """(exit, first line, digest) of scripts/reef-setup.py — 0 proven, 3 unproven, 1 INCOMPLETE; a project whose scripts predate
+    the proof (no reef-setup.py yet) builds as before (exit 0, no digest)."""
     script = os.path.join(main, "scripts", "reef-setup.py")
     if not os.path.isfile(script):
-        return 0, ""
+        return 0, "", ""
     rc, out = run([sys.executable, script, "state", "--repo", main], main, timeout=60)
-    return rc, (out.strip().splitlines() or [""])[0]
+    _, dg = run([sys.executable, script, "digest", "--repo", main], main, timeout=60)
+    return rc, (out.strip().splitlines() or [""])[0], dg.strip()
+
+
+def setup_next(main, state_rc, line, co=None, dg=""):
+    """The one next command the setup proof imposes, or None: `prove` while unproven, the owner's wait while INCOMPLETE, `apply`
+    for a worktree set up under an older digest (its marker .reef/ci-local/setup.digest)."""
+    if state_rc == 3:
+        return "python3 scripts/reef-setup.py prove  (worktree.setup proven once per change)", line
+    if state_rc == 1:
+        return f"(wait: owner — {line})", line
+    if co and dg:
+        try:
+            with open(os.path.join(co, ".reef", "ci-local", "setup.digest"), encoding="utf-8") as f:
+                if f.read().strip() == dg:
+                    return None, ""
+        except OSError:
+            pass
+        rel = os.path.relpath(co, main) or "."
+        return f"python3 scripts/reef-setup.py apply {rel}  (worktree.setup changed since this worktree was set up)", f"setup {dg} not applied in {rel}"
+    return None, ""
 
 
 def state_of(repo, key):
@@ -143,7 +163,9 @@ def state_of(repo, key):
     if found is None:
         if key in rows:
             if key in ready:
-                out.update(state="plan", next=f"/reef-plan {key}", detail="ready, no feature folder yet")
+                st_rc, st, _ = setup_state(main)
+                nxt, why = setup_next(main, st_rc, st)
+                out.update(state="plan", next=nxt or f"/reef-plan {key}", detail=(why + "; " if nxt else "") + "ready, no feature folder yet")
             else:
                 out.update(state="queued", next="(wait: its Depends are not merged)", detail=f"queue status {rows[key]}")
             return out, 0
@@ -170,14 +192,10 @@ def state_of(repo, key):
     if open_tasks:
         # 2026-10-28: worktree.setup is proven once per change before a row builds (scripts/reef-setup.py) — a fresh worktree
         # without its setup goes red for reasons unrelated to the row, and a guessed build is a second suite run
-        st_rc, st = setup_state(main)
-        if st_rc == 3:
-            out.update(state="build", next="python3 scripts/reef-setup.py prove  (worktree.setup proven once per change; then the build)",
-                       detail=f"{len(open_tasks)} open task(s); {st}")
-            return out, 0
-        if st_rc == 1:
-            out.update(state="build", next="(wait: owner — worktree.setup is INCOMPLETE; edit .reef/config.json worktree.setup, then python3 scripts/reef-setup.py prove)",
-                       detail=st)
+        st_rc, st, dg = setup_state(main)
+        nxt, why = setup_next(main, st_rc, st, co, dg)
+        if nxt:
+            out.update(state="build", next=nxt, detail=f"{len(open_tasks)} open task(s); {why}")
             return out, 0
         out.update(state="build", next="python3 scripts/reef-loop.py tick  (dispatch now / verify now → /reef-task or /reef-graph)",
                    detail=f"{len(open_tasks)} open task(s): {', '.join(open_tasks[:4])}")

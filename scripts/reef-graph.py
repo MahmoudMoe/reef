@@ -463,7 +463,11 @@ def cmd_worktree(task_path, base):
         if r.returncode != 0:
             raise GraphError(f"git worktree add failed: {r.stderr.strip()}")
         setup = str(cfg.get("worktree", {}).get("setup", "") or "")
-        if setup.strip():
+        if os.path.isfile(proof):   # the proven setup, once per digest (its marker in the worktree)
+            r = subprocess.run([sys.executable, proof, "apply", wt, "--repo", main_checkout(root)], capture_output=True, text=True)
+            if r.returncode != 0:
+                raise GraphError(f"worktree.setup did not apply: {(r.stdout or r.stderr).strip()[:240]}")
+        elif setup.strip():
             r = subprocess.run(["sh", "-c", setup], cwd=wt)
             if r.returncode != 0:
                 raise GraphError(f"worktree.setup {setup!r} exited {r.returncode}")

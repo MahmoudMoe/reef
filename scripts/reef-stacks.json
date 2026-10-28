@@ -63,14 +63,9 @@
   "setup": [
    {
     "when_deps": ["next"],
-    "run": "npx next typegen",
-    "why": "the route types the typecheck reads (the current adoption, queue row 37)"
-   },
-   {
-    "when_deps": ["next"],
     "needs_script": "build",
     "run": "npm run build",
-    "why": "the built app under .next that route-handler tests read; only when the project has a build script"
+    "why": "the built app under .next that route-handler tests read, and the route types with it; only when the project has a build script (a bare `next typegen` is version-bound and invented)"
    }
   ],
   "generate": [

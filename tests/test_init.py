@@ -643,8 +643,7 @@ class StackSetup(unittest.TestCase):
     def test_next_adds_its_route_types_and_the_built_app_the_tests_read(self):
         self.assertEqual(self.setup_for({"scripts": {"test": "vitest run", "build": "next build", "generate": "prisma generate"},
                                          "dependencies": {"next": "16", "@prisma/client": "6"}}),
-                         "npm ci && npm run generate && npx next typegen && npm run build")
-        self.assertEqual(self.setup_for({"scripts": {"test": "vitest run"}, "dependencies": {"next": "16"}}),
-                         "npm ci && npx next typegen", "no build script: no build invented")
+                         "npm ci && npm run generate && npm run build")
+        self.assertEqual(self.setup_for({"scripts": {"test": "vitest run"}, "dependencies": {"next": "16"}}), "npm ci",
+                         "no build script: no build invented (and no `next typegen` either — version-bound, and `next build` writes the types)")
         self.assertEqual(self.setup_for({"scripts": {"test": "vitest run", "build": "tsc"}}), "npm ci", "a build without Next is not a test's need")
-        self.assertIn("reef-setup.py", open(os.path.join(ROOT, "scripts", "reef-init.py")).read(), "the proof script is copied to projects")

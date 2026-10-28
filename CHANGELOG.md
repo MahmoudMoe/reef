@@ -12,7 +12,14 @@
   worktree` refuses a task worktree on the same terms; `/reef-plan` starts the setup only on a proven state. `reef-init`
   copies the script and derives `worktree.setup` from the stack profile's new `setup` entries (`scripts/reef-stacks.json`:
   for Next, the route types and, when a build script exists, the built app the tests read), each only when its
-  dependency is present. tests/size-budget.json raised: `prose_words` 21,799 → 21,824, `script_lines` 16,754 → 16,971.
+  dependency is present. The reviews folded: `worktree` joins the guard's protected config keys (the setup is a command
+  the proof runs unseen by the hook) and a read-only judge never runs `prove`/`apply`; the proof is named before
+  `/reef-plan` makes the row's worktree, not only before the build; `apply` runs the proven setup in a worktree once per
+  digest (marker `.reef/ci-local/setup.digest`), so a worktree set up under an older digest is re-set, and
+  `reef-graph.py worktree` sets a new task worktree up through it; the digest follows the manifests too; a `gates.full`
+  that names `reef-gate.sh` is refused (it would write the base's evidence); the INCOMPLETE line names the log; older
+  digests' records are pruned; the Next entry is the build alone (`next typegen` is version-bound and `next build`
+  writes the types). tests/size-budget.json raised: `prose_words` 21,799 → 21,825, `script_lines` 16,754 → 17,048.
 - **A finished task is not re-judged by today's authoring rules; `--feature` scopes them** (2026-10-28, the current
   adoption, rows 3 and 46). `reef-plan-check.py` ran the v3 proof rule and the read-first checks on tasks under
   `tasks/done/` — shipped, judged and merged under the rules of their time — and no plan in the project could be

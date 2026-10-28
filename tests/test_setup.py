@@ -66,7 +66,7 @@ class SetupProof(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="reef-setup.")
         self.main = os.path.join(self.tmp, "main")
         os.makedirs(os.path.join(self.main, "scripts"))
-        for n in ("reef-setup.py", "reef-row.py", "reef-queue.py", "reef-plan-check.py", "reef-evidence.py", "reef-gate.sh", "reef-snapshot.sh"):
+        for n in ("reef-setup.py", "reef-row.py", "reef-queue.py", "reef-plan-check.py", "reef-evidence.py", "reef-gate.sh", "reef-snapshot.sh", "reef-graph.py", "reef-attempt"):
             if os.path.isfile(os.path.join(ROOT, "scripts", n)):
                 shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.main, "scripts", n))
         # the suite needs a file the setup makes — the shape of "the tests read the built app"
@@ -97,6 +97,7 @@ class SetupProof(unittest.TestCase):
         self.assertEqual(r.returncode, 1, "a setup that builds nothing leaves the gate red on an untouched tree:\n" + r.stdout + r.stderr)
         self.assertIn("INCOMPLETE", r.stdout)
         self.assertIn("worktree.setup", r.stdout)
+        self.assertIn("setup-", r.stdout.split(".log")[0][-60:] + ".log", "the INCOMPLETE line names the log")
         self.assertEqual(self.setup("state").returncode, 1, "the record says incomplete, no re-run")
         recs = [f for f in os.listdir(os.path.join(self.main, ".reef", "ci-local")) if f.startswith("setup-") and f.endswith(".json")]
         self.assertEqual(len(recs), 1)
@@ -115,6 +116,8 @@ class SetupProof(unittest.TestCase):
         self.assertIn("proven", r.stdout)
         self.assertEqual(self.setup("state").returncode, 0)
         self.assertFalse(os.path.isfile(os.path.join(self.main, "built.txt")), "the proof ran in the scratch worktree, not the main checkout")
+        recs = sorted(f for f in os.listdir(os.path.join(self.main, ".reef", "ci-local")) if f.startswith("setup-"))
+        self.assertEqual(len([f for f in recs if f.endswith(".json")]), 1, "an old digest's record is pruned: " + str(recs))
         # a lockfile change is a setup change
         write(self.main, "package-lock.json", "{}\n")
         self.assertEqual(self.setup("state").returncode, 3, "a lockfile changed: prove again")
@@ -152,4 +155,64 @@ class SetupProof(unittest.TestCase):
         self.config({"setup": "touch built.txt"})
         self.assertEqual(self.setup("prove").returncode, 0)
         s = row()
-        self.assertIn("reef-loop.py tick", s["next"], "proven: the build as before")
+        self.assertIn("reef-setup.py apply", s["next"], "proven, but this worktree was set up under the old setup: apply it here first")
+        self.assertIn(".reef/worktrees/demo-row-one", s["next"])
+        r = self.setup("apply", feat)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(feat, "built.txt")))
+        s = row()
+        self.assertIn("reef-loop.py tick", s["next"], "proven and applied: the build as before")
+
+    def test_the_proof_comes_before_the_plans_worktree(self):
+        env = dict(os.environ, PATH="/nonexistent-gh:" + os.environ["PATH"])
+        row = lambda: json.loads(subprocess.run([sys.executable, ROW, "state", "1", "--json", "--repo", self.main], capture_output=True, text=True, env=env).stdout)
+        s = row()
+        self.assertEqual(s["state"], "plan")
+        self.assertIn("reef-setup.py prove", s["next"], "the plan's worktree is created by /reef-plan: the proof comes first")
+        self.config({"setup": "touch built.txt"})
+        self.assertEqual(self.setup("prove").returncode, 0)
+        self.assertEqual(row()["next"], "/reef-plan 1")
+
+    def test_apply_runs_the_setup_once_per_digest_in_a_worktree(self):
+        self.config({"setup": "touch built.txt && echo ran >> count.txt"})
+        wt = os.path.join(self.main, ".reef", "worktrees", "x")
+        self.assertEqual(git(self.main, "worktree", "add", "-q", "-b", "feat/x", wt, "main").returncode, 0)
+        r = self.setup("apply", wt)
+        self.assertEqual(r.returncode, 3, "apply needs a proven setup: " + r.stdout)
+        self.assertEqual(self.setup("prove").returncode, 0)
+        self.assertEqual(self.setup("apply", wt).returncode, 0)
+        self.assertEqual(self.setup("apply", wt).returncode, 0)
+        self.assertEqual(open(os.path.join(wt, "count.txt")).read().count("ran"), 1, "the second apply is a no-op on the same digest")
+        self.config({"setup": "touch built.txt && echo ran >> count.txt && true"})
+        self.assertEqual(self.setup("prove").returncode, 0)
+        self.assertEqual(self.setup("apply", wt).returncode, 0)
+        self.assertEqual(open(os.path.join(wt, "count.txt")).read().count("ran"), 2, "a changed setup runs again in the worktree")
+
+    def test_a_task_worktree_is_refused_while_unproven(self):
+        # the critical path's worktree per task (reef-graph.py worktree) — a flat tasks/ layout takes that path
+        write(self.main, "tasks/001-demo.md", TASK.replace("id: 101", "id: 1").replace("feature: demo-row-one", "feature: demo"))
+        git(self.main, "add", "-A"); git(self.main, "commit", "-qm", "a task")
+        r = subprocess.run([sys.executable, os.path.join(self.main, "scripts", "reef-graph.py"), "worktree", os.path.join(self.main, "tasks", "001-demo.md")],
+                           capture_output=True, text=True, cwd=self.main)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("unproven", r.stdout + r.stderr)
+        self.assertFalse(os.path.isdir(os.path.join(self.main, ".reef", "worktrees", "1")))
+        self.config({"setup": "touch built.txt"})
+        self.assertEqual(self.setup("prove").returncode, 0)
+        r = subprocess.run([sys.executable, os.path.join(self.main, "scripts", "reef-graph.py"), "worktree", os.path.join(self.main, "tasks", "001-demo.md")],
+                           capture_output=True, text=True, cwd=self.main)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(self.main, ".reef", "worktrees", "1", "built.txt")), "the task worktree got the proven setup through apply")
+
+    def test_a_gate_that_is_the_gate_script_is_refused(self):
+        write(self.main, ".reef/config.json", json.dumps({"gates": {"full": "sh scripts/reef-gate.sh full"}, "worktree": {"setup": "true"},
+                                                           "branches": {"base": "main"}, "paths": {"queue": "reef/queue.md", "features": "reef/features"}}))
+        r = self.setup("prove")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("reef-gate", r.stdout)
+        self.assertFalse(os.path.isdir(os.path.join(self.main, ".reef", "evidence")))
+
+    def test_the_digest_follows_the_manifest_too(self):
+        d1 = self.setup("digest").stdout.strip()
+        write(self.main, "package.json", json.dumps({"scripts": {"build": "next build"}}))
+        self.assertNotEqual(d1, self.setup("digest").stdout.strip(), "a changed build script is a changed setup")
