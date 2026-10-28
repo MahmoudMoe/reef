@@ -23,7 +23,7 @@ class Version(unittest.TestCase):
         badge = re.search(r"badge/version-([0-9.]+)-", read("README.md")).group(1)
         versions = {plugin, market["metadata"]["version"], market["plugins"][0]["version"], badge}
         # pinned on purpose: a version bump edits this line too, in the same commit
-        self.assertEqual(versions, {"0.7.2"})
+        self.assertEqual(versions, {"0.7.3"})
 
 
 class MigrateTo070(unittest.TestCase):
@@ -40,7 +40,7 @@ class MigrateTo070(unittest.TestCase):
         r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-migrate"), "--repo", d, "--plugin", ROOT],
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(open(os.path.join(d, ".reef", "version")).read().strip(), "0.7.2", "0.6.0 -> 0.7.0 -> 0.7.1 -> 0.7.2, no gap")
+        self.assertEqual(open(os.path.join(d, ".reef", "version")).read().strip(), "0.7.3", "0.6.0 -> 0.7.0 -> 0.7.1 -> 0.7.2 -> 0.7.3, no gap")
 
 
 class ConfigTemplate(unittest.TestCase):
