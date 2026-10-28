@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **A recorded approval clears its own question** (2026-10-28, the owner's first round alone: the loop filed "re-approve
+  row 46's plan at <digest>", the owner approved in his terminal, and three runner sessions re-read the filed question,
+  believed it, and recorded the same wait). `reef-approval.py` removes the row's approval questions from
+  `.reef/questions.md` and closes their `reef-question` issue when it writes the record; the runner's sessions are told
+  a filed question is answered when the row's state moved past it. tests/size-budget.json raised: `script_lines` 17,307 → 17,347.
 - **`/reef-run` starts the runner on a recorded wait; no placeholder reaches the owner** (2026-10-28, the owner's first
   round alone: the skill read the loop's recorded wait, decided the runner would stop at once, refused to start it, and
   told the owner to approve `<slug>`). A recorded wait is the runner's to clear — its first session asks the row machine;

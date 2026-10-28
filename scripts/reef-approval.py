@@ -21,6 +21,7 @@ Usage: cat payload.json | reef-approval.py [--root DIR]
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -137,6 +138,41 @@ def plan_digests(cwd, feature):
             if dg:
                 out[wt] = dg
     return out
+
+
+def clear_question(main, feature, co, digest16):
+    """The approval's own question leaves .reef/questions.md and its reef-question issue closes (2026-10-28: the owner approved in
+    his terminal and three runner sessions re-read the filed question, believed it, and recorded the same wait). The row's lines
+    that ask for an approval go; other rows' questions, and this row's other questions, stay. Returns how many lines went."""
+    row = feature_row(co, feature)
+    p = os.path.join(main, ".reef", "questions.md")
+    try:
+        with open(p, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return 0
+    def mine(line):
+        return bool(row) and re.match(rf"- row {re.escape(row)}:", line) is not None and re.search(r"approv|\bstamp\b|digest", line, re.I) is not None
+    kept = [l for l in lines if not mine(l)]
+    gone = len(lines) - len(kept)
+    if not gone:
+        return 0
+    if any(l.strip() for l in kept):
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("\n".join(kept) + "\n")
+    else:
+        os.unlink(p)
+    if shutil.which("gh"):
+        try:
+            r = subprocess.run(["gh", "issue", "list", "--label", "reef-question", "--state", "open", "--search", f"row {row}", "--json", "number,title"],
+                               cwd=main, capture_output=True, text=True, timeout=30)
+            for it in (json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []):
+                if re.search(rf"row {re.escape(row)}\b", str(it.get("title", ""))) and re.search(r"approv|stamp|digest", str(it.get("title", "")), re.I):
+                    subprocess.run(["gh", "issue", "close", str(it["number"]), "--comment", f"Approved: plan {feature} at {digest16} (recorded)"],
+                                   cwd=main, capture_output=True, text=True, timeout=30)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            pass
+    return gone
 
 
 def feature_row(root, feature):
@@ -487,6 +523,9 @@ def main(argv):
             json.dump(rec, f, indent=1)
             f.write("\n")
         print(f"reef-approval: {feature} approved at {digest16} (plan in {where[0]}) -> .reef/approvals/{feature}.json")
+        gone = clear_question(root, feature, where[0], digest16)
+        if gone:
+            print(f"reef-approval: {feature}: {gone} filed question(s) answered by this approval cleared from .reef/questions.md (its reef-question issue closed)")
         wrote += 1
     if not wrote and not answers:
         print("reef-approval: no answers in the payload — nothing written")
