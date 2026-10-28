@@ -830,3 +830,14 @@ class EveryStopNamesItsCommand(unittest.TestCase):
         self.assertIn("<code>reef --all</code>", read("docs", "manual", "ar", "index.html"))
         self.assertIn("`reef run`", read("skills", "reef-run", "SKILL.md"))
 
+
+class TheRunSkillStarts(unittest.TestCase):
+    """2026-10-28, the owner's first round alone: /reef-run read the loop's recorded wait, decided the runner "would stop straight
+    away", refused to start it, and told the owner to approve "<slug>" — a placeholder. A recorded wait is the runner's to clear
+    (its first session reads the row machine); a line printed to the owner carries real values or names where they are."""
+
+    def test_a_recorded_wait_is_no_reason_and_no_placeholder_reaches_the_owner(self):
+        skill = read("skills", "reef-run", "SKILL.md")
+        self.assertIn("A recorded wait in `.reef/loop.json` is not a reason to hold back", skill)
+        self.assertIn("never a placeholder", skill)
+

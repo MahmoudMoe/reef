@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **`/reef-run` starts the runner on a recorded wait; no placeholder reaches the owner** (2026-10-28, the owner's first
+  round alone: the skill read the loop's recorded wait, decided the runner would stop at once, refused to start it, and
+  told the owner to approve `<slug>`). A recorded wait is the runner's to clear — its first session asks the row machine;
+  only a live runner stops the step — and a line the owner will type carries real values from `reef-row.py state`.
+  tests/size-budget.json raised: `prose_words` 22,576 → 22,646.
 - **The runner's wait asks the row machine for its command; `reef update` pushes** (2026-10-28, the owner's first round
   alone). The loop wrote its wait as "re-approve row 46's plan at <digest>", not the exact question, and the runner
   offered a footnote command for an approval. For every row the wait or the questions file names, the runner now reads
