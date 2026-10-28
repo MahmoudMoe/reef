@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **`reef-run.py contract --from` the installed contract no longer crashes** (2026-10-28, the current adoption:
+  re-running the contract against `.reef/night/contract.md` itself raised `shutil.SameFileError` as a traceback).
+  The same file is left in place; any other copy failure is one `reef-run:` line. `script_lines` 16,754 → 16,759.
 - **`/reef-factory`: the factory as one command; a subscriber token or an API key; the factory on the README, the site
   and the manual** (2026-10-28, the owner: "can tickets fire an agent on GitHub, and is there a shortcut inside Reef?"). The
   factory (phase 7) had no skill and its four setup steps lived only in a workflow header. New `skills/reef-factory/SKILL.md`:
