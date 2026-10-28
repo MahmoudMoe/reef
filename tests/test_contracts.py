@@ -719,6 +719,18 @@ class Factory(unittest.TestCase):
         self.assertIn('"project/reef-factory.yml"', read("scripts", "reef-init.py"))
 
 
+class FinishedTasksKeepStructuralChecks(unittest.TestCase):
+    """2026-10-28 (the current adoption, rows 3 and 46): the v3 proof rule and the read-first checks ran on tasks under
+    tasks/done/ — shipped, judged and merged under the rules of their time — and no plan in the project could be approved.
+    The rule (a finished task keeps the structural checks only; --feature scopes the authoring rules) has two homes that
+    must say it: the check's docstring, and the planner's skill where it runs the check."""
+
+    def test_the_rule_is_said_where_the_planner_reads_it(self):
+        self.assertIn("a finished task under `tasks/done/` keeps the structural checks only", read("skills", "reef-plan", "SKILL.md"))
+        check = read("scripts", "reef-plan-check.py")
+        self.assertIn("A FINISHED task (under tasks/done/ with `status: done`) keeps the structural checks only", check)
+        self.assertIn("`--feature SLUG` scopes them to that feature's tasks", check)
+        self.assertIn("a finished task never reopens", check)
 class WorkflowV3Docs(unittest.TestCase):
     """2026-10-28: the README, the site and the Arabic manual still described the v2 pipeline (every task verified by a
     fresh judge, you merge the feature PR, nine roles) after workflow v3 phases 1–7 landed. The three surfaces carry

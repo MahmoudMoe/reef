@@ -1,6 +1,18 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **A finished task is not re-judged by today's authoring rules; `--feature` scopes them** (2026-10-28, the current
+  adoption, rows 3 and 46). `reef-plan-check.py` ran the v3 proof rule and the read-first checks on tasks under
+  `tasks/done/` — shipped, judged and merged under the rules of their time — and no plan in the project could be
+  approved (nine FAILs on the base, all on closed rows; `--feature` scoped only the stamp). A finished task (under
+  `tasks/done/` with `status: done`) keeps the structural checks only — schema, id, folder and status, blocked-by,
+  duplicates, section order, the test-name ledger — and `--feature <slug>` scopes the authoring rules (proof shape,
+  read first, word and criteria caps, keys) to that feature's tasks; another feature's structural defect still
+  fails (the graph is one). The reviews folded: the stamp records which tasks were finished at review time and a
+  finished task open again under `tasks/` is STALE until a re-review judges it by today's rules (the digest keys by
+  basename and strips status, so a task written under `done/` and moved back would have kept its approval); a
+  `--feature` run writes only that feature's digest, the others carry over; `--summary` counts finished tasks apart;
+  HUMAN AC on a finished mech task is not judged. tests/size-budget.json raised: `prose_words` 21,773 → 21,799, `script_lines` 16,713 → 16,754.
 - **The README, the site and the Arabic manual say today's Reef** (workflow v3 phases 1–7; 2026-10-28). The three surfaces
   still described the v2 pipeline — every task verified by a fresh judge on every row, the hunter and the plan reviewer on
   every plan, the owner merging the feature PR, nine roles. Now each says, in its own register: risk decides the path (the

@@ -3,6 +3,12 @@
 """Reef plan check — the deterministic, blocking layer between plan approval and implementation.
 Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
 - Checks task files, ADRs, brief, and .reef/config.json for structural defects. No model, no network.
+  A FINISHED task (under tasks/done/ with `status: done`) keeps the structural checks only — schema, filename and id,
+  folder and status, blocked-by and cycles, duplicates, the section order, the test-name ledger; the planner's
+  authoring rules (proof shape, read first, word, sentence and criteria caps, keys, HUMAN AC, the design Decision)
+  judge the tasks being planned, and `--feature SLUG` scopes them to that feature's tasks (2026-10-28: the v3 proof
+  rule ran on rows already closed and no new plan could be approved). A `--feature` run writes only that feature's
+  digest into the stamp; the other entries carry over (their rules did not run).
 - One line per check: OK / FAIL: <what and where>. Exit 0 = all pass, 1 = at least one FAIL.
   On success the last line names the plan-reviewer's model (roles.plan_reviewer, default opus).
 - On success writes <tasks>/.plan-review.json: one sha256 PER FEATURE over that feature's task
@@ -14,7 +20,10 @@ Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
   NOT hashed: merging the integration branch changes them without changing this feature's plan.
   Never written on failure.
 - --verify-stamp: recompute, print one line, exit 0 = unchanged since last review, 1 = changed
-  or no stamp. With --feature SLUG only that feature is compared (the guard passes the
+  or no stamp. The stamp also records which tasks were FINISHED at review time (`finished`); one of them open again
+  under tasks/ is STALE (the review, 2026-10-28: a task written under done/ skips the authoring rules and keeps the
+  digest when moved back, since the stamp keys by basename and strips status — a finished task never reopens, and the
+  re-review judges a reopened one by today's rules). With --feature SLUG only that feature is compared (the guard passes the
   dispatched task's feature); without it every feature present must match. 0.6: a feature planned
   under 0.6 (the stamp records planned_under >= 0.6.0 — `.reef/version` existed when it was first
   stamped) must also have the human's approval record `.reef/approvals/<feature>.json` (written by
@@ -90,6 +99,11 @@ def sentences(text):
 FM_RE = re.compile(r"\A(---\r?\n.*?\r?\n---\r?\n)", re.S)
 
 results = []  # (ok, line)
+
+def silent(*_):
+    """a check that does not apply to this task: no line, no count"""
+    return None
+
 
 def ok(line):
     results.append((True, f"OK   {line}"))
@@ -676,7 +690,8 @@ def main():
             except OSError:
                 pass
         n_draft = sum(1 for k in files if os.path.basename(k).startswith("draft-"))
-        parts = [f"{len(tasks_here)} task(s)", f"{n_ac} criteria", f"{n_draft} draft ADR(s)"]
+        n_fin = sum(1 for p in tasks_here if os.path.basename(os.path.dirname(p)) == "done")
+        parts = [f"{len(tasks_here) - n_fin} task(s)"] + ([f"{n_fin} finished"] if n_fin else []) + [f"{n_ac} criteria", f"{n_draft} draft ADR(s)"]
         try:
             with open(os.path.join(main_checkout(root), ".reef", "approvals", f"{feature_filter}.json"), encoding="utf-8") as f:
                 rec = json.load(f)
@@ -724,6 +739,15 @@ def main():
             print(f"stamp: STALE — plan artifacts changed since last review ({scope}); re-review required")
             sys.exit(1)
         print(f"stamp: MATCH — plan unchanged since last review ({scope})")
+        # the review (2026-10-28): the digest keys by basename and strips status, so a task moved out of done/ keeps the
+        # stamp — the stamp names the tasks that were finished at review time; one of them open again is a plan change
+        fin = stamp.get("finished") if isinstance(stamp.get("finished"), dict) else {}
+        open_now = {os.path.basename(p_): p_ for p_ in task_files if os.path.basename(os.path.dirname(p_)) != "done"}
+        reopened = [os.path.relpath(open_now[b], root) for f_ in feats for b in (fin.get(f_) or []) if b in open_now]
+        if reopened:
+            print(f"stamp: STALE — {', '.join(reopened)} finished at the last review and open again ({scope}); a finished task never "
+                  "reopens — the re-review judges it by today's rules")
+            sys.exit(1)
         # 0.6: the human's approval is a RECORD bound to the digest, not a sentence in the chat
         rc = 0
         for feat in feats:
@@ -979,6 +1003,12 @@ def main():
         # graph checks, not the planner's authoring rules (2026-10-19, qassimha row 68: the rollups converge wrote failed
         # seven of them — Log last, a human Decision, an FR key, the same Proof command in two features)
         rollup = re.match(r"^R\d+-", os.path.basename(rel)) is not None
+        # 2026-10-28 (the current adoption, rows 3 and 46): a FINISHED task was shipped under the rules of its time, and the v3
+        # proof rule on it blocked every new plan. The structural and authoring rules are listed once, in the docstring;
+        # a_fail/a_ok/a_print are the authoring rules' voice, silent for a finished task and for another feature under --feature.
+        finished = os.path.basename(os.path.dirname(fm["_path"])) == "done" and fm.get("status") == "done"
+        authored = not finished and (feature_filter is None or fm.get("feature") == feature_filter)
+        a_fail, a_ok, a_print = (fail, ok, print) if authored else (silent, silent, silent)
         # the stamp ignores everything after ## Log — so nothing but log content may
         # live there, or a plan section could be edited invisibly after approval
         log_parts = LOG_HEADING.split(text, maxsplit=1)
@@ -996,15 +1026,15 @@ def main():
             fmm = FM_RE.match(plan_text)
             words = len(re.findall(r"\S+", plan_text[fmm.end():] if fmm else plan_text))
             if words > cap:
-                fail(f"{rel}: {words} words > {cap_name} {cap} (the Log does not count) — split the slice")
+                a_fail(f"{rel}: {words} words > {cap_name} {cap} (the Log does not count) — split the slice")
         if fm.get("complexity") == "design" and not rollup:
             dec = section(text, "Decision")
             # comments don't count: the untouched template placeholder is an HTML comment,
             # and this check exists precisely to force the HUMAN to write the Decision
             if dec is None or not strip_comments(dec).strip():
-                fail(f"{rel}: complexity design but ## Decision has no human-written content")
+                a_fail(f"{rel}: complexity design but ## Decision has no human-written content")
             else:
-                ok(f"{rel}: design has non-empty ## Decision")
+                a_ok(f"{rel}: design has non-empty ## Decision")
             if fm.get("verify") != "judge":
                 fail(f"{rel}: complexity design requires verify: judge (got {fm.get('verify')!r})")
             else:
@@ -1017,28 +1047,28 @@ def main():
 
         crits = criteria(text)
         if crits is None:
-            fail(f"{rel}: no ## Acceptance Criteria section")
+            a_fail(f"{rel}: no ## Acceptance Criteria section")
             continue
         if not crits:
             # an empty list must never pass vacuously as "every criterion is covered"
-            fail(f"{rel}: ## Acceptance Criteria has no criteria bullets")
+            a_fail(f"{rel}: ## Acceptance Criteria has no criteria bullets")
             continue
         # 0.7: a task is one slice a verifier judges in one sitting. plan.max_acs set → FAIL above it (split the task);
         # unset → WARN above 8 (2026-10-17: 1302 carried 21 criteria; Superpowers plans 2–5 minute tasks)
         n_crit = len(crits)
         max_acs = int((cfg.get("plan") or {}).get("max_acs", 0) or 0) if isinstance(cfg.get("plan"), dict) else 0
         if max_acs and n_crit > max_acs:
-            fail(f"{rel}: {n_crit} acceptance criteria > plan.max_acs {max_acs} — split the task (one slice a verifier judges in one sitting)")
+            a_fail(f"{rel}: {n_crit} acceptance criteria > plan.max_acs {max_acs} — split the task (one slice a verifier judges in one sitting)")
         elif not max_acs and n_crit > 8:
-            print(f"warning: {rel}: {n_crit} acceptance criteria (8 is the slice a verifier judges in one sitting; set plan.max_acs to enforce)")
+            a_print(f"warning: {rel}: {n_crit} acceptance criteria (8 is the slice a verifier judges in one sitting; set plan.max_acs to enforce)")
         fdir = folder_of.get(fm["_path"])   # this task's folder (2026-10-24, qassimha row 18: `path` was the last loop's)
         is06 = bool(fdir) or (marker0 is not None and planned_under_06({"planned_under": planned_prev}, fm.get("feature", "")))
         n_rf, rf_errs = read_first_errors(root, section(text, "Read first") or "")
         for x in rf_errs:
-            fail(f"{rel}: read first — {x}")
+            a_fail(f"{rel}: read first — {x}")
         if n_rf and not rf_errs:
-            ok(f"{rel}: read first: {n_rf} entries, each range holds its symbol")
-        warn = lambda m: print(f"warning: {m}")
+            a_ok(f"{rel}: read first: {n_rf} entries, each range holds its symbol")
+        warn = (lambda m: print(f"warning: {m}")) if authored else silent
         proof = section(text, "Proof")
         proof_rows = {}
         if proof is not None:
@@ -1051,7 +1081,7 @@ def main():
                     # read-only verifier; the mechanic runs it verbatim. Name that in the row (first contact: the verifier
                     # proved AC-4 and AC-10 "another way", the orchestrator ran them itself)
                     if re.search(r"(^|[\s;&|(])(rm|mv|cp|touch|tee|truncate|mkdir)\s|(^|[^<>])>\s*\S|\.env\b|--force", cells[1]) and "[mechanic]" not in cells[1]:
-                        print(f"WARN {rel}: Proof for {re.sub(r'^AC-?', 'AC-', m.group(1))} writes files — the read-only verifier cannot run it; tag it `[mechanic]` so the mechanic runs it verbatim")
+                        a_print(f"WARN {rel}: Proof for {re.sub(r'^AC-?', 'AC-', m.group(1))} writes files — the read-only verifier cannot run it; tag it `[mechanic]` so the mechanic runs it verbatim")
                     # v3 phase 2 (the first adoption: proofs were shell one-liners inside markdown cells — a test name run as
                     # shell, a script read as a file name, a build raced for the CPU): a proof is a NAMED TEST the project's
                     # runner runs by name; a long shell line is refused unless it must write files ([mechanic])
@@ -1059,7 +1089,7 @@ def main():
                     whole = line.strip().strip("|").split("|", 1)[1].strip() if "|" in line.strip().strip("|") else cells[1]
                     shell = re.search(r"&&|\|\||[|;<>]|\$\(|\s--?[a-zA-Z]", whole)
                     if len(whole) > 120 and shell and "[mechanic]" not in whole:
-                        fail(f"{rel}: Proof for {re.sub(r'^AC-?', 'AC-', m.group(1))} is {len(whole)} characters of shell in a markdown cell — name a test "
+                        a_fail(f"{rel}: Proof for {re.sub(r'^AC-?', 'AC-', m.group(1))} is {len(whole)} characters of shell in a markdown cell — name a test "
                              f"(converge.test_cmd runs it by name) or put the command in a script and name the script; `[mechanic]` only for a proof that must write files")
         # 0.6 dual shape: with a ## Proof table the criterion is ONE declarative sentence and the proof
         # lives in its row; without it, the 0.5 shape (the criterion names its test inline) stays valid
@@ -1068,8 +1098,8 @@ def main():
         for c in crits:
             if c.startswith("HUMAN AC"):        # opt-out marker only counts at bullet start
                 if fm.get("verify") == "gate-only":
-                    fail(f"{rel}: HUMAN AC on a gate-only (mech) task — nothing would ever check it")
-                manual += 1
+                    a_fail(f"{rel}: HUMAN AC on a gate-only (mech) task — nothing would ever check it")
+                manual += 1 if authored else 0
                 continue
             label = re.match(r"^\**(AC-?\d+)\**", c)
             ac_id = re.sub(r"^AC-?", "AC-", label.group(1)) if label else None
@@ -1091,7 +1121,7 @@ def main():
                 for n in ([] if rollup else names):
                     test_owners.setdefault(n, set()).add(rel)
             if wmax and len(c.split()) > wmax:
-                (fail if is06 else warn)(f"{rel}: criterion over writing.criterion_words {wmax}: {c[:50]!r}")
+                (a_fail if is06 else warn)(f"{rel}: criterion over writing.criterion_words {wmax}: {c[:50]!r}")
             if fdir and not rollup:
                 keys = {f"{a}-{b}" for a, b in KEY_RE.findall(c)}
                 if not keys:
@@ -1099,20 +1129,20 @@ def main():
                 else:
                     key_errs += [f"{c[:50]!r} cites {k} which is not defined in this feature folder" for k in sorted(keys - folder_keys.get(fdir, set()))]
         if shape_errs:
-            fail(f"{rel}: new-shape criteria — " + "; ".join(shape_errs))
+            a_fail(f"{rel}: new-shape criteria — " + "; ".join(shape_errs))
         if key_errs:
-            fail(f"{rel}: keys — " + "; ".join(key_errs))
+            a_fail(f"{rel}: keys — " + "; ".join(key_errs))
         if untested:
-            fail(f"{rel}: criterion names no test identifier and is not HUMAN AC — " +
+            a_fail(f"{rel}: criterion names no test identifier and is not HUMAN AC — " +
                  "; ".join(f"{c!r}" for c in untested))
         elif automated == 0:
-            fail(f"{rel}: every criterion is HUMAN AC — no failing test = no task")
+            a_fail(f"{rel}: every criterion is HUMAN AC — no failing test = no task")
         elif not shape_errs:
-            ok(f"{rel}: every criterion names a test or is HUMAN AC" if proof is None else f"{rel}: every criterion has its Proof row")
+            a_ok(f"{rel}: every criterion names a test or is HUMAN AC" if proof is None else f"{rel}: every criterion has its Proof row")
         smax = int((cfg.get("writing") or {}).get("sentence_words", 25))   # 0 = off
         long = [x for x in sentences(LOG_HEADING.split(text, maxsplit=1)[0]) if smax and len(x.split()) > smax]
         if long:
-            (fail if is06 else warn)(f"{rel}: {len(long)} sentence(s) over writing.sentence_words {smax}: {long[0][:60]!r}")
+            (a_fail if is06 else warn)(f"{rel}: {len(long)} sentence(s) over writing.sentence_words {smax}: {long[0][:60]!r}")
     print_manual = f"manual criteria: {manual}"
 
     claimed_twice = {n: ps for n, ps in test_owners.items() if len(ps) > 1}
@@ -1291,14 +1321,25 @@ def main():
         old = json.loads(read(stamp_path))
         planned = dict(old.get("planned_under") or {})
     except Exception:
-        planned = {}
+        old, planned = {}, {}
     for feat in digests:
         if feat not in planned and (marker or feat in folders):
             planned[feat] = marker or "0.6.0"
     # a fresh 0.6 project has no tasks/ yet (its tasks live under reef/features/<slug>/tasks/): make the stamp's home
+    # the review (2026-10-28): under --feature the other features' authoring rules did not run — only this feature's digest
+    # is written; the others carry over from the old stamp (a feature never stamped stays unstamped)
+    kept = old.get("features") if isinstance(old.get("features"), dict) else {}
+    written = digests if feature_filter is None else {**kept, **({feature_filter: digests[feature_filter]} if feature_filter in digests else {})}
+    fin_now = {}
+    for rel, fm in tasks.items():
+        if os.path.basename(os.path.dirname(rel)) == "done" and fm.get("status") == "done":
+            fin_now.setdefault(str(fm.get("feature", "")), []).append(os.path.basename(rel))
+    kept_fin = old.get("finished") if isinstance(old.get("finished"), dict) else {}
+    finished = {f_: sorted(fin_now.get(f_, [])) for f_ in written} if feature_filter is None else \
+        {**kept_fin, feature_filter: sorted(fin_now.get(feature_filter, []))}
     os.makedirs(os.path.dirname(stamp_path) or ".", exist_ok=True)
     with open(stamp_path, "w") as f:
-        json.dump({"features": digests, "checks": len(results), "planned_under": planned}, f, indent=2, sort_keys=True)
+        json.dump({"features": written, "checks": len(results), "planned_under": planned, "finished": finished}, f, indent=2, sort_keys=True)
         f.write("\n")
     # the plan-reviewer's model comes from the heaviest tier among the stamped features' tasks
     # (tiers.<tier>.roles.plan_reviewer, then roles.plan_reviewer, then opus); "none" on an
