@@ -717,3 +717,35 @@ class Factory(unittest.TestCase):
         self.assertNotIn("reef-run.py probe", tpl, "the YAML runs one command; the probe is the script's step, under the suite")
         self.assertIn("reef-factory.py", read("scripts", "reef-init.py"))
         self.assertIn('"project/reef-factory.yml"', read("scripts", "reef-init.py"))
+
+
+class WorkflowV3Docs(unittest.TestCase):
+    """2026-10-28: the README, the site and the Arabic manual still described the v2 pipeline (every task verified by a
+    fresh judge, you merge the feature PR, nine roles) after workflow v3 phases 1–7 landed. The three surfaces carry
+    the path by risk, the evidence once per commit, the one reviewer, the loop's merge, the runner's questions file and
+    the offered factory — each in its own register."""
+
+    def test_the_readme_describes_the_v3_pipeline(self):
+        md = read("README.md")
+        for needle in ("fast path", "critical path", "`.reef/evidence/<snapshot>.json`", "one reviewer", "the loop merges",
+                       "`.reef/questions.md`", "reef-factory.yml", "reef-row.py", "Approve proxy by day at <digest16>?",
+                       "`loop.rows_in_flight`", "`converge.test_cmd`"):
+            self.assertIn(needle, md, needle)
+        self.assertNotIn("has a fresh context\nverify every task", md, "the v2 claim: a verifier per task on every row")
+        self.assertNotIn("By default you merge the feature PR", md)
+
+    def test_the_site_describes_the_v3_pipeline(self):
+        site = read("docs", "index.html")
+        for needle in ("fast path", "critical path", "<code>.reef/evidence/", "one reviewer", "the loop merges",
+                       "<code>.reef/questions.md</code>", "reef-factory.yml", "reef-row.py", "Approve proxy by day at &lt;digest16&gt;?"):
+            self.assertIn(needle, site, needle)
+        self.assertNotIn("has a fresh context verify every task", site)
+        self.assertNotIn("By default you merge the feature PR yourself", site)
+        self.assertNotIn("Nine roles", site)
+
+    def test_the_arabic_manual_describes_the_v3_pipeline(self):
+        ar = read("docs", "manual", "ar", "index.html")
+        for needle in ("المسار السريع", "المسار الحرج", ".reef/evidence/", "reef-factory.yml", "reef-row.py",
+                       "Approve proxy by day at &lt;digest16&gt;?", ".reef/questions.md", "loop.rows_in_flight", "converge.test_cmd"):
+            self.assertIn(needle, ar, needle)
+        self.assertNotIn("القضاة الثلاثة", ar, "v3 has one reviewer on the fast path; the judges are not three everywhere")

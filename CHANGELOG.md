@@ -1,6 +1,21 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **The README, the site and the Arabic manual say today's Reef** (workflow v3 phases 1–7; 2026-10-28). The three surfaces
+  still described the v2 pipeline — every task verified by a fresh judge on every row, the hunter and the plan reviewer on
+  every plan, the owner merging the feature PR, nine roles. Now each says, in its own register: risk decides the path (the
+  fast path for `light` and `full`, the critical path for `design` touching auth, pii, money or a migration, and `critical`);
+  one worktree per row and at most `loop.rows_in_flight` rows between plan and close; proofs are named tests
+  (`converge.test_cmd`); the suite runs once per commit and every judge reads that result (`.reef/evidence/<snapshot>.json`
+  or the commit's check-runs, `reef-evidence.py`); one reviewer per row (`reef:acceptance`); the loop merges a feature on green
+  evidence of the merged commit; the row is a state machine on disk (`reef-row.py next`) and every wait renders the handoff;
+  the batch's numbers (`reef-cost.py rows`); the runner files questions instead of asking (`.reef/questions.md`, issues labelled
+  `reef-question`, `--row`); the proxy by day (`contract --day`, `Approve proxy by day at <digest16>?`); the offered factory
+  (`reef-factory.yml`, `reef-ready`, the state labels). The README's roles table gains the acceptance reviewer and narrows the
+  verifier, the hunter and the plan reviewer to the critical path; its ledger gains the v3 rows (evidence once, the loop's
+  merge, the row's state from disk, the proxy's day footnote, the factory's checks); its layout names `.reef/evidence/`,
+  `reef/proxy.md`, the offered workflow and the new scripts; "Status" tells v3's story. `tests/test_contracts.py::WorkflowV3Docs`
+  reads the three surfaces. tests/size-budget.json: unchanged (nothing grew).
 - **Rows build without the owner's machine: the factory on GitHub Actions** (workflow v3, phase 7; 2026-10-26). `reef-init`
   OFFERS `.github/workflows/reef-factory.yml` — rendered under the proposals dir, never written unasked (minutes, the model
   key as the secret `ANTHROPIC_API_KEY`, the six-hour limit are the owner's call; `reef-init --accept` places it, then it is
