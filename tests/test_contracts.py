@@ -820,6 +820,7 @@ class EveryStopNamesItsCommand(unittest.TestCase):
         self.assertIn('reef-approval.py --owner', run_py)
         self.assertIn("taking over the loop held by session", run_py)
         self.assertIn("no progress — two sessions ended on the same wait", run_py)
+        self.assertIn("answered when the row's state moved past it", run_py, "the runner's sessions trust the row machine over the questions file")
         row = read("scripts", "reef-row.py")
         self.assertIn('reef-approval.py --owner', row)
         self.assertIn("the rollup: tasks/R<NN>-", row)

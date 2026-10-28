@@ -65,7 +65,8 @@ PROMPT = ("/reef-loop — a reef-run iteration: headless, AskUserQuestion does n
           "does not need the owner. Do not ask: file each question for the owner with `python3 scripts/reef-queue.py ask "
           "\"<the question>\" --row <id> --recommended \"<your answer>\"` — the next interactive /reef-loop asks them as ONE set. "
           "At the context ceiling `python3 scripts/reef-loop.py wait \"/clear requested …\"` (it renders the handoff). "
-          "When no row can move without the owner, `python3 scripts/reef-loop.py wait \"owner: <what>\"` and end.")
+          "When no row can move without the owner, `python3 scripts/reef-loop.py wait \"owner: <what>\"` and end. A filed question is "
+          "answered when the row's state moved past it (`reef-row.py state <row>`): clear it, never re-record it.")
 
 
 def die(msg, code=1):

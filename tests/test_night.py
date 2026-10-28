@@ -316,3 +316,22 @@ class ContractFromTheInstalledFile(unittest.TestCase):
         self.assertNotIn("Traceback", r.stderr)
         self.assertEqual(len(r.stderr.strip().splitlines()), 1, r.stderr)
         self.assertTrue(r.stderr.startswith("reef-run: "), r.stderr)
+
+
+class AnApprovalClearsItsQuestion(unittest.TestCase):
+    """2026-10-28, the owner's first round alone: the loop filed "re-approve row 46's plan at <digest>" in .reef/questions.md, the
+    owner approved in his terminal, and three sessions in a row re-read the file, believed it, and recorded the same wait.
+    A recorded approval removes its own question (the row's lines that ask for an approval) and closes its issue; other
+    rows' questions stay."""
+
+    def test_the_recorded_approval_removes_its_question_and_keeps_the_others(self):
+        d = project()
+        dg = digest(d, "share-links")
+        L.write(d, ".reef/questions.md", f"- row 12: re-approve row 12's plan at {dg} (#77) so the fix round can dispatch — recommended: approve\n"
+                                         "- row 3: share links in host logs? — recommended: accept\n")
+        r = hook(d, f"Approve plan share-links at {dg}?")
+        self.assertIn("approved at", r.stdout, r.stdout + r.stderr)
+        left = open(os.path.join(d, ".reef", "questions.md")).read()
+        self.assertNotIn("row 12", left, "the approval's own question is gone: " + left)
+        self.assertIn("row 3: share links", left, "another row's question stays")
+        self.assertIn("question", r.stdout.lower())
