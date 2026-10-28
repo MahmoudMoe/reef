@@ -393,10 +393,17 @@ def tick(root):
     state["hash"] = h
     # no-progress parking (5.3): K identical ticks with nothing in flight
     k = int((cfg.get("loop") or {}).get("no_progress_ticks", 3) or 3)
+    prev = (st.get("hashes") or [])[-1:]
+    if st.get("parked") and str(st["parked"]).startswith("no progress") and prev and prev[0] != h:
+        # 2026-10-28 (row 46): the loop parked while a fix round was built in a worktree the tick did not see, then told the
+        # owner only he could unpark it. The park is the tick's own: a tick that differs from the one that parked is progress
+        st["parked"] = None
+        print(f"unparked: the tick changed since the park ({prev[0]} → {h}) — progress", file=sys.stderr)   # stderr: --json keeps its one document
     hashes = (st.get("hashes") or []) + [h]
     st["hashes"] = hashes[-k:]
     if len(st["hashes"]) == k and len(set(st["hashes"])) == 1 and not state["in_flight"] and state["active"] and not state["wait"]:
-        st["parked"] = f"no progress: {k} identical ticks with nothing in flight — USER ACTION REQUIRED"
+        st["parked"] = (f"no progress: {k} identical ticks with nothing in flight — fix the cause, then python3 scripts/reef-loop.py start "
+                        "(the tick unparks itself once it changes)")
     state["parked_loop"] = st.get("parked")
     if budget_note:
         st["stop"] = stop
