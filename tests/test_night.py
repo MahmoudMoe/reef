@@ -199,6 +199,26 @@ class NightRun(unittest.TestCase):
             self.assertIn(h, rep)
 
 
+class SquashMergesAreListed(unittest.TestCase):
+    """2026-10-28, the first night: row 3 merged by `gh pr merge --squash` and the report said "Merges into develop: none" —
+    a squash leaves no merge commit. A first-parent commit whose subject ends in (#n) is that merge, with its own undo."""
+
+    def test_the_report_lists_a_squash_merge_with_its_undo(self):
+        d = project()
+        b = os.path.join(d, ".bin")
+        os.makedirs(b)
+        open(os.path.join(b, "claude"), "w").write(R.FAKE)
+        os.chmod(os.path.join(b, "claude"), 0o755)
+        self.assertEqual(R.run(d, ["probe-deny"], "probe").returncode, 0)
+        approve_night(self, d)
+        L.write(d, "src/x.py", "x = 1\n")
+        L.git(d, "add", "-A"); L.git(d, "commit", "-qm", "feat(share-links): the slice (#63)")
+        r = R.run(d, ["stop:night done"], "--night")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        rep = open(os.path.join(d, ".reef", "night", "report.md")).read()
+        self.assertIn("(#63)  (squash — undo: git revert <sha>)", rep)
+
+
 class NightNumbers(unittest.TestCase):
     """The morning report counts the night (the owner's go, 2026-10-24, item 3: "how do I know the factory gets better"):
     rows merged into the base, tasks finished on any branch, the first-pass share, the stalls, the cost and the cost per

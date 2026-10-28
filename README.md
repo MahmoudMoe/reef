@@ -52,6 +52,8 @@ In Claude Code (another host: [Hosts](#hosts)):
 /plugin install reef@mahmoudmoe
 ```
 
+**From a terminal**, `reef` is the one entry point, copied into `scripts/` by `/reef-init`: alone it shows a banner, one status line and the owner's verbs with a line each — `reef run`, `reef night`, `reef status`, `reef doctor`, `reef update`, `reef setup prove`, `reef factory <row>`, `reef cost`; `reef --all` lists every script with its purpose. Every stop Reef makes names the one command that answers it.
+
 Then, inside your project:
 
 | You have | Run | What happens |

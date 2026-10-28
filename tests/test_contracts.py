@@ -800,3 +800,33 @@ class FactorySkill(unittest.TestCase):
             self.assertIn("/reef-factory", text, parts)
             self.assertIn("reef-ready", text, parts)
             self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", text, parts)
+
+
+class EveryStopNamesItsCommand(unittest.TestCase):
+    """2026-10-28 (the owner, after the first night: "so many locks and guardrails … stopping me from normal rounds"): he was
+    stopped seven times, each by a message without the one command — "approve it in an interactive session" twice. A stop
+    that does not name the command is a bug: no Reef text may say it, and the runner's own waits carry theirs."""
+
+    def test_no_reef_text_sends_the_owner_to_an_interactive_session(self):
+        for sub in ("scripts", "skills", "agents", "commands", "templates"):
+            for dp, _, fn in os.walk(os.path.join(ROOT, sub)):
+                for f in fn:
+                    text = open(os.path.join(dp, f), encoding="utf-8", errors="ignore").read().lower()
+                    self.assertNotIn("interactive session", text, f"{os.path.join(dp, f)} sends the owner to 'an interactive session' instead of naming the command")
+
+    def test_the_runner_and_the_row_name_the_terminal_command(self):
+        run_py = read("scripts", "reef-run.py")
+        self.assertIn("def owner_wait_lines", run_py)
+        self.assertIn('reef-approval.py --owner', run_py)
+        self.assertIn("taking over the loop held by session", run_py)
+        self.assertIn("no progress — two sessions ended on the same wait", run_py)
+        row = read("scripts", "reef-row.py")
+        self.assertIn('reef-approval.py --owner', row)
+        self.assertIn("the rollup: tasks/R<NN>-", row)
+        self.assertIn('"reef"', read("scripts", "reef-init.py"), "the entry point is copied to projects")
+        for v in ("status", "doctor", "run", "night", "watch", "stop", "setup", "update", "factory", "cost"):
+            self.assertIn(f'("{v}",', read("scripts", "reef"))
+        self.assertIn("`reef --all`", read("README.md"))
+        self.assertIn("<code>reef --all</code>", read("docs", "manual", "ar", "index.html"))
+        self.assertIn("`reef run`", read("skills", "reef-run", "SKILL.md"))
+

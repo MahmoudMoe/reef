@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+# CLASS: code
+"""reef — the owner's one entry point (2026-10-28: "the person opens the terminal, writes reef, sees a logo and the options,
+each with a short description"). `reef` alone: the banner, one status line, the owner's verbs. `reef <verb> [args]` runs the
+sibling script that verb names, in the project this runs in (`--repo DIR` for another). `reef --all`: every script here with
+its purpose line — the internal ones, which the skills and agents run, not a person.
+Verbs: status · doctor · run [n] · night · watch · stop · setup [prove|digest|apply] · update · factory [row] · cost [--since …]
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PY = sys.executable
+BANNER = r"""
+  ____  ____  ____  ____
+ |  _ \| ___|| ___|| ___|   Reef — run a software project as a graph of gated work
+ | |_) |  _| |  _| |  _|
+ |_| \_\____||____||_|
+"""
+VERBS = [
+    ("status",  "where things stand: the runner, the night, the last session, the loop's wait",
+     lambda root, a: [[PY, "scripts/reef-run.py", "status", "--repo", root]]),
+    ("doctor",  "what is wrong and the one command that fixes each thing (plugin, probe, hold, setup, scripts)",
+     lambda root, a: [[PY, "scripts/reef-doctor.py", "--repo", root, *a]]),
+    ("run",     "the loop in fresh headless sessions until it waits on you — `run 5` caps the sessions",
+     lambda root, a: [[PY, "scripts/reef-run.py", "--repo", root, "--detach", *(["--max-iterations", a[0]] if a and a[0].isdigit() else a)]]),
+    ("night",   "tonight's contract: install it, print the approval question; `night start` runs it detached",
+     lambda root, a: [[PY, "scripts/reef-run.py", "--repo", root, "--night", "--detach"]] if a[:1] == ["start"] else [[PY, "scripts/reef-run.py", "contract", "--repo", root, *a]]),
+    ("watch",   "the runner's live steps, one line each (Ctrl-C leaves, stops nothing)",
+     lambda root, a: [[PY, "scripts/reef-run.py", "watch", "--repo", root]]),
+    ("stop",    "the runner ends after its current session, never mid-merge",
+     lambda root, a: [[PY, "scripts/reef-run.py", "stop", "--repo", root]]),
+    ("setup",   "the worktree setup, proven once per change: `setup` says the state, `setup prove` proves it",
+     lambda root, a: [[PY, "scripts/reef-setup.py", *(a or ["state"]), "--repo", root]]),
+    ("update",  "pull the plugin, update the project's scripts (one commit), re-prove the setup, say the reload step",
+     None),
+    ("factory", "the row on GitHub Actions: `factory` shows the last runs, `factory <row>` labels its issue reef-ready",
+     None),
+    ("cost",    "the pipeline per merged row against the last batch (`cost --since 2026-10-01`)",
+     lambda root, a: [[PY, "scripts/reef-cost.py", "rows", "--repo", root, *a]]),
+]
+
+
+def main_checkout(repo):
+    r = subprocess.run(["git", "-C", repo, "worktree", "list", "--porcelain"], capture_output=True, text=True)
+    for line in r.stdout.splitlines():
+        if line.startswith("worktree "):
+            return line[len("worktree "):].strip()
+    return os.path.abspath(repo)
+
+
+def purpose(path):
+    """A script's first purpose line: the docstring's first sentence, or the first `# ` comment after the CLASS line."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read(4000)
+    except OSError:
+        return ""
+    m = re.search(r'"""(.+?)(?:\n|""")', text, re.S)
+    if m:
+        return m.group(1).strip().split(". ")[0][:110]
+    for line in text.splitlines():
+        if line.startswith("# ") and "CLASS:" not in line and not line.startswith("#!/"):
+            return line[2:].strip()[:110]
+    return ""
+
+
+def status_line(root):
+    try:
+        with open(os.path.join(root, ".reef", "run", "lock"), encoding="utf-8") as f:
+            os.kill(int(f.read().strip() or 0), 0)
+        runner = "the runner is running"
+    except (OSError, ValueError):
+        runner = "no runner is running"
+    try:
+        with open(os.path.join(root, ".reef", "loop.json"), encoding="utf-8") as f:
+            st = json.load(f)
+        wait = str(st.get("wait") or "")
+        loop = f"the loop waits: {wait[:80]}" if wait else "the loop is active" if st.get("active") else "the loop is idle"
+    except (OSError, ValueError):
+        loop = "the loop is idle"
+    return f"{runner} · {loop}"
+
+
+def plugin_dir(root):
+    """The plugin clone: CLAUDE_PLUGIN_ROOT, else the folder marketplace Claude Code points at, else --plugin."""
+    cands = [os.environ.get("CLAUDE_PLUGIN_ROOT")]
+    try:
+        with open(os.path.expanduser("~/.claude/plugins/known_marketplaces.json"), encoding="utf-8") as f:
+            for v in json.load(f).values():
+                src = v.get("source") if isinstance(v, dict) else None
+                if isinstance(src, dict) and src.get("path"):
+                    cands.append(src["path"])
+    except (OSError, ValueError):
+        pass
+    for c in cands:
+        if c and os.path.isfile(os.path.join(c, ".claude-plugin", "plugin.json")) and os.path.isfile(os.path.join(c, "scripts", "reef-update.py")):
+            return c
+    return None
+
+
+def cmd_update(root, args):
+    plugin = args[args.index("--plugin") + 1] if "--plugin" in args and args.index("--plugin") + 1 < len(args) else plugin_dir(root)
+    if not plugin:
+        print("reef update: no plugin clone found — pass --plugin <dir> (the folder /plugin marketplace points at)", file=sys.stderr)
+        return 1
+    steps = [["git", "-C", plugin, "pull", "--ff-only"],
+             [PY, os.path.join(plugin, "scripts", "reef-update.py"), "--repo", root, "--commit"]]
+    for cmd in steps:
+        print("reef update: " + " ".join(cmd[-3:]), flush=True)
+        if subprocess.run(cmd, cwd=root).returncode != 0:
+            print("reef update: stopped at that step", file=sys.stderr)
+            return 1
+    setup = os.path.join(HERE, "reef-setup.py")
+    if os.path.isfile(setup) and subprocess.run([PY, setup, "state", "--repo", root], capture_output=True).returncode == 3:
+        print("reef update: the setup digest changed — proving it (a scratch worktree, the setup, the full gate once)", flush=True)
+        if subprocess.run([PY, setup, "prove", "--repo", root], cwd=root).returncode != 0:
+            return 1
+    print("reef update: done — in Claude Code: /plugin marketplace update <marketplace>, then /reload-plugins; `reef doctor` confirms")
+    return 0
+
+
+def cmd_factory(root, args):
+    wf = os.path.join(root, ".github", "workflows", "reef-factory.yml")
+    if not os.path.isfile(wf):
+        print("factory: .github/workflows/reef-factory.yml is not accepted yet — python3 scripts/reef-init.py shows it OFFERED; accept with\n"
+              "  python3 <plugin>/scripts/reef-init.py --root . --accept .github/workflows/reef-factory.yml   then commit it on the base")
+        return 1
+    if args and args[0].isdigit():
+        r = subprocess.run([PY, os.path.join(HERE, "reef-queue.py"), "row-issue", args[0], "--repo", root], capture_output=True, text=True)
+        issue = (r.stdout.strip().splitlines() or [""])[-1]
+        if r.returncode != 0 or not issue.isdigit():
+            print(f"factory: row {args[0]} has no issue — {(r.stderr or r.stdout).strip()[:160]}", file=sys.stderr)
+            return 1
+        print(f"factory: labelling issue #{issue} reef-ready (the labeler must be an admin)", flush=True)
+        return subprocess.run(["gh", "issue", "edit", issue, "--add-label", "reef-ready"], cwd=root).returncode
+    return subprocess.run(["gh", "run", "list", "--workflow", "reef-factory.yml", "--limit", "5"], cwd=root).returncode
+
+
+def menu(root):
+    print(BANNER.rstrip("\n"))
+    try:
+        with open(os.path.join(root, ".reef", "version"), encoding="utf-8") as f:
+            ver = f.read().strip()
+    except OSError:
+        ver = "?"
+    print(f"  Reef {ver} · {root} · {status_line(root)}\n")
+    for verb, what, _ in VERBS:
+        print(f"  {verb:<9}{what}")
+    print("\n  reef <verb> [args] · reef --all lists every script and its purpose · reef <verb> --repo <dir> for another project")
+    return 0
+
+
+def main(argv):
+    args = list(argv)
+    repo = "."
+    if "--repo" in args and args.index("--repo") + 1 < len(args):
+        repo = args[args.index("--repo") + 1]
+        del args[args.index("--repo"):args.index("--repo") + 2]
+    root = main_checkout(repo)
+    if not args:
+        return menu(root)
+    if args[0] == "--all":
+        for name in sorted(os.listdir(HERE)):
+            if name.startswith("reef") and name != "reef":
+                print(f"  {name:<28}{purpose(os.path.join(HERE, name))}")
+        return 0
+    verb, rest = args[0], args[1:]
+    if verb == "update":
+        return cmd_update(root, rest)
+    if verb == "factory":
+        return cmd_factory(root, rest)
+    for name, _, build in VERBS:
+        if name == verb and build:
+            rc = 0
+            for cmd in build(root, rest):
+                cmd = [c if not c.startswith("scripts/") else os.path.join(HERE, c[len("scripts/"):]) for c in cmd]
+                rc = subprocess.run(cmd, cwd=root).returncode
+                if rc != 0:
+                    break
+            return rc
+    print(f"reef: unknown verb {verb!r} — run `reef` for the list", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

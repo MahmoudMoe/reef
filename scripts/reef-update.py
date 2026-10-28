@@ -143,7 +143,7 @@ def main(argv):
     # manifest (2026-10-18). `.gitignore` carries the lines reef-init appends (status.html, cost/, graph/).
     st = subprocess.run(["git", "status", "--porcelain", "--"] + paths, cwd=root, capture_output=True, text=True)
     changed_files = [l[3:] for l in st.stdout.splitlines()
-                     if len(l) > 3 and l[3:].startswith(("scripts/reef-", ".reef/", ".githooks/", ".gitignore", "reef/README.md", "docs/REEF.md"))]
+                     if len(l) > 3 and l[3:].startswith(("scripts/reef-", ".reef/", ".githooks/", ".gitignore", "reef/README.md", "docs/REEF.md")) or l[3:].strip() == "scripts/reef"]
     # 2026-10-21 (qassimha): reef-init rewrote AGENTS.md in place (Reef's untouched rendering) and it sat uncommitted
     for rel, h in manifest().items():
         if rel.startswith("_") or h == "owner" or rel in changed_files or rel == ".reef/config.json" or rel in dirty_before:

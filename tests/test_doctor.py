@@ -1,6 +1,7 @@
 """reef-doctor and reef-update (0.7, usability plan A1): the screen names the state and the fix; the update is one command."""
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -279,3 +280,25 @@ class Update(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NormalRoundChecks(unittest.TestCase):
+    """2026-10-28 (the owner, after the first night): the doctor checks what stopped him that day — a loop hold left by a dead
+    session, no probe for the runner, the worktree setup unproven, the plugin disabled — each with the one fix."""
+
+    def test_the_hold_the_probe_the_setup_and_the_plugin_are_checked(self):
+        d = project()
+        os.makedirs(os.path.join(d, ".reef", "run"), exist_ok=True)
+        with open(os.path.join(d, ".reef", "run", "orchestrator.json"), "w") as f:
+            json.dump({"session": "6ee3355f-2fe4-4a00", "at": 1.0, "pid": 999999}, f)
+        shutil.copy(os.path.join(ROOT, "scripts", "reef-setup.py"), os.path.join(d, "scripts", "reef-setup.py"))
+        r = doctor(d)
+        out = r.stdout
+        self.assertIn("hold: session 6ee3355f", out)
+        self.assertIn("dead", out)
+        self.assertIn("reef-loop.py unlock", out)
+        self.assertIn("gate probe: none", out)
+        self.assertIn("reef-run.py probe", out)
+        self.assertIn("setup: unproven", out)
+        self.assertIn("reef-setup.py prove", out)
+        self.assertIn("plugin enabled:", out, "the plugin's on/off state is a doctor line (it flipped to disabled after a marketplace update)")

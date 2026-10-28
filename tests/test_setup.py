@@ -1,6 +1,7 @@
 """scripts/reef-setup.py — worktree.setup proven ONCE per change (2026-10-28, the current adoption: a fresh row worktree had no
 built app, 60 tests went red for reasons unrelated to the row, the orchestrator guessed a build and the suite ran twice per
 row). A row's own red is never the proof; the proof is a scratch worktree of the base with the setup, then the full gate."""
+import glob
 import json
 import os
 import shutil
@@ -216,3 +217,24 @@ class SetupProof(unittest.TestCase):
         d1 = self.setup("digest").stdout.strip()
         write(self.main, "package.json", json.dumps({"scripts": {"build": "next build"}}))
         self.assertNotEqual(d1, self.setup("digest").stdout.strip(), "a changed build script is a changed setup")
+
+
+class FailingLinesAreTheRealOnes(unittest.TestCase):
+    """2026-10-28, the first proof on the current adoption: the INCOMPLETE line quoted a stderr line that merely contained
+    the word "failed" ("[session-patch] nothing was stored: the closing write failed …") while the real `FAIL` lines sat
+    further down. A runner's own failure marker outranks a sentence with the word in it."""
+
+    def test_fail_markers_come_before_sentences_with_the_word(self):
+        tmp = tempfile.mkdtemp(prefix="reef-setup-lines.")
+        main = os.path.join(tmp, "main")
+        os.makedirs(os.path.join(main, "scripts"))
+        shutil.copy(os.path.join(ROOT, "scripts", "reef-setup.py"), os.path.join(main, "scripts", "reef-setup.py"))
+        gate = "sh -c 'echo \"[session-patch] nothing was stored: the closing write failed with X\"; echo \" FAIL  tests/t.py > the real one\"; echo \"Tests 1 failed | 3 passed\"; exit 1'"
+        write(main, ".reef/config.json", json.dumps({"gates": {"full": gate}, "worktree": {"setup": "true"}, "branches": {"base": "main"}}))
+        write(main, ".gitignore", ".reef/worktrees/\n.reef/ci-local/\n")
+        git(main, "init", "-q", "-b", "main"); git(main, "add", "-A"); git(main, "commit", "-qm", "init")
+        r = subprocess.run([sys.executable, SETUP, "prove", "--repo", main], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1)
+        rec = json.load(open(glob.glob(os.path.join(main, ".reef", "ci-local", "setup-*.json"))[0]))
+        self.assertIn("FAIL  tests/t.py", rec["failing"][0], rec["failing"])
+        self.assertIn("FAIL  tests/t.py", r.stdout)

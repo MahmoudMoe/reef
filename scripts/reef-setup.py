@@ -31,7 +31,8 @@ import time
 CHANGE_SET = ("package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "pyproject.toml", "uv.lock",
               "poetry.lock", "Pipfile", "Pipfile.lock", "requirements.txt", "Cargo.toml", "Cargo.lock", "go.mod", "go.sum",
               "Gemfile", "Gemfile.lock", "composer.json", "composer.lock")   # the manifests: a changed build script is a changed setup
-FAIL_LINE = re.compile(r"(^|\s)(FAIL|FAILED|ERROR|AssertionError|✗|✘|❯|×)(\s|:|$)|\b\d+ (failed|errors?)\b", re.I)
+FAIL_MARK = re.compile(r"^\s*(?:\x1b\[[0-9;]*m)*\s*(FAIL\b|AssertionError\b|✗|✘|❯|×)")   # a runner's own marker opens the line
+FAIL_LINE = re.compile(r"(^|\s)(FAIL|FAILED|ERROR|AssertionError|✗|✘|❯|×)(\s|:|$)|\b\d+ (failed|errors?)\b", re.I)   # a sentence with the word
 
 
 def run(args, cwd, timeout=600):
@@ -148,7 +149,9 @@ def cmd_prove(main, cfg):
             return 1
         rc_g, out_g = run(["sh", "-c", full], wt, timeout)
         lines = [l.rstrip() for l in out_g.splitlines() if l.strip()]
-        failing = ([l for l in lines if FAIL_LINE.search(l)] or lines[-5:])[:12] if rc_g != 0 else []
+        # the first proof on the current adoption (2026-10-28) quoted "the closing write failed with …" from a library's stderr while the
+        # real FAIL lines sat below: a marker that opens the line comes first, a sentence with the word after
+        failing = ([l for l in lines if FAIL_MARK.search(l)] + [l for l in lines if FAIL_LINE.search(l) and not FAIL_MARK.search(l)] or lines[-5:])[:12] if rc_g != 0 else []
         rec = {"digest16": dg, "base": sha, "ok": rc_g == 0, "step": "gate", "exit": rc_g, "setup": setup, "gate": full,
                "failing": failing, "seconds": round(time.time() - t0), "at": at}
         write_record(main, dg, rec, out_s + out_g)
