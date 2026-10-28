@@ -5,7 +5,10 @@
   for its whole run, and the task skill and the mechanic told agents to put heavy suites through `reef-graph.py lock
   heavy` as well — the inner lock waited the whole timeout for its own holder, then exited 75, and the session read it
   as a deadlock). A slot a parent of the process already holds (`REEF_SLOTS_HELD`, keyed like the slot files) is not
-  taken twice: the command runs inside it; another resource still takes its own slot. The two prose lines say the gate
+  taken twice: the command runs inside it; another resource still takes its own slot. The token names its holder's pid and
+  counts only while that process lives (the reviews: inherited alone it outlived the gate, and a server or a session
+  started under it would have skipped every later lock); a resource name on the command line is `[A-Za-z0-9._-]+`, as
+  the gate already filters it. The two prose lines say the gate
   holds its resources itself and the lock is for a heavy command outside the gate. tests/size-budget.json raised: `prose_words` 22,646 → 22,672, `script_lines` 17,354 → 17,365.
 - **The loop unparks itself when the tick changes; the park names its command** (2026-10-28, row 46 on the current
   adoption: the loop parked for "no progress" while a fix round was being built in a worktree the tick did not see,

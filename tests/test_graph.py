@@ -281,6 +281,30 @@ class Lock(unittest.TestCase):
         self.assertEqual(r.returncode, 75, "a held `heavy` does not stand in for `db`: " + r.stderr)
         holder.wait(timeout=10)
 
+    def test_a_token_from_a_holder_that_exited_is_not_trusted(self):
+        # the reviews of #209: the marker was inherited, never checked for life — a process started under the gate that
+        # outlived it (a dev server, a session) would skip every later lock; a token names its holder and dies with it
+        config(self.d, resources={"heavy": {"slots": 1}})
+        out = os.path.join(self.d, "token")
+        r = graph("lock", "heavy", "--root", self.d, "--timeout", "1", "--", sys.executable, "-c",
+                  f"import os; open({out!r}, 'w').write(os.environ['REEF_SLOTS_HELD'])")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        token = open(out).read()                      # exported by a holder that has since exited
+        holder = subprocess.Popen([sys.executable, GRAPH, "lock", "heavy", "--root", self.d, "--",
+                                   sys.executable, "-c", "import time; time.sleep(4)"])
+        time.sleep(0.8)
+        r = subprocess.run([sys.executable, GRAPH, "lock", "heavy", "--root", self.d, "--timeout", "0.5", "--", "true"],
+                           capture_output=True, text=True, timeout=60, env=dict(os.environ, REEF_SLOTS_HELD=token))
+        self.assertEqual(r.returncode, 75, "a token whose holder exited must not stand in for the slot: " + r.stderr)
+        holder.wait(timeout=10)
+
+    def test_a_resource_name_is_plain(self):
+        # the gate filters names to [A-Za-z0-9._-]; the CLI did not, and `../x` named slot files outside the temp dir
+        config(self.d, resources={})
+        r = graph("lock", "../x", "--root", self.d, "--timeout", "1", "--", "true")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("resource", r.stderr)
+
     def test_command_exit_code_propagates(self):
         config(self.d, resources={})
         r = graph("lock", "x", "--root", self.d, "--timeout", "1", "--", "sh", "-c", "exit 7")
