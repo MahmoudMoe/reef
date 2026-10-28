@@ -261,6 +261,26 @@ class Lock(unittest.TestCase):
         self.assertEqual(r.returncode, 75, "the worktree waits for the main checkout's holder: " + r.stderr)
         holder.wait(timeout=10)
 
+    def test_a_nested_lock_on_the_same_resource_runs_inside_its_holder(self):
+        # 2026-10-28 (row 6 on the current adoption): reef-gate.sh holds gates.resources itself and the mechanic wrapped
+        # it in `lock heavy` again — the inner lock waited the whole timeout for its own holder and exited 75
+        config(self.d, resources={"heavy": {"slots": 1}})
+        inner = [sys.executable, GRAPH, "lock", "heavy", "--root", self.d, "--timeout", "0.5", "--", "true"]
+        t0 = time.monotonic()
+        r = graph("lock", "heavy", "--root", self.d, "--timeout", "1", "--", *inner)
+        self.assertEqual(r.returncode, 0, "the holder's own child runs inside the slot, never waits for itself: " + r.stderr)
+        self.assertLess(time.monotonic() - t0, 3)
+
+    def test_a_nested_lock_on_another_resource_still_takes_its_slot(self):
+        config(self.d, resources={"heavy": {"slots": 1}, "db": {"slots": 1}})
+        holder = subprocess.Popen([sys.executable, GRAPH, "lock", "db", "--root", self.d, "--",
+                                   sys.executable, "-c", "import time; time.sleep(4)"])
+        time.sleep(0.8)
+        inner = [sys.executable, GRAPH, "lock", "db", "--root", self.d, "--timeout", "0.5", "--", "true"]
+        r = graph("lock", "heavy", "--root", self.d, "--timeout", "1", "--", *inner)
+        self.assertEqual(r.returncode, 75, "a held `heavy` does not stand in for `db`: " + r.stderr)
+        holder.wait(timeout=10)
+
     def test_command_exit_code_propagates(self):
         config(self.d, resources={})
         r = graph("lock", "x", "--root", self.d, "--timeout", "1", "--", "sh", "-c", "exit 7")

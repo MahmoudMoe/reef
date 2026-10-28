@@ -480,6 +480,9 @@ def cmd_worktree(task_path, base):
     return 0
 
 
+HELD_ENV = "REEF_SLOTS_HELD"   # the slot bases this process tree holds, os.pathsep-joined (cmd_lock)
+
+
 def cmd_lock(root, resource, timeout, command):
     """Hold ONE of N slots (N = resources.<name>.slots) while running command.
     N numbered lock files + fcntl: no flock(1) (macOS lacks it). A --timeout is
@@ -490,6 +493,14 @@ def cmd_lock(root, resource, timeout, command):
     # keyed on the folder, a shared test database was used twice at once)
     key = os.path.realpath(main_checkout(root) or root)
     base = os.path.join(tempfile.gettempdir(), f"reef-slot-{hashlib.sha1(key.encode()).hexdigest()}-{resource}")
+    # 2026-10-28 (row 6 on the current adoption): reef-gate.sh holds gates.resources itself, and a mechanic wrapped the
+    # gate in `lock heavy` again — the inner lock waited the whole timeout for its own holder and exited 75. A slot a
+    # parent of this process already holds (HELD_ENV names each held base) is not taken twice: the command runs inside it.
+    held = [b for b in os.environ.get(HELD_ENV, "").split(os.pathsep) if b]
+    if base in held:
+        print(f"reef-graph lock: {resource!r} is already held up the process tree — running inside that slot", file=sys.stderr)
+        return subprocess.run(command, cwd=root).returncode
+    env = dict(os.environ, **{HELD_ENV: os.pathsep.join(held + [base])})
     deadline = time.monotonic() + timeout
     handles = [open(f"{base}-{i}", "a") for i in range(n)]
     try:
@@ -499,7 +510,7 @@ def cmd_lock(root, resource, timeout, command):
                     fcntl.flock(h, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except OSError:
                     continue
-                r = subprocess.run(command, cwd=root)
+                r = subprocess.run(command, cwd=root, env=env)
                 return r.returncode
             if time.monotonic() >= deadline:
                 print(f"reef-graph lock: no free slot of {resource!r} ({n}) within {timeout}s", file=sys.stderr)

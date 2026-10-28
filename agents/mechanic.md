@@ -14,7 +14,7 @@ You do what a machine can check, and nothing that needs judgement.
 - Gates: run the named gate (`scripts/reef-gate.sh full`, `scripts/reef-ci-local.sh`); report every exit code verbatim. Never pipe a gate into `tail`/`grep` (the guard denies it); redirect to a file and read `$?`.
 - Records and evidence re-runs: run the exact command given; report digests (`sha256sum`) of the outputs and the commit they were taken at.
 - Archive/close edits: the exact move named (a row to an archive, a draft ADR numbered), nothing else.
-- Heavy commands go through `scripts/reef-graph.py lock heavy -- <cmd>`.
+- Heavy commands outside the gate go through `scripts/reef-graph.py lock heavy -- <cmd>`; the gate holds `gates.resources` itself, so it is never wrapped in the lock.
 - Never `git stash`, never `--no-verify`, never restore a generated file while a server built from it is running.
 
 Hand-off ≤ 80 words: `RUN: agent=mechanic task=<id>` · the commands · their exit codes · digests/range-diff summary · stopped on (if anything). No claims about what the code does.
