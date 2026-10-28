@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The loop unparks itself when the tick changes; the park names its command** (2026-10-28, row 46 on the current
+  adoption: the loop parked for "no progress" while a fix round was being built in a worktree the tick did not see,
+  then told the owner only he could unpark it and named `unlock`, the session-hold command). A tick that differs
+  from the one that parked is progress: the park clears on its own; while parked, the line says `reef-loop.py start`.
+  tests/size-budget.json raised: `script_lines` 17,347 → 17,354.
 - **A recorded approval clears its own question** (2026-10-28, the owner's first round alone: the loop filed "re-approve
   row 46's plan at <digest>", the owner approved in his terminal, and three runner sessions re-read the filed question,
   believed it, and recorded the same wait). `reef-approval.py` removes the row's approval questions from

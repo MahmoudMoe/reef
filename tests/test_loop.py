@@ -156,6 +156,23 @@ class Tick(unittest.TestCase):
         st = json.loads(loop(d, "tick", "--json").stdout)
         self.assertIn("no progress: 2 identical ticks", st["parked_loop"])
 
+    def test_a_changed_tick_unparks_the_loop_by_itself_and_the_park_names_its_command(self):
+        # 2026-10-28 (the owner, row 46): the loop parked for "no progress" while a fix round was being built in a worktree
+        # the tick did not see, then told the owner "only you can unpark it" and named `unlock` — the wrong command.
+        # The park is the tick's own: a tick that differs from the one that parked is progress, and the loop unparks.
+        d = project({"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md"}, "loop": {"no_progress_ticks": 2}})
+        loop(d, "start")
+        loop(d, "tick")
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertIn("no progress: 2 identical ticks", st["parked_loop"])
+        self.assertIn("reef-loop.py start", st["parked_loop"], "the park names the command that clears it")
+        self.assertNotIn("USER ACTION REQUIRED", st["parked_loop"])
+        write(d, ".reef/inflight/101", json.dumps({"id": 101, "tier": "light"}))   # work appeared: the tick changes
+        r = loop(d, "tick", "--json")
+        st = json.loads(r.stdout)
+        self.assertIsNone(st["parked_loop"], "a changed tick is progress: the loop unparks itself")
+        self.assertIsNone(json.loads(open(os.path.join(d, ".reef", "loop.json")).read()).get("parked"))
+
     def test_a_dispatched_and_failed_task_between_ticks_is_progress(self):
         # 2026-10-19 (qassimha 1302, row 70): a graph run dispatched, ran and failed 1302 between two ticks; nothing the
         # tick hashed had changed, so the loop parked for "no progress" right after real work
