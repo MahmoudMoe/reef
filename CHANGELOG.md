@@ -1,6 +1,18 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **The worktree setup is proven once per change, never by a row's red** (2026-10-28, the current adoption). A fresh row
+  worktree had install, generate and typegen but no built app; 60 tests went red for reasons unrelated to the row, the
+  orchestrator guessed a build and the full suite ran twice per row — the design's phase 0 had left "a complete
+  worktree.setup" to the owner's hand. New `scripts/reef-setup.py`: `prove` makes a scratch worktree of the base, runs
+  `worktree.setup`, then `gates.full` ONCE as a plain command (no evidence, no snapshot cache: a tree lacking its setup is no
+  result about the base), records `.reef/ci-local/setup-<digest16>.json` and removes the worktree; `state` reads the record
+  for the digest of the setup command, the full gate and every lockfile — proven (0), unproven (3), INCOMPLETE (1) with the
+  failing lines. `reef-row.py next` names `prove` before a build and waits on the owner while INCOMPLETE; `reef-graph.py
+  worktree` refuses a task worktree on the same terms; `/reef-plan` starts the setup only on a proven state. `reef-init`
+  copies the script and derives `worktree.setup` from the stack profile's new `setup` entries (`scripts/reef-stacks.json`:
+  for Next, the route types and, when a build script exists, the built app the tests read), each only when its
+  dependency is present. tests/size-budget.json raised: `prose_words` 21,799 → 21,824, `script_lines` 16,754 → 16,971.
 - **A finished task is not re-judged by today's authoring rules; `--feature` scopes them** (2026-10-28, the current
   adoption, rows 3 and 46). `reef-plan-check.py` ran the v3 proof rule and the read-first checks on tasks under
   `tasks/done/` — shipped, judged and merged under the rules of their time — and no plan in the project could be

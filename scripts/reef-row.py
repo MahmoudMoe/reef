@@ -121,6 +121,16 @@ def archived(main, cfg):
         return set()
 
 
+def setup_state(main):
+    """(exit, first line) of scripts/reef-setup.py state — 0 proven, 3 unproven, 1 INCOMPLETE; a project whose scripts predate
+    the proof (no reef-setup.py yet) builds as before."""
+    script = os.path.join(main, "scripts", "reef-setup.py")
+    if not os.path.isfile(script):
+        return 0, ""
+    rc, out = run([sys.executable, script, "state", "--repo", main], main, timeout=60)
+    return rc, (out.strip().splitlines() or [""])[0]
+
+
 def state_of(repo, key):
     main = main_checkout(git(repo, "rev-parse", "--show-toplevel") or os.path.abspath(repo))
     cfg = config(main)
@@ -158,6 +168,17 @@ def state_of(repo, key):
         return out, 0
     open_tasks = sorted(os.path.basename(p) for p in glob.glob(os.path.join(fdir, "tasks", "*.md")))
     if open_tasks:
+        # 2026-10-28: worktree.setup is proven once per change before a row builds (scripts/reef-setup.py) — a fresh worktree
+        # without its setup goes red for reasons unrelated to the row, and a guessed build is a second suite run
+        st_rc, st = setup_state(main)
+        if st_rc == 3:
+            out.update(state="build", next="python3 scripts/reef-setup.py prove  (worktree.setup proven once per change; then the build)",
+                       detail=f"{len(open_tasks)} open task(s); {st}")
+            return out, 0
+        if st_rc == 1:
+            out.update(state="build", next="(wait: owner — worktree.setup is INCOMPLETE; edit .reef/config.json worktree.setup, then python3 scripts/reef-setup.py prove)",
+                       detail=st)
+            return out, 0
         out.update(state="build", next="python3 scripts/reef-loop.py tick  (dispatch now / verify now → /reef-task or /reef-graph)",
                    detail=f"{len(open_tasks)} open task(s): {', '.join(open_tasks[:4])}")
         return out, 0

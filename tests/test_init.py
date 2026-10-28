@@ -626,3 +626,25 @@ class MapOnDisk(unittest.TestCase):
         gi = read(d, ".gitignore")
         self.assertIn(".reef/status.html", gi)
         self.assertIn(".reef/cost/", gi)
+
+
+class StackSetup(unittest.TestCase):
+    """2026-10-28 (the current adoption): a fresh row worktree had install, generate and typegen but no built app, and 60
+    tests went red for reasons unrelated to the row. What a fresh tree needs beyond install and generate is stack data
+    (scripts/reef-stacks.json `setup`), each entry only when its dependency is present and its script exists."""
+
+    def setup_for(self, pkg):
+        d = tempfile.mkdtemp(prefix="reef-init-setup2.")
+        write(d, "package.json", json.dumps({"name": "demo", **pkg}))
+        subprocess.run(["git", "init", "-q", "-b", "develop", d], check=True)
+        self.assertEqual(init(d).returncode, 0)
+        return json.loads(read(d, ".reef/config.json"))["worktree"]["setup"]
+
+    def test_next_adds_its_route_types_and_the_built_app_the_tests_read(self):
+        self.assertEqual(self.setup_for({"scripts": {"test": "vitest run", "build": "next build", "generate": "prisma generate"},
+                                         "dependencies": {"next": "16", "@prisma/client": "6"}}),
+                         "npm ci && npm run generate && npx next typegen && npm run build")
+        self.assertEqual(self.setup_for({"scripts": {"test": "vitest run"}, "dependencies": {"next": "16"}}),
+                         "npm ci && npx next typegen", "no build script: no build invented")
+        self.assertEqual(self.setup_for({"scripts": {"test": "vitest run", "build": "tsc"}}), "npm ci", "a build without Next is not a test's need")
+        self.assertIn("reef-setup.py", open(os.path.join(ROOT, "scripts", "reef-init.py")).read(), "the proof script is copied to projects")

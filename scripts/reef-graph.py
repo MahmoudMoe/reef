@@ -444,6 +444,13 @@ def cmd_worktree(task_path, base):
     slug = re.sub(r"^R?\d+-", "", os.path.basename(t.path))[:-3]
     branch = f"task/{t.canon}-{slug}"
     if not os.path.isdir(wt):
+        proof = os.path.join(main_checkout(root), "scripts", "reef-setup.py")   # 2026-10-28: worktree.setup proven once per change
+        if os.path.isfile(proof):
+            pr = subprocess.run([sys.executable, proof, "state", "--repo", main_checkout(root)], capture_output=True, text=True)
+            if pr.returncode == 3:
+                raise GraphError("worktree.setup is unproven — python3 scripts/reef-setup.py prove first (once per setup, gate or lockfile change)")
+            if pr.returncode == 1:
+                raise GraphError(f"worktree.setup is INCOMPLETE — {pr.stdout.strip()[:240]}")
         os.makedirs(wt_root, exist_ok=True)
         if base is None:
             base = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=root,

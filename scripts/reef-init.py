@@ -58,6 +58,8 @@ SCRIPTS = ["reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.
            "reef-evidence.py", "reef-row.py",
            # v3 phase 7: the factory's one command
            "reef-factory.py",
+           # 2026-10-28: worktree.setup proven once per change
+           "reef-setup.py",
            # 0.7.3: the stack profiles (data the measure and the raw-SQL gate read)
            "reef-stacks.json",
            # 2026-10-23: the night prompt runs `python3 scripts/reef-approval.py --proxy`; no project had it
@@ -148,8 +150,15 @@ def detect(root):
         facts["fast"] = " && ".join(fast)
         # a generator the node profile names (scripts/reef-stacks.json `generate`) when the project depends on its tool
         with open(os.path.join(PLUGIN, "scripts", "reef-stacks.json"), encoding="utf-8") as f:
-            gen = next((g["run"] for g in (json.load(f).get("node") or {}).get("generate") or [] if any(d in deps for d in g["when_deps"])), None)
+            node_profile = json.load(f).get("node") or {}
+        gen = next((g["run"] for g in node_profile.get("generate") or [] if any(d in deps for d in g["when_deps"])), None)
         facts["setup"] = "npm ci && npm run generate" if "generate" in scripts else f"npm ci && {gen}" if gen else "npm ci"
+        # 2026-10-28 (the current adoption): a fresh worktree had install, generate and typegen but no built app, and 60 tests went
+        # red for reasons unrelated to the row. What a fresh tree needs beyond that is the profile's `setup` entries, each only
+        # when its dependency is present and the script it names exists — never an invented script
+        facts["setup"] = " && ".join([facts["setup"]] + [s["run"] for s in node_profile.get("setup") or []
+                                                     if any(d in deps for d in s.get("when_deps") or [])
+                                                     and (not s.get("needs_script") or s["needs_script"] in scripts)])
         facts.update(stack="node", ecosystem="npm", install="npm ci",
                      test="npm test" if "test" in scripts else "",
                      build="npm run build" if "build" in scripts else "",
