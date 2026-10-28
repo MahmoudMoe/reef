@@ -12,7 +12,8 @@ Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
 - One line per check: OK / FAIL: <what and where>. Exit 0 = all pass, 1 = at least one FAIL.
   On success the last line names the plan-reviewer's model (roles.plan_reviewer, default opus).
 - On success writes <tasks>/.plan-review.json: one sha256 PER FEATURE over that feature's task
-  files plus the ADRs, and the check count. The stamp is per-worktree state and must be
+  files plus the ADRs it OWNS or CITES (its drafts, the numbered ADRs its plan names — never every decision in the
+  project: 2026-10-28, a close's ADR edits on the base voided the other row's approval), and the check count. The stamp is per-worktree state and must be
   gitignored (a tracked stamp is a FAIL). The hash covers what PLANNING wrote, not what
   EXECUTION writes: task files are keyed by basename and stripped of status/attempts/
   last_failure_sig and the Log section, so completing a task does not invalidate the review —
@@ -189,6 +190,7 @@ LOG_HEADING = re.compile(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", re.M)
 # edits re-ran three hunters, three approvals and three reviews). Only the Log may follow it.
 NOTES_HEADING = re.compile(r"^##[ \t]+Reviewer notes[ \t]*$", re.M)
 CUT_HEADING = re.compile(r"^##[ \t]+(?:[Ll][Oo][Gg]|Reviewer notes)[ \t]*$", re.M)
+ADR_CITE = re.compile(r"\b(\d{4})-[A-Za-z0-9._-]+\.md\b|\bADR[ -]?0*(\d{1,4})\b")   # how a plan names a decision
 ADR_STATUS = re.compile(r"^Status:.*(?:\r?\n|\Z)", re.M)
 
 
@@ -642,7 +644,7 @@ def main():
             text = fm + text[m.end():]
         return text.encode()
 
-    # one digest PER FEATURE: that feature's task files + every ADR. A task whose feature:
+    # one digest PER FEATURE: that feature's task files + the ADRs it owns or cites (adr_for). A task whose feature:
     # cannot be read lands in the "" bucket, which is still hashed (never invisible).
     by_feature = {}
     for p in stamp_tasks:
@@ -652,9 +654,60 @@ def main():
             feat = ""
         by_feature.setdefault(feat, []).append(p)
 
+    def draft_owner(basename):
+        """The feature a draft ADR belongs to by its whole name — `draft-<slug>.md`, `draft-<slug>-<topic>.md` or `draft-<row>-<topic>.md`
+        — or None: a draft nobody owns sits in every feature's digest, as every ADR did before."""
+        stem = basename[len("draft-"):-3]
+        for f_ in by_feature:
+            if f_ and (stem == f_ or stem.startswith(f_ + "-")):
+                return f_
+        head = stem.split("-", 1)[0]
+        if head.isdigit():
+            for f_ in folders:
+                try:
+                    with open(os.path.join(folders[f_], "SPEC.md"), encoding="utf-8") as fh:
+                        m_ = re.search(r"^Row:\s*(\d+)", fh.read(), re.M)
+                except OSError:
+                    m_ = None
+                if m_ and m_.group(1) == head:
+                    return f_
+        return None
+
+    def adr_for(feat):
+        """The ADRs a feature OWNS or CITES (2026-10-28, the current adoption, two rows in flight: row 3's close amended two ADRs on
+        the base, and merging the base into row 46's branch voided row 46's approval with nothing of its plan changed): its drafts in
+        the ADR home (`draft-<row>-…`, or the slug in the name) and the numbered ADRs its SPEC, specs and tasks name — not every
+        decision in the project. The folder's own adr/ files are in the digest as folder files already."""
+        texts = []   # the PLAN text only (stamp_body: no Log, no Reviewer notes — a citation there is execution, not a decision)
+        for p in by_feature.get(feat, []):
+            try:
+                texts.append(stamp_body(p).decode("utf-8", "replace"))
+            except OSError:
+                pass
+        if feat in folders:
+            for p in folder_files(folders[feat]):
+                if p.endswith(".md") and TASK_NAME_RE.match(os.path.basename(p)) is None:
+                    try:
+                        texts.append(stamp_body(p).decode("utf-8", "replace"))
+                    except OSError:
+                        pass
+        blob = "\n".join(texts)
+        m = re.search(r"^Row:\s*(\d+)", blob, re.M)
+        row = m.group(1) if m else ""
+        cited = {a or b.zfill(4) for a, b in ADR_CITE.findall(blob)}
+        out = []
+        for p in adr_files:
+            b = os.path.basename(p)
+            if b.startswith("draft-"):
+                if draft_owner(b) == feat or draft_owner(b) is None:   # mine by its whole name — or nobody's, which stales every feature (0.4's rule stays for it)
+                    out.append(p)
+            elif b[:4].isdigit() and b[:4] in cited:
+                out.append(p)
+        return out
+
     def digest_files(feat):
         extra = [p for p in folder_files(folders[feat]) if p not in stamp_task_set and TASK_NAME_RE.match(os.path.basename(p)) is None] if feat in folders else []
-        return sorted(set(by_feature.get(feat, []) + adr_files + extra), key=stamp_key)
+        return sorted(set(by_feature.get(feat, []) + adr_for(feat) + extra), key=stamp_key)
 
     def digest_for(feat):
         h = hashlib.sha256()

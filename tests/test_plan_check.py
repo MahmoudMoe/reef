@@ -683,12 +683,44 @@ class FeatureStamp(unittest.TestCase):
         self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").returncode, 0)
         self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "third").returncode, 1)
 
-    def test_adr_edit_stales_every_feature(self):
+    def test_an_unrelated_adr_edit_stales_no_feature(self):
+        # 2026-10-28 (the current adoption, two rows in flight): row 3's close edited two ADRs on the base; merging the base
+        # into row 46's branch moved row 46's digest and voided its approval, with nothing of its plan changed. A feature's
+        # digest covers the ADRs it OWNS (its folder's, its drafts) or CITES, not every decision in the project.
         adr = os.path.join(self.tmp, "docs", "adr", "0001-x.md")
         with open(adr, "w") as f:
             f.write("# ADR 0001\n\nStatus: Accepted\n\n## Context\nx\n")
-        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").returncode, 1)
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").returncode, 0, "an ADR no plan cites stales nothing")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "other").returncode, 0)
+
+    def test_a_cited_or_own_adr_edit_stales_its_feature_only(self):
+        adr = os.path.join(self.tmp, "docs", "adr", "0001-x.md")
+        with open(adr, "w") as f:
+            f.write("# ADR 0001\n\nStatus: Accepted\n\n## Context\nx\n")
+        edit(os.path.join(self.tmp, "tasks", "001-demo.md"), "## Scope\nx", "## Scope\nx — decided in docs/adr/0001-x.md")
+        self.assertEqual(run(self.tmp).returncode, 0)   # re-stamped with the citation
+        with open(adr, "a") as f:
+            f.write("\n## Decision\nchanged\n")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").returncode, 1, "the cited ADR changed: this plan's decision moved")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "other").returncode, 0, "the other feature never cited it")
+        self.assertEqual(run(self.tmp).returncode, 0)
+        with open(os.path.join(self.tmp, "docs", "adr", "draft-other-route.md"), "w") as f:
+            f.write("# draft\n\nStatus: Proposed\n\n## Context\nx\n")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "other").returncode, 1, "a draft named for the feature by its whole name is its own")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").returncode, 0)
+        self.assertEqual(run(self.tmp).returncode, 0)
+        # the security review (2026-10-28): a draft NOBODY owns must not sit outside every digest — it stales every feature, as
+        # every ADR did before; and a citation in the Log is execution, not the plan
+        with open(os.path.join(self.tmp, "docs", "adr", "draft-9-orphan.md"), "w") as f:
+            f.write("# draft\n\nStatus: Proposed\n\n## Context\nx\n")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").returncode, 1, "an orphan draft is in every digest")
         self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "other").returncode, 1)
+        self.assertEqual(run(self.tmp).returncode, 0)
+        with open(os.path.join(self.tmp, "docs", "adr", "0002-y.md"), "w") as f:
+            f.write("# ADR 0002\n\nStatus: Accepted\n\n## Context\ny\n")
+        with open(os.path.join(self.tmp, "tasks", "002-other.md"), "a") as f:
+            f.write("- ran under docs/adr/0002-y.md\n")   # after ## Log: execution text
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "other").returncode, 0, "a citation in the Log binds nothing")
 
     def test_this_feature_edit_stales_it(self):
         edit(os.path.join(self.tmp, "tasks", "001-demo.md"), "## Scope\nx", "## Scope\nsneaky")
