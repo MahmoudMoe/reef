@@ -842,3 +842,17 @@ class TheRunSkillStarts(unittest.TestCase):
         self.assertIn("A recorded wait in `.reef/loop.json` is not a reason to hold back", skill)
         self.assertIn("never a placeholder", skill)
 
+
+
+class TheGateHoldsItsResourcesOnce(unittest.TestCase):
+    """2026-10-28 (row 6 on the current adoption): reef-gate.sh holds `gates.resources` for its whole run, and the task skill
+    and the mechanic told agents to wrap heavy suites in `reef-graph.py lock heavy` as well — the inner lock waited the
+    whole timeout for its own holder and exited 75. The lock is re-entrant now, and the prose says the gate holds its own."""
+
+    def test_the_task_skill_and_the_mechanic_say_the_gate_holds_its_resources(self):
+        for p in (("skills", "reef-task", "SKILL.md"), ("agents", "mechanic.md")):
+            text = read(*p)
+            self.assertIn("the gate holds `gates.resources` itself", text, p)
+            self.assertNotIn("heavy suites through `scripts/reef-graph.py lock heavy", text, p)
+        self.assertIn("outside the gate", read("agents", "mechanic.md"))
+        self.assertLessEqual(len(read("skills", "reef-task", "SKILL.md").splitlines()), 60)

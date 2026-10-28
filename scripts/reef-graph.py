@@ -480,6 +480,29 @@ def cmd_worktree(task_path, base):
     return 0
 
 
+HELD_ENV = "REEF_SLOTS_HELD"   # the slots this process tree holds: `<slot digest>@<holder pid>` tokens, space-joined
+RESOURCE = re.compile(r"[A-Za-z0-9._-]+")   # the gate's own filter (reef-gate.sh); a slot file never leaves the temp dir
+
+
+def slot_held_alive(base):
+    """True when a LIVE process up the tree exported this slot's token. The reviews of #209: inherited alone, the token
+    outlived its holder — a server or a session started under the gate would skip every later lock; the holder's exit
+    released the slot, so its token counts for nothing once it is gone."""
+    want = hashlib.sha1(base.encode()).hexdigest()[:16]
+    for token in os.environ.get(HELD_ENV, "").split():
+        digest, _, pid = token.partition("@")
+        if digest != want or not pid.isdigit():
+            continue
+        try:
+            os.kill(int(pid), 0)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            pass   # alive, another user's
+        return True
+    return False
+
+
 def cmd_lock(root, resource, timeout, command):
     """Hold ONE of N slots (N = resources.<name>.slots) while running command.
     N numbered lock files + fcntl: no flock(1) (macOS lacks it). A --timeout is
@@ -490,6 +513,14 @@ def cmd_lock(root, resource, timeout, command):
     # keyed on the folder, a shared test database was used twice at once)
     key = os.path.realpath(main_checkout(root) or root)
     base = os.path.join(tempfile.gettempdir(), f"reef-slot-{hashlib.sha1(key.encode()).hexdigest()}-{resource}")
+    # 2026-10-28 (row 6 on the current adoption): reef-gate.sh holds gates.resources itself, and a mechanic wrapped the
+    # gate in `lock heavy` again — the inner lock waited the whole timeout for its own holder and exited 75. A slot a
+    # live parent of this process holds (HELD_ENV, slot_held_alive) is not taken twice: the command runs inside it.
+    if slot_held_alive(base):
+        print(f"reef-graph lock: {resource!r} is already held up the process tree — running inside that slot", file=sys.stderr)
+        return subprocess.run(command, cwd=root).returncode
+    token = f"{hashlib.sha1(base.encode()).hexdigest()[:16]}@{os.getpid()}"
+    env = dict(os.environ, **{HELD_ENV: " ".join(os.environ.get(HELD_ENV, "").split() + [token])})
     deadline = time.monotonic() + timeout
     handles = [open(f"{base}-{i}", "a") for i in range(n)]
     try:
@@ -499,7 +530,7 @@ def cmd_lock(root, resource, timeout, command):
                     fcntl.flock(h, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except OSError:
                     continue
-                r = subprocess.run(command, cwd=root)
+                r = subprocess.run(command, cwd=root, env=env)
                 return r.returncode
             if time.monotonic() >= deadline:
                 print(f"reef-graph lock: no free slot of {resource!r} ({n}) within {timeout}s", file=sys.stderr)
@@ -562,6 +593,8 @@ def main(argv):
         if cmd == "lock":
             if len(positional) < 3 or positional[1] != "--":
                 return usage("lock <resource> [--timeout S] -- cmd args...")
+            if not RESOURCE.fullmatch(positional[0]):
+                return usage(f"lock: a resource name is {RESOURCE.pattern}, not {positional[0]!r}")
             root = os.path.abspath(root or repo_root(os.getcwd()))
             return cmd_lock(root, positional[0], timeout, positional[2:])
         return usage(f"unknown command {cmd!r}")
