@@ -654,34 +654,53 @@ def main():
             feat = ""
         by_feature.setdefault(feat, []).append(p)
 
+    def draft_owner(basename):
+        """The feature a draft ADR belongs to by its whole name — `draft-<slug>.md`, `draft-<slug>-<topic>.md` or `draft-<row>-<topic>.md`
+        — or None: a draft nobody owns sits in every feature's digest, as every ADR did before."""
+        stem = basename[len("draft-"):-3]
+        for f_ in by_feature:
+            if f_ and (stem == f_ or stem.startswith(f_ + "-")):
+                return f_
+        head = stem.split("-", 1)[0]
+        if head.isdigit():
+            for f_ in folders:
+                try:
+                    with open(os.path.join(folders[f_], "SPEC.md"), encoding="utf-8") as fh:
+                        m_ = re.search(r"^Row:\s*(\d+)", fh.read(), re.M)
+                except OSError:
+                    m_ = None
+                if m_ and m_.group(1) == head:
+                    return f_
+        return None
+
     def adr_for(feat):
         """The ADRs a feature OWNS or CITES (2026-10-28, the current adoption, two rows in flight: row 3's close amended two ADRs on
         the base, and merging the base into row 46's branch voided row 46's approval with nothing of its plan changed): its drafts in
         the ADR home (`draft-<row>-…`, or the slug in the name) and the numbered ADRs its SPEC, specs and tasks name — not every
         decision in the project. The folder's own adr/ files are in the digest as folder files already."""
-        texts = []
+        texts = []   # the PLAN text only (stamp_body: no Log, no Reviewer notes — a citation there is execution, not a decision)
         for p in by_feature.get(feat, []):
             try:
-                texts.append(read(p))
+                texts.append(stamp_body(p).decode("utf-8", "replace"))
             except OSError:
                 pass
         if feat in folders:
             for p in folder_files(folders[feat]):
                 if p.endswith(".md") and TASK_NAME_RE.match(os.path.basename(p)) is None:
                     try:
-                        texts.append(read(p))
+                        texts.append(stamp_body(p).decode("utf-8", "replace"))
                     except OSError:
                         pass
         blob = "\n".join(texts)
         m = re.search(r"^Row:\s*(\d+)", blob, re.M)
         row = m.group(1) if m else ""
         cited = {a or b.zfill(4) for a, b in ADR_CITE.findall(blob)}
-        own = re.compile(r"(^|[-_.])" + re.escape(feat) + r"([-_.]|$)")
         out = []
         for p in adr_files:
             b = os.path.basename(p)
-            if b.startswith("draft-") and (own.search(b[len("draft-"):-3]) or (row and b.startswith(f"draft-{row}-"))):
-                out.append(p)
+            if b.startswith("draft-"):
+                if draft_owner(b) == feat or draft_owner(b) is None:   # mine by its whole name — or nobody's, which stales every feature (0.4's rule stays for it)
+                    out.append(p)
             elif b[:4].isdigit() and b[:4] in cited:
                 out.append(p)
         return out
