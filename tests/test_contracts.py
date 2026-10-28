@@ -763,6 +763,22 @@ class WorkflowV3Docs(unittest.TestCase):
         self.assertNotIn("القضاة الثلاثة", ar, "v3 has one reviewer on the fast path; the judges are not three everywhere")
 
 
+class SetupProvenOnce(unittest.TestCase):
+    """2026-10-28 (the current adoption): a fresh row worktree had no built app, 60 tests went red for reasons unrelated to the
+    row, and the orchestrator guessed a build. worktree.setup is proven once per change by scripts/reef-setup.py; the planner's
+    skill says so where it starts the setup, the row machine names the proof before a build, reef-init copies the script,
+    and the stack profile carries what a fresh tree needs (no project name in Reef)."""
+
+    def test_the_proof_has_its_homes(self):
+        self.assertIn("proven once per change", read("skills", "reef-plan", "SKILL.md"))
+        self.assertIn("proven ONCE per change", read("scripts", "reef-setup.py"))
+        self.assertIn("reef-setup.py prove", read("scripts", "reef-row.py"))
+        self.assertIn("reef-setup.py", read("scripts", "reef-graph.py"))
+        self.assertIn('"reef-setup.py"', read("scripts", "reef-init.py"))
+        stacks = json.loads(read("scripts", "reef-stacks.json"))
+        self.assertTrue(stacks["node"].get("setup"), "the node profile names what a fresh tree needs beyond install and generate")
+        for entry in stacks["node"]["setup"]:
+            self.assertTrue(entry.get("when_deps") and entry.get("run") and entry.get("why"))
 class FactorySkill(unittest.TestCase):
     """2026-10-28 (the owner: "can tickets fire an agent on GitHub, and is there a shortcut inside Reef?"): the factory had
     no skill and the owner's four setup steps lived only in a workflow header. `/reef-factory` is the one command (status,
