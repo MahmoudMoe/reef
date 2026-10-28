@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **`/reef-factory`: the factory as one command; a subscriber token or an API key; the factory on the README, the site
+  and the manual** (2026-10-28, the owner: "can tickets fire an agent on GitHub, and is there a shortcut inside Reef?"). The
+  factory (phase 7) had no skill and its four setup steps lived only in a workflow header. New `skills/reef-factory/SKILL.md`:
+  empty → status (the accepted workflow, the one secret, branch protection, the labels, the last runs, each with its fix);
+  a row id → `reef-queue.py row-issue`, `gh issue edit --add-label reef-ready`, the run that starts; `status|log <id>` → the
+  row's label, the run's log, and the approval comment to write when `reef-waiting-owner`. The workflow's model step passes
+  `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`, a Claude subscription) as well as `ANTHROPIC_API_KEY`; the header names the
+  choice. The README gains *The factory on GitHub Actions* and the row; the site's keeping-it-running panel and the Arabic
+  manual's section 5 and command table say the same. tests/size-budget.json raised: `prose_words` 21,799 → 22,433.
 - **A finished task is not re-judged by today's authoring rules; `--feature` scopes them** (2026-10-28, the current
   adoption, rows 3 and 46). `reef-plan-check.py` ran the v3 proof rule and the read-first checks on tasks under
   `tasks/done/` — shipped, judged and merged under the rules of their time — and no plan in the project could be
