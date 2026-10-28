@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **A finished task is not re-judged by today's authoring rules; `--feature` scopes them** (2026-10-28, the current
+  adoption, rows 3 and 46). `reef-plan-check.py` ran the v3 proof rule and the read-first checks on tasks under
+  `tasks/done/` — shipped, judged and merged under the rules of their time — and no plan in the project could be
+  approved (nine FAILs on the base, all on closed rows; `--feature` scoped only the stamp). A finished task (under
+  `tasks/done/` with `status: done`) keeps the structural checks only — schema, id, folder and status, blocked-by,
+  duplicates, section order, the test-name ledger — and `--feature <slug>` scopes the authoring rules (proof shape,
+  read first, word and criteria caps, keys) to that feature's tasks; another feature's structural defect still
+  fails (the graph is one). tests/size-budget.json raised: `prose_words` 21,773 → 21,799, `script_lines` 16,713 → 16,730.
 - **Rows build without the owner's machine: the factory on GitHub Actions** (workflow v3, phase 7; 2026-10-26). `reef-init`
   OFFERS `.github/workflows/reef-factory.yml` — rendered under the proposals dir, never written unasked (minutes, the model
   key as the secret `ANTHROPIC_API_KEY`, the six-hour limit are the owner's call; `reef-init --accept` places it, then it is

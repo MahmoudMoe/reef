@@ -974,3 +974,105 @@ class Graph05(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+LONG_SHELL = ("`npm run build > /tmp/b.log 2>&1 && npx vitest run tests/export.test.ts --reporter=verbose --coverage "
+              "--coverage.reporter=text --reporter=junit --outputFile=/tmp/junit.xml --run | tail -40`")
+PROOF_TASK = """---
+id: {id}
+feature: {feature}
+status: {status}
+complexity: mech
+effort: medium
+blocked-by: {blocked}
+verify: gate-only
+attempts: 0
+dispatches: 0
+last_failure_sig: ""
+---
+# {id} — {feature}
+
+## Scope
+x
+
+## Read first
+- `nowhere/missing.py:1-2` (nothing) — the planner cited a file that is not there
+
+## Acceptance Criteria
+- **AC-1** the export has a header row
+
+## Proof
+| AC | Proof |
+|---|---|
+| AC-1 | {proof} |
+
+## Out of scope
+
+## Log
+"""
+
+
+class FinishedTasksKeepOnlyStructuralChecks(unittest.TestCase):
+    """2026-10-28 (the current adoption, rows 3 and 46): the v3 proof rule and the read-first checks ran on tasks under
+    tasks/done/ — shipped under the rules of their time, judged, merged — and no plan in the project could be approved
+    (nine FAILs on develop, all on rows already closed). A FINISHED task (under done/, status done) keeps the checks that
+    keep the graph sound: schema, filename and id, folder and status, blocked-by, duplicates, the stamp's section order.
+    The planner's authoring rules — proof shape, read first, word and criteria caps, keys — judge the tasks being planned.
+    `--feature <slug>` scopes those authoring rules to that feature's tasks (the design, workflow-v3.md §4: "the checker bug
+    on done tasks is fixed")."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="reef-pc-done.")
+        repo(self.tmp)
+        self.assertEqual(run(self.tmp).returncode, 0)
+
+    def write(self, rel, **kw):
+        kw.setdefault("blocked", "[]")
+        kw.setdefault("proof", LONG_SHELL)
+        p = os.path.join(self.tmp, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            f.write(PROOF_TASK.format(**kw))
+        return p
+
+    def test_a_finished_task_is_not_judged_by_the_authoring_rules(self):
+        self.write("tasks/done/002-old.md", id=2, feature="demo", status="done")
+        r = run(self.tmp)
+        self.assertEqual(r.returncode, 0, "a shipped task under done/ fails no authoring rule:\n" + r.stdout)
+        self.assertNotIn("characters of shell", r.stdout)
+        self.assertNotIn("read first", r.stdout)
+
+    def test_the_same_task_still_open_is_judged(self):
+        self.write("tasks/003-new.md", id=3, feature="demo", status="pending")
+        r = run(self.tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("003-new.md: Proof for AC-1 is", r.stdout)
+        self.assertIn("characters of shell", r.stdout)
+        self.assertIn("003-new.md: read first", r.stdout)
+
+    def test_structural_checks_still_apply_to_a_finished_task(self):
+        self.write("tasks/done/002-old.md", id=2, feature="demo", status="pending")
+        r = run(self.tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("under tasks/done/ with status='pending'", r.stdout)
+        self.write("tasks/done/002-old.md", id=2, feature="demo", status="done", blocked="[99]")
+        r = run(self.tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("blocked-by refers to missing task id(s) [99]", r.stdout)
+
+    def test_a_finished_rollup_is_finished_too(self):
+        # a closed rollup (written by reef-converge, moved under done/ at the close) is shipped work like any finished task
+        self.write("tasks/done/R01-demo.md", id="R1", feature="demo", status="done")
+        self.assertEqual(run(self.tmp).returncode, 0)
+
+    def test_feature_scopes_the_authoring_rules(self):
+        self.write("tasks/002-other.md", id=2, feature="other", status="pending")
+        self.assertEqual(run(self.tmp).returncode, 1, "without --feature every open task is judged")
+        r = run(self.tmp, "--feature", "demo")
+        self.assertEqual(r.returncode, 0, "another feature's open task is not this feature's plan:\n" + r.stdout)
+        self.assertEqual(run(self.tmp, "--feature", "other").returncode, 1, "the feature itself is judged")
+        # scoping never hides a structural defect of another feature: the graph is one
+        self.write("tasks/002-other.md", id=2, feature="other", status="pending", blocked="[99]")
+        r = run(self.tmp, "--feature", "demo")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("missing task id(s) [99]", r.stdout)
