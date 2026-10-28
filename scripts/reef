@@ -22,26 +22,71 @@ BANNER = r"""
 """
 VERBS = [
     ("status",  "where things stand: the runner, the night, the last session, the loop's wait",
-     lambda root, a: [[PY, "scripts/reef-run.py", "status", "--repo", root]]),
+     lambda root, a: run_script("reef-run.py", ["status", "--repo", root], root)),
     ("doctor",  "what is wrong and the one command that fixes each thing (plugin, probe, hold, setup, scripts)",
-     lambda root, a: [[PY, "scripts/reef-doctor.py", "--repo", root, *a]]),
+     lambda root, a: run_script("reef-doctor.py", ["--repo", root, *a], root)),
     ("run",     "the loop in fresh headless sessions until it waits on you — `run 5` caps the sessions",
-     lambda root, a: [[PY, "scripts/reef-run.py", "--repo", root, "--detach", *(["--max-iterations", a[0]] if a and a[0].isdigit() else a)]]),
+     lambda root, a: run_script("reef-run.py", ["--repo", root, "--detach", *(["--max-iterations", a[0], *a[1:]] if a and a[0].isdigit() else a)], root)),
     ("night",   "tonight's contract: install it, print the approval question; `night start` runs it detached",
-     lambda root, a: [[PY, "scripts/reef-run.py", "--repo", root, "--night", "--detach"]] if a[:1] == ["start"] else [[PY, "scripts/reef-run.py", "contract", "--repo", root, *a]]),
+     lambda root, a: run_script("reef-run.py", ["--repo", root, "--night", "--detach"] if a[:1] == ["start"] else ["contract", "--repo", root, *a], root)),
     ("watch",   "the runner's live steps, one line each (Ctrl-C leaves, stops nothing)",
-     lambda root, a: [[PY, "scripts/reef-run.py", "watch", "--repo", root]]),
+     lambda root, a: run_script("reef-run.py", ["watch", "--repo", root], root)),
     ("stop",    "the runner ends after its current session, never mid-merge",
-     lambda root, a: [[PY, "scripts/reef-run.py", "stop", "--repo", root]]),
+     lambda root, a: run_script("reef-run.py", ["stop", "--repo", root], root)),
     ("setup",   "the worktree setup, proven once per change: `setup` says the state, `setup prove` proves it",
-     lambda root, a: [[PY, "scripts/reef-setup.py", *(a or ["state"]), "--repo", root]]),
+     lambda root, a: run_script("reef-setup.py", [*(a or ["state"]), "--repo", root], root)),
     ("update",  "pull the plugin, update the project's scripts (one commit), re-prove the setup, say the reload step",
-     None),
+     lambda root, a: cmd_update(root, a)),
     ("factory", "the row on GitHub Actions: `factory` shows the last runs, `factory <row>` labels its issue reef-ready",
-     None),
+     lambda root, a: cmd_factory(root, a)),
     ("cost",    "the pipeline per merged row against the last batch (`cost --since 2026-10-01`)",
-     lambda root, a: [[PY, "scripts/reef-cost.py", "rows", "--repo", root, *a]]),
+     lambda root, a: run_script("reef-cost.py", ["rows", "--repo", root, *a], root)),
 ]
+
+
+def plugin_dir(root=None):
+    """The plugin clone: CLAUDE_PLUGIN_ROOT, else the marketplace entry whose installLocation (or source.path) holds Reef's plugin.json."""
+    cands = [os.environ.get("CLAUDE_PLUGIN_ROOT")]
+    try:
+        with open(os.path.expanduser("~/.claude/plugins/known_marketplaces.json"), encoding="utf-8") as f:
+            for v in json.load(f).values():
+                if isinstance(v, dict):
+                    cands.append(v.get("installLocation"))
+                    src = v.get("source")
+                    if isinstance(src, dict):
+                        cands.append(src.get("path"))
+    except (OSError, ValueError):
+        pass
+    for c in cands:
+        if not c:
+            continue
+        try:
+            with open(os.path.join(c, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
+                name = json.load(f).get("name")
+        except (OSError, ValueError, TypeError):
+            continue
+        if name == "reef" and os.path.isfile(os.path.join(c, "scripts", "reef-update.py")):
+            return c
+    return None
+
+
+def script(name):
+    """A Reef script: the sibling copy in this folder, else the plugin's (reef-doctor.py and reef-update.py live only there)."""
+    here = os.path.join(HERE, name)
+    if os.path.isfile(here):
+        return here
+    plugin = plugin_dir()
+    if plugin and os.path.isfile(os.path.join(plugin, "scripts", name)):
+        return os.path.join(plugin, "scripts", name)
+    return None
+
+
+def run_script(name, args, cwd):
+    path = script(name)
+    if not path:
+        print(f"reef: scripts/{name} is not here and no plugin clone was found — python3 <plugin>/scripts/reef-update.py --repo . --commit copies it", file=sys.stderr)
+        return 1
+    return subprocess.run([PY, path, *args], cwd=cwd).returncode
 
 
 def main_checkout(repo):
@@ -85,28 +130,14 @@ def status_line(root):
     return f"{runner} · {loop}"
 
 
-def plugin_dir(root):
-    """The plugin clone: CLAUDE_PLUGIN_ROOT, else the folder marketplace Claude Code points at, else --plugin."""
-    cands = [os.environ.get("CLAUDE_PLUGIN_ROOT")]
-    try:
-        with open(os.path.expanduser("~/.claude/plugins/known_marketplaces.json"), encoding="utf-8") as f:
-            for v in json.load(f).values():
-                src = v.get("source") if isinstance(v, dict) else None
-                if isinstance(src, dict) and src.get("path"):
-                    cands.append(src["path"])
-    except (OSError, ValueError):
-        pass
-    for c in cands:
-        if c and os.path.isfile(os.path.join(c, ".claude-plugin", "plugin.json")) and os.path.isfile(os.path.join(c, "scripts", "reef-update.py")):
-            return c
-    return None
 
 
 def cmd_update(root, args):
-    plugin = args[args.index("--plugin") + 1] if "--plugin" in args and args.index("--plugin") + 1 < len(args) else plugin_dir(root)
+    plugin = args[args.index("--plugin") + 1] if "--plugin" in args and args.index("--plugin") + 1 < len(args) else plugin_dir()
     if not plugin:
         print("reef update: no plugin clone found — pass --plugin <dir> (the folder /plugin marketplace points at)", file=sys.stderr)
         return 1
+    print(f"reef update: the plugin clone is {plugin}", flush=True)
     steps = [["git", "-C", plugin, "pull", "--ff-only"],
              [PY, os.path.join(plugin, "scripts", "reef-update.py"), "--repo", root, "--commit"]]
     for cmd in steps:
@@ -114,8 +145,8 @@ def cmd_update(root, args):
         if subprocess.run(cmd, cwd=root).returncode != 0:
             print("reef update: stopped at that step", file=sys.stderr)
             return 1
-    setup = os.path.join(HERE, "reef-setup.py")
-    if os.path.isfile(setup) and subprocess.run([PY, setup, "state", "--repo", root], capture_output=True).returncode == 3:
+    setup = script("reef-setup.py")
+    if setup and subprocess.run([PY, setup, "state", "--repo", root], capture_output=True).returncode == 3:
         print("reef update: the setup digest changed — proving it (a scratch worktree, the setup, the full gate once)", flush=True)
         if subprocess.run([PY, setup, "prove", "--repo", root], cwd=root).returncode != 0:
             return 1
@@ -130,7 +161,7 @@ def cmd_factory(root, args):
               "  python3 <plugin>/scripts/reef-init.py --root . --accept .github/workflows/reef-factory.yml   then commit it on the base")
         return 1
     if args and args[0].isdigit():
-        r = subprocess.run([PY, os.path.join(HERE, "reef-queue.py"), "row-issue", args[0], "--repo", root], capture_output=True, text=True)
+        r = subprocess.run([PY, script("reef-queue.py") or os.path.join(HERE, "reef-queue.py"), "row-issue", args[0], "--repo", root], capture_output=True, text=True)
         issue = (r.stdout.strip().splitlines() or [""])[-1]
         if r.returncode != 0 or not issue.isdigit():
             print(f"factory: row {args[0]} has no issue — {(r.stderr or r.stdout).strip()[:160]}", file=sys.stderr)
@@ -169,19 +200,9 @@ def main(argv):
                 print(f"  {name:<28}{purpose(os.path.join(HERE, name))}")
         return 0
     verb, rest = args[0], args[1:]
-    if verb == "update":
-        return cmd_update(root, rest)
-    if verb == "factory":
-        return cmd_factory(root, rest)
-    for name, _, build in VERBS:
-        if name == verb and build:
-            rc = 0
-            for cmd in build(root, rest):
-                cmd = [c if not c.startswith("scripts/") else os.path.join(HERE, c[len("scripts/"):]) for c in cmd]
-                rc = subprocess.run(cmd, cwd=root).returncode
-                if rc != 0:
-                    break
-            return rc
+    for name, _, do in VERBS:
+        if name == verb:
+            return do(root, rest)
     print(f"reef: unknown verb {verb!r} — run `reef` for the list", file=sys.stderr)
     return 2
 

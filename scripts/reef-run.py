@@ -335,9 +335,10 @@ def night_rows(root):
 def night_ok(root):
     """(ok, why): night.json carries the current night digest, for tonight, with an open row."""
     dg = night_digest(root)
-    hint = (f"approve it in the terminal: python3 scripts/reef-run.py contract && python3 scripts/reef-approval.py --owner "
-            f"\"Approve night {time.strftime('%Y-%m-%d')} at {dg[:16]}?\"  (or /reef-night in a Claude Code session)"
-            if dg else "/reef-night drafts the contract and reef/owner.md")
+    both = os.path.isfile(os.path.join(root, NIGHT_DIR, "contract.md")) and os.path.isfile(os.path.join(root, "reef", "owner.md"))
+    hint = (f"approve it in the terminal: python3 scripts/reef-approval.py --owner \"Approve night {time.strftime('%Y-%m-%d')} at {dg[:16]}?\"  "
+            "(python3 scripts/reef-run.py contract prints that question too; or /reef-night in a Claude Code session)"
+            if dg and both else "python3 scripts/reef-run.py contract prints the approval question (it seeds reef/owner.md when missing); /reef-night drafts the contract")
     rec, why = record_ok(root, "night", dg, "the contract or reef/owner.md", hint)
     if rec is None:
         return False, why
@@ -412,6 +413,7 @@ def queue_open_rows(root):
         return None
 
 
+HOLD_MINUTES = 30   # the guard's own rule (reef-guard.py HOLD_MINUTES): a holder idle this long is stale
 APPROVE_Q = re.compile(r"Approve (?:plan [A-Za-z0-9._-]+|night \d{4}-\d\d-\d\d|proxy by day) at [0-9a-f]{16}\?")
 
 
@@ -421,6 +423,27 @@ def process_alive(pid):
         return True
     except (OSError, ValueError, TypeError):
         return False
+
+
+def progress_signature(root, wait):
+    """What a session leaves behind: the base's head, the handoff's content, the wait — two sessions with the same signature
+    did nothing (the review of PR 202: the loop's merge waves end on the bare `/clear requested`, so the text alone is no signal)."""
+    import hashlib
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        cfg = {}
+    base = str((cfg.get("branches") or {}).get("base", "main") or "main")
+    r = subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", base], capture_output=True, text=True)
+    parts = [r.stdout.strip(), wait]
+    for rel in ("HANDOFF.md", os.path.join(".reef", "questions.md"), os.path.join(".reef", "loop.json")):
+        try:
+            with open(os.path.join(root, rel), "rb") as f:
+                parts.append(hashlib.sha256(f.read()).hexdigest())
+        except OSError:
+            parts.append("-")
+    return "|".join(parts)
 
 
 def owner_wait_lines(root, wait, mode):
@@ -750,22 +773,27 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
         die(f"another reef-run (pid {other}) holds {lock} — one runner per checkout")
     except (OSError, ValueError):
         pass
-    if detached:
-        detach(root)   # every refusal above printed to the caller; from here on the runner is on its own
-    with open(lock, "w", encoding="utf-8") as f:
-        f.write(str(os.getpid()))
     # 2026-10-28 (the first night: three sessions burned on a hold a dead desktop session left): the runner the owner starts IS
     # the orchestrator — a hold another session left is taken over, and said
     held_p = os.path.join(root, ".reef", "run", "orchestrator.json")
     try:
         with open(held_p, encoding="utf-8") as f:
             held = json.load(f)
-        os.unlink(held_p)
         hp = int(held.get("pid") or 0)
+        age_min = (time.time() - float(held.get("at") or 0)) / 60
+        alive = bool(hp) and process_alive(hp)
+        if alive and age_min < HOLD_MINUTES:   # one orchestrator at a time: a live, recent holder keeps the loop (the review of PR 202)
+            die(f"session {str(held.get('session', '?'))[:8]} holds this project's loop (process {hp} alive, its last loop action {int(age_min)} min ago) — "
+                f"stop that session, wait until it has been idle {HOLD_MINUTES} min, or take over: python3 scripts/reef-loop.py unlock")
+        os.unlink(held_p)
         print(f"reef-run: taking over the loop held by session {str(held.get('session', '?'))[:8]} (process {hp or '?'} "
-              f"{'alive' if hp and process_alive(hp) else 'dead'}) — the runner the owner starts is the orchestrator", flush=True)
+              f"{'alive, idle ' + str(int(age_min)) + ' min' if alive else 'dead'}) — the runner the owner starts is the orchestrator", flush=True)
     except (OSError, ValueError, TypeError):
         pass
+    if detached:
+        detach(root)   # every refusal above printed to the caller; from here on the runner is on its own
+    with open(lock, "w", encoding="utf-8") as f:
+        f.write(str(os.getpid()))
     log = os.path.join(root, RUN_DIR, "run.log")
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     active = os.path.join(root, NIGHT_DIR, "active")
@@ -777,7 +805,7 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
     stop_req = os.path.join(root, RUN_DIR, "stop-request")
     if os.path.exists(stop_req):
         os.unlink(stop_req)   # a request from before this run is not about this run
-    i, prev_wait = 0, None
+    i, prev_sig = 0, None
 
     def say(text):
         line = f"{time.strftime('%H:%M')} s{i} {text}"
@@ -815,10 +843,11 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
                 print(f"reef-run: the loop parked — {parked}")
                 return 3
             if wait.startswith("/clear"):
-                if wait == prev_wait:   # 2026-10-28: the same handoff twice is no progress — not a tenth session on it
-                    print(f"reef-run: no progress — two sessions ended on the same wait: {wait[:160]} — fix what stops them (HANDOFF.md names it), then start again")
+                sig = progress_signature(root, wait)
+                if sig == prev_sig:   # 2026-10-28: the same state twice (the base's head, the handoff, the wait) is no progress — not a tenth session on it
+                    print(f"reef-run: no progress — two sessions ended on the same wait with nothing changed: {wait[:160]} — fix what stops them (HANDOFF.md names it), then start again")
                     return 3
-                prev_wait = wait
+                prev_sig = sig
                 continue
             if wait:
                 print(owner_wait_lines(root, wait, mode))

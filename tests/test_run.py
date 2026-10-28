@@ -312,11 +312,26 @@ class NormalRound(unittest.TestCase):
         p = os.path.join(self.d, ".reef", "run", "orchestrator.json")
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w") as f:
-            json.dump({"session": "6ee3355f-2fe4-dead", "at": time.time(), "pid": os.getpid()}, f)
+            json.dump({"session": "6ee3355f-2fe4-dead", "at": time.time(), "pid": 999999}, f)
         r = run(self.d, ["stop:done"])
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("taking over the loop held by session 6ee3355f", r.stdout)
-        self.assertFalse(os.path.exists(p), "the old hold is gone before the first session")
+        self.assertFalse(os.path.exists(p), "the dead session's hold is gone before the first session")
+        # a live holder with a recent action keeps the loop: one orchestrator at a time, and the takeover is the owner's own command
+        with open(p, "w") as f:
+            json.dump({"session": "a1b2c3d4-live", "at": time.time(), "pid": os.getpid()}, f)
+        open(os.path.join(self.d, ".fake-calls"), "w").write("")
+        r = run(self.d, ["stop:done"])
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("reef-loop.py unlock", r.stderr + r.stdout)
+        self.assertEqual(calls(self.d), [], "no session started against a live holder")
+        self.assertTrue(os.path.exists(p), "the live hold stands")
+        # a live holder whose last action is old is stale: taken over
+        with open(p, "w") as f:
+            json.dump({"session": "a1b2c3d4-stale", "at": time.time() - 31 * 60, "pid": os.getpid()}, f)
+        r = run(self.d, ["stop:done"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("taking over the loop held by session a1b2c3d4", r.stdout)
 
     def test_two_sessions_on_the_same_wait_stop_the_runner(self):
         r = run(self.d, ["wait:/clear requested — row 3 blocked, same handoff", "wait:/clear requested — row 3 blocked, same handoff", "stop:never"])

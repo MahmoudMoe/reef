@@ -58,6 +58,8 @@ def plugin_enabled():
         r = subprocess.run(["claude", "plugin", "list"], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         return "WARN", "plugin enabled: cannot tell (`claude` is not on the PATH here)", ""
+    if r.returncode != 0:
+        return "WARN", f"plugin enabled: cannot tell — `claude plugin list` exited {r.returncode}: {(r.stderr or r.stdout).strip()[:100]}", ""
     block, name = "", ""
     for chunk in re.split(r"\n(?=\s*❯ )", r.stdout):
         m = re.search(r"❯\s*(reef@\S+)", chunk)

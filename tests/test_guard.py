@@ -805,3 +805,37 @@ class EvidenceIsTheAgents(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheEntryPointAndTheRunnerAreTheOwners(unittest.TestCase):
+    """The security review of PR 202 (2026-10-28): `scripts/reef` sat outside the guard's own-files rule (the dash was required),
+    and the runner evicted a LIVE loop holder — an agent could run `reef-run.py --detach` and take the loop from the owner's
+    session. The entry point is a guard file; a sub-agent never runs the runner's writing verbs or `reef-loop.py unlock`."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-entry-guard.")
+        subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
+        write_config(self.d, {"gates": {"full": "true"}})
+
+    def test_the_entry_point_is_a_guard_file(self):
+        r = run_guard({"tool_name": "Edit", "cwd": self.d, "agent_id": "a1", "agent_type": "reef:implementer",
+                       "tool_input": {"file_path": os.path.join(self.d, "scripts", "reef"), "old_string": "x", "new_string": "y"}})
+        self.assertEqual(r.returncode, 2, "scripts/reef is the owner's terminal: " + r.stderr)
+        self.assertIn("guard's own files", r.stderr)
+        r = run_guard({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": "printf 'x' > scripts/reef"}})
+        self.assertEqual(r.returncode, 2)
+
+    def test_a_sub_agent_never_takes_the_loop(self):
+        for cmd in ("python3 scripts/reef-run.py --detach", "python3 scripts/reef-run.py --night --detach", "python3 scripts/reef-loop.py unlock",
+                    "cd /x && python3 /x/scripts/reef-run.py --max-iterations 3"):
+            with self.subTest(cmd=cmd):
+                r = run_guard({"tool_name": "Bash", "cwd": self.d, "agent_id": "a1", "agent_type": "reef:implementer", "tool_input": {"command": cmd}})
+                self.assertEqual(r.returncode, 2, "NOT DENIED: " + cmd)
+                self.assertIn("owner", r.stderr)
+        for cmd in ("python3 scripts/reef-run.py status", "python3 scripts/reef-run.py watch", "python3 scripts/reef-loop.py tick"):
+            with self.subTest(cmd=cmd):
+                r = run_guard({"tool_name": "Bash", "cwd": self.d, "agent_id": "a1", "agent_type": "reef:implementer", "tool_input": {"command": cmd}})
+                self.assertEqual(r.returncode, 0, f"FALSE POSITIVE: {cmd}\n{r.stderr}")
+        # the main session runs the runner (/reef-run) and nothing changes for it
+        r = run_guard({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": "python3 scripts/reef-run.py --detach"}})
+        self.assertEqual(r.returncode, 0, r.stderr)

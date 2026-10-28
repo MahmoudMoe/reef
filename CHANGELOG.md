@@ -16,7 +16,14 @@
   morning report exposed: `reef-cost.py rows --since <date>` read the date at the current time of day (git fills it) and
   missed the morning's merge — a bare date is UTC midnight; the report lists squash merges (`(#n)` subjects) under
   merges with their undo; `reef-setup.py` quotes a runner's FAIL marker before a sentence with the word "failed". A
-  contract test forbids "interactive session" anywhere in Reef. tests/size-budget.json raised: `prose_words` 22,459 → 22,576, `script_lines` 17,053 → 17,184.
+  contract test forbids "interactive session" anywhere in Reef. The reviews folded: `scripts/reef` is a guard file (the
+  own-files rule required the dash) and a sub-agent never runs the runner's writing verbs or `reef-loop.py unlock`; the
+  runner takes over only a DEAD or stale hold (idle past the guard's 30 min) and otherwise refuses naming `unlock` — the
+  check runs before detaching so the caller sees it; no progress is the same STATE twice (the base's head, the handoff,
+  the questions, the wait), not the same wait text (the loop's merge waves end on the bare `/clear requested`); `reef`'s
+  verbs are one shape and resolve a script the project lacks (`reef-doctor.py`) from the plugin clone, found by the
+  marketplace's `installLocation` and Reef's plugin name; the night hint prints the digest only when both files exist.
+  tests/size-budget.json raised: `prose_words` 22,459 → 22,576, `script_lines` 17,053 → 17,239.
 - **0.7.3 released** (2026-10-28): plugin.json, the marketplace, reef-init's version, the README badge and status, the site
   and the manual read 0.7.3; migrations/0.7.2-to-0.7.3.py is a no-change step so .reef/version walks with no gap.
 
