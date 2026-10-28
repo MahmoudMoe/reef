@@ -10,8 +10,9 @@ name: Reef factory
 # label (`reef-building`, `reef-review`, `reef-waiting-owner`). `workflow_dispatch` builds a row by id the same way.
 #
 # To weigh before accepting (reef-init offers this file, never writes it):
-# - minutes on a private repository; the model key as the repository secret ANTHROPIC_API_KEY (scoped to the steps that
-#   run the model); the six-hour job limit (every step is on disk and at the forge: the job resumes across runs);
+# - minutes on a private repository; the model's credential as ONE repository secret, scoped to the step that runs the model:
+#   ANTHROPIC_API_KEY (an API key, billed per token) or CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`, a Claude subscription);
+#   the six-hour job limit (every step is on disk and at the forge: the job resumes across runs);
 # - pushes and PRs made with GITHUB_TOKEN start no workflow: with `ci.feature_gate: ci` the loop's merge waits for a CI
 #   run that never comes. Either keep the feature gate `local` (the job's full gate writes the evidence) or add a
 #   fine-grained token REEF_TOKEN scoped to THIS repository (contents, issues, pull requests) — never a classic PAT;
@@ -57,6 +58,7 @@ jobs:
       - name: The row, by the one command that carries every check
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           GH_TOKEN: ${{ secrets.REEF_TOKEN || secrets.GITHUB_TOKEN }}
           REEF_CLAUDE_ARGS: --plugin-dir ${{ runner.temp }}/reef
           ISSUE: ${{ github.event.issue.number }}
