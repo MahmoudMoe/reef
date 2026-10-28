@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **A feature's digest covers the ADRs it owns or cites, not every decision in the project** (2026-10-28, the current
+  adoption, two rows in flight: row 3's close amended two ADRs on the base; merging the base into row 46's branch moved
+  row 46's digest and voided its approval with nothing of its plan changed — the owner re-approved by hand). The
+  approval binds to the plan: its task files, its folder, its drafts in the ADR home (`draft-<row>-…`, or the slug in
+  the name) and the numbered ADRs its SPEC, specs and tasks name; an unrelated ADR's edit stales nothing. The ADR
+  checks themselves (Status, placeholders) still run over every ADR. tests/size-budget.json raised: `script_lines` 17,239 → 17,273.
 - **A normal round: the runner the owner starts is the orchestrator, every stop names its command, `reef` is the one entry
   point** (2026-10-28, the owner after the first night: "so many locks and guardrails … stopping me from normal rounds" — seven
   stops that day, each a message without the one command; three night sessions burned on a hold a dead desktop session
