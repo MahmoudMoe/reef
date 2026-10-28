@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7.3 (unreleased)
+- **`reef-run.py contract --from` the installed contract no longer crashes** (2026-10-28, the current adoption:
+  re-running the contract against `.reef/night/contract.md` itself raised `shutil.SameFileError` as a traceback).
+  The same file is left in place; any other copy failure is one `reef-run:` line. `script_lines` 17,048 → 17,053.
 - **The worktree setup is proven once per change, never by a row's red** (2026-10-28, the current adoption). A fresh row
   worktree had install, generate and typegen but no built app; 60 tests went red for reasons unrelated to the row, the
   orchestrator guessed a build and the full suite ran twice per row — the design's phase 0 had left "a complete

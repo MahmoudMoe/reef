@@ -264,3 +264,29 @@ class NightNumbers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContractFromTheInstalledFile(unittest.TestCase):
+    """2026-10-28 (the current adoption): the owner re-ran `contract --from .reef/night/contract.md` — the installed
+    contract itself — and the copy onto itself raised `shutil.SameFileError` as a traceback."""
+
+    def test_the_installed_contract_as_the_source_is_left_in_place_and_a_missing_source_is_one_line(self):
+        d = project()
+        draft = os.path.join(tempfile.mkdtemp(prefix="reef-draft."), "night.md")
+        with open(draft, "w") as f:
+            f.write("# Night\nRows: 12\nDecisions: plan approvals.\nHard limits: the release to main.\n")
+        r = subprocess.run([sys.executable, RUN, "contract", "--repo", d, "--from", draft], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("night digest: ", r.stdout)
+        r = subprocess.run([sys.executable, RUN, "contract", "--repo", d, "--from", ".reef/night/contract.md"],
+                           capture_output=True, text=True, cwd=d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertIn("night digest: ", r.stdout)
+        self.assertEqual(open(os.path.join(d, ".reef", "night", "contract.md")).read(), open(draft).read())
+        r = subprocess.run([sys.executable, RUN, "contract", "--repo", d, "--from", os.path.join(d, "no-such.md")],
+                           capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(len(r.stderr.strip().splitlines()), 1, r.stderr)
+        self.assertTrue(r.stderr.startswith("reef-run: "), r.stderr)

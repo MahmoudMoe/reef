@@ -458,7 +458,12 @@ def cmd_contract(root, src, day=False):
         print(f"question: Approve proxy by day at {dg[:16]}?")
         return 0
     if src:
-        shutil.copyfile(src, os.path.join(root, NIGHT_DIR, "contract.md"))
+        dst = os.path.join(root, NIGHT_DIR, "contract.md")
+        try:
+            if not (os.path.exists(dst) and os.path.samefile(src, dst)):   # the installed contract itself: left in place
+                shutil.copyfile(src, dst)
+        except OSError as e:
+            die(f"cannot install the contract from {src}: {e}")
     dg = night_digest(root)
     if not dg:
         die("no .reef/night/contract.md, or no reef/owner.md — /reef-night drafts both")
