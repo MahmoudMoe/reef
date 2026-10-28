@@ -8,7 +8,11 @@
   `tasks/done/` with `status: done`) keeps the structural checks only — schema, id, folder and status, blocked-by,
   duplicates, section order, the test-name ledger — and `--feature <slug>` scopes the authoring rules (proof shape,
   read first, word and criteria caps, keys) to that feature's tasks; another feature's structural defect still
-  fails (the graph is one). tests/size-budget.json raised: `prose_words` 21,773 → 21,799, `script_lines` 16,713 → 16,730.
+  fails (the graph is one). The reviews folded: the stamp records which tasks were finished at review time and a
+  finished task open again under `tasks/` is STALE until a re-review judges it by today's rules (the digest keys by
+  basename and strips status, so a task written under `done/` and moved back would have kept its approval); a
+  `--feature` run writes only that feature's digest, the others carry over; `--summary` counts finished tasks apart;
+  HUMAN AC on a finished mech task is not judged. tests/size-budget.json raised: `prose_words` 21,773 → 21,799, `script_lines` 16,713 → 16,754.
 - **Rows build without the owner's machine: the factory on GitHub Actions** (workflow v3, phase 7; 2026-10-26). `reef-init`
   OFFERS `.github/workflows/reef-factory.yml` — rendered under the proposals dir, never written unasked (minutes, the model
   key as the secret `ANTHROPIC_API_KEY`, the six-hour limit are the owner's call; `reef-init --accept` places it, then it is

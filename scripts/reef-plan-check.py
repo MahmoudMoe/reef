@@ -3,10 +3,12 @@
 """Reef plan check — the deterministic, blocking layer between plan approval and implementation.
 Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
 - Checks task files, ADRs, brief, and .reef/config.json for structural defects. No model, no network.
-  A FINISHED task (under tasks/done/ with `status: done`) keeps the structural checks only — schema, id, folder and
-  status, blocked-by, duplicates, section order; the planner's authoring rules (proof shape, read first, word and
-  criteria caps, keys) judge the tasks being planned, and `--feature SLUG` scopes them to that feature's tasks
-  (2026-10-28: the v3 proof rule ran on rows already closed and no new plan could be approved).
+  A FINISHED task (under tasks/done/ with `status: done`) keeps the structural checks only — schema, filename and id,
+  folder and status, blocked-by and cycles, duplicates, the section order, the test-name ledger; the planner's
+  authoring rules (proof shape, read first, word, sentence and criteria caps, keys, HUMAN AC, the design Decision)
+  judge the tasks being planned, and `--feature SLUG` scopes them to that feature's tasks (2026-10-28: the v3 proof
+  rule ran on rows already closed and no new plan could be approved). A `--feature` run writes only that feature's
+  digest into the stamp; the other entries carry over (their rules did not run).
 - One line per check: OK / FAIL: <what and where>. Exit 0 = all pass, 1 = at least one FAIL.
   On success the last line names the plan-reviewer's model (roles.plan_reviewer, default opus).
 - On success writes <tasks>/.plan-review.json: one sha256 PER FEATURE over that feature's task
@@ -18,7 +20,10 @@ Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
   NOT hashed: merging the integration branch changes them without changing this feature's plan.
   Never written on failure.
 - --verify-stamp: recompute, print one line, exit 0 = unchanged since last review, 1 = changed
-  or no stamp. With --feature SLUG only that feature is compared (the guard passes the
+  or no stamp. The stamp also records which tasks were FINISHED at review time (`finished`); one of them open again
+  under tasks/ is STALE (the review, 2026-10-28: a task written under done/ skips the authoring rules and keeps the
+  digest when moved back, since the stamp keys by basename and strips status — a finished task never reopens, and the
+  re-review judges a reopened one by today's rules). With --feature SLUG only that feature is compared (the guard passes the
   dispatched task's feature); without it every feature present must match. 0.6: a feature planned
   under 0.6 (the stamp records planned_under >= 0.6.0 — `.reef/version` existed when it was first
   stamped) must also have the human's approval record `.reef/approvals/<feature>.json` (written by
@@ -685,7 +690,8 @@ def main():
             except OSError:
                 pass
         n_draft = sum(1 for k in files if os.path.basename(k).startswith("draft-"))
-        parts = [f"{len(tasks_here)} task(s)", f"{n_ac} criteria", f"{n_draft} draft ADR(s)"]
+        n_fin = sum(1 for p in tasks_here if os.path.basename(os.path.dirname(p)) == "done")
+        parts = [f"{len(tasks_here) - n_fin} task(s)"] + ([f"{n_fin} finished"] if n_fin else []) + [f"{n_ac} criteria", f"{n_draft} draft ADR(s)"]
         try:
             with open(os.path.join(main_checkout(root), ".reef", "approvals", f"{feature_filter}.json"), encoding="utf-8") as f:
                 rec = json.load(f)
@@ -733,6 +739,15 @@ def main():
             print(f"stamp: STALE — plan artifacts changed since last review ({scope}); re-review required")
             sys.exit(1)
         print(f"stamp: MATCH — plan unchanged since last review ({scope})")
+        # the review (2026-10-28): the digest keys by basename and strips status, so a task moved out of done/ keeps the
+        # stamp — the stamp names the tasks that were finished at review time; one of them open again is a plan change
+        fin = stamp.get("finished") if isinstance(stamp.get("finished"), dict) else {}
+        open_now = {os.path.basename(p_): p_ for p_ in task_files if os.path.basename(os.path.dirname(p_)) != "done"}
+        reopened = [os.path.relpath(open_now[b], root) for f_ in feats for b in (fin.get(f_) or []) if b in open_now]
+        if reopened:
+            print(f"stamp: STALE — {', '.join(reopened)} finished at the last review and open again ({scope}); a finished task never "
+                  "reopens — the re-review judges it by today's rules")
+            sys.exit(1)
         # 0.6: the human's approval is a RECORD bound to the digest, not a sentence in the chat
         rc = 0
         for feat in feats:
@@ -988,11 +1003,9 @@ def main():
         # graph checks, not the planner's authoring rules (2026-10-19, qassimha row 68: the rollups converge wrote failed
         # seven of them — Log last, a human Decision, an FR key, the same Proof command in two features)
         rollup = re.match(r"^R\d+-", os.path.basename(rel)) is not None
-        # 2026-10-28 (the current adoption, rows 3 and 46): a FINISHED task — under tasks/done/ with `status: done` — was shipped,
-        # judged and merged under the rules of its time; the v3 proof rule and the read-first checks ran on it and no plan in
-        # the project could be approved (nine FAILs on the base, all on closed rows). It keeps the checks that keep the graph
-        # sound (schema, id, folder and status, blocked-by, duplicates above; the section order and the test-name ledger
-        # below); the authoring rules judge the tasks being planned — and with --feature, this feature's only.
+        # 2026-10-28 (the current adoption, rows 3 and 46): a FINISHED task was shipped under the rules of its time, and the v3
+        # proof rule on it blocked every new plan. The structural and authoring rules are listed once, in the docstring;
+        # a_fail/a_ok/a_print are the authoring rules' voice, silent for a finished task and for another feature under --feature.
         finished = os.path.basename(os.path.dirname(fm["_path"])) == "done" and fm.get("status") == "done"
         authored = not finished and (feature_filter is None or fm.get("feature") == feature_filter)
         a_fail, a_ok, a_print = (fail, ok, print) if authored else (silent, silent, silent)
@@ -1085,8 +1098,8 @@ def main():
         for c in crits:
             if c.startswith("HUMAN AC"):        # opt-out marker only counts at bullet start
                 if fm.get("verify") == "gate-only":
-                    fail(f"{rel}: HUMAN AC on a gate-only (mech) task — nothing would ever check it")
-                manual += 1
+                    a_fail(f"{rel}: HUMAN AC on a gate-only (mech) task — nothing would ever check it")
+                manual += 1 if authored else 0
                 continue
             label = re.match(r"^\**(AC-?\d+)\**", c)
             ac_id = re.sub(r"^AC-?", "AC-", label.group(1)) if label else None
@@ -1308,14 +1321,25 @@ def main():
         old = json.loads(read(stamp_path))
         planned = dict(old.get("planned_under") or {})
     except Exception:
-        planned = {}
+        old, planned = {}, {}
     for feat in digests:
         if feat not in planned and (marker or feat in folders):
             planned[feat] = marker or "0.6.0"
     # a fresh 0.6 project has no tasks/ yet (its tasks live under reef/features/<slug>/tasks/): make the stamp's home
+    # the review (2026-10-28): under --feature the other features' authoring rules did not run — only this feature's digest
+    # is written; the others carry over from the old stamp (a feature never stamped stays unstamped)
+    kept = old.get("features") if isinstance(old.get("features"), dict) else {}
+    written = digests if feature_filter is None else {**kept, **({feature_filter: digests[feature_filter]} if feature_filter in digests else {})}
+    fin_now = {}
+    for rel, fm in tasks.items():
+        if os.path.basename(os.path.dirname(rel)) == "done" and fm.get("status") == "done":
+            fin_now.setdefault(str(fm.get("feature", "")), []).append(os.path.basename(rel))
+    kept_fin = old.get("finished") if isinstance(old.get("finished"), dict) else {}
+    finished = {f_: sorted(fin_now.get(f_, [])) for f_ in written} if feature_filter is None else \
+        {**kept_fin, feature_filter: sorted(fin_now.get(feature_filter, []))}
     os.makedirs(os.path.dirname(stamp_path) or ".", exist_ok=True)
     with open(stamp_path, "w") as f:
-        json.dump({"features": digests, "checks": len(results), "planned_under": planned}, f, indent=2, sort_keys=True)
+        json.dump({"features": written, "checks": len(results), "planned_under": planned, "finished": finished}, f, indent=2, sort_keys=True)
         f.write("\n")
     # the plan-reviewer's model comes from the heaviest tier among the stamped features' tasks
     # (tiers.<tier>.roles.plan_reviewer, then roles.plan_reviewer, then opus); "none" on an

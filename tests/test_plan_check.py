@@ -1076,3 +1076,68 @@ class FinishedTasksKeepOnlyStructuralChecks(unittest.TestCase):
         r = run(self.tmp, "--feature", "demo")
         self.assertEqual(r.returncode, 1)
         self.assertIn("missing task id(s) [99]", r.stdout)
+
+
+class FinishedTasksReviewFold(unittest.TestCase):
+    """The two reviews of the change (2026-10-28). Security: a task written under tasks/done/ with `status: done` skips the
+    authoring rules, enters the digest and the approval, and keeps the digest when it is moved back to tasks/ (the stamp
+    keys by basename and strips status) — so the verify path judges the feature's OPEN tasks again, at dispatch. Quality:
+    a `--feature` run passed while another feature's authoring rules were silent, yet it stamped every feature — now it
+    writes only its own digest. Also: HUMAN AC on a finished mech task, and the summary counts finished tasks apart."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="reef-pc-fold.")
+        repo(self.tmp)
+        self.assertEqual(run(self.tmp).returncode, 0)
+
+    def write(self, rel, **kw):
+        kw.setdefault("blocked", "[]")
+        kw.setdefault("proof", LONG_SHELL)
+        p = os.path.join(self.tmp, rel)
+        with open(p, "w") as f:
+            f.write(PROOF_TASK.format(**kw))
+        return p
+
+    def test_a_task_that_leaves_done_is_stale_until_re_reviewed(self):
+        p = self.write("tasks/done/002-old.md", id=2, feature="demo", status="done")
+        self.assertEqual(run(self.tmp).returncode, 0, "finished: not judged, stamped")
+        shutil.move(p, os.path.join(self.tmp, "tasks", "002-old.md"))
+        edit(os.path.join(self.tmp, "tasks", "002-old.md"), "status: done", "status: pending")
+        r = run(self.tmp, "--verify-stamp", "--feature", "demo")
+        self.assertEqual(r.returncode, 1, "the digest is unchanged by design; the stamp must know the task was finished:\n" + r.stdout)
+        self.assertIn("002-old.md finished at the last review and open again", r.stdout)
+        self.assertEqual(run(self.tmp, "--verify-stamp").returncode, 1, "without --feature too")
+        r = run(self.tmp)
+        self.assertEqual(r.returncode, 1, "the re-review judges the reopened task by today's rules")
+        self.assertIn("characters of shell", r.stdout)
+        # the legal direction still never stales: an open task that completes
+        rf = "## Read first\n- `nowhere/missing.py:1-2` (nothing) — the planner cited a file that is not there\n\n"
+        for name, proof in (("003-new.md", "`test_new_works`"), ("002-old.md", "`test_old_works`")):
+            self.write("tasks/" + name, id=int(name[:3]), feature="demo", status="pending", proof=proof)
+            edit(os.path.join(self.tmp, "tasks", name), rf, "")
+        self.assertEqual(run(self.tmp).returncode, 0)
+        shutil.move(os.path.join(self.tmp, "tasks", "003-new.md"), os.path.join(self.tmp, "tasks", "done", "003-new.md"))
+        edit(os.path.join(self.tmp, "tasks", "done", "003-new.md"), "status: pending", "status: done")
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").returncode, 0, "completing a task must not invalidate the review")
+
+    def test_a_feature_run_stamps_only_that_feature(self):
+        self.write("tasks/002-other.md", id=2, feature="other", status="pending")
+        self.assertEqual(run(self.tmp, "--feature", "demo").returncode, 0)
+        self.assertEqual(run(self.tmp, "--verify-stamp", "--feature", "demo").returncode, 0)
+        r = run(self.tmp, "--verify-stamp", "--feature", "other")
+        self.assertEqual(r.returncode, 1, "a feature whose authoring rules never ran is not stamped by another feature's run:\n" + r.stdout)
+        self.assertIn("STALE", r.stdout)
+
+    def test_human_ac_on_a_finished_mech_task_is_not_judged(self):
+        text = TASK.format(id=2, acs="- HUMAN AC the owner looks at the screen").replace("status: pending", "status: done")
+        with open(os.path.join(self.tmp, "tasks", "done", "002-old.md"), "w") as f:
+            f.write(text)
+        r = run(self.tmp)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_the_summary_counts_finished_tasks_apart(self):
+        self.write("tasks/done/002-old.md", id=2, feature="demo", status="done")
+        r = run(self.tmp, "--summary", "--feature", "demo")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("1 task(s)", r.stdout)
+        self.assertIn("1 finished", r.stdout)

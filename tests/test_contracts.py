@@ -730,3 +730,4 @@ class FinishedTasksKeepStructuralChecks(unittest.TestCase):
         check = read("scripts", "reef-plan-check.py")
         self.assertIn("A FINISHED task (under tasks/done/ with `status: done`) keeps the structural checks only", check)
         self.assertIn("`--feature SLUG` scopes them to that feature's tasks", check)
+        self.assertIn("a finished task never reopens", check)
