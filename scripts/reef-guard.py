@@ -60,6 +60,7 @@ import sys as _sys
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
 from reef_common import main_checkout as _main_checkout, read_config, process_alive  # noqa: E402
 
 # 0.7: native Windows has no fcntl locks, no SIGALRM deadline and no process groups, and the guard cannot run there.

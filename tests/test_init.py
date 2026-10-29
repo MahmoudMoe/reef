@@ -107,8 +107,12 @@ class CopiedScripts(unittest.TestCase):
         r = init(d)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(read(d, "scripts/reef_common.py"), read(ROOT, "scripts/reef_common.py"))
-        r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-row.py"), "--help"], capture_output=True, text=True, cwd=d)
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+        r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-row.py"), "--help"], capture_output=True, text=True, cwd=d, env=env)
         self.assertNotIn("ModuleNotFoundError", r.stderr, "the copied script finds the module beside it")
+        # CI (PR 215): the import wrote scripts/__pycache__ into the project — reef-update read it as local changes, a row
+        # worktree as unfinished work; a Reef script never leaves bytecode in a project's tree
+        self.assertFalse(os.path.isdir(os.path.join(d, "scripts", "__pycache__")), "no scripts/__pycache__ after a run")
 
     def test_init_copies_reef_graph_run(self):
         d = node_project(tempfile.mkdtemp(prefix="reef-init-scripts."))

@@ -897,6 +897,8 @@ class OneHomePerHelper(unittest.TestCase):
                 importers += 1
                 self.assertLess(text.index("sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))"), text.index("from reef_common import"),
                                 f"{name}: the sys.path line precedes the import (a script loaded from elsewhere, or run under -I)")
+                self.assertLess(text.index("sys.dont_write_bytecode = True"), text.index("from reef_common import"),
+                                f"{name}: no bytecode is written beside a project's scripts (CI, PR 215)")
             for node in ast.parse(text).body:
                 if isinstance(node, ast.FunctionDef) and node.name in self.HELPERS and len(node.args.args) - len(node.args.defaults) <= 2:
                     body = ast.get_source_segment(text, node)

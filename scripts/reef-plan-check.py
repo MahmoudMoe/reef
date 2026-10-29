@@ -40,6 +40,7 @@ Rule for the orchestrator: this script is deterministic; never argue with it, ne
 """
 import hashlib, json, os, re, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
 from reef_common import main_checkout, read  # noqa: E402
 
 STATUS = {"pending", "in-progress", "blocked", "done"}

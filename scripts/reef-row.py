@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
 from reef_common import main_checkout, run as _run, config  # noqa: E402
 
 
