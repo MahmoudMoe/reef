@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **A task's close moves no plan digest** (2026-10-29, row 9 on the current adoption: a planner's task file has no `## Log`,
+  so `reef-merge-close` wrote the journal block at the end of the body, where the digest hashed it — three closes in a
+  row, three re-approvals of a plan nobody had changed, each a stop for the owner). The digest strips the
+  `<!-- journal -->…<!-- /journal -->` block like it strips the Log and the status keys; a task without that block
+  hashes exactly as before, so every current approval stands. The reviews: the close appends after the body's own last
+  bytes and the digest strips exactly that, at the end of the file only; a journal block holding anything but table rows,
+  or sitting anywhere else, fails the plan check (the criteria readers would see it; the digest must too). tests/size-budget.json raised: `script_lines` 17,387 → 17,392.
 - **An approval hold in the tick names the exact owner command** (2026-10-29, row 9 on the current adoption: the tick said
   `awaiting: <row> (re-approval (plan edited after approval))` and `next:` echoed it, so the owner's own loop session wrote
   the wait as "run reef-approval.py --owner for <row> at <digest> in a terminal"). The hold now ends with

@@ -119,7 +119,8 @@ def main(argv):
         head = re.sub(r"^status:.*$", "status: done", head, count=1, flags=re.M) if re.search(r"^status:", head, re.M) else head + "status: done\n"
         body = text[m.end():]
         if block and "<!-- journal -->" not in body:
-            body = body.rstrip("\n") + f"\n\n<!-- journal -->\n{block}\n<!-- /journal -->\n"
+            # after the body's own last bytes, whatever they are: the digest strips exactly this (the review of #211)
+            body = body + f"\n<!-- journal -->\n{block}\n<!-- /journal -->\n"
         with open(task, "w", encoding="utf-8", newline="") as f:
             f.write(text[:m.start(1)] + head + text[m.end(1):m.end()] + body)
 
@@ -204,7 +205,8 @@ def main(argv):
         head = re.sub(r"^status:.*$", "status: done", head, count=1, flags=re.M) if re.search(r"^status:", head, re.M) else head + "status: done\n"
         body = text[m.end():]
         if block and "<!-- journal -->" not in body:
-            body = body.rstrip("\n") + f"\n\n<!-- journal -->\n{block}\n<!-- /journal -->\n"
+            # after the body's own last bytes, whatever they are: the digest strips exactly this (the review of #211)
+            body = body + f"\n<!-- journal -->\n{block}\n<!-- /journal -->\n"
         with open(task, "w", encoding="utf-8", newline="") as f:
             f.write(text[:m.start(1)] + head + text[m.end(1):m.end()] + body)
         dest = task if in_done else os.path.join(os.path.dirname(task), "done", name)
