@@ -190,6 +190,9 @@ LOG_HEADING = re.compile(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", re.M)
 # edits re-ran three hunters, three approvals and three reviews). Only the Log may follow it.
 NOTES_HEADING = re.compile(r"^##[ \t]+Reviewer notes[ \t]*$", re.M)
 CUT_HEADING = re.compile(r"^##[ \t]+(?:[Ll][Oo][Gg]|Reviewer notes)[ \t]*$", re.M)
+# the close (reef-merge-close) writes the journal block at the end of a task that has no `## Log`: execution's record, outside
+# the digest like the Log (2026-10-29, row 9 on the current adoption: three closes, three re-approvals of an unchanged plan)
+JOURNAL_BLOCK = re.compile(r"\n*<!-- journal -->.*?<!-- /journal -->[ \t]*(?:\r?\n|\Z)", re.S)
 ADR_CITE = re.compile(r"\b(\d{4})-[A-Za-z0-9._-]+\.md\b|\bADR[ -]?0*(\d{1,4})\b")   # how a plan names a decision
 ADR_STATUS = re.compile(r"^Status:.*(?:\r?\n|\Z)", re.M)
 
@@ -631,6 +634,8 @@ def main():
         # cut at the Log heading in any case/spacing — a '## log' variant would
         # otherwise hash the log body and stale the plan on the first log append; the Reviewer notes cut the same way
         text = CUT_HEADING.split(text, maxsplit=1)[0]
+        if JOURNAL_BLOCK.search(text):   # only a closed task is touched: every other digest stays what its approval recorded
+            text = JOURNAL_BLOCK.sub("", text, count=1).rstrip("\n") + "\n"
         m = FM_RE.match(text)
         if m:
             # what EXECUTION writes: the status keys, the worktree, and the hunter's records — the guard pass (written

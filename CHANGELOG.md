@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **A task's close moves no plan digest** (2026-10-29, row 9 on the current adoption: a planner's task file has no `## Log`,
+  so `reef-merge-close` wrote the journal block at the end of the body, where the digest hashed it — three closes in a
+  row, three re-approvals of a plan nobody had changed, each a stop for the owner). The digest strips the
+  `<!-- journal -->…<!-- /journal -->` block like it strips the Log and the status keys; a task without that block
+  hashes exactly as before, so every current approval stands. tests/size-budget.json raised: `script_lines` 17,387 → 17,392.
 - **The slot lock is re-entrant** (2026-10-28, row 6 on the current adoption: `reef-gate.sh` holds `gates.resources`
   for its whole run, and the task skill and the mechanic told agents to put heavy suites through `reef-graph.py lock
   heavy` as well — the inner lock waited the whole timeout for its own holder, then exited 75, and the session read it

@@ -337,6 +337,28 @@ class Decoration(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("only ## Log may follow ## Reviewer notes", r.stdout)
 
+    def test_the_closes_journal_block_is_outside_the_digest(self):
+        # 2026-10-29 (row 9 on the current adoption): a planner's task has no `## Log`, so the close wrote its journal block at
+        # the end of the body, where the digest hashed it — three closes, three re-approvals of a plan nobody had changed
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        p = os.path.join(tmp, "tasks", "001-demo.md")
+        with open(p) as f:
+            t = f.read().replace("\n\n## Log\n", "\n")
+        with open(p, "w") as f:
+            f.write(t)
+        self.assertNotIn("## Log", t)
+        before = run(tmp, "--digest", "--feature", "demo").stdout.split()[-1]
+        closed = (t.replace("status: pending", "status: done").replace("dispatches: 0", "dispatches: 1").rstrip("\n")
+                  + "\n\n<!-- journal -->\n| 1 | demo | opus/medium | 1/3 | gate-only | - | growth 12 |\n<!-- /journal -->\n")
+        with open(os.path.join(tmp, "tasks", "done", "001-demo.md"), "w") as f:
+            f.write(closed)
+        os.unlink(p)
+        self.assertEqual(run(tmp, "--digest", "--feature", "demo").stdout.split()[-1], before, "the close is execution, not a plan edit")
+        with open(os.path.join(tmp, "tasks", "done", "001-demo.md"), "w") as f:
+            f.write(closed.replace("## Scope\nx", "## Scope\ny"))
+        self.assertNotEqual(run(tmp, "--digest", "--feature", "demo").stdout.split()[-1], before, "a scope edit still counts")
+
     def test_adr_status_line_is_outside_the_digest(self):
         # 2026-10-17: "Status: Accepted (number at merge)" written after the gate voided two approvals
         tmp = tempfile.mkdtemp(prefix="reef-pc.")

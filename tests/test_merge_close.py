@@ -9,6 +9,7 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLOSE = os.path.join(ROOT, "scripts", "reef-merge-close")
+PLAN_CHECK = os.path.join(ROOT, "scripts", "reef-plan-check.py")
 TASK = """---
 id: 101
 feature: demo
@@ -71,6 +72,18 @@ class FastRowClose(unittest.TestCase):
     def close(self):
         return subprocess.run([sys.executable, CLOSE, "reef/features/demo/tasks/101-slice.md", "--subject", "feat: the slice",
                                "--journal", self.journal, "--repo", self.feat], capture_output=True, text=True, cwd=self.feat)
+
+    def test_the_close_moves_no_plan_digest(self):
+        # 2026-10-29 (row 9 on the current adoption): every close voided the owner's approval — the journal block landed in
+        # the body of a task without `## Log`, inside the digest
+        write(self.feat, "reef/features/demo/tasks/101-slice.md",
+              TASK.replace("attempts: 0\n", "attempts: 0\nworktree: .reef/worktrees/demo\n").replace("\n\n## Log\n", "\n"))
+        digest = lambda: subprocess.run([sys.executable, PLAN_CHECK, self.feat, "--digest", "--feature", "demo"], capture_output=True, text=True).stdout.split()[-1]
+        before = digest()
+        self.assertRegex(before, r"^[0-9a-f]{64}$")
+        self.assertEqual(self.close().returncode, 0)
+        self.assertIn("<!-- journal -->", read(self.feat, "reef/features/demo/tasks/done/101-slice.md"))
+        self.assertEqual(digest(), before, "the close is execution, not a plan edit")
 
     def test_the_close_commits_in_place_with_the_trailer_and_no_merge(self):
         r = self.close()
