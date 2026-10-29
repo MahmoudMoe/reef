@@ -25,6 +25,9 @@ import shutil
 import subprocess
 import sys
 import time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import main_checkout  # noqa: E402
 
 QUESTION = re.compile(r"^Approve plan (?P<feature>[A-Za-z0-9][A-Za-z0-9._-]*) at (?P<digest>[0-9a-f]{16})\?$")
 NIGHT_Q = re.compile(r"^Approve night (?P<date>\d{4}-\d\d-\d\d) at (?P<digest>[0-9a-f]{16})\?$")
@@ -39,17 +42,6 @@ def runner():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
-
-
-def main_checkout(cwd):
-    try:
-        r = subprocess.run(["git", "-C", cwd, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=10)
-        for line in r.stdout.splitlines():
-            if line.startswith("worktree "):
-                return line[len("worktree "):].strip()
-    except Exception:
-        pass
-    return cwd
 
 
 def worktrees(cwd):

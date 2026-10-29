@@ -55,6 +55,9 @@ import re
 import subprocess
 import sys
 import time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import run as _run  # noqa: E402
 
 GRAPH_DIR = os.path.join(".reef", "graph")
 
@@ -70,7 +73,7 @@ def root_of(repo):
 
 
 def run(args, cwd, timeout=120):
-    r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    r = _run(args, cwd, timeout)
     return r.returncode, r.stdout, r.stderr
 
 

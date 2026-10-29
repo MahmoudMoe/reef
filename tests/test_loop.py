@@ -42,7 +42,7 @@ def project(cfg=None):
     d = tempfile.mkdtemp(prefix="reef-loop.")
     subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
     os.makedirs(os.path.join(d, "scripts"))
-    for n in ("reef-queue.py", "reef-graph.py", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-plan-check.py"):
+    for n in ("reef-queue.py", "reef-graph.py", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-plan-check.py", "reef_common.py"):
         shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(d, "scripts", n))
     write(d, ".reef/config.json", json.dumps(cfg or {"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md", "runlog": "reef/journal.md"}}))
     write(d, ".reef/version", "0.6.0\n")
@@ -709,7 +709,7 @@ class HandoffAndSessionStart(unittest.TestCase):
         self.assertNotIn("behind the plugin", out, "no CLAUDE_PLUGIN_ROOT: no verdict")
         plugin = tempfile.mkdtemp(prefix="reef-plugin.")
         os.makedirs(os.path.join(plugin, "scripts"))
-        for n in ("reef-loop.py", "reef-cost.py"):
+        for n in ("reef-loop.py", "reef-cost.py", "reef_common.py"):
             shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(plugin, "scripts", n))
         with open(os.path.join(plugin, "scripts", "reef-cost.py"), "a") as f:
             f.write("\n# a newer plugin\n")

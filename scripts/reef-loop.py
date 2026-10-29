@@ -19,15 +19,13 @@ import subprocess
 import sys
 import calendar
 import time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import run as _run, read_config as config, read_replace as read  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 MAX_LINES = 30
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "5"))
-
-
-def read(p):
-    with open(p, encoding="utf-8", errors="replace") as f:
-        return f.read()
 
 
 def root_of(repo):
@@ -49,13 +47,6 @@ def release_hold(root):
         return None
 
 
-def config(root):
-    try:
-        return json.loads(read(os.path.join(root, ".reef", "config.json")))
-    except Exception:
-        return {}
-
-
 def load_state(root):
     p = os.path.join(root, ".reef", "loop.json")
     try:
@@ -72,11 +63,8 @@ def save_state(root, st):
 
 
 def run(cmd, cwd, timeout=20):
-    try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
-        return r.returncode, r.stdout
-    except Exception:
-        return 1, ""
+    r = _run(cmd, cwd, timeout, timeout_rc=1)   # the readers know 1
+    return r.returncode, r.stdout
 
 
 def all_roots(root):
@@ -523,7 +511,7 @@ def scripts_behind_plugin(root):
     behind = []
     sdir = os.path.join(root, "scripts")
     for name in sorted(os.listdir(sdir) if os.path.isdir(sdir) else []):
-        if not name.startswith("reef-"):
+        if not name.startswith(("reef-", "reef_")):
             continue
         theirs = os.path.join(pdir, name)
         if not os.path.isfile(theirs):

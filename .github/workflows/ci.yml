@@ -39,7 +39,7 @@ jobs:
           changed=$(git diff --name-only "$base" HEAD)
           code=""
           for f in $changed; do
-            case "$f" in scripts/reef-*|templates/pre-commit)
+            case "$f" in scripts/reef-*|scripts/reef_*|templates/pre-commit)
               [ -f "$f" ] && head -3 "$f" | grep -q '^# CLASS: code' && code="$code $f" ;;
             esac
           done

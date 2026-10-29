@@ -4,6 +4,11 @@
 - **The orphan test's fake session survives its runner's death** (2026-10-29, CI's macOS leg on PR 215: the fake wrote its
   one event into the dead runner's pipe and died on it, so the "orphan" the test asserts was gone — the real `claude`
   kept running its gate). The fake swallows the broken pipe like the real one; the test waits past that step first.
+- **Consolidation step 1 — one shared module** (docs/design/consolidation.md, 2026-10-29): `scripts/reef_common.py` holds the
+  one body of `main_checkout`, `run`, `git`, `config`/`read_config`, `repo_root`, `process_alive` and `read`; every script
+  imports it beside a `sys.path.insert` of its own folder and loses its copy, keeping at most a one-shape adapter where its
+  callers expect another return. No assertion changed. `reef-init` copies the module, `reef-update` stages it, the guard
+  protects it like `scripts/reef-*`, the doctor compares it, `reef --all` lists commands only. tests/size-budget.json SET to the measurement: `script_lines` 17,587 → 17,471 `prose_words` 22,721 → 22,721 (the ceiling only comes down).
 - **A dead runner leaves no orphan** (2026-10-29, the owner: the runner died when its stdout pipe closed, its `claude -p
   /reef-loop` session lived on running gates at full CPU with no window anywhere, and `reef-run.py stop` said "no runner
   is running" — `pkill` was the only way). The runner records the session it is in (`.reef/run/session.pid`: pid and

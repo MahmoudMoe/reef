@@ -50,6 +50,9 @@ import shlex
 import subprocess
 import sys
 import time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import main_checkout, process_alive  # noqa: E402
 
 RUN_DIR = os.path.join(".reef", "run")
 LIVE = os.path.join(RUN_DIR, "live.log")
@@ -79,12 +82,6 @@ PROMPT = ("/reef-loop — a reef-run iteration: headless, AskUserQuestion does n
 def die(msg, code=1):
     print(f"reef-run: {msg}", file=sys.stderr)
     sys.exit(code)
-
-
-def main_checkout(repo):
-    r = subprocess.run(["git", "-C", repo, "worktree", "list", "--porcelain"], capture_output=True, text=True)
-    first = next((l[len("worktree "):].strip() for l in r.stdout.splitlines() if l.startswith("worktree ")), "")
-    return first or os.path.abspath(repo)
 
 
 def steps(ev, names, verdicts):
@@ -503,14 +500,6 @@ def queue_open_rows(root):
 
 HOLD_MINUTES = 30   # the guard's own rule (reef-guard.py HOLD_MINUTES): a holder idle this long is stale
 APPROVE_Q = re.compile(r"Approve (?:plan [A-Za-z0-9._-]+|night \d{4}-\d\d-\d\d|proxy by day) at [0-9a-f]{16}\?")
-
-
-def process_alive(pid):
-    try:
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ValueError, TypeError):
-        return False
 
 
 def progress_signature(root, wait):
@@ -1028,7 +1017,7 @@ def main(argv):
         mode = "opencode" if host == "opencode" else mode
     if "--max-iterations" in args:
         cap = int(args[args.index("--max-iterations") + 1])
-    root = main_checkout(repo)
+    root = main_checkout(os.path.abspath(repo))   # the abspath fallback this script always had
     if not os.path.isfile(os.path.join(root, ".reef", "config.json")):
         die(f"{root} is not a Reef project (no .reef/config.json)")
     os.makedirs(os.path.join(root, RUN_DIR), exist_ok=True)
