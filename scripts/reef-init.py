@@ -56,6 +56,8 @@ SCRIPTS = ["reef", "reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-pla
            "reef-graph-run.py", "reef-run.py",
            # v3 phase 2: judges read the suite's one result; phase 5: the row's state machine
            "reef-evidence.py", "reef-row.py",
+           # consolidation step 1 (2026-10-29): the shared helpers every script imports from its own folder
+           "reef_common.py",
            # v3 phase 7: the factory's one command
            "reef-factory.py",
            # 2026-10-28: worktree.setup proven once per change
@@ -644,7 +646,7 @@ def run(root, facts, dry):
             w.place("CLAUDE.md", f.read())
     for name in SCRIPTS:
         with open(os.path.join(PLUGIN, "scripts", name), encoding="utf-8") as f:
-            w.place(f"scripts/{name}", f.read(), executable=not name.endswith(".json"))
+            w.place(f"scripts/{name}", f.read(), executable=not name.endswith((".json", "_common.py")))
     for d in ((["tasks", "tasks/done"] if lay["features"] is None else []) + [lay["adr"]]):
         if not dry:
             os.makedirs(os.path.join(root, d), exist_ok=True)

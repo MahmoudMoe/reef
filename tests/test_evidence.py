@@ -43,7 +43,7 @@ class Evidence(unittest.TestCase):
         self.d = os.path.join(self.tmp, "repo")
         os.makedirs(os.path.join(self.d, "scripts"))
         os.makedirs(os.path.join(self.d, ".reef"))
-        for name in ("reef-gate.sh", "reef-snapshot.sh", "reef-evidence.py"):
+        for name in ("reef-gate.sh", "reef-snapshot.sh", "reef-evidence.py", "reef_common.py"):
             shutil.copy(os.path.join(ROOT, "scripts", name), os.path.join(self.d, "scripts", name))
         with open(os.path.join(self.d, ".gitignore"), "w") as f:
             f.write(".reef/ci-local/\n.reef/evidence/\n")   # as reef-init writes it

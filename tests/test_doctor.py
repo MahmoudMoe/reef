@@ -291,7 +291,8 @@ class NormalRoundChecks(unittest.TestCase):
         os.makedirs(os.path.join(d, ".reef", "run"), exist_ok=True)
         with open(os.path.join(d, ".reef", "run", "orchestrator.json"), "w") as f:
             json.dump({"session": "6ee3355f-2fe4-4a00", "at": 1.0, "pid": 999999}, f)
-        shutil.copy(os.path.join(ROOT, "scripts", "reef-setup.py"), os.path.join(d, "scripts", "reef-setup.py"))
+        for n in ("reef-setup.py", "reef_common.py"):
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(d, "scripts", n))
         r = doctor(d)
         out = r.stdout
         self.assertIn("hold: session 6ee3355f", out)

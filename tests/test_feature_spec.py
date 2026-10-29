@@ -674,7 +674,7 @@ class ConvergeReadsTheEvidence(unittest.TestCase):
         self.d = tempfile.mkdtemp(prefix="reef-conv2.")
         subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
         os.makedirs(os.path.join(self.d, "scripts"))
-        for name in ("reef-gate.sh", "reef-snapshot.sh", "reef-graph.py", "reef-evidence.py"):
+        for name in ("reef-gate.sh", "reef-snapshot.sh", "reef-graph.py", "reef-evidence.py", "reef_common.py"):
             shutil.copy(os.path.join(ROOT, "scripts", name), os.path.join(self.d, "scripts", name))
         self.marker = os.path.join(tempfile.mkdtemp(prefix="reef-conv2-ran."), "ran.log")   # outside the tree: a file in it would move the snapshot
         self.cfg({"gates": {"full": f"echo ran >> {self.marker}; echo '2 passed'"}, "paths": {"features": "reef/features"}})
@@ -926,6 +926,7 @@ class Converge(unittest.TestCase):
         # the project's copy of the script, far from the plugin's templates/: a finding still gets its rollup
         copy = os.path.join(self.d, "scripts", "reef-converge")
         shutil.copy(CONVERGE, copy)
+        shutil.copy(os.path.join(ROOT, "scripts", "reef_common.py"), os.path.join(self.d, "scripts", "reef_common.py"))
         write(self.d, "tests/export.test.ts", 'import { it } from "vitest";\nit("csv header is renamed", () => {});\n')
         env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PLUGIN_ROOT"}
         r = subprocess.run([sys.executable, copy, "csv-export-for-orders", "--repo", self.d], capture_output=True, text=True, env=env)

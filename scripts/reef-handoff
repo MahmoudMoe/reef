@@ -9,21 +9,16 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import run as _run, read_replace as read  # noqa: E402
 
 MAX_LINES = 60
 
 
-def read(p):
-    with open(p, encoding="utf-8", errors="replace") as f:
-        return f.read()
-
-
 def run(cmd, cwd, timeout=20):
-    try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
-        return r.stdout.strip() if r.returncode == 0 else ""
-    except Exception:
-        return ""
+    r = _run(cmd, cwd, timeout)
+    return r.stdout.strip() if r.returncode == 0 else ""
 
 
 def render(root, questions):

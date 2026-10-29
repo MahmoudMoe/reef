@@ -459,8 +459,8 @@ class DispatchGuard(unittest.TestCase):
                     "effort: medium\nblocked-by: []\nverify: gate-only\nattempts: 0\n"
                     "dispatches: 0\nlast_failure_sig: \"\"\n---\n# 7\n\n## Scope\nx\n\n"
                     "## Acceptance Criteria\n- test_demo_works goes red first\n\n## Log\n")
-        shutil.copy(os.path.join(ROOT, "scripts", "reef-plan-check.py"),
-                    os.path.join(d, "scripts", "reef-plan-check.py"))
+        for n in ("reef-plan-check.py", "reef_common.py"):
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(d, "scripts", n))
         r = sp.run([sys.executable, os.path.join(d, "scripts", "reef-plan-check.py"), d],
                    capture_output=True, text=True)
         assert r.returncode == 0, f"fixture plan must pass plan-check:\n{r.stdout}"
@@ -489,8 +489,8 @@ class DispatchGuard(unittest.TestCase):
         os.makedirs(os.path.join(self.dir, "scripts"), exist_ok=True)
         import subprocess as sp
         sp.run(["git", "init", "-q", "-b", "main", self.dir], check=True)
-        shutil.copy(os.path.join(ROOT, "scripts", "reef-plan-check.py"),
-                    os.path.join(self.dir, "scripts", "reef-plan-check.py"))
+        for n in ("reef-plan-check.py", "reef_common.py"):
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.dir, "scripts", n))
         os.makedirs(os.path.join(self.dir, ".reef"), exist_ok=True)
         with open(os.path.join(self.dir, ".reef", "config.json"), "w") as f:
             f.write('{"gates": {"test": "true"}}')
@@ -544,8 +544,8 @@ def plan_repo(d, tasks=((7, "demo"),)):
     for tid, feat in tasks:
         with open(os.path.join(d, "tasks", f"{tid:03d}-{feat}.md"), "w") as f:
             f.write(plan_task(tid, feat))
-    shutil.copy(os.path.join(ROOT, "scripts", "reef-plan-check.py"),
-                os.path.join(d, "scripts", "reef-plan-check.py"))
+    for n in ("reef-plan-check.py", "reef_common.py"):
+        shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(d, "scripts", n))
     git(d, "add", "-A")
     git(d, "commit", "-qm", "plan")
     return d
@@ -812,6 +812,25 @@ class TaskFilesAreThePlan(unittest.TestCase):
         elsewhere = tempfile.mkdtemp(prefix="reef-elsewhere.")
         r = edit(os.path.join(elsewhere, "reef", "features", "x", "tasks", "101-a.md"))
         self.assertEqual(r.returncode, 0, "a look-alike path outside the project is nobody's: " + r.stderr)
+
+
+class TheSharedModuleIsAGuardFile(unittest.TestCase):
+    """consolidation step 1 (2026-10-29): scripts/reef_common.py is imported by every script, so a write to it is a write to
+    all of them — protected like scripts/reef-*."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-common-guard.")
+        subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
+        write_config(self.d, {"gates": {"full": "true"}})
+
+    def test_bash_and_edit_writes_are_denied_like_the_scripts(self):
+        r = run_guard({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": "printf 'x' > scripts/reef_common.py"}})
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("guard's own files", r.stderr)
+        r = run_guard({"tool_name": "Edit", "cwd": self.d, "tool_input": {"file_path": os.path.join(self.d, "scripts", "reef_common.py"), "old_string": "a", "new_string": "b"}})
+        self.assertEqual(r.returncode, 2, r.stderr)
+        r = run_guard({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": "printf 'x' > scripts/reefer.py"}})
+        self.assertEqual(r.returncode, 0, "another script of the project's is not Reef's: " + r.stderr)
 
 
 class EvidenceIsTheGates(unittest.TestCase):

@@ -75,6 +75,7 @@ class OneGraph(unittest.TestCase):
         write(d, "tasks/101-a.md", task(101, "1").replace("- AC-1 (FR-1): the thing works.\n\n## Proof\n| AC | Proof |\n|---|---|\n| AC-1 | `test_t101` |\n", "- test_t101 goes red first\n"))
         os.makedirs(os.path.join(d, "tasks", "done"))
         shutil.copy(CHECK, os.path.join(d, "scripts", "reef-plan-check.py") if os.makedirs(os.path.join(d, "scripts"), exist_ok=True) is None else "")
+        shutil.copy(os.path.join(ROOT, "scripts", "reef_common.py"), os.path.join(d, "scripts", "reef_common.py"))
         git(d, "add", "-A")
         git(d, "commit", "-qm", "0.5 project")
         for cmd in ([sys.executable, CHECK, d], [sys.executable, QUEUE, "check", "--repo", d], [sys.executable, GRAPH, "ready", "--root", d], [sys.executable, STRUCT, "--check", "--repo", d]):
@@ -134,6 +135,7 @@ class LayoutMove(unittest.TestCase):
         d = self.fixture()
         write(d, "scripts/check-docs.ts", 'import { readdirSync } from "fs";\nconst adrs = readdirSync("docs/adr");\n')
         write(d, "src/terms.ts", 'export const GLOSSARY = "docs/glossary.md";\n')
+        shutil.copy(os.path.join(ROOT, "scripts", "reef_common.py"), write(d, "scripts/reef_common.py", ""))
         shutil.copy(MIGRATE, write(d, "scripts/reef-migrate", ""))   # Reef's own copy names docs/adr and docs/queue.md: never a reader
         git(d, "add", "-A"); git(d, "commit", "-qm", "the project's code reads two of the 0.5 paths")
         r = subprocess.run([sys.executable, MIGRATE, "--layout", "--repo", d], capture_output=True, text=True)

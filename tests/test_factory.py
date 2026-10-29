@@ -128,7 +128,7 @@ class _Forge(QI.Base):
             f.write(json.dumps(self.cfg, indent=2) + "\n")
         os.makedirs(os.path.join(self.d, "scripts"))
         for n in ("reef-queue.py", "reef-row.py", "reef-plan-check.py", "reef-evidence.py", "reef-gate.sh", "reef-snapshot.sh", "reef-run.py",
-                  "reef-approval.py", "reef-factory.py"):
+                  "reef-approval.py", "reef-factory.py", "reef_common.py"):
             shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.d, "scripts", n))
         TR.write(self.d, "reef/features/exact-totals/SPEC.md", TR.SPEC.replace("Row: 1", "Row: 3"))
         TR.write(self.d, "reef/features/exact-totals/tasks/301-slice.md", TR.TASK.replace("feature: demo-row-one", "feature: exact-totals").replace("id: 101", "id: 301"))
@@ -273,3 +273,17 @@ class FactoryRun(_Forge):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RunKeepsItsTimeoutCode(unittest.TestCase):
+    def test_a_timed_out_command_is_1_as_before_so_a_timeout_is_never_built(self):
+        # the security review of #215: reef_common.run says 124 on a timeout; reef-factory.py's `built = rc != 1` would have
+        # read a timed-out build as built and pushed it. Its adapter keeps the 1 the old copy returned; so do reef-loop's and reef-row's
+        import importlib.machinery, importlib.util
+        for name in ("reef-factory.py", "reef-loop.py", "reef-row.py"):
+            loader = importlib.machinery.SourceFileLoader("m_" + name.replace("-", "_").replace(".", "_"), os.path.join(ROOT, "scripts", name))
+            spec = importlib.util.spec_from_loader(loader.name, loader)
+            mod = importlib.util.module_from_spec(spec)
+            loader.exec_module(mod)
+            out = mod.run([sys.executable, "-c", "import time; time.sleep(5)"], ROOT, 0.2)
+            self.assertEqual(out[0], 1, f"{name}: a timeout is 1, as before ({out})")
