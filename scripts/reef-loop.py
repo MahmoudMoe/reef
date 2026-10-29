@@ -172,10 +172,14 @@ def plan_gate(root, scripts, py, tasks):
             verdict[feat] = f"hunter plan pass stale on {hm.group(2)}: a re-check within hunter.plan_rounds, or `reef-adversarial <task> plan --decided <mark>`"
         elif rc == 0:
             verdict[feat] = None
-        elif re.search(r"^approval: MISSING", out, re.M):
-            verdict[feat] = "approval (the gate: the machines passed)"
-        elif re.search(r"^approval: STALE", out, re.M):
-            verdict[feat] = "re-approval (plan edited after approval)"
+        elif re.search(r"^approval: (MISSING|STALE)", out, re.M):
+            # 2026-10-29 (row 9 on the current adoption): the hold named the state and no command, and the owner's own
+            # loop session wrote the wait as "run reef-approval.py --owner … in a terminal". Every wait names the exact
+            # line the owner types: the digest comes from the same check (--digest), so the command is never stale.
+            why = "approval (the gate: the machines passed)" if re.search(r"^approval: MISSING", out, re.M) else "re-approval (plan edited after approval)"
+            _, dg = run([py, pc, root, "--digest", "--feature", feat], root, timeout=60)
+            m = re.search(r"^digest: \S+ ([0-9a-f]{16})", dg, re.M)
+            verdict[feat] = why + (f' — python3 scripts/reef-approval.py --owner "Approve plan {feat} at {m.group(1)}?"' if m else "")
         else:
             verdict[feat] = "plan review"
     go = [t for t in tasks if verdict.get(task_feature(t.get("path", ""))) is None]

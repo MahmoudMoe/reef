@@ -202,10 +202,15 @@ class Tick(unittest.TestCase):
         os.unlink(os.path.join(d, ".reef", "approvals", "1.json"))
         st = json.loads(loop(d, "tick", "--json").stdout)
         self.assertEqual(st["dispatch_now"], [])
-        self.assertEqual(st["awaiting"], ["1 (approval (the gate: the machines passed))"])
+        # 2026-10-29 (row 9 on the current adoption): the tick named the state and no command, and the owner's loop
+        # session wrote the wait as "run reef-approval.py --owner … in a terminal" — every wait names the exact line
+        CMD = r' — python3 scripts/reef-approval\.py --owner "Approve plan 1 at [0-9a-f]{16}\?"\)$'
+        self.assertEqual(len(st["awaiting"]), 1, st)
+        self.assertRegex(st["awaiting"][0], r"^1 \(approval \(the gate: the machines passed\)" + CMD)
         text = loop(d, "tick").stdout
         self.assertIn("dispatch now: -", text)
-        self.assertIn("awaiting: 1 (approval (the gate: the machines passed))", text)
+        self.assertIn("awaiting: 1 (approval (the gate: the machines passed) — python3 scripts/reef-approval.py --owner \"Approve plan 1 at ", text)
+        self.assertIn("next: awaiting: 1 (approval (the gate: the machines passed) — python3 scripts/reef-approval.py --owner", text)
         # v2 order: a task above light needs the review; with it missing (and the approval stale) the tick asks for
         # the machines first, never the owner
         write(d, "tasks/101-a.md", task(101, "1").replace("complexity: mech", "complexity: design").replace("tier: light", "tier: critical")
@@ -219,6 +224,11 @@ class Tick(unittest.TestCase):
         st = json.loads(loop(d, "tick", "--json").stdout)
         self.assertEqual(st["dispatch_now"], [])
         self.assertTrue(st["awaiting"] and "1 (" in st["awaiting"][0], st["awaiting"])
+        # the review current again, the approval stale: the hold is a re-approval, and it names the command too
+        r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-plan-check.py"), d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertRegex(st["awaiting"][0], r"^1 \(re-approval \(plan edited after approval\)" + CMD)
         os.unlink(os.path.join(d, "tasks", ".plan-review.json"))
         approve(d, "1")
         st = json.loads(loop(d, "tick", "--json").stdout)

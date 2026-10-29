@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **An approval hold in the tick names the exact owner command** (2026-10-29, row 9 on the current adoption: the tick said
+  `awaiting: <row> (re-approval (plan edited after approval))` and `next:` echoed it, so the owner's own loop session wrote
+  the wait as "run reef-approval.py --owner for <row> at <digest> in a terminal"). The hold now ends with
+  `python3 scripts/reef-approval.py --owner "Approve plan <slug> at <digest16>?"`, the digest read from the same check,
+  for a missing and for a stale approval alike. tests/size-budget.json raised: `script_lines` 17,387 → 17,391.
 - **The slot lock is re-entrant** (2026-10-28, row 6 on the current adoption: `reef-gate.sh` holds `gates.resources`
   for its whole run, and the task skill and the mechanic told agents to put heavy suites through `reef-graph.py lock
   heavy` as well — the inner lock waited the whole timeout for its own holder, then exited 75, and the session read it
