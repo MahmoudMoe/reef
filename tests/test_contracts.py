@@ -867,3 +867,6 @@ class ImplementerNeverEditsATaskFile(unittest.TestCase):
         self.assertIn("Never edit a task file", text)
         self.assertIn("voids the approval", text)
         self.assertIn("hand-back", text)
+        # the security review: a ledger row per denial
+        ledger = read("README.md")
+        self.assertIn("An implementer never edits the plan it builds", ledger)

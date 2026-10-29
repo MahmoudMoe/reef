@@ -762,8 +762,56 @@ class TaskFilesAreThePlan(unittest.TestCase):
         self.assertEqual(r.returncode, 0, "the orchestrator amends a plan (then the owner re-approves): " + r.stderr)
         r = self.edit("src/tasks/902-agents.md", "reef:implementer")
         self.assertEqual(r.returncode, 0, "a project's own tasks folder outside the features dir is not Reef's: " + r.stderr)
-        r = self.edit("reef/features/demo/tasks/notes.md", "reef:implementer")
-        self.assertEqual(r.returncode, 0, "not a task file: " + r.stderr)
+        # the security review: the digest covers the WHOLE feature folder — SPEC, ADRs, notes — not only `NNN-slug.md`
+        for rel in ("reef/features/demo/SPEC.md", "reef/features/demo/adr/draft-demo.md", "reef/features/demo/tasks/notes.md"):
+            r = self.edit(rel, "reef:implementer")
+            self.assertEqual(r.returncode, 2, f"{rel} is the plan too: {r.stderr}")
+        r = self.edit("tasks/notes.md", "reef:implementer")
+        self.assertEqual(r.returncode, 0, "the legacy layout guards its task files only: " + r.stderr)
+
+    def test_the_bash_route_is_closed_for_the_implementer_too(self):
+        # the security review: `sed -i`, a redirect, `tee`, `git mv` reach the same file and the close stages every change
+        bash = lambda cmd, who="reef:implementer": run_guard({"tool_name": "Bash", "cwd": self.d, "agent_id": "a1", "agent_type": who, "tool_input": {"command": cmd}})
+        for cmd in ("sed -i '' 's/:234/:225/' reef/features/demo/tasks/902-agents.md",
+                    "printf 'x' > reef/features/demo/SPEC.md",
+                    "echo y | tee reef/features/demo/tasks/903-bar.md",
+                    "git mv reef/features/demo/tasks/902-agents.md reef/features/demo/tasks/902-renamed.md",
+                    "git rm tasks/R03-fix.md",
+                    "cp AGENTS.md reef/features/demo/adr/draft-demo.md"):
+            r = bash(cmd)
+            self.assertEqual(r.returncode, 2, f"{cmd}: {r.stderr}")
+            self.assertIn("the plan", r.stderr)
+        for cmd in ("grep -n rule reef/features/demo/tasks/902-agents.md",
+                    "cat reef/features/demo/SPEC.md > /tmp/spec.txt",
+                    "python3 scripts/reef-plan-check.py . --feature demo",
+                    "printf 'x' > src/tasks/902-agents.md"):
+            r = bash(cmd)
+            self.assertEqual(r.returncode, 0, f"a read, a run or a path outside the plan stays open: {cmd}: {r.stderr}")
+        r = bash("sed -i '' 's/a/b/' reef/features/demo/tasks/902-agents.md", "reef:mechanic")
+        self.assertEqual(r.returncode, 0, "the mechanic's close edits: " + r.stderr)
+
+    def test_from_a_task_worktree_the_rule_is_anchored_to_the_projects_roots(self):
+        # the review: the implementer's cwd is its task worktree and the config lives in the main checkout; a path into the
+        # main checkout (`../../tasks/R03-fix.md` relative to the worktree) is a task file too, and a look-alike path outside
+        # the project (`…/reef/features/x/tasks/101-a.md` elsewhere) is nobody's
+        g = lambda *a: subprocess.run(["git", "-C", self.d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
+        os.makedirs(os.path.join(self.d, "reef", "features", "demo", "tasks"), exist_ok=True)
+        open(os.path.join(self.d, "reef", "features", "demo", "tasks", "902-agents.md"), "w").write("x")
+        open(os.path.join(self.d, "README.md"), "w").write("x")
+        g("add", "-A"); g("commit", "-qm", "c")
+        wt = os.path.join(self.d, ".reef", "worktrees", "902")
+        g("worktree", "add", "-q", wt)
+        edit = lambda path, who="reef:implementer": run_guard({"tool_name": "Edit", "cwd": wt, "agent_id": "a1", "agent_type": who,
+                                                                "tool_input": {"file_path": path, "old_string": ":234", "new_string": ":225"}})
+        r = edit(os.path.join(self.d, "tasks", "R03-fix.md"))
+        self.assertEqual(r.returncode, 2, "the main checkout's legacy task file, from the worktree's cwd: " + r.stderr)
+        r = edit(os.path.join(wt, "reef", "features", "demo", "tasks", "902-agents.md"))
+        self.assertEqual(r.returncode, 2, "the worktree's own copy of the task: " + r.stderr)
+        r = edit("reef/features/demo/tasks/902-agents.md")
+        self.assertEqual(r.returncode, 2, "a relative path from the worktree: " + r.stderr)
+        elsewhere = tempfile.mkdtemp(prefix="reef-elsewhere.")
+        r = edit(os.path.join(elsewhere, "reef", "features", "x", "tasks", "101-a.md"))
+        self.assertEqual(r.returncode, 0, "a look-alike path outside the project is nobody's: " + r.stderr)
 
 
 class EvidenceIsTheGates(unittest.TestCase):

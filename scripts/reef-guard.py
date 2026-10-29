@@ -524,6 +524,7 @@ def check_segment(seg, depth=0, next_op=";", pipefail=False):
     check_record_dirs(seg)
     check_evidence_authoring(seg, CTX)
     check_guard_files(seg, CTX)
+    check_plan_files(seg, CTX)
     check_reviewer_lock(seg, CTX)
     check_forge_merge(seg, CTX)
     check_approval_cli(seg)
@@ -1412,7 +1413,8 @@ def process_alive(pid):
 def context_for(payload):
     """Facts the Bash and Edit checks share, computed once per hook call."""
     cwd = payload.get("cwd") or os.getcwd()
-    roots = {main_checkout(cwd), task_root(os.path.join(cwd, "x"), cwd)}
+    main = main_checkout(cwd)
+    roots = {main, task_root(os.path.join(cwd, "x"), cwd)}
     plugin = os.environ.get("CLAUDE_PLUGIN_ROOT") or ""
     plugin_root = bool(plugin) and os.path.realpath(cwd).startswith(os.path.realpath(plugin))
     critical = False
@@ -1427,23 +1429,45 @@ def context_for(payload):
                 continue
         v = os.path.join(root, ".reef", "verifying")
         verifying = verifying or (os.path.isdir(v) and bool(os.listdir(v)))
-    return {"cwd": cwd, "roots": roots, "plugin_root": plugin_root, "critical_inflight": critical,
+    return {"cwd": cwd, "main": main, "roots": roots, "plugin_root": plugin_root, "critical_inflight": critical,
             "agent_type": str(payload.get("agent_type") or ""),
             "main_session": not payload.get("agent_id") and not payload.get("agent_type"),
             "typeless_locked": bool(payload.get("agent_id")) and not payload.get("agent_type") and verifying}
 
 
-TASK_FILE = re.compile(r"(^|/)tasks/(done/)?R?\d+-[^/]+\.md$")   # a Reef task file, open or done (reef-plan-check's name rule)
+TASK_FILE = re.compile(r"^tasks/(done/)?R?\d+-[^/]+\.md$")   # a legacy-layout task file, open or done (reef-plan-check's name rule)
+PLAN_DENIAL = ("{rel} is the plan — the owner's approved text; an implementer never edits a task file, the SPEC or an ADR "
+               "(every edit voids the approval). A moved line or a stale reference goes in your hand-back; the orchestrator "
+               "amends the plan if it must")
 
 
-def is_task_file(rel, path, ctx):
-    """A task file under the project's features dir (paths.features, default reef/features) or the legacy top-level tasks/."""
-    rel = rel.replace(os.sep, "/")
-    if not (TASK_FILE.search(rel) or TASK_FILE.search(path.replace(os.sep, "/"))):
-        return False
-    cfg = read_config(main_checkout(ctx.get("cwd") or os.getcwd()))
-    feat = str((cfg.get("paths") or {}).get("features", "reef/features") or "reef/features").strip("/")
-    return rel.startswith(feat + "/") or rel.startswith("tasks/") or f"/{feat}/" in path.replace(os.sep, "/")
+def is_plan_file(path, ctx):
+    """A file of the plan an implementer builds: anything under the feature folder (paths.features/<slug>/ — the digest
+    covers the whole folder: SPEC, ADRs, tasks) or a legacy top-level task file, anchored to the project's roots (the main
+    checkout and the task worktree the agent works in); a path that resolves inside neither — a look-alike elsewhere —
+    is nobody's (the reviews, 2026-10-29)."""
+    full = os.path.realpath(path if os.path.isabs(path) else os.path.join(ctx.get("cwd") or os.getcwd(), path))
+    feat = str((read_config(ctx.get("main") or "").get("paths") or {}).get("features", "reef/features") or "reef/features").strip("/")
+    for root in ctx.get("roots") or ():
+        rel = os.path.relpath(full, os.path.realpath(root)).replace(os.sep, "/")
+        if rel.startswith(".."):
+            continue
+        if rel.startswith(feat + "/") or TASK_FILE.match(rel):
+            return True
+    return False
+
+
+def check_plan_files(seg, ctx):
+    """The Bash route to the same files (the security review): a write head's targets, a redirect's, `git mv|rm|restore|checkout`'s
+    arguments — denied for an implementer like its Edit; a read or a run is not a write."""
+    if "implementer" not in str(ctx.get("agent_type") or ""):
+        return
+    targets = list(write_targets(seg)) if is_write(seg) else []
+    if seg and os.path.basename(seg[0]) == "git" and seg[1:2] and seg[1] in ("mv", "rm", "restore", "checkout"):
+        targets += [a for a in seg[2:] if not a.startswith("-")]
+    for t in targets:
+        if is_plan_file(t, ctx):
+            deny(PLAN_DENIAL.format(rel=t))
 
 
 def check_edit(tool_input, payload, ctx):
@@ -1451,11 +1475,10 @@ def check_edit(tool_input, payload, ctx):
     if not path:
         return
     rel = os.path.relpath(path, ctx["cwd"]) if os.path.isabs(path) else path
-    if "implementer" in str(ctx.get("agent_type") or "") and is_task_file(rel, path, ctx):
+    if "implementer" in str(ctx.get("agent_type") or "") and is_plan_file(path, ctx):
         # 2026-10-29 (row 9 on the current adoption): the implementer refreshed the line numbers in `## Read first`, every
         # close carried the edit, the plan's digest moved and the owner re-approved an unchanged plan three times
-        deny(f"{rel} is a task file — the owner's approved plan; an implementer never edits one (every edit voids the approval). "
-             "A moved line or a stale reference goes in your hand-back; the orchestrator amends the plan if it must")
+        deny(PLAN_DENIAL.format(rel=rel))
     if RECORD_DIRS.search(path) or RECORD_DIRS.search(rel):
         deny("editing under .reef/approvals/, .reef/review/, .reef/night/ or .reef/evidence/ — these records are written by the AskUserQuestion "
              "hook, scripts/reef-record, scripts/reef-run.py and scripts/reef-gate.sh, bound to a digest, a forge SHA or a tree snapshot; "
