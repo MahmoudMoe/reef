@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **A dead runner leaves no orphan** (2026-10-29, the owner: the runner died when its stdout pipe closed, its `claude -p
+  /reef-loop` session lived on running gates at full CPU with no window anywhere, and `reef-run.py stop` said "no runner
+  is running" — `pkill` was the only way). The runner records the session it is in (`.reef/run/session.pid`: pid and
+  start) and removes it when the session ends; `status` says `runner gone, session <pid> still running since <time>`;
+  `stop` ends that session (TERM, KILL after 10 s), clears the lock and the record, and stops the loop with the reason
+  (`reef-loop.py stop "<reason>"`, which now takes one) so `.reef/loop.json` agrees, exit 0. The runner's own exit path
+  ends its session — normal, an exception, TERM, INT or a closed pipe (atexit and signal handlers). tests/size-budget.json raised: `script_lines` 17,419 → 17,511.
 - **A task's close moves no plan digest** (2026-10-29, row 9 on the current adoption: a planner's task file has no `## Log`,
   so `reef-merge-close` wrote the journal block at the end of the body, where the digest hashed it — three closes in a
   row, three re-approvals of a plan nobody had changed, each a stop for the owner). The digest strips the

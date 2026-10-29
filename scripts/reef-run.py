@@ -14,7 +14,9 @@ Usage (the owner's terminal, in the project's main checkout):
                first); the probe and the gate are per host (`probe --host opencode`)
   reef-run.py watch [--repo DIR]   the live steps of the run in progress (any terminal; Ctrl-C to leave)
   reef-run.py status [--repo DIR]  one look: running or not, the night, the last steps and the last session
-  reef-run.py stop [--repo DIR]    (0.7.1) the running runner ends after its current session (never mid-merge)
+  reef-run.py stop [--repo DIR]    (0.7.1) the running runner ends after its current session (never mid-merge); a session
+      the runner left behind (the runner died, its `claude -p` did not — 2026-10-29) is ended now, TERM then KILL, and
+      the loop is stopped (`reef-loop.py stop "<reason>"`); `status` names such a session: "runner gone, session <pid> …"
   --row <id>: one row only — every session's prompt is `/reef-loop <id>` (v3 phase 7: the factory job builds the row its
       issue named; a laptop uses it the same way). REEF_CLAUDE_ARGS: extra `claude` arguments, split like a shell would
       (`--plugin-dir <dir>` loads the Reef plugin where no marketplace installed it, as in the Actions sandbox); the probe's
@@ -33,12 +35,15 @@ Usage (the owner's terminal, in the project's main checkout):
 Exit: 0 the loop stopped · 2 waiting on the owner (their questions are in .reef/questions.md) · 3 parked, or a session
 ended with work in flight · 4 the iteration cap · 1 refused (no probe for this mode, a second runner, not a project).
 Files (gitignored): .reef/run/gate.json · .reef/run/run.log (one JSON line per session) · .reef/run/lock ·
+.reef/run/session.pid (the headless session the runner is in: pid and start, removed when it ends) ·
 .reef/run/live.log (one line per step of the current run: an agent out and back with its verdict, the orchestrator's
 own words, a decision, a merge — what the terminal shows, and the Runner section of .reef/status.html).
 The lock stops a second RUNNER; it does not stop an interactive /reef-loop beside it — run one orchestrator at a time.
 """
+import atexit
 import html
 import json
+import signal
 import os
 import re
 import shlex
@@ -48,6 +53,8 @@ import time
 
 RUN_DIR = os.path.join(".reef", "run")
 LIVE = os.path.join(RUN_DIR, "live.log")
+SESSION_PID = os.path.join(RUN_DIR, "session.pid")   # the headless session the runner is in
+SESSION = {"p": None}                                 # its Popen while it runs (end_session)
 # the commands that decide or merge — every other Bash call is noise in the live view
 KEY_BASH = re.compile(r"reef-approval\.py --proxy|reef-queue\.py footnote|reef-record |gh pr (create|merge)|git merge |reef-loop\.py wait")
 NIGHT_DIR = os.path.join(".reef", "night")
@@ -165,6 +172,51 @@ def session_opencode(root, prompt, say=None):
             "_rc": p.returncode, "_seconds": round(time.time() - t0, 1)}
 
 
+def end_session():
+    """End the headless session this runner started, if it still runs: TERM, KILL after 10 s. 2026-10-29: a runner that died
+    on a closed stdout left its `claude -p /reef-loop` running gates at full CPU with no window anywhere; the runner's exit
+    path — normal, an exception, TERM/INT/PIPE — ends it now."""
+    p = SESSION.get("p")
+    if p is None:
+        return
+    SESSION["p"] = None
+    if p.poll() is None:
+        try:
+            p.terminate()
+            p.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            p.kill()
+        except OSError:
+            pass
+
+
+def end_pid(pid):
+    """The same for a pid read from session.pid (a runner that is already gone): TERM, KILL after 10 s."""
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return
+    for _ in range(100):
+        if not process_alive(pid):
+            return
+        time.sleep(0.1)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def session_record(root):
+    """(pid, started) of a session.pid whose process is alive, else (0, "")."""
+    try:
+        with open(os.path.join(root, SESSION_PID), encoding="utf-8") as f:
+            rec = json.load(f)
+        pid = int(rec.get("pid") or 0)
+        return (pid, str(rec.get("started") or "?")) if pid and process_alive(pid) else (0, "")
+    except (OSError, ValueError, TypeError):
+        return (0, "")
+
+
 def session(root, prompt, mode, say=None):
     """One headless Claude Code session in the project, streamed: each event's live lines go to `say`; returns the last
     `result` event (session_id, total_cost_usd, result), or {"result": <raw output>}. Mode `opencode`: an OpenCode one."""
@@ -183,24 +235,34 @@ def session(root, prompt, mode, say=None):
                                       CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=os.environ.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", BG_WAIT_MS)))
     except FileNotFoundError:
         die(f"`{claude}` is not on the PATH — install Claude Code, or set REEF_CLAUDE")
+    SESSION["p"] = p
+    with open(os.path.join(root, SESSION_PID), "w", encoding="utf-8") as f:
+        json.dump({"pid": p.pid, "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f)
     out, raw, names, verdicts = None, [], {}, {}
-    for line in p.stdout:
+    try:
+        for line in p.stdout:
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                raw.append(line)
+                continue
+            if not isinstance(ev, dict):
+                continue
+            if ev.get("type") == "result":
+                out = ev
+            try:
+                lines = steps(ev, names, verdicts) if say else []
+            except Exception as e:   # 2026-10-23: one event of an unexpected shape killed the runner mid-night
+                lines = [f"(an event the runner could not read: {type(e).__name__})"]
+            for text in lines:
+                say(text)
+        p.wait()
+    finally:
+        end_session()   # a session still running here is one the runner is leaving behind (an exception on the way out)
         try:
-            ev = json.loads(line)
-        except ValueError:
-            raw.append(line)
-            continue
-        if not isinstance(ev, dict):
-            continue
-        if ev.get("type") == "result":
-            out = ev
-        try:
-            lines = steps(ev, names, verdicts) if say else []
-        except Exception as e:   # 2026-10-23: one event of an unexpected shape killed the runner mid-night
-            lines = [f"(an event the runner could not read: {type(e).__name__})"]
-        for text in lines:
-            say(text)
-    p.wait()
+            os.unlink(os.path.join(root, SESSION_PID))
+        except OSError:
+            pass
     out = dict(out) if out else {"result": "".join(raw)[-2000:]}
     out["_rc"], out["_seconds"] = p.returncode, round(time.time() - t0, 1)
     return out
@@ -726,16 +788,41 @@ def detach(root):
     os.dup2(fd, 2)
 
 
-def cmd_stop(root):
-    """The owner stops a running runner (0.7.1, /reef-run): a request the runner reads between sessions, so a headless
-    session is never killed halfway through a merge."""
+def runner_pid(root):
+    """The lock's pid when that process is alive, else 0."""
     try:
         with open(os.path.join(root, RUN_DIR, "lock"), encoding="utf-8") as f:
             pid = int(f.read().strip() or 0)
-        os.kill(pid, 0)
+        return pid if pid and process_alive(pid) else 0
     except (OSError, ValueError):
-        print("reef-run: no runner is running")
-        return 1
+        return 0
+
+
+def cmd_stop(root):
+    """The owner stops a running runner (0.7.1, /reef-run): a request the runner reads between sessions, so a headless
+    session is never killed halfway through a merge. A session the runner left behind (2026-10-29: the runner died, its
+    `claude -p` kept running gates) is ended now, and the loop is stopped so .reef/loop.json agrees."""
+    pid = runner_pid(root)
+    spid, since = session_record(root)
+    if not pid:
+        for p in (os.path.join(root, RUN_DIR, "lock"), os.path.join(root, SESSION_PID)):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        if not spid:
+            print("reef-run: no runner is running")
+            return 1
+        end_pid(spid)
+        why = f"runner gone; its session {spid} (since {since}) ended by reef-run.py stop"
+        loop_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-loop.py")   # beside this script, as in a project
+        r = subprocess.run([sys.executable, loop_py, "stop", why, "--repo", root], cwd=root, capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"reef-run: the loop could not be stopped ({(r.stderr or r.stdout).strip()[-200:]}) — python3 scripts/reef-loop.py stop \"{why}\"")
+        refresh_status(root)
+        print(f"reef-run: the runner was gone; its session {spid} (since {since}) is ended and the loop stopped — "
+              f"python3 scripts/reef-loop.py start, then the runner again, when you are ready")
+        return 0
     with open(os.path.join(root, RUN_DIR, "stop-request"), "w", encoding="utf-8") as f:
         f.write(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + "\n")
     print(f"reef-run: stop requested — the runner (pid {pid}) ends after its current session")
@@ -743,14 +830,12 @@ def cmd_stop(root):
 
 
 def cmd_status(root):
-    """Running or not (the lock's process), the night, the last live lines, the last session's record."""
-    try:
-        with open(os.path.join(root, RUN_DIR, "lock"), encoding="utf-8") as f:
-            pid = int(f.read().strip() or 0)
-        os.kill(pid, 0)
-        state = f"running (pid {pid})"
-    except (OSError, ValueError):
-        state = "not running"
+    """Running or not (the lock's process, and the session's), the night, the last live lines, the last session's record."""
+    pid = runner_pid(root)
+    spid, since = session_record(root)
+    state = (f"running (pid {pid})" + (f"; session {spid} since {since}" if spid else "")) if pid else \
+            (f"runner gone, session {spid} still running since {since} — python3 scripts/reef-run.py stop ends it" if spid
+             else "not running")
     night = "a night is active" if os.path.isfile(os.path.join(root, NIGHT_DIR, "active")) else "no night active"
     print(f"reef-run: {state}; {night}")
     try:
@@ -810,6 +895,13 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
         detach(root)   # every refusal above printed to the caller; from here on the runner is on its own
     with open(lock, "w", encoding="utf-8") as f:
         f.write(str(os.getpid()))
+
+    def ending(signum, frame):   # TERM, INT, a closed pipe: the session goes with the runner (2026-10-29), the lock too (finally)
+        end_session()
+        raise SystemExit(128 + signum)
+    for s in (signal.SIGTERM, signal.SIGINT, signal.SIGPIPE):
+        signal.signal(s, ending)
+    atexit.register(end_session)
     log = os.path.join(root, RUN_DIR, "run.log")
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     active = os.path.join(root, NIGHT_DIR, "active")

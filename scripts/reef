@@ -31,7 +31,7 @@ VERBS = [
      lambda root, a: run_script("reef-run.py", ["--repo", root, "--night", "--detach"] if a[:1] == ["start"] else ["contract", "--repo", root, *a], root)),
     ("watch",   "the runner's live steps, one line each (Ctrl-C leaves, stops nothing)",
      lambda root, a: run_script("reef-run.py", ["watch", "--repo", root], root)),
-    ("stop",    "the runner ends after its current session, never mid-merge",
+    ("stop",    "the runner ends after its current session, never mid-merge; a session a dead runner left behind is ended now",
      lambda root, a: run_script("reef-run.py", ["stop", "--repo", root], root)),
     ("setup",   "the worktree setup, proven once per change: `setup` says the state, `setup prove` proves it",
      lambda root, a: run_script("reef-setup.py", [*(a or ["state"]), "--repo", root], root)),
