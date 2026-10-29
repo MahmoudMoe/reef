@@ -57,6 +57,10 @@ smells like a bypass is denied; anything unparseable and innocent is allowed.
 """
 import os as _os
 import sys as _sys
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+from reef_common import main_checkout as _main_checkout, read_config, process_alive  # noqa: E402
 
 # 0.7: native Windows has no fcntl locks, no SIGALRM deadline and no process groups, and the guard cannot run there.
 # Inside a Reef project it stops with the one sentence that helps; anywhere else it steps aside (the plugin's hook runs
@@ -115,7 +119,7 @@ COPY_HEADS = {"cp", "mv", "install", "rsync"}
 EVIDENCE_DENIAL = ("the main session does not write an agent's evidence ({path}): the agent writes its own file (the hand-back into "
                    "its worktree's .reef/ci-local/, a judge's report into the scratchpad) and the orchestrator copies it with cp. "
                    "Missing? Resume that agent (SendMessage) with 'write your report to <path>' — never type it from its message")
-GUARD_FILES = re.compile(r"(^|/)(scripts/reef(-[^/]+)?|\.githooks/[^/]+|hooks/hooks\.json|\.reef/config\.json)$")   # 2026-10-28: scripts/reef, the owner's entry point, too
+GUARD_FILES = re.compile(r"(^|/)(scripts/reef([-_][^/]+)?|\.githooks/[^/]+|hooks/hooks\.json|\.reef/config\.json)$")   # 2026-10-28: scripts/reef, the owner's entry point, too
 PROTECTED_KEYS = ("roles", "caps", "gates", "tiers", "merge", "ci", "branches", "loop",   # merge/ci/branches/loop: v3 phase 4 — the merge gate's own switches
                   "worktree")   # 2026-10-28: worktree.setup is a command scripts/reef-setup.py runs under the main checkout, unseen by this hook
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "5"))
@@ -1100,15 +1104,6 @@ ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "pl
            "planner": "planner", "mahmoud": "proxy", "acceptance": "reviewer"}
 
 
-def read_config(root):
-    try:
-        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
-            cfg = json.load(f)
-        return cfg if isinstance(cfg, dict) else {}
-    except Exception:
-        return {}
-
-
 def task_tier(fm):
     return fm.get("tier") or ("light" if fm.get("complexity") == "mech" else "full")
 
@@ -1344,15 +1339,9 @@ def _check_dispatch(tool_input, payload):
 # ---------------- 0.6: the guard guards itself (Edit/Write/MultiEdit) ----------------
 
 def main_checkout(cwd):
-    """The main checkout (first `git worktree list --porcelain` entry); machine state lives there."""
-    try:
-        r = subprocess.run(["git", "-C", cwd, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=5)
-        for line in r.stdout.splitlines():
-            if line.startswith("worktree "):
-                return line[len("worktree "):].strip()
-    except Exception:
-        pass
-    return task_root(os.path.join(cwd, "x"), cwd)
+    """The main checkout; without git's answer, the task root this hook computes (machine state lives there)."""
+    found = _main_checkout(cwd, timeout=5, default=None)
+    return found if found is not None else task_root(os.path.join(cwd, "x"), cwd)
 
 
 HOLD_MINUTES = 30
@@ -1398,16 +1387,6 @@ def check_one_orchestrator(payload, cwd):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump({"session": sid, "at": time.time(), "pid": me}, f)
     os.replace(tmp, p)
-
-
-def process_alive(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
 
 
 def context_for(payload):

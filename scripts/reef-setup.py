@@ -27,6 +27,8 @@ import shutil
 import subprocess
 import sys
 import time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+from reef_common import main_checkout, run as _run  # noqa: E402
 
 CHANGE_SET = ("package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "pyproject.toml", "uv.lock",
               "poetry.lock", "Pipfile", "Pipfile.lock", "requirements.txt", "Cargo.toml", "Cargo.lock", "go.mod", "go.sum",
@@ -36,21 +38,8 @@ FAIL_LINE = re.compile(r"(^|\s)(FAIL|FAILED|ERROR|AssertionError|✗|✘|❯|×)
 
 
 def run(args, cwd, timeout=600):
-    try:
-        r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
-        return r.returncode, (r.stdout or "") + (r.stderr or "")
-    except subprocess.TimeoutExpired:
-        return 124, f"timed out after {timeout} s"
-    except OSError as e:
-        return 1, str(e)
-
-
-def main_checkout(repo):
-    rc, out = run(["git", "worktree", "list", "--porcelain"], repo, 30)
-    for line in out.splitlines():
-        if line.startswith("worktree "):
-            return line[len("worktree "):].strip()
-    return os.path.abspath(repo)
+    r = _run(args, cwd, timeout)
+    return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 
 def parts(cfg):

@@ -15,34 +15,18 @@ import re
 import shutil
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+from reef_common import main_checkout, run as _run, config  # noqa: E402
 
 
 def run(args, cwd, timeout=60):
-    try:
-        r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
-        return r.returncode, r.stdout
-    except (OSError, subprocess.TimeoutExpired):
-        return 1, ""
+    r = _run(args, cwd, timeout)
+    return r.returncode, r.stdout
 
 
 def git(cwd, *a):
     rc, out = run(["git", *a], cwd)
     return out.strip() if rc == 0 else ""
-
-
-def main_checkout(repo):
-    for line in git(repo, "worktree", "list", "--porcelain").splitlines():
-        if line.startswith("worktree "):
-            return line[len("worktree "):].strip()
-    return repo
-
-
-def config(root):
-    try:
-        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
 
 
 def merge_by(cfg):

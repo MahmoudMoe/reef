@@ -21,28 +21,19 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+from reef_common import main_checkout, run as _run  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def run(args, cwd, timeout=7200, env=None):
-    try:
-        r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
-        return r.returncode, r.stdout, r.stderr
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return 1, "", str(e)
+    r = _run(args, cwd, timeout, env)
+    return r.returncode, r.stdout, r.stderr
 
 
 def say(line):
     print(f"reef-factory: {line}", flush=True)
-
-
-def main_checkout(repo):
-    rc, out, _ = run(["git", "-C", repo, "worktree", "list", "--porcelain"], repo, timeout=30)
-    for line in out.splitlines():
-        if line.startswith("worktree "):
-            return line[len("worktree "):].strip()
-    return repo
 
 
 def script(name):

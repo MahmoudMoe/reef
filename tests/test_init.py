@@ -100,6 +100,16 @@ class CopiedScripts(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("no night is running", r.stdout, "the project copy runs and refuses outside a night")
 
+    def test_init_copies_reef_common(self):
+        # consolidation step 1 (2026-10-29): every script imports the shared module from its own folder — a project copy
+        # of the scripts without it is 28 ImportErrors
+        d = node_project(tempfile.mkdtemp(prefix="reef-init-common."))
+        r = init(d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(read(d, "scripts/reef_common.py"), read(ROOT, "scripts/reef_common.py"))
+        r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-row.py"), "--help"], capture_output=True, text=True, cwd=d)
+        self.assertNotIn("ModuleNotFoundError", r.stderr, "the copied script finds the module beside it")
+
     def test_init_copies_reef_graph_run(self):
         d = node_project(tempfile.mkdtemp(prefix="reef-init-scripts."))
         r = init(d)

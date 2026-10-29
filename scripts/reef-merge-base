@@ -14,12 +14,14 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+from reef_common import git as _git  # noqa: E402
 
 HUNK = re.compile(r"<<<<<<< [^\n]*\n(.*?)=======\n(.*?)>>>>>>> [^\n]*\n", re.S)
 
 
 def git(root, *args, check=False):
-    r = subprocess.run(["git", "-C", root, *args], capture_output=True, text=True)
+    r = _git(root, *args)
     if check and r.returncode != 0:
         print(f"reef-merge-base: git {' '.join(args[:2])} failed: {r.stderr.strip()[:300]}", file=sys.stderr)
         sys.exit(1)

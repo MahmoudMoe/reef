@@ -26,6 +26,8 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+from reef_common import git as _git, read_replace as read  # noqa: E402
 
 KEEP = {"README.md", "LICENSE", "LICENSE.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md", "CODEOWNERS", "CODE_OF_CONDUCT.md", "AGENTS.md", "CLAUDE.md", "HANDOFF.md"}
 # 0.7.2 (first adoption, 2026-10-24, item 16): a licence anywhere, under any name (a font's OFL.md, LICENSE-fonts.md, NOTICE.md), is kept;
@@ -61,15 +63,10 @@ def die(msg, code=2):
 
 
 def git(root, *a, check=True):
-    r = subprocess.run(["git", "-C", root, *a], capture_output=True, text=True)
+    r = _git(root, *a)
     if check and r.returncode != 0:
         die(f"git {' '.join(a[:2])} failed: {r.stderr.strip()[:200]}", 1)
     return r.stdout
-
-
-def read(p):
-    with open(p, encoding="utf-8", errors="replace") as f:
-        return f.read()
 
 
 def served_dirs(root):
@@ -161,7 +158,7 @@ INSTRUCTION_FILE = re.compile(r"^(CLAUDE[^/]*\.md|AGENTS\.md|GEMINI\.md|\.cursor
 # 0.7.3 (first adoption, 2026-10-25): Reef's own code (the shape the guard locks and reef-update stages) names `specs/`, `docs/` and
 # HANDOFF-FRESH.md in comments and code: never the project's reader — it kept specs/, retired the old queue behind four reef-*
 # scripts, and the apply repointed scripts/reef-recalibrate, then refused on a "broken link" inside it
-REEF_CODE = re.compile(r"^(scripts/reef-[^/]+|\.githooks/[^/]+)$")
+REEF_CODE = re.compile(r"^(scripts/reef[-_][^/]+|\.githooks/[^/]+)$")   # reef_common.py is Reef's too (consolidation step 1)
 # 0.7.3 (the owner's rule: Reef works on any stack): a rule is found by its SHAPE — a slash command or a task-runner command
 # whose name means start, close or ADR, a sentence about numbering ADRs, a queue or backlog file outside Reef — never by one
 # project's command names

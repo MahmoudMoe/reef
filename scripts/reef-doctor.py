@@ -26,6 +26,8 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+from reef_common import git as _git, process_alive  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LINES = []
@@ -36,19 +38,8 @@ def say(level, what, fix=""):
 
 
 def git(cwd, *args, timeout=20):
-    try:
-        r = subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True, timeout=timeout)
-        return r.returncode, r.stdout.strip()
-    except Exception as e:
-        return 1, str(e)
-
-
-def process_alive(pid):
-    try:
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ValueError, TypeError):
-        return False
+    r = _git(cwd, *args, timeout=timeout)
+    return r.returncode, r.stdout.strip()
 
 
 def plugin_enabled():
@@ -92,7 +83,7 @@ def behind_scripts(tree, plugin):
     out = []
     sdir, pdir = os.path.join(tree, "scripts"), os.path.join(plugin, "scripts")
     for name in sorted(os.listdir(pdir) if os.path.isdir(pdir) else []):
-        if not name.startswith("reef-"):
+        if not name.startswith(("reef-", "reef_")):
             continue
         mine = os.path.join(sdir, name)
         if not os.path.isfile(mine):

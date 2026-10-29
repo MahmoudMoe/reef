@@ -15,29 +15,16 @@ import re
 import shutil
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+from reef_common import main_checkout, git as _git, config  # noqa: E402
 
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "20"))
 RED = {"failure", "cancelled", "timed_out", "action_required", "startup_failure", "stale"}
 
 
 def git(repo, *a):
-    r = subprocess.run(["git", "-C", repo, *a], capture_output=True, text=True)
+    r = _git(repo, *a)
     return r.stdout.strip() if r.returncode == 0 else ""
-
-
-def main_checkout(repo):
-    for line in git(repo, "worktree", "list", "--porcelain").splitlines():
-        if line.startswith("worktree "):
-            return line[len("worktree "):].strip()
-    return repo
-
-
-def config(root):
-    try:
-        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
 
 
 def clean_snapshot(repo, sha):

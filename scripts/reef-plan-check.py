@@ -39,6 +39,8 @@ Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
 Rule for the orchestrator: this script is deterministic; never argue with it, never work around it.
 """
 import hashlib, json, os, re, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+from reef_common import main_checkout, read  # noqa: E402
 
 STATUS = {"pending", "in-progress", "blocked", "done"}
 COMPLEXITY = {"mech", "design"}
@@ -111,11 +113,6 @@ def ok(line):
 
 def fail(line):
     results.append((False, f"FAIL: {line}"))
-
-
-def read(path):
-    with open(path, encoding="utf-8") as f:
-        return f.read()
 
 
 def parse_frontmatter(text):
@@ -305,19 +302,6 @@ def version_marker(root):
             return f.read().strip() or None
     except OSError:
         return None
-
-
-def main_checkout(root):
-    """The main checkout's path: the first entry of `git worktree list --porcelain`. Approvals and
-    review records are machine state resolved there, never from a task worktree."""
-    try:
-        r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=10)
-        for line in r.stdout.splitlines():
-            if line.startswith("worktree "):
-                return line[len("worktree "):].strip()
-    except Exception:
-        pass
-    return root
 
 
 def planned_under_06(stamp, feat):

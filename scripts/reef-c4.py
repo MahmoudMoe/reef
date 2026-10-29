@@ -11,6 +11,8 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+from reef_common import read_or_empty as read  # noqa: E402
 
 DSL = "reef/architecture/workspace.dsl"
 CAP = 9
@@ -21,14 +23,6 @@ QUEUES = {"amqplib": "RabbitMQ", "pika": "RabbitMQ", "kafkajs": "Kafka", "aiokaf
 EXTERNALS = {"stripe": "Stripe", "@sendgrid/mail": "SendGrid", "twilio": "Twilio", "@aws-sdk/client-s3": "S3", "boto3": "AWS", "openai": "OpenAI API",
              "anthropic": "Anthropic API", "@anthropic-ai/sdk": "Anthropic API", "@supabase/supabase-js": "Supabase", "firebase-admin": "Firebase"}
 ROUTE_RE = re.compile(r"(app|router|api)\.(get|post|put|delete|patch)\(|@(app|router|bp)\.(get|post|put|delete|route)\(|r\.(GET|POST|PUT|DELETE)\(|Router::new\(\)|path\(['\"]", re.M)
-
-
-def read(p):
-    try:
-        with open(p, encoding="utf-8", errors="replace") as f:
-            return f.read()
-    except OSError:
-        return ""
 
 
 def deps(root):

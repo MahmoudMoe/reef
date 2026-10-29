@@ -63,7 +63,7 @@ class RowStateMachine(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="reef-row.")
         self.main = os.path.join(self.tmp, "main")
         os.makedirs(os.path.join(self.main, "scripts"))
-        for n in ("reef-row.py", "reef-queue.py", "reef-plan-check.py", "reef-evidence.py", "reef-gate.sh", "reef-snapshot.sh"):
+        for n in ("reef-row.py", "reef-queue.py", "reef-plan-check.py", "reef-evidence.py", "reef-gate.sh", "reef-snapshot.sh", "reef_common.py"):
             shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.main, "scripts", n))
         write(self.main, ".reef/config.json", json.dumps({"gates": {"full": "echo '1 passed'"}, "ci": {"feature_gate": "local"},
                                                            "branches": {"base": "main", "release": "release"},

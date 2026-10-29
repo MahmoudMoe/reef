@@ -128,7 +128,7 @@ class _Forge(QI.Base):
             f.write(json.dumps(self.cfg, indent=2) + "\n")
         os.makedirs(os.path.join(self.d, "scripts"))
         for n in ("reef-queue.py", "reef-row.py", "reef-plan-check.py", "reef-evidence.py", "reef-gate.sh", "reef-snapshot.sh", "reef-run.py",
-                  "reef-approval.py", "reef-factory.py"):
+                  "reef-approval.py", "reef-factory.py", "reef_common.py"):
             shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.d, "scripts", n))
         TR.write(self.d, "reef/features/exact-totals/SPEC.md", TR.SPEC.replace("Row: 1", "Row: 3"))
         TR.write(self.d, "reef/features/exact-totals/tasks/301-slice.md", TR.TASK.replace("feature: demo-row-one", "feature: exact-totals").replace("id: 101", "id: 301"))

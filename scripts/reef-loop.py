@@ -19,15 +19,12 @@ import subprocess
 import sys
 import calendar
 import time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+from reef_common import run as _run, config, read_replace as read  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 MAX_LINES = 30
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "5"))
-
-
-def read(p):
-    with open(p, encoding="utf-8", errors="replace") as f:
-        return f.read()
 
 
 def root_of(repo):
@@ -49,13 +46,6 @@ def release_hold(root):
         return None
 
 
-def config(root):
-    try:
-        return json.loads(read(os.path.join(root, ".reef", "config.json")))
-    except Exception:
-        return {}
-
-
 def load_state(root):
     p = os.path.join(root, ".reef", "loop.json")
     try:
@@ -72,11 +62,8 @@ def save_state(root, st):
 
 
 def run(cmd, cwd, timeout=20):
-    try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
-        return r.returncode, r.stdout
-    except Exception:
-        return 1, ""
+    r = _run(cmd, cwd, timeout)
+    return r.returncode, r.stdout
 
 
 def all_roots(root):

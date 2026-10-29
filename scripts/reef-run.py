@@ -50,6 +50,8 @@ import shlex
 import subprocess
 import sys
 import time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+from reef_common import main_checkout, process_alive  # noqa: E402
 
 RUN_DIR = os.path.join(".reef", "run")
 LIVE = os.path.join(RUN_DIR, "live.log")
@@ -79,12 +81,6 @@ PROMPT = ("/reef-loop — a reef-run iteration: headless, AskUserQuestion does n
 def die(msg, code=1):
     print(f"reef-run: {msg}", file=sys.stderr)
     sys.exit(code)
-
-
-def main_checkout(repo):
-    r = subprocess.run(["git", "-C", repo, "worktree", "list", "--porcelain"], capture_output=True, text=True)
-    first = next((l[len("worktree "):].strip() for l in r.stdout.splitlines() if l.startswith("worktree ")), "")
-    return first or os.path.abspath(repo)
 
 
 def steps(ev, names, verdicts):
@@ -503,14 +499,6 @@ def queue_open_rows(root):
 
 HOLD_MINUTES = 30   # the guard's own rule (reef-guard.py HOLD_MINUTES): a holder idle this long is stale
 APPROVE_Q = re.compile(r"Approve (?:plan [A-Za-z0-9._-]+|night \d{4}-\d\d-\d\d|proxy by day) at [0-9a-f]{16}\?")
-
-
-def process_alive(pid):
-    try:
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ValueError, TypeError):
-        return False
 
 
 def progress_signature(root, wait):

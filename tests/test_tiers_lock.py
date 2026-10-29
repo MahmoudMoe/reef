@@ -63,6 +63,7 @@ def project(cfg, tasks, version="0.6.0"):
         with open(os.path.join(d, "tasks", name), "w") as f:
             f.write(text)
     shutil.copy(CHECK, os.path.join(d, "scripts", "reef-plan-check.py"))
+    shutil.copy(os.path.join(ROOT, "scripts", "reef_common.py"), os.path.join(d, "scripts", "reef_common.py"))
     git(d, "add", "-A")
     git(d, "commit", "-qm", "plan")
     return d

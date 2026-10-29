@@ -198,7 +198,7 @@ def main(argv):
         return menu(root)
     if args[0] == "--all":
         for name in sorted(os.listdir(HERE)):
-            if name.startswith("reef") and name != "reef":
+            if name.startswith("reef-"):   # commands; reef_common.py is a module
                 print(f"  {name:<28}{purpose(os.path.join(HERE, name))}")
         return 0
     verb, rest = args[0], args[1:]

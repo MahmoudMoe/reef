@@ -15,15 +15,12 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+from reef_common import run as _run, read_replace as read  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MAX_LINES = 60
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
-
-
-def read(p):
-    with open(p, encoding="utf-8", errors="replace") as f:
-        return f.read()
 
 
 def frontmatter(text):
@@ -44,10 +41,7 @@ def script(root, name):
 
 
 def run(args, cwd, timeout=60):
-    try:
-        return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout).stdout
-    except Exception:
-        return ""
+    return _run(args, cwd, timeout).stdout
 
 
 def task_files(root, cfg):

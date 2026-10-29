@@ -15,6 +15,8 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+from reef_common import main_checkout, read  # noqa: E402
 
 TEST_RE = re.compile(r"(?<![A-Za-z0-9_])test_[a-z0-9_]+|(?<![A-Za-z0-9_])Test[A-Z][A-Za-z0-9_]*|(?:\bit|\btest|\bdescribe)\((['\"])(.+?)\1\)")
 # a backticked Proof is a COMMAND when it reads like one — shell operators, a flag, a path, or a known runner up front;
@@ -83,11 +85,6 @@ def looks_like_command(s):
 def die(msg, code=2):
     print(f"reef-converge: {msg}", file=sys.stderr)
     sys.exit(code)
-
-
-def read(p):
-    with open(p, encoding="utf-8") as f:
-        return f.read()
 
 
 def section(text, heading):
@@ -204,14 +201,6 @@ def test_exists(repo, name):
     r = subprocess.run(["grep", "-rlF", "--exclude-dir=.git", "--exclude-dir=.reef", "--exclude-dir=node_modules", "--exclude=*.md", name, "."],
                        cwd=repo, capture_output=True, text=True)
     return bool(r.stdout.strip())
-
-
-def main_checkout(root):
-    r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True)
-    for line in r.stdout.splitlines():
-        if line.startswith("worktree "):
-            return line[len("worktree "):].strip()
-    return root
 
 
 def shell_runner(root, cfg):
