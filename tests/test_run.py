@@ -117,6 +117,47 @@ def calls(d):
     return open(p).read().splitlines() if os.path.exists(p) else []
 
 
+class UnknownArgument(unittest.TestCase):
+    """2026-10-29: `reef-run.py --status`, a typo for the verb `status`, fell through to cmd_run and started a loop session
+    on the owner's project without a word. An argument that is neither a verb (first position) nor a known flag refuses
+    with the usage block, exit 2; a run starts only on an empty argv or known flags."""
+
+    def load(self):
+        import importlib.machinery, importlib.util
+        loader = importlib.machinery.SourceFileLoader("reef_run_under_test", RUN)
+        spec = importlib.util.spec_from_loader("reef_run_under_test", loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+        return mod
+
+    def test_a_typo_for_a_verb_refuses_with_the_usage_and_runs_nothing(self):
+        import contextlib, io
+        mod, d, called = self.load(), project(), []
+        mod.cmd_run = lambda *a, **k: called.append("run") or 0
+        mod.cmd_status = lambda root: called.append("status") or 0
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+            mod.main(["--status", "--repo", d])
+        self.assertEqual(cm.exception.code, 1, "refused — 1, the runner's refusal code (2 is 'waiting on the owner', which the factory reads as built)")
+        self.assertEqual(called, [], "nothing ran")
+        self.assertIn("Usage", err.getvalue())
+        self.assertIn("'--status'", err.getvalue())
+        self.assertEqual(mod.main(["status", "--repo", d]), 0)
+        self.assertEqual(called, ["status"], "the verb reaches cmd_status")
+        for argv, why in ((["--repo"], "a flag without its value is refused, not an IndexError"), (["--repo", d, "--nigth"], "a misspelt flag"),
+                          (["--max-iterations", "abc"], "a count that is not one")):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
+                mod.main(argv)
+            self.assertEqual(cm.exception.code, 1, why)
+        self.assertEqual(called, ["status"])
+
+    def test_from_the_shell_too_and_no_session_starts(self):
+        d = project()
+        self.assertEqual(run(d, ["probe-deny"], "probe").returncode, 0)
+        r = run(d, ["stop:never"], "--status")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("unknown argument '--status'", r.stderr)
+        self.assertEqual(calls(d), ["probe-deny"], "the probe's session only — no loop session was started")
 class OrphanSession(unittest.TestCase):
     """2026-10-29 (the owner): the runner died when its stdout pipe closed, its `claude -p /reef-loop` session lived on running
     gates at full CPU with no window anywhere, and `reef-run.py stop` said "no runner is running" — `pkill` was the only way.

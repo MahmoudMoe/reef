@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **`reef-run.py` refuses an unknown argument** (2026-10-29, the owner: `python3 scripts/reef-run.py --status`, a typo for the
+  verb `status`, fell through to a run and started a loop session on the project without a word). Every argument is checked
+  first: a verb (`watch`, `status`, `stop`, `probe`, `contract`, first position only), a flag with its value (`--repo`,
+  `--permission-mode`, `--host`, `--max-iterations`, `--row`, `--from`) or a bare flag (`--night`, `--detach`, `--day`); anything
+  else prints the usage block and exits 1 (refused; 2 is "waiting on the owner", which the factory reads as built — the
+  review) before anything runs — a flag without its value, or a `--max-iterations` that is not a count, too. tests/size-budget.json raised: `script_lines` 17,401 → 17,429.
 - **The orphan test's fake session survives its runner's death** (2026-10-29, CI's macOS leg on PR 215: the fake wrote its
   one event into the dead runner's pipe and died on it, so the "orphan" the test asserts was gone — the real `claude`
   kept running its gate). The fake swallows the broken pipe like the real one; the test waits past that step first.
