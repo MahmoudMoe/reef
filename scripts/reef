@@ -11,6 +11,9 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import main_checkout  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
@@ -31,7 +34,7 @@ VERBS = [
      lambda root, a: run_script("reef-run.py", ["--repo", root, "--night", "--detach"] if a[:1] == ["start"] else ["contract", "--repo", root, *a], root)),
     ("watch",   "the runner's live steps, one line each (Ctrl-C leaves, stops nothing)",
      lambda root, a: run_script("reef-run.py", ["watch", "--repo", root], root)),
-    ("stop",    "the runner ends after its current session, never mid-merge",
+    ("stop",    "the runner ends after its current session, never mid-merge; a session a dead runner left behind is ended now",
      lambda root, a: run_script("reef-run.py", ["stop", "--repo", root], root)),
     ("setup",   "the worktree setup, proven once per change: `setup` says the state, `setup prove` proves it",
      lambda root, a: run_script("reef-setup.py", [*(a or ["state"]), "--repo", root], root)),
@@ -87,14 +90,6 @@ def run_script(name, args, cwd):
         print(f"reef: scripts/{name} is not here and no plugin clone was found — python3 <plugin>/scripts/reef-update.py --repo . --commit copies it", file=sys.stderr)
         return 1
     return subprocess.run([PY, path, *args], cwd=cwd).returncode
-
-
-def main_checkout(repo):
-    r = subprocess.run(["git", "-C", repo, "worktree", "list", "--porcelain"], capture_output=True, text=True)
-    for line in r.stdout.splitlines():
-        if line.startswith("worktree "):
-            return line[len("worktree "):].strip()
-    return os.path.abspath(repo)
 
 
 def purpose(path):
@@ -193,12 +188,12 @@ def main(argv):
     if "--repo" in args and args.index("--repo") + 1 < len(args):
         repo = args[args.index("--repo") + 1]
         del args[args.index("--repo"):args.index("--repo") + 2]
-    root = main_checkout(repo)
+    root = main_checkout(os.path.abspath(repo))   # the abspath fallback the entry point always had
     if not args:
         return menu(root)
     if args[0] == "--all":
         for name in sorted(os.listdir(HERE)):
-            if name.startswith("reef") and name != "reef":
+            if name.startswith("reef-"):   # commands; reef_common.py is a module
                 print(f"  {name:<28}{purpose(os.path.join(HERE, name))}")
         return 0
     verb, rest = args[0], args[1:]

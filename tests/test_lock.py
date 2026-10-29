@@ -107,7 +107,7 @@ class GateResources(unittest.TestCase):
         d = tempfile.mkdtemp(prefix="reef-res.")
         g = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
         os.makedirs(os.path.join(d, "scripts"))
-        for f in ("reef-gate.sh", "reef-snapshot.sh", "reef-graph.py"):
+        for f in ("reef-gate.sh", "reef-snapshot.sh", "reef-graph.py", "reef_common.py"):
             shutil.copy(os.path.join(ROOT, "scripts", f), os.path.join(d, "scripts", f))
         log = os.path.join(d, "..", os.path.basename(d) + ".runs")
         gate = (f"python3 -c \"import time,sys; f=open(sys.argv[1],'a'); f.write('s %f\\n' % time.time()); f.flush(); "

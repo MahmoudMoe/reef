@@ -32,6 +32,9 @@ import subprocess
 import sys
 import tempfile
 import time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import main_checkout, read_config, repo_root  # noqa: E402
 
 DEFAULT_PARALLEL = 10
 DEFAULT_CAP = 3
@@ -101,21 +104,6 @@ def set_keys(path, text, updates):
 
 # ---------------------------------------------------------------- layout
 
-def repo_root(start):
-    """Walk up from a task file (or directory) to the first .reef/ or .git/ marker —
-    the same rule as reef-attempt; never the caller's cwd."""
-    probe = os.path.abspath(start)
-    if os.path.isfile(probe):
-        probe = os.path.dirname(probe)
-    while True:
-        if os.path.isdir(os.path.join(probe, ".reef")) or os.path.exists(os.path.join(probe, ".git")):
-            return probe
-        parent = os.path.dirname(probe)
-        if parent == probe:
-            return os.path.abspath(start) if os.path.isdir(start) else os.path.dirname(os.path.abspath(start))
-        probe = parent
-
-
 def plan_home(path):
     """A task file named inside a TASK worktree (<worktree.dir>/<id>/…) has its home in its FEATURE worktree
     (<worktree.dir>/<feature>/…), where the plan lives and the tick reads it. 2026-10-24 (qassimha 502): a re-dispatch marked
@@ -138,14 +126,6 @@ def plan_home(path):
     wtdir = str((read_config(main).get("worktree") or {}).get("dir") or ".reef/worktrees")
     home = os.path.join(main, wtdir, feature, os.path.relpath(p, root))
     return home if os.path.realpath(home) != os.path.realpath(p) and os.path.isfile(home) else path
-
-
-def read_config(root):
-    try:
-        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
 
 
 def tasks_dir_for(root, cfg, task_path=None):
@@ -408,20 +388,6 @@ def cmd_check(task_path):
         return 0
     print(f"reef-graph NOT READY: {task_path}: {reason}", file=sys.stderr)
     return 2
-
-
-def main_checkout(root):
-    """The first entry of `git worktree list`: the main checkout. Task worktrees live under IT, never nested in the
-    feature worktree the task file was read from (first contact, 2026-10-16: `.reef/worktrees/<feature>/.reef/
-    worktrees/101`, and the feature worktree's lint walked into the nested build output)."""
-    try:
-        r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=10)
-        for line in r.stdout.splitlines():
-            if line.startswith("worktree "):
-                return line[len("worktree "):].strip()
-    except Exception:
-        pass
-    return root
 
 
 def cmd_worktree(task_path, base):

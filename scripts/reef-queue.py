@@ -75,6 +75,9 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import read_config as config, repo_root, read  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 TASK_NAME_RE = re.compile(r"R?\d+-.*\.md$")
@@ -127,23 +130,6 @@ def structure_errors(root, cfg):
 def die(msg, code=2):
     print(f"reef-queue: {msg}", file=sys.stderr)
     sys.exit(code)
-
-
-def repo_root(start):
-    r = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=start, capture_output=True, text=True)
-    return r.stdout.strip() if r.returncode == 0 else os.path.abspath(start)
-
-
-def read(path):
-    with open(path, encoding="utf-8") as f:
-        return f.read()
-
-
-def config(root):
-    try:
-        return json.loads(read(os.path.join(root, ".reef", "config.json")))
-    except Exception:
-        return {}
 
 
 def parse_table(text):

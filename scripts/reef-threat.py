@@ -10,17 +10,15 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import read_replace as read  # noqa: E402
 
 DSL = "reef/architecture/workspace.dsl"
 TM = "reef/architecture/threat-model.md"
 ARCH = "reef/architecture/architecture.md"
 TEST_RE = re.compile(r"(?<![A-Za-z0-9_])test_[a-z0-9_]+|(?<![A-Za-z0-9_])Test[A-Z][A-Za-z0-9_]*|(?:\bit|\btest|\bdescribe)\((['\"]).+?\1\)|`[^`]+`")
 STRIDE = {"S", "T", "R", "I", "D", "E", "SPOOFING", "TAMPERING", "REPUDIATION", "INFORMATION DISCLOSURE", "DENIAL OF SERVICE", "ELEVATION OF PRIVILEGE"}
-
-
-def read(p):
-    with open(p, encoding="utf-8", errors="replace") as f:
-        return f.read()
 
 
 def crossings(dsl):

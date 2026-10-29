@@ -7,6 +7,39 @@
   `--permission-mode`, `--host`, `--max-iterations`, `--row`, `--from`) or a bare flag (`--night`, `--detach`, `--day`); anything
   else prints the usage block and exits 1 (refused; 2 is "waiting on the owner", which the factory reads as built — the
   review) before anything runs — a flag without its value, or a `--max-iterations` that is not a count, too. tests/size-budget.json raised: `script_lines` 17,401 → 17,429.
+- **The orphan test's fake session survives its runner's death** (2026-10-29, CI's macOS leg on PR 215: the fake wrote its
+  one event into the dead runner's pipe and died on it, so the "orphan" the test asserts was gone — the real `claude`
+  kept running its gate). The fake swallows the broken pipe like the real one; the test waits past that step first.
+- **Consolidation step 1 — one shared module** (docs/design/consolidation.md, 2026-10-29): `scripts/reef_common.py` holds the
+  one body of `main_checkout`, `run`, `git`, `config`/`read_config`, `repo_root`, `process_alive` and `read`; every script
+  imports it beside a `sys.path.insert` of its own folder and loses its copy, keeping at most a one-shape adapter where its
+  callers expect another return. No assertion changed. `reef-init` copies the module, `reef-update` stages it, the guard
+  protects it like `scripts/reef-*`, the doctor compares it, `reef --all` lists commands only. tests/size-budget.json SET to the measurement: `script_lines` 17,587 → 17,471 `prose_words` 22,721 → 22,721 (the ceiling only comes down).
+- **A dead runner leaves no orphan** (2026-10-29, the owner: the runner died when its stdout pipe closed, its `claude -p
+  /reef-loop` session lived on running gates at full CPU with no window anywhere, and `reef-run.py stop` said "no runner
+  is running" — `pkill` was the only way). The runner records the session it is in (`.reef/run/session.pid`: pid and
+  start) and removes it when the session ends; `status` says `runner gone, session <pid> still running since <time>`;
+  `stop` ends that session (TERM, KILL after 10 s), clears the lock and the record, and stops the loop with the reason
+  (`reef-loop.py stop "<reason>"`, which now takes one) so `.reef/loop.json` agrees, exit 0. The runner's own exit path
+  ends its session — normal, an exception, TERM, INT or a closed pipe (session()'s `finally`, TERM/INT handlers that
+  unwind, an atexit). The reviews: the session runs in its own process group and is ended as a group (the gates it
+  spawned are grandchildren, which outlive a kill of `claude` alone); `stop` kills only the process the runner recorded
+  (session.pid carries the ps start time and must still match — a reused pid or a record an agent wrote is refused);
+  the record's text is validated before it is printed; no SIGPIPE handler (a broken pipe unwinds as BrokenPipeError). tests/size-budget.json raised: `script_lines` 17,419 → 17,511.
+- **An implementer never edits a task file** (2026-10-29, row 9 on the current adoption: the implementer refreshed the
+  line numbers in its task's `## Read first` and the next task's, every close carried the edit, the plan's digest moved
+  and the owner re-approved an unchanged plan three times). The guard refuses an implementer's Edit, Write or MultiEdit
+  to a task file under `paths.features` or the legacy `tasks/` (the mechanic's close and the orchestrator's amendments
+  are not implementers); the brief says a moved line goes in the hand-back, never into the task. The reviews: the rule
+  covers the whole feature folder (the digest does: SPEC, ADRs, every task), the Bash route too (`sed -i`, a redirect,
+  `tee`, `git mv|rm`), anchored to the project's roots from any worktree; a ledger row names it (tripwire). tests/size-budget.json raised: `prose_words` 22,672 → 22,710, `script_lines` 17,401 → 17,419.
+- **A task's close moves no plan digest** (2026-10-29, row 9 on the current adoption: a planner's task file has no `## Log`,
+  so `reef-merge-close` wrote the journal block at the end of the body, where the digest hashed it — three closes in a
+  row, three re-approvals of a plan nobody had changed, each a stop for the owner). The digest strips the
+  `<!-- journal -->…<!-- /journal -->` block like it strips the Log and the status keys; a task without that block
+  hashes exactly as before, so every current approval stands. The reviews: the close appends after the body's own last
+  bytes and the digest strips exactly that, at the end of the file only; a journal block holding anything but table rows,
+  or sitting anywhere else, fails the plan check (the criteria readers would see it; the digest must too). tests/size-budget.json raised: `script_lines` 17,387 → 17,392.
 - **An approval hold in the tick names the exact owner command** (2026-10-29, row 9 on the current adoption: the tick said
   `awaiting: <row> (re-approval (plan edited after approval))` and `next:` echoed it, so the owner's own loop session wrote
   the wait as "run reef-approval.py --owner for <row> at <digest> in a terminal"). The hold now ends with

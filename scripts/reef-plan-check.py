@@ -39,6 +39,9 @@ Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
 Rule for the orchestrator: this script is deterministic; never argue with it, never work around it.
 """
 import hashlib, json, os, re, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import main_checkout, read  # noqa: E402
 
 STATUS = {"pending", "in-progress", "blocked", "done"}
 COMPLEXITY = {"mech", "design"}
@@ -113,11 +116,6 @@ def fail(line):
     results.append((False, f"FAIL: {line}"))
 
 
-def read(path):
-    with open(path, encoding="utf-8") as f:
-        return f.read()
-
-
 def parse_frontmatter(text):
     """Minimal YAML-subset parser for task frontmatter. Returns dict or raises ValueError."""
     m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
@@ -190,6 +188,14 @@ LOG_HEADING = re.compile(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", re.M)
 # edits re-ran three hunters, three approvals and three reviews). Only the Log may follow it.
 NOTES_HEADING = re.compile(r"^##[ \t]+Reviewer notes[ \t]*$", re.M)
 CUT_HEADING = re.compile(r"^##[ \t]+(?:[Ll][Oo][Gg]|Reviewer notes)[ \t]*$", re.M)
+# the close (reef-merge-close) appends `\n<!-- journal -->…<!-- /journal -->\n` after the body's own last bytes, on a task that
+# has no `## Log`: execution's record, outside the digest like the Log — stripped exactly, so the body hashes as it did
+# (2026-10-29, row 9 on the current adoption: three closes, three re-approvals of an unchanged plan)
+# Anchored to the END of the file (the security review of #211: the criteria readers stop at the next `##`, so a block
+# inside the last section would be read as plan while the digest ignored it — a block anywhere else is hashed, and
+# the structural check below refuses it)
+JOURNAL_BLOCK = re.compile(r"\n<!-- journal -->.*?<!-- /journal -->[ \t]*(?:\r?\n)?\Z", re.S)
+JOURNAL_ANY = re.compile(r"<!-- journal -->(.*?)<!-- /journal -->", re.S)
 ADR_CITE = re.compile(r"\b(\d{4})-[A-Za-z0-9._-]+\.md\b|\bADR[ -]?0*(\d{1,4})\b")   # how a plan names a decision
 ADR_STATUS = re.compile(r"^Status:.*(?:\r?\n|\Z)", re.M)
 
@@ -297,19 +303,6 @@ def version_marker(root):
             return f.read().strip() or None
     except OSError:
         return None
-
-
-def main_checkout(root):
-    """The main checkout's path: the first entry of `git worktree list --porcelain`. Approvals and
-    review records are machine state resolved there, never from a task worktree."""
-    try:
-        r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=10)
-        for line in r.stdout.splitlines():
-            if line.startswith("worktree "):
-                return line[len("worktree "):].strip()
-    except Exception:
-        pass
-    return root
 
 
 def planned_under_06(stamp, feat):
@@ -631,6 +624,7 @@ def main():
         # cut at the Log heading in any case/spacing — a '## log' variant would
         # otherwise hash the log body and stale the plan on the first log append; the Reviewer notes cut the same way
         text = CUT_HEADING.split(text, maxsplit=1)[0]
+        text = JOURNAL_BLOCK.sub("", text, count=1)
         m = FM_RE.match(text)
         if m:
             # what EXECUTION writes: the status keys, the worktree, and the hunter's records — the guard pass (written
@@ -1067,6 +1061,13 @@ def main():
         log_parts = LOG_HEADING.split(text, maxsplit=1)
         if not rollup and len(log_parts) == 2 and re.search(r"^##[ \t]", log_parts[1], re.M):
             fail(f"{rel}: ## Log must be the LAST section — the stamp ignores everything after it")
+        # the close's journal block is outside the digest only in the close's own shape: `|` rows, at the end of the file
+        for jm in JOURNAL_ANY.finditer(text):
+            rows = [l for l in jm.group(1).splitlines() if l.strip()]
+            if any(not l.lstrip().startswith("|") for l in rows):
+                fail(f"{rel}: a journal block holds table rows only (the digest ignores the block; prose in it would read as plan)")
+            if text[jm.end():].strip():
+                fail(f"{rel}: a journal block sits at the end of the file (the digest ignores a block there, nowhere else)")
         notes_parts = NOTES_HEADING.split(text, maxsplit=1)
         if len(notes_parts) == 2:
             after = [h for h in re.findall(r"^##[ \t]+(.*?)[ \t]*$", notes_parts[1], re.M) if not re.fullmatch(r"[Ll][Oo][Gg]", h)]

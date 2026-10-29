@@ -67,7 +67,7 @@ class SetupProof(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="reef-setup.")
         self.main = os.path.join(self.tmp, "main")
         os.makedirs(os.path.join(self.main, "scripts"))
-        for n in ("reef-setup.py", "reef-row.py", "reef-queue.py", "reef-plan-check.py", "reef-evidence.py", "reef-gate.sh", "reef-snapshot.sh", "reef-graph.py", "reef-attempt"):
+        for n in ("reef-setup.py", "reef_common.py", "reef-row.py", "reef-queue.py", "reef-plan-check.py", "reef-evidence.py", "reef-gate.sh", "reef-snapshot.sh", "reef-graph.py", "reef-attempt"):
             if os.path.isfile(os.path.join(ROOT, "scripts", n)):
                 shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.main, "scripts", n))
         # the suite needs a file the setup makes — the shape of "the tests read the built app"
@@ -228,7 +228,8 @@ class FailingLinesAreTheRealOnes(unittest.TestCase):
         tmp = tempfile.mkdtemp(prefix="reef-setup-lines.")
         main = os.path.join(tmp, "main")
         os.makedirs(os.path.join(main, "scripts"))
-        shutil.copy(os.path.join(ROOT, "scripts", "reef-setup.py"), os.path.join(main, "scripts", "reef-setup.py"))
+        for n in ("reef-setup.py", "reef_common.py"):
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(main, "scripts", n))
         gate = "sh -c 'echo \"[session-patch] nothing was stored: the closing write failed with X\"; echo \" FAIL  tests/t.py > the real one\"; echo \"Tests 1 failed | 3 passed\"; exit 1'"
         write(main, ".reef/config.json", json.dumps({"gates": {"full": gate}, "worktree": {"setup": "true"}, "branches": {"base": "main"}}))
         write(main, ".gitignore", ".reef/worktrees/\n.reef/ci-local/\n")

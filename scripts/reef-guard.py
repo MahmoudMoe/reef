@@ -57,6 +57,11 @@ smells like a bypass is denied; anything unparseable and innocent is allowed.
 """
 import os as _os
 import sys as _sys
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import main_checkout as _main_checkout, read_config, process_alive  # noqa: E402
 
 # 0.7: native Windows has no fcntl locks, no SIGALRM deadline and no process groups, and the guard cannot run there.
 # Inside a Reef project it stops with the one sentence that helps; anywhere else it steps aside (the plugin's hook runs
@@ -115,7 +120,7 @@ COPY_HEADS = {"cp", "mv", "install", "rsync"}
 EVIDENCE_DENIAL = ("the main session does not write an agent's evidence ({path}): the agent writes its own file (the hand-back into "
                    "its worktree's .reef/ci-local/, a judge's report into the scratchpad) and the orchestrator copies it with cp. "
                    "Missing? Resume that agent (SendMessage) with 'write your report to <path>' — never type it from its message")
-GUARD_FILES = re.compile(r"(^|/)(scripts/reef(-[^/]+)?|\.githooks/[^/]+|hooks/hooks\.json|\.reef/config\.json)$")   # 2026-10-28: scripts/reef, the owner's entry point, too
+GUARD_FILES = re.compile(r"(^|/)(scripts/reef([-_][^/]+)?|\.githooks/[^/]+|hooks/hooks\.json|\.reef/config\.json)$")   # 2026-10-28: scripts/reef, the owner's entry point, too
 PROTECTED_KEYS = ("roles", "caps", "gates", "tiers", "merge", "ci", "branches", "loop",   # merge/ci/branches/loop: v3 phase 4 — the merge gate's own switches
                   "worktree")   # 2026-10-28: worktree.setup is a command scripts/reef-setup.py runs under the main checkout, unseen by this hook
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "5"))
@@ -524,6 +529,7 @@ def check_segment(seg, depth=0, next_op=";", pipefail=False):
     check_record_dirs(seg)
     check_evidence_authoring(seg, CTX)
     check_guard_files(seg, CTX)
+    check_plan_files(seg, CTX)
     check_reviewer_lock(seg, CTX)
     check_forge_merge(seg, CTX)
     check_approval_cli(seg)
@@ -1099,15 +1105,6 @@ ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "pl
            "planner": "planner", "mahmoud": "proxy", "acceptance": "reviewer"}
 
 
-def read_config(root):
-    try:
-        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
-            cfg = json.load(f)
-        return cfg if isinstance(cfg, dict) else {}
-    except Exception:
-        return {}
-
-
 def task_tier(fm):
     return fm.get("tier") or ("light" if fm.get("complexity") == "mech" else "full")
 
@@ -1343,15 +1340,9 @@ def _check_dispatch(tool_input, payload):
 # ---------------- 0.6: the guard guards itself (Edit/Write/MultiEdit) ----------------
 
 def main_checkout(cwd):
-    """The main checkout (first `git worktree list --porcelain` entry); machine state lives there."""
-    try:
-        r = subprocess.run(["git", "-C", cwd, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=5)
-        for line in r.stdout.splitlines():
-            if line.startswith("worktree "):
-                return line[len("worktree "):].strip()
-    except Exception:
-        pass
-    return task_root(os.path.join(cwd, "x"), cwd)
+    """The main checkout; without git's answer, the task root this hook computes (machine state lives there)."""
+    found = _main_checkout(cwd, timeout=5, default=None)
+    return found if found is not None else task_root(os.path.join(cwd, "x"), cwd)
 
 
 HOLD_MINUTES = 30
@@ -1399,20 +1390,11 @@ def check_one_orchestrator(payload, cwd):
     os.replace(tmp, p)
 
 
-def process_alive(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 def context_for(payload):
     """Facts the Bash and Edit checks share, computed once per hook call."""
     cwd = payload.get("cwd") or os.getcwd()
-    roots = {main_checkout(cwd), task_root(os.path.join(cwd, "x"), cwd)}
+    main = main_checkout(cwd)
+    roots = {main, task_root(os.path.join(cwd, "x"), cwd)}
     plugin = os.environ.get("CLAUDE_PLUGIN_ROOT") or ""
     plugin_root = bool(plugin) and os.path.realpath(cwd).startswith(os.path.realpath(plugin))
     critical = False
@@ -1427,10 +1409,45 @@ def context_for(payload):
                 continue
         v = os.path.join(root, ".reef", "verifying")
         verifying = verifying or (os.path.isdir(v) and bool(os.listdir(v)))
-    return {"cwd": cwd, "roots": roots, "plugin_root": plugin_root, "critical_inflight": critical,
+    return {"cwd": cwd, "main": main, "roots": roots, "plugin_root": plugin_root, "critical_inflight": critical,
             "agent_type": str(payload.get("agent_type") or ""),
             "main_session": not payload.get("agent_id") and not payload.get("agent_type"),
             "typeless_locked": bool(payload.get("agent_id")) and not payload.get("agent_type") and verifying}
+
+
+TASK_FILE = re.compile(r"^tasks/(done/)?R?\d+-[^/]+\.md$")   # a legacy-layout task file, open or done (reef-plan-check's name rule)
+PLAN_DENIAL = ("{rel} is the plan — the owner's approved text; an implementer never edits a task file, the SPEC or an ADR "
+               "(every edit voids the approval). A moved line or a stale reference goes in your hand-back; the orchestrator "
+               "amends the plan if it must")
+
+
+def is_plan_file(path, ctx):
+    """A file of the plan an implementer builds: anything under the feature folder (paths.features/<slug>/ — the digest
+    covers the whole folder: SPEC, ADRs, tasks) or a legacy top-level task file, anchored to the project's roots (the main
+    checkout and the task worktree the agent works in); a path that resolves inside neither — a look-alike elsewhere —
+    is nobody's (the reviews, 2026-10-29)."""
+    full = os.path.realpath(path if os.path.isabs(path) else os.path.join(ctx.get("cwd") or os.getcwd(), path))
+    feat = str((read_config(ctx.get("main") or "").get("paths") or {}).get("features", "reef/features") or "reef/features").strip("/")
+    for root in ctx.get("roots") or ():
+        rel = os.path.relpath(full, os.path.realpath(root)).replace(os.sep, "/")
+        if rel.startswith(".."):
+            continue
+        if rel.startswith(feat + "/") or TASK_FILE.match(rel):
+            return True
+    return False
+
+
+def check_plan_files(seg, ctx):
+    """The Bash route to the same files (the security review): a write head's targets, a redirect's, `git mv|rm|restore|checkout`'s
+    arguments — denied for an implementer like its Edit; a read or a run is not a write."""
+    if "implementer" not in str(ctx.get("agent_type") or ""):
+        return
+    targets = list(write_targets(seg)) if is_write(seg) else []
+    if seg and os.path.basename(seg[0]) == "git" and seg[1:2] and seg[1] in ("mv", "rm", "restore", "checkout"):
+        targets += [a for a in seg[2:] if not a.startswith("-")]
+    for t in targets:
+        if is_plan_file(t, ctx):
+            deny(PLAN_DENIAL.format(rel=t))
 
 
 def check_edit(tool_input, payload, ctx):
@@ -1438,6 +1455,10 @@ def check_edit(tool_input, payload, ctx):
     if not path:
         return
     rel = os.path.relpath(path, ctx["cwd"]) if os.path.isabs(path) else path
+    if "implementer" in str(ctx.get("agent_type") or "") and is_plan_file(path, ctx):
+        # 2026-10-29 (row 9 on the current adoption): the implementer refreshed the line numbers in `## Read first`, every
+        # close carried the edit, the plan's digest moved and the owner re-approved an unchanged plan three times
+        deny(PLAN_DENIAL.format(rel=rel))
     if RECORD_DIRS.search(path) or RECORD_DIRS.search(rel):
         deny("editing under .reef/approvals/, .reef/review/, .reef/night/ or .reef/evidence/ — these records are written by the AskUserQuestion "
              "hook, scripts/reef-record, scripts/reef-run.py and scripts/reef-gate.sh, bound to a digest, a forge SHA or a tree snapshot; "

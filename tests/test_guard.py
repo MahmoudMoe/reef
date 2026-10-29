@@ -459,8 +459,8 @@ class DispatchGuard(unittest.TestCase):
                     "effort: medium\nblocked-by: []\nverify: gate-only\nattempts: 0\n"
                     "dispatches: 0\nlast_failure_sig: \"\"\n---\n# 7\n\n## Scope\nx\n\n"
                     "## Acceptance Criteria\n- test_demo_works goes red first\n\n## Log\n")
-        shutil.copy(os.path.join(ROOT, "scripts", "reef-plan-check.py"),
-                    os.path.join(d, "scripts", "reef-plan-check.py"))
+        for n in ("reef-plan-check.py", "reef_common.py"):
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(d, "scripts", n))
         r = sp.run([sys.executable, os.path.join(d, "scripts", "reef-plan-check.py"), d],
                    capture_output=True, text=True)
         assert r.returncode == 0, f"fixture plan must pass plan-check:\n{r.stdout}"
@@ -489,8 +489,8 @@ class DispatchGuard(unittest.TestCase):
         os.makedirs(os.path.join(self.dir, "scripts"), exist_ok=True)
         import subprocess as sp
         sp.run(["git", "init", "-q", "-b", "main", self.dir], check=True)
-        shutil.copy(os.path.join(ROOT, "scripts", "reef-plan-check.py"),
-                    os.path.join(self.dir, "scripts", "reef-plan-check.py"))
+        for n in ("reef-plan-check.py", "reef_common.py"):
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.dir, "scripts", n))
         os.makedirs(os.path.join(self.dir, ".reef"), exist_ok=True)
         with open(os.path.join(self.dir, ".reef", "config.json"), "w") as f:
             f.write('{"gates": {"test": "true"}}')
@@ -544,8 +544,8 @@ def plan_repo(d, tasks=((7, "demo"),)):
     for tid, feat in tasks:
         with open(os.path.join(d, "tasks", f"{tid:03d}-{feat}.md"), "w") as f:
             f.write(plan_task(tid, feat))
-    shutil.copy(os.path.join(ROOT, "scripts", "reef-plan-check.py"),
-                os.path.join(d, "scripts", "reef-plan-check.py"))
+    for n in ("reef-plan-check.py", "reef_common.py"):
+        shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(d, "scripts", n))
     git(d, "add", "-A")
     git(d, "commit", "-qm", "plan")
     return d
@@ -730,6 +730,107 @@ class HandoffIsRendered(unittest.TestCase):
         self.assertEqual(r.returncode, 0, "the plugin's own template is not a project's handoff")
         r = run_guard({"tool_name": "Write", "agent_id": "a0e1e40f", "agent_type": "reef:implementer", "tool_input": {"file_path": "HANDOFF.md", "content": "x"}})
         self.assertEqual(r.returncode, 2, "no agent writes it either")
+
+
+class TaskFilesAreThePlan(unittest.TestCase):
+    """2026-10-29 (row 9 on the current adoption): the implementer rewrote the line numbers in its task's `## Read first` and
+    the next task's, every close carried the edit, and the plan's digest moved — a re-approval of a plan the owner had
+    approved, three times. A task file is the owner's approved text: an implementer never edits one; the mechanic's close
+    and the orchestrator's amendments are not implementers."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-task-guard.")
+        subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
+        write_config(self.d, {"gates": {"full": "true"}, "paths": {"features": "reef/features"}})
+
+    def edit(self, rel, who, tool="Edit"):
+        payload = {"tool_name": tool, "cwd": self.d, "tool_input": {"file_path": os.path.join(self.d, rel), "old_string": ":234", "new_string": ":225", "content": "x"}}
+        if who:
+            payload.update(agent_id="a1", agent_type=who)
+        return run_guard(payload)
+
+    def test_an_implementer_never_edits_a_task_file(self):
+        for rel in ("reef/features/demo/tasks/902-agents.md", "reef/features/demo/tasks/done/901-loop.md", "tasks/R03-fix.md"):
+            for tool in ("Edit", "Write", "MultiEdit"):
+                r = self.edit(rel, "reef:implementer", tool)
+                self.assertEqual(r.returncode, 2, f"{tool} {rel}: {r.stderr}")
+                self.assertIn("task file", r.stderr)
+                self.assertIn("hand-back", r.stderr)
+        r = self.edit("reef/features/demo/tasks/902-agents.md", "reef:mechanic")
+        self.assertEqual(r.returncode, 0, "the mechanic's close edits are its job: " + r.stderr)
+        r = self.edit("reef/features/demo/tasks/902-agents.md", "")
+        self.assertEqual(r.returncode, 0, "the orchestrator amends a plan (then the owner re-approves): " + r.stderr)
+        r = self.edit("src/tasks/902-agents.md", "reef:implementer")
+        self.assertEqual(r.returncode, 0, "a project's own tasks folder outside the features dir is not Reef's: " + r.stderr)
+        # the security review: the digest covers the WHOLE feature folder — SPEC, ADRs, notes — not only `NNN-slug.md`
+        for rel in ("reef/features/demo/SPEC.md", "reef/features/demo/adr/draft-demo.md", "reef/features/demo/tasks/notes.md"):
+            r = self.edit(rel, "reef:implementer")
+            self.assertEqual(r.returncode, 2, f"{rel} is the plan too: {r.stderr}")
+        r = self.edit("tasks/notes.md", "reef:implementer")
+        self.assertEqual(r.returncode, 0, "the legacy layout guards its task files only: " + r.stderr)
+
+    def test_the_bash_route_is_closed_for_the_implementer_too(self):
+        # the security review: `sed -i`, a redirect, `tee`, `git mv` reach the same file and the close stages every change
+        bash = lambda cmd, who="reef:implementer": run_guard({"tool_name": "Bash", "cwd": self.d, "agent_id": "a1", "agent_type": who, "tool_input": {"command": cmd}})
+        for cmd in ("sed -i '' 's/:234/:225/' reef/features/demo/tasks/902-agents.md",
+                    "printf 'x' > reef/features/demo/SPEC.md",
+                    "echo y | tee reef/features/demo/tasks/903-bar.md",
+                    "git mv reef/features/demo/tasks/902-agents.md reef/features/demo/tasks/902-renamed.md",
+                    "git rm tasks/R03-fix.md",
+                    "cp AGENTS.md reef/features/demo/adr/draft-demo.md"):
+            r = bash(cmd)
+            self.assertEqual(r.returncode, 2, f"{cmd}: {r.stderr}")
+            self.assertIn("the plan", r.stderr)
+        for cmd in ("grep -n rule reef/features/demo/tasks/902-agents.md",
+                    "cat reef/features/demo/SPEC.md > /tmp/spec.txt",
+                    "python3 scripts/reef-plan-check.py . --feature demo",
+                    "printf 'x' > src/tasks/902-agents.md"):
+            r = bash(cmd)
+            self.assertEqual(r.returncode, 0, f"a read, a run or a path outside the plan stays open: {cmd}: {r.stderr}")
+        r = bash("sed -i '' 's/a/b/' reef/features/demo/tasks/902-agents.md", "reef:mechanic")
+        self.assertEqual(r.returncode, 0, "the mechanic's close edits: " + r.stderr)
+
+    def test_from_a_task_worktree_the_rule_is_anchored_to_the_projects_roots(self):
+        # the review: the implementer's cwd is its task worktree and the config lives in the main checkout; a path into the
+        # main checkout (`../../tasks/R03-fix.md` relative to the worktree) is a task file too, and a look-alike path outside
+        # the project (`…/reef/features/x/tasks/101-a.md` elsewhere) is nobody's
+        g = lambda *a: subprocess.run(["git", "-C", self.d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
+        os.makedirs(os.path.join(self.d, "reef", "features", "demo", "tasks"), exist_ok=True)
+        open(os.path.join(self.d, "reef", "features", "demo", "tasks", "902-agents.md"), "w").write("x")
+        open(os.path.join(self.d, "README.md"), "w").write("x")
+        g("add", "-A"); g("commit", "-qm", "c")
+        wt = os.path.join(self.d, ".reef", "worktrees", "902")
+        g("worktree", "add", "-q", wt)
+        edit = lambda path, who="reef:implementer": run_guard({"tool_name": "Edit", "cwd": wt, "agent_id": "a1", "agent_type": who,
+                                                                "tool_input": {"file_path": path, "old_string": ":234", "new_string": ":225"}})
+        r = edit(os.path.join(self.d, "tasks", "R03-fix.md"))
+        self.assertEqual(r.returncode, 2, "the main checkout's legacy task file, from the worktree's cwd: " + r.stderr)
+        r = edit(os.path.join(wt, "reef", "features", "demo", "tasks", "902-agents.md"))
+        self.assertEqual(r.returncode, 2, "the worktree's own copy of the task: " + r.stderr)
+        r = edit("reef/features/demo/tasks/902-agents.md")
+        self.assertEqual(r.returncode, 2, "a relative path from the worktree: " + r.stderr)
+        elsewhere = tempfile.mkdtemp(prefix="reef-elsewhere.")
+        r = edit(os.path.join(elsewhere, "reef", "features", "x", "tasks", "101-a.md"))
+        self.assertEqual(r.returncode, 0, "a look-alike path outside the project is nobody's: " + r.stderr)
+
+
+class TheSharedModuleIsAGuardFile(unittest.TestCase):
+    """consolidation step 1 (2026-10-29): scripts/reef_common.py is imported by every script, so a write to it is a write to
+    all of them — protected like scripts/reef-*."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-common-guard.")
+        subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
+        write_config(self.d, {"gates": {"full": "true"}})
+
+    def test_bash_and_edit_writes_are_denied_like_the_scripts(self):
+        r = run_guard({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": "printf 'x' > scripts/reef_common.py"}})
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("guard's own files", r.stderr)
+        r = run_guard({"tool_name": "Edit", "cwd": self.d, "tool_input": {"file_path": os.path.join(self.d, "scripts", "reef_common.py"), "old_string": "a", "new_string": "b"}})
+        self.assertEqual(r.returncode, 2, r.stderr)
+        r = run_guard({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": "printf 'x' > scripts/reefer.py"}})
+        self.assertEqual(r.returncode, 0, "another script of the project's is not Reef's: " + r.stderr)
 
 
 class EvidenceIsTheGates(unittest.TestCase):

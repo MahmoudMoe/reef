@@ -42,7 +42,7 @@ def project(cfg=None):
     d = tempfile.mkdtemp(prefix="reef-loop.")
     subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
     os.makedirs(os.path.join(d, "scripts"))
-    for n in ("reef-queue.py", "reef-graph.py", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-plan-check.py"):
+    for n in ("reef-queue.py", "reef-graph.py", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-plan-check.py", "reef_common.py"):
         shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(d, "scripts", n))
     write(d, ".reef/config.json", json.dumps(cfg or {"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md", "runlog": "reef/journal.md"}}))
     write(d, ".reef/version", "0.6.0\n")
@@ -709,7 +709,7 @@ class HandoffAndSessionStart(unittest.TestCase):
         self.assertNotIn("behind the plugin", out, "no CLAUDE_PLUGIN_ROOT: no verdict")
         plugin = tempfile.mkdtemp(prefix="reef-plugin.")
         os.makedirs(os.path.join(plugin, "scripts"))
-        for n in ("reef-loop.py", "reef-cost.py"):
+        for n in ("reef-loop.py", "reef-cost.py", "reef_common.py"):
             shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(plugin, "scripts", n))
         with open(os.path.join(plugin, "scripts", "reef-cost.py"), "a") as f:
             f.write("\n# a newer plugin\n")
@@ -723,6 +723,19 @@ class HandoffAndSessionStart(unittest.TestCase):
         r = loop(d, "tick", "--session-start")
         self.assertLessEqual(len(r.stdout) // 4, 50 + 20)
         self.assertIn("[truncated: writing.session_start_tokens 50]", r.stdout)
+
+
+
+class StopWithAReason(unittest.TestCase):
+    def test_stop_records_why_so_the_runner_and_the_tick_agree(self):
+        # 2026-10-29: reef-run.py stop ends an orphaned session and must leave loop.json saying the loop is stopped and why
+        d = project()
+        r = loop(d, "stop", "runner gone; its session 4242 ended by reef-run.py stop")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        st = json.loads(open(os.path.join(d, ".reef", "loop.json")).read())
+        self.assertFalse(st["active"])
+        self.assertEqual(st["stop"], "runner gone; its session 4242 ended by reef-run.py stop")
+        self.assertEqual(loop(d, "stop").returncode, 0, "no reason is still a stop")
 
 
 if __name__ == "__main__":

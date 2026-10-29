@@ -16,6 +16,9 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import main_checkout, git as _git  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 LOCKFILES = {"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "prisma/schema.prisma", "requirements.txt",
@@ -42,17 +45,10 @@ def plan_check_module():
 
 
 def git(cwd, *args, check=True):
-    r = subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True)
+    r = _git(cwd, *args)
     if check and r.returncode != 0:
         fail(f"git {' '.join(args[:2])} failed in {cwd}: {(r.stderr or r.stdout).strip()[:400]}", 1)
     return r
-
-
-def main_checkout(root):
-    for line in git(root, "worktree", "list", "--porcelain").stdout.splitlines():
-        if line.startswith("worktree "):
-            return line[len("worktree "):].strip()
-    return root
 
 
 def main(argv):
@@ -119,7 +115,8 @@ def main(argv):
         head = re.sub(r"^status:.*$", "status: done", head, count=1, flags=re.M) if re.search(r"^status:", head, re.M) else head + "status: done\n"
         body = text[m.end():]
         if block and "<!-- journal -->" not in body:
-            body = body.rstrip("\n") + f"\n\n<!-- journal -->\n{block}\n<!-- /journal -->\n"
+            # after the body's own last bytes, whatever they are: the digest strips exactly this (the review of #211)
+            body = body + f"\n<!-- journal -->\n{block}\n<!-- /journal -->\n"
         with open(task, "w", encoding="utf-8", newline="") as f:
             f.write(text[:m.start(1)] + head + text[m.end(1):m.end()] + body)
 
@@ -204,7 +201,8 @@ def main(argv):
         head = re.sub(r"^status:.*$", "status: done", head, count=1, flags=re.M) if re.search(r"^status:", head, re.M) else head + "status: done\n"
         body = text[m.end():]
         if block and "<!-- journal -->" not in body:
-            body = body.rstrip("\n") + f"\n\n<!-- journal -->\n{block}\n<!-- /journal -->\n"
+            # after the body's own last bytes, whatever they are: the digest strips exactly this (the review of #211)
+            body = body + f"\n<!-- journal -->\n{block}\n<!-- /journal -->\n"
         with open(task, "w", encoding="utf-8", newline="") as f:
             f.write(text[:m.start(1)] + head + text[m.end(1):m.end()] + body)
         dest = task if in_done else os.path.join(os.path.dirname(task), "done", name)
