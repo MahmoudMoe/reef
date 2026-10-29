@@ -332,7 +332,7 @@ def approval_state(root, feat, digest):
         with open(p, encoding="utf-8") as f:
             rec = json.load(f)
     except Exception:
-        return False, f"approval: MISSING for {feat!r} ({os.path.relpath(p, root)}) — the human approves the plan in /reef-plan's gate; the hook writes the record"
+        return False, f"approval: MISSING for {feat!r} ({os.path.relpath(p, root)}, plan is {digest[:16]}) — the human approves the plan in /reef-plan's gate; the hook writes the record"
     if str(rec.get("digest16", "")) != digest[:16]:
         return False, f"approval: STALE for {feat!r} (approved {rec.get('digest16')}, plan is {digest[:16]}) — re-approve the current plan"
     return True, f"approval: OK for {feat!r} ({digest[:16]}, {rec.get('approved_at', '?')})"
