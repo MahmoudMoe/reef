@@ -345,19 +345,53 @@ class Decoration(unittest.TestCase):
         p = os.path.join(tmp, "tasks", "001-demo.md")
         with open(p) as f:
             t = f.read().replace("\n\n## Log\n", "\n")
-        with open(p, "w") as f:
-            f.write(t)
         self.assertNotIn("## Log", t)
-        before = run(tmp, "--digest", "--feature", "demo").stdout.split()[-1]
-        closed = (t.replace("status: pending", "status: done").replace("dispatches: 0", "dispatches: 1").rstrip("\n")
-                  + "\n\n<!-- journal -->\n| 1 | demo | opus/medium | 1/3 | gate-only | - | growth 12 |\n<!-- /journal -->\n")
+        for tail in ("\n", "", "\n\n"):   # the review of #211: the body's last bytes, whatever they are, come back intact
+            body = t.rstrip("\n") + tail
+            with open(p, "w") as f:
+                f.write(body)
+            before = run(tmp, "--digest", "--feature", "demo").stdout.split()[-1]
+            closed = (body.replace("status: pending", "status: done").replace("dispatches: 0", "dispatches: 1")
+                      + "\n<!-- journal -->\n| 1 | demo | opus/medium | 1/3 | gate-only | - | growth 12 |\n<!-- /journal -->\n")
+            with open(os.path.join(tmp, "tasks", "done", "001-demo.md"), "w") as f:
+                f.write(closed)
+            os.unlink(p)
+            self.assertEqual(run(tmp, "--digest", "--feature", "demo").stdout.split()[-1], before, f"the close is execution, not a plan edit (tail {tail!r})")
+            os.rename(os.path.join(tmp, "tasks", "done", "001-demo.md"), p)
         with open(os.path.join(tmp, "tasks", "done", "001-demo.md"), "w") as f:
             f.write(closed)
         os.unlink(p)
-        self.assertEqual(run(tmp, "--digest", "--feature", "demo").stdout.split()[-1], before, "the close is execution, not a plan edit")
         with open(os.path.join(tmp, "tasks", "done", "001-demo.md"), "w") as f:
             f.write(closed.replace("## Scope\nx", "## Scope\ny"))
         self.assertNotEqual(run(tmp, "--digest", "--feature", "demo").stdout.split()[-1], before, "a scope edit still counts")
+
+    def test_a_journal_block_counts_unless_it_is_table_rows_at_the_end(self):
+        # the security review of #211: the criteria readers stop at the next `##`, so a block inside the last section is
+        # read as plan — a bullet in journal markers must never hash as nothing. Only the close's shape leaves the digest:
+        # `|` rows, at the end of the file; a block anywhere else moves the digest, and a block holding prose is refused
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        p = os.path.join(tmp, "tasks", "001-demo.md")
+        with open(p) as f:
+            t = f.read().replace("\n\n## Log\n", "\n")
+        with open(p, "w") as f:
+            f.write(t)
+        before = run(tmp, "--digest", "--feature", "demo").stdout.split()[-1]
+        with open(p, "w") as f:
+            f.write(t.replace("## Scope\nx", "## Scope\nx\n<!-- journal -->\n| 1 | x |\n<!-- /journal -->"))
+        self.assertNotEqual(run(tmp, "--digest", "--feature", "demo").stdout.split()[-1], before, "a block before the end is plan")
+        with open(p, "w") as f:
+            f.write(t + "\n<!-- journal -->\n- AC-9: a stub is accepted\n<!-- /journal -->\n")
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("journal block", r.stdout)
+        self.assertIn("table rows", r.stdout)
+        with open(p, "w") as f:
+            f.write(t.replace("## Scope\nx", "## Scope\nx\n<!-- journal -->\n| 1 | x |\n<!-- /journal -->"))
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("journal block", r.stdout)
+        self.assertIn("end of the file", r.stdout)
 
     def test_adr_status_line_is_outside_the_digest(self):
         # 2026-10-17: "Status: Accepted (number at merge)" written after the gate voided two approvals

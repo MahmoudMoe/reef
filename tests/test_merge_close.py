@@ -73,17 +73,27 @@ class FastRowClose(unittest.TestCase):
         return subprocess.run([sys.executable, CLOSE, "reef/features/demo/tasks/101-slice.md", "--subject", "feat: the slice",
                                "--journal", self.journal, "--repo", self.feat], capture_output=True, text=True, cwd=self.feat)
 
-    def test_the_close_moves_no_plan_digest(self):
+    def _close_moves_no_plan_digest(self, tail):
         # 2026-10-29 (row 9 on the current adoption): every close voided the owner's approval — the journal block landed in
-        # the body of a task without `## Log`, inside the digest
-        write(self.feat, "reef/features/demo/tasks/101-slice.md",
-              TASK.replace("attempts: 0\n", "attempts: 0\nworktree: .reef/worktrees/demo\n").replace("\n\n## Log\n", "\n"))
+        # the body of a task without `## Log`, inside the digest. The review: whatever the body's last bytes are (no newline,
+        # one, two), the close appends and the digest strips exactly that
+        text = TASK.replace("attempts: 0\n", "attempts: 0\nworktree: .reef/worktrees/demo\n").replace("\n\n## Log\n", "\n")
+        write(self.feat, "reef/features/demo/tasks/101-slice.md", text.rstrip("\n") + tail)
         digest = lambda: subprocess.run([sys.executable, PLAN_CHECK, self.feat, "--digest", "--feature", "demo"], capture_output=True, text=True).stdout.split()[-1]
         before = digest()
         self.assertRegex(before, r"^[0-9a-f]{64}$")
         self.assertEqual(self.close().returncode, 0)
         self.assertIn("<!-- journal -->", read(self.feat, "reef/features/demo/tasks/done/101-slice.md"))
         self.assertEqual(digest(), before, "the close is execution, not a plan edit")
+
+    def test_the_close_moves_no_plan_digest(self):
+        self._close_moves_no_plan_digest("\n")
+
+    def test_the_close_moves_no_plan_digest_without_a_trailing_newline(self):
+        self._close_moves_no_plan_digest("")
+
+    def test_the_close_moves_no_plan_digest_after_a_blank_line(self):
+        self._close_moves_no_plan_digest("\n\n")
 
     def test_the_close_commits_in_place_with_the_trailer_and_no_merge(self):
         r = self.close()
