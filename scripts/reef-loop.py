@@ -570,7 +570,7 @@ def main(argv):
         argv = argv[:i] + argv[i + 2:]
     root = root_of(repo)
     if not argv:
-        print("usage: reef-loop.py tick [--json|--assert-no-idle|--session-start|--hash] | start | stop | wait <reason> | clear-wait", file=sys.stderr)
+        print("usage: reef-loop.py tick [--json|--assert-no-idle|--session-start|--hash] | start | stop [<reason>] | wait <reason> | clear-wait", file=sys.stderr)
         return 1
     cmd = argv[0]
     st = load_state(root)
@@ -579,8 +579,8 @@ def main(argv):
         save_state(root, st)
         print("loop: active")
         return 0
-    if cmd == "stop":
-        st.update(active=False)
+    if cmd == "stop":   # `stop "<reason>"` (2026-10-29): reef-run.py stop ending an orphaned session says why here
+        st.update(active=False, **({"stop": argv[1]} if len(argv) > 1 and argv[1] else {}))
         save_state(root, st)
         release_hold(root)
         print("loop: inactive")

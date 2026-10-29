@@ -725,5 +725,18 @@ class HandoffAndSessionStart(unittest.TestCase):
         self.assertIn("[truncated: writing.session_start_tokens 50]", r.stdout)
 
 
+
+class StopWithAReason(unittest.TestCase):
+    def test_stop_records_why_so_the_runner_and_the_tick_agree(self):
+        # 2026-10-29: reef-run.py stop ends an orphaned session and must leave loop.json saying the loop is stopped and why
+        d = project()
+        r = loop(d, "stop", "runner gone; its session 4242 ended by reef-run.py stop")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        st = json.loads(open(os.path.join(d, ".reef", "loop.json")).read())
+        self.assertFalse(st["active"])
+        self.assertEqual(st["stop"], "runner gone; its session 4242 ended by reef-run.py stop")
+        self.assertEqual(loop(d, "stop").returncode, 0, "no reason is still a stop")
+
+
 if __name__ == "__main__":
     unittest.main()

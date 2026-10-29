@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **A dead runner leaves no orphan** (2026-10-29, the owner: the runner died when its stdout pipe closed, its `claude -p
+  /reef-loop` session lived on running gates at full CPU with no window anywhere, and `reef-run.py stop` said "no runner
+  is running" — `pkill` was the only way). The runner records the session it is in (`.reef/run/session.pid`: pid and
+  start) and removes it when the session ends; `status` says `runner gone, session <pid> still running since <time>`;
+  `stop` ends that session (TERM, KILL after 10 s), clears the lock and the record, and stops the loop with the reason
+  (`reef-loop.py stop "<reason>"`, which now takes one) so `.reef/loop.json` agrees, exit 0. The runner's own exit path
+  ends its session — normal, an exception, TERM, INT or a closed pipe (session()'s `finally`, TERM/INT handlers that
+  unwind, an atexit). The reviews: the session runs in its own process group and is ended as a group (the gates it
+  spawned are grandchildren, which outlive a kill of `claude` alone); `stop` kills only the process the runner recorded
+  (session.pid carries the ps start time and must still match — a reused pid or a record an agent wrote is refused);
+  the record's text is validated before it is printed; no SIGPIPE handler (a broken pipe unwinds as BrokenPipeError). tests/size-budget.json raised: `script_lines` 17,419 → 17,511.
 - **An implementer never edits a task file** (2026-10-29, row 9 on the current adoption: the implementer refreshed the
   line numbers in its task's `## Read first` and the next task's, every close carried the edit, the plan's digest moved
   and the owner re-approved an unchanged plan three times). The guard refuses an implementer's Edit, Write or MultiEdit
