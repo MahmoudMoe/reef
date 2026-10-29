@@ -29,7 +29,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def run(args, cwd, timeout=7200, env=None):
-    r = _run(args, cwd, timeout, env)
+    r = _run(args, cwd, timeout, env, timeout_rc=1)   # `built = rc != 1`: a timeout was 1 and stays 1
     return r.returncode, r.stdout, r.stderr
 
 

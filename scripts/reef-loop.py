@@ -21,7 +21,7 @@ import calendar
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import run as _run, config, read_replace as read  # noqa: E402
+from reef_common import run as _run, read_config as config, read_replace as read  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 MAX_LINES = 30
@@ -63,7 +63,7 @@ def save_state(root, st):
 
 
 def run(cmd, cwd, timeout=20):
-    r = _run(cmd, cwd, timeout)
+    r = _run(cmd, cwd, timeout, timeout_rc=1)   # the readers know 1
     return r.returncode, r.stdout
 
 
@@ -511,7 +511,7 @@ def scripts_behind_plugin(root):
     behind = []
     sdir = os.path.join(root, "scripts")
     for name in sorted(os.listdir(sdir) if os.path.isdir(sdir) else []):
-        if not name.startswith("reef-"):
+        if not name.startswith(("reef-", "reef_")):
             continue
         theirs = os.path.join(pdir, name)
         if not os.path.isfile(theirs):

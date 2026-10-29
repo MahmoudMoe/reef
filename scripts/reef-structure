@@ -129,7 +129,7 @@ def violations(root):
     return bad
 
 
-REEF_CODE = re.compile(r"^(scripts/reef-[^/]+|\.githooks/[^/]+)$")   # Reef's own code, re-copied by reef-update: never the project's
+REEF_CODE = re.compile(r"^(scripts/reef[-_][^/]+|\.githooks/[^/]+)$")   # Reef's own code, re-copied by reef-update: never the project's
 SKIP_DIR = re.compile(r"(^|/)(node_modules|dist|build|out|coverage|\.next|\.turbo|generated|__generated__|\.prisma|vendor)(/|$)")
 
 

@@ -1017,7 +1017,7 @@ def main(argv):
         mode = "opencode" if host == "opencode" else mode
     if "--max-iterations" in args:
         cap = int(args[args.index("--max-iterations") + 1])
-    root = main_checkout(repo)
+    root = main_checkout(os.path.abspath(repo))   # the abspath fallback this script always had
     if not os.path.isfile(os.path.join(root, ".reef", "config.json")):
         die(f"{root} is not a Reef project (no .reef/config.json)")
     os.makedirs(os.path.join(root, RUN_DIR), exist_ok=True)

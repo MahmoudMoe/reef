@@ -877,7 +877,7 @@ class OneHomePerHelper(unittest.TestCase):
     config/read_config, repo_root, process_alive and read; a script imports it beside the sys.path line and keeps at most a
     one-shape adapter (no subprocess, no open, no os.kill, no walk of its own)."""
 
-    HELPERS = ("main_checkout", "read_config", "config", "repo_root", "process_alive", "read", "run", "git")
+    HELPERS = ("main_checkout", "read_config", "repo_root", "process_alive", "read", "run", "git")
     OWN_BODY = re.compile(r"subprocess\.run\(|os\.kill\(|\bopen\(|\"worktree\", \"list\"|os\.path\.dirname\(probe")
 
     def test_every_helper_has_one_body_and_every_import_follows_the_path_line(self):
@@ -888,8 +888,8 @@ class OneHomePerHelper(unittest.TestCase):
         for h in self.HELPERS:
             self.assertRegex(src, rf"(?m)^(def {h}\(|{h} = )", f"reef_common defines {h}")
         importers = 0
-        for f in sorted(glob.glob(os.path.join(ROOT, "scripts", "reef-*"))):
-            if f.endswith((".sh", ".json")):
+        for f in sorted(glob.glob(os.path.join(ROOT, "scripts", "reef*"))):   # the entry point `reef` too (the review)
+            if f.endswith((".sh", ".json")) or os.path.basename(f) == "reef_common.py":
                 continue
             text = open(f, encoding="utf-8").read()
             name = os.path.basename(f)
@@ -904,3 +904,10 @@ class OneHomePerHelper(unittest.TestCase):
                     body = ast.get_source_segment(text, node)
                     self.assertIsNone(self.OWN_BODY.search(body), f"{name}: {node.name} carries its own body — import reef_common")
         self.assertGreaterEqual(importers, 25, "the scripts that carried a copy import the module now")
+        # every enumeration that keys on `scripts/reef-` knows the module too (the review): the session-start check, the
+        # project measure's twin in reef-structure, CI's code-class job, the critical-tier glob
+        self.assertIn('("reef-", "reef_")', read("scripts", "reef-loop.py"), "scripts_behind_plugin compares the module")
+        self.assertIn("scripts/reef[-_]", read("scripts", "reef-structure"))
+        self.assertIn("scripts/reef-*|scripts/reef_*", read(".github", "workflows", "ci.yml"))
+        self.assertIn('"scripts/reef_*"', read("templates", "config.json"))
+        self.assertEqual(open(common, encoding="utf-8").readline().strip(), "# CLASS: code", "a change to the shared module needs a test, like every script")

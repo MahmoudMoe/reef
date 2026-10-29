@@ -1,3 +1,4 @@
+# CLASS: code
 """reef_common — the helpers every Reef script used to carry its own copy of (docs/design/consolidation.md, step 1).
 
 One definition each, the strictest signature that was in use: a script does
@@ -46,8 +47,6 @@ def read_config(root):
         return {}
 
 
-config = read_config
-
 
 def repo_root(start):
     """Walk up from a task file (or directory) to the first .reef/ or .git marker — never the caller's cwd.
@@ -93,13 +92,14 @@ def process_alive(pid):
     return True
 
 
-def run(args, cwd, timeout=60, env=None):
-    """A command's CompletedProcess (returncode, stdout, stderr), text, captured. A timeout is returncode 124 with the
-    reason in stderr; a command that cannot start is returncode 1 — callers read the code, never catch."""
+def run(args, cwd, timeout=60, env=None, timeout_rc=124):
+    """A command's CompletedProcess (returncode, stdout, stderr), text, captured. A timeout is `timeout_rc` (124, the
+    shell's; a caller whose readers know 1 passes 1) with the reason in stderr; a command that cannot start is 1 —
+    callers read the code, never catch."""
     try:
         return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(args, 124, "", f"timed out after {timeout} s")
+        return subprocess.CompletedProcess(args, timeout_rc, "", f"timed out after {timeout} s")
     except OSError as e:
         return subprocess.CompletedProcess(args, 1, "", str(e))
 

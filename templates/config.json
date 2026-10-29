@@ -86,6 +86,7 @@
       "paths": [
         ".githooks/**",
         "scripts/reef-*",
+        "scripts/reef_*",
         "hooks/**",
         ".reef/config.json"
       ]
