@@ -5,7 +5,8 @@
   verb `status`, fell through to a run and started a loop session on the project without a word). Every argument is checked
   first: a verb (`watch`, `status`, `stop`, `probe`, `contract`, first position only), a flag with its value (`--repo`,
   `--permission-mode`, `--host`, `--max-iterations`, `--row`, `--from`) or a bare flag (`--night`, `--detach`, `--day`); anything
-  else prints the usage block and exits 2 before anything runs — a flag without its value too. tests/size-budget.json raised: `script_lines` 17,401 → 17,429.
+  else prints the usage block and exits 1 (refused; 2 is "waiting on the owner", which the factory reads as built — the
+  review) before anything runs — a flag without its value, or a `--max-iterations` that is not a count, too. tests/size-budget.json raised: `script_lines` 17,401 → 17,429.
 - **An approval hold in the tick names the exact owner command** (2026-10-29, row 9 on the current adoption: the tick said
   `awaiting: <row> (re-approval (plan edited after approval))` and `next:` echoed it, so the owner's own loop session wrote
   the wait as "run reef-approval.py --owner for <row> at <digest> in a terminal"). The hold now ends with

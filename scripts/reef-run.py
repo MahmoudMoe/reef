@@ -7,7 +7,8 @@ owner, stops, parks, ends a session with work still in flight, or reaches the it
 
 Usage (the owner's terminal, in the project's main checkout):
   Any other argument — a typo such as `--status` for the verb `status`, a flag without its value — prints this text and
-  exits 2; nothing runs. A run starts only on an empty argv or the flags below (2026-10-29: `--status` started a loop).
+  exits 1 (refused, like a missing probe; 2 is "waiting on the owner" and the factory reads it so); nothing runs. A run
+  starts only on an empty argv or the flags below (2026-10-29: `--status` started a loop).
   reef-run.py probe [--repo DIR] [--permission-mode auto]   once per machine and mode: one headless session tries a
       forbidden write; GATE OK only when reef-guard denied it and no file exists (fail closed — a headless session the
       guard does not reach would be a way around every rule)
@@ -902,6 +903,8 @@ def unknown_argument(args):
         if args[i] in VALUE_FLAGS:
             if i + 1 >= len(args) or args[i + 1].startswith("--"):
                 return f"{args[i]} (it takes a value)"
+            if args[i] == "--max-iterations" and not args[i + 1].isdigit():
+                return f"{args[i]} {args[i + 1]} (a count)"
             i += 2
         elif args[i] in BARE_FLAGS:
             i += 1
@@ -915,9 +918,8 @@ def main(argv):
     args = list(argv)
     bad = unknown_argument(args)
     if bad is not None:
-        sys.stderr.write(__doc__[__doc__.index("Usage"):].rstrip() + f"\n\nreef-run: unknown argument {bad!r} — a verb is one of "
-                         f"{', '.join(VERBS)}, a flag one of {', '.join(VALUE_FLAGS + BARE_FLAGS)}; nothing ran\n")
-        return 2
+        sys.stderr.write(__doc__[__doc__.index("Usage"):].rstrip() + "\n\n")
+        die(f"unknown argument {bad!r} — a verb is one of {', '.join(VERBS)}, a flag one of {', '.join(VALUE_FLAGS + BARE_FLAGS)}; nothing ran")
     if "--repo" in args:
         repo = args[args.index("--repo") + 1]
     if "--permission-mode" in args:

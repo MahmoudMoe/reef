@@ -129,24 +129,26 @@ class UnknownArgument(unittest.TestCase):
         mod.cmd_run = lambda *a, **k: called.append("run") or 0
         mod.cmd_status = lambda root: called.append("status") or 0
         err = io.StringIO()
-        with contextlib.redirect_stderr(err):
-            rc = mod.main(["--status", "--repo", d])
-        self.assertEqual(rc, 2)
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+            mod.main(["--status", "--repo", d])
+        self.assertEqual(cm.exception.code, 1, "refused — 1, the runner's refusal code (2 is 'waiting on the owner', which the factory reads as built)")
         self.assertEqual(called, [], "nothing ran")
         self.assertIn("Usage", err.getvalue())
         self.assertIn("'--status'", err.getvalue())
         self.assertEqual(mod.main(["status", "--repo", d]), 0)
         self.assertEqual(called, ["status"], "the verb reaches cmd_status")
-        with contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(mod.main(["--repo"]), 2, "a flag without its value is refused, not an IndexError")
-            self.assertEqual(mod.main(["--repo", d, "--nigth"]), 2, "a misspelt flag")
+        for argv, why in ((["--repo"], "a flag without its value is refused, not an IndexError"), (["--repo", d, "--nigth"], "a misspelt flag"),
+                          (["--max-iterations", "abc"], "a count that is not one")):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
+                mod.main(argv)
+            self.assertEqual(cm.exception.code, 1, why)
         self.assertEqual(called, ["status"])
 
     def test_from_the_shell_too_and_no_session_starts(self):
         d = project()
         self.assertEqual(run(d, ["probe-deny"], "probe").returncode, 0)
         r = run(d, ["stop:never"], "--status")
-        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("unknown argument '--status'", r.stderr)
         self.assertEqual(calls(d), ["probe-deny"], "the probe's session only — no loop session was started")
 
