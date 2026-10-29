@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **An implementer never edits a task file** (2026-10-29, row 9 on the current adoption: the implementer refreshed the
+  line numbers in its task's `## Read first` and the next task's, every close carried the edit, the plan's digest moved
+  and the owner re-approved an unchanged plan three times). The guard refuses an implementer's Edit, Write or MultiEdit
+  to a task file under `paths.features` or the legacy `tasks/` (the mechanic's close and the orchestrator's amendments
+  are not implementers); the brief says a moved line goes in the hand-back, never into the task. tests/size-budget.json raised: `prose_words` 22,672 → 22,710, `script_lines` 17,401 → 17,419.
 - **An approval hold in the tick names the exact owner command** (2026-10-29, row 9 on the current adoption: the tick said
   `awaiting: <row> (re-approval (plan edited after approval))` and `next:` echoed it, so the owner's own loop session wrote
   the wait as "run reef-approval.py --owner for <row> at <digest> in a terminal"). The hold now ends with

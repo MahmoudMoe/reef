@@ -1433,11 +1433,29 @@ def context_for(payload):
             "typeless_locked": bool(payload.get("agent_id")) and not payload.get("agent_type") and verifying}
 
 
+TASK_FILE = re.compile(r"(^|/)tasks/(done/)?R?\d+-[^/]+\.md$")   # a Reef task file, open or done (reef-plan-check's name rule)
+
+
+def is_task_file(rel, path, ctx):
+    """A task file under the project's features dir (paths.features, default reef/features) or the legacy top-level tasks/."""
+    rel = rel.replace(os.sep, "/")
+    if not (TASK_FILE.search(rel) or TASK_FILE.search(path.replace(os.sep, "/"))):
+        return False
+    cfg = read_config(main_checkout(ctx.get("cwd") or os.getcwd()))
+    feat = str((cfg.get("paths") or {}).get("features", "reef/features") or "reef/features").strip("/")
+    return rel.startswith(feat + "/") or rel.startswith("tasks/") or f"/{feat}/" in path.replace(os.sep, "/")
+
+
 def check_edit(tool_input, payload, ctx):
     path = str(tool_input.get("file_path") or "")
     if not path:
         return
     rel = os.path.relpath(path, ctx["cwd"]) if os.path.isabs(path) else path
+    if "implementer" in str(ctx.get("agent_type") or "") and is_task_file(rel, path, ctx):
+        # 2026-10-29 (row 9 on the current adoption): the implementer refreshed the line numbers in `## Read first`, every
+        # close carried the edit, the plan's digest moved and the owner re-approved an unchanged plan three times
+        deny(f"{rel} is a task file — the owner's approved plan; an implementer never edits one (every edit voids the approval). "
+             "A moved line or a stale reference goes in your hand-back; the orchestrator amends the plan if it must")
     if RECORD_DIRS.search(path) or RECORD_DIRS.search(rel):
         deny("editing under .reef/approvals/, .reef/review/, .reef/night/ or .reef/evidence/ — these records are written by the AskUserQuestion "
              "hook, scripts/reef-record, scripts/reef-run.py and scripts/reef-gate.sh, bound to a digest, a forge SHA or a tree snapshot; "

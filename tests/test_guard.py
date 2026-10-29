@@ -732,6 +732,40 @@ class HandoffIsRendered(unittest.TestCase):
         self.assertEqual(r.returncode, 2, "no agent writes it either")
 
 
+class TaskFilesAreThePlan(unittest.TestCase):
+    """2026-10-29 (row 9 on the current adoption): the implementer rewrote the line numbers in its task's `## Read first` and
+    the next task's, every close carried the edit, and the plan's digest moved — a re-approval of a plan the owner had
+    approved, three times. A task file is the owner's approved text: an implementer never edits one; the mechanic's close
+    and the orchestrator's amendments are not implementers."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-task-guard.")
+        subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
+        write_config(self.d, {"gates": {"full": "true"}, "paths": {"features": "reef/features"}})
+
+    def edit(self, rel, who, tool="Edit"):
+        payload = {"tool_name": tool, "cwd": self.d, "tool_input": {"file_path": os.path.join(self.d, rel), "old_string": ":234", "new_string": ":225", "content": "x"}}
+        if who:
+            payload.update(agent_id="a1", agent_type=who)
+        return run_guard(payload)
+
+    def test_an_implementer_never_edits_a_task_file(self):
+        for rel in ("reef/features/demo/tasks/902-agents.md", "reef/features/demo/tasks/done/901-loop.md", "tasks/R03-fix.md"):
+            for tool in ("Edit", "Write", "MultiEdit"):
+                r = self.edit(rel, "reef:implementer", tool)
+                self.assertEqual(r.returncode, 2, f"{tool} {rel}: {r.stderr}")
+                self.assertIn("task file", r.stderr)
+                self.assertIn("hand-back", r.stderr)
+        r = self.edit("reef/features/demo/tasks/902-agents.md", "reef:mechanic")
+        self.assertEqual(r.returncode, 0, "the mechanic's close edits are its job: " + r.stderr)
+        r = self.edit("reef/features/demo/tasks/902-agents.md", "")
+        self.assertEqual(r.returncode, 0, "the orchestrator amends a plan (then the owner re-approves): " + r.stderr)
+        r = self.edit("src/tasks/902-agents.md", "reef:implementer")
+        self.assertEqual(r.returncode, 0, "a project's own tasks folder outside the features dir is not Reef's: " + r.stderr)
+        r = self.edit("reef/features/demo/tasks/notes.md", "reef:implementer")
+        self.assertEqual(r.returncode, 0, "not a task file: " + r.stderr)
+
+
 class EvidenceIsTheGates(unittest.TestCase):
     """v3 phase 2: .reef/evidence/<snapshot>.json is the suite's one result per tree, written by scripts/reef-gate.sh full
     and read by every judge. A hand-written file there would be a suite run that never happened — denied like a record
