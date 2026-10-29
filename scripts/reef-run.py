@@ -172,49 +172,74 @@ def session_opencode(root, prompt, say=None):
             "_rc": p.returncode, "_seconds": round(time.time() - t0, 1)}
 
 
+GRACE_S = 10   # TERM, then KILL after this many seconds
+
+
+def end_pid(pid):
+    """End the session's whole process group — `claude -p` AND the gates it spawned, which outlive a kill of claude alone
+    (the review of #214) — TERM, KILL after GRACE_S. The session is started in its own group (start_new_session), so the
+    group is the session's and nothing else's; a pid without a group of its own is signalled alone."""
+    try:
+        pgid = os.getpgid(pid)
+    except OSError:
+        return
+    kill = (lambda sig: os.killpg(pgid, sig)) if pgid == pid else (lambda sig: os.kill(pid, sig))
+    try:
+        kill(signal.SIGTERM)
+    except OSError:
+        return
+    for _ in range(GRACE_S * 10):
+        if not process_alive(pid):
+            return
+        time.sleep(0.1)
+    try:
+        kill(signal.SIGKILL)
+    except OSError:
+        pass
+
+
 def end_session():
-    """End the headless session this runner started, if it still runs: TERM, KILL after 10 s. 2026-10-29: a runner that died
-    on a closed stdout left its `claude -p /reef-loop` running gates at full CPU with no window anywhere; the runner's exit
-    path — normal, an exception, TERM/INT/PIPE — ends it now."""
+    """End the headless session this runner started, if it still runs. 2026-10-29: a runner that died on a closed stdout
+    left its `claude -p /reef-loop` running gates at full CPU with no window anywhere; the runner's exit path — normal,
+    an exception, TERM/INT, a broken pipe — ends it now (session()'s finally; the atexit is the last resort)."""
     p = SESSION.get("p")
     if p is None:
         return
     SESSION["p"] = None
     if p.poll() is None:
-        try:
-            p.terminate()
-            p.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            p.kill()
-        except OSError:
-            pass
+        end_pid(p.pid)
+        p.poll()
 
 
-def end_pid(pid):
-    """The same for a pid read from session.pid (a runner that is already gone): TERM, KILL after 10 s."""
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except OSError:
-        return
-    for _ in range(100):
-        if not process_alive(pid):
-            return
-        time.sleep(0.1)
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except OSError:
-        pass
+def ps_start(pid):
+    """The process's start time as ps prints it — the identity of a pid (a reused pid starts at another time)."""
+    r = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+STARTED = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
 
 
 def session_record(root):
-    """(pid, started) of a session.pid whose process is alive, else (0, "")."""
+    """(pid, started) of a session.pid whose process is alive AND is the one the runner recorded — its ps start time still
+    matches (the security review of #214: the file is one any agent in the checkout can write, and the OS reuses pids;
+    a record naming another live process is "mismatch": (-pid, "")) — else (0, "")."""
     try:
         with open(os.path.join(root, SESSION_PID), encoding="utf-8") as f:
             rec = json.load(f)
         pid = int(rec.get("pid") or 0)
-        return (pid, str(rec.get("started") or "?")) if pid and process_alive(pid) else (0, "")
+        if not pid or not process_alive(pid):
+            try:
+                os.unlink(os.path.join(root, SESSION_PID))   # a record of a session that ended on its own
+            except OSError:
+                pass
+            return 0, ""
+        if ps_start(pid) != str(rec.get("lstart") or ""):
+            return -pid, ""
+        started = str(rec.get("started") or "")
+        return pid, (started if STARTED.match(started) else "?")
     except (OSError, ValueError, TypeError):
-        return (0, "")
+        return 0, ""
 
 
 def session(root, prompt, mode, say=None):
@@ -230,14 +255,14 @@ def session(root, prompt, mode, say=None):
     t0 = time.time()
     try:
         p = subprocess.Popen([claude, "-p", prompt, "--permission-mode", mode, "--output-format", "stream-json", "--verbose", *extra],
-                             cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                             cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True,
                              env=dict(os.environ, REEF_RUNNER="1",
                                       CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=os.environ.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", BG_WAIT_MS)))
     except FileNotFoundError:
         die(f"`{claude}` is not on the PATH — install Claude Code, or set REEF_CLAUDE")
     SESSION["p"] = p
-    with open(os.path.join(root, SESSION_PID), "w", encoding="utf-8") as f:
-        json.dump({"pid": p.pid, "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f)
+    with open(os.path.join(root, SESSION_PID), "w", encoding="utf-8") as f:   # pid + its ps start time: the identity stop checks
+        json.dump({"pid": p.pid, "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "lstart": ps_start(p.pid)}, f)
     out, raw, names, verdicts = None, [], {}, {}
     try:
         for line in p.stdout:
@@ -810,6 +835,10 @@ def cmd_stop(root):
                 os.unlink(p)
             except OSError:
                 pass
+        if spid < 0:
+            print(f"reef-run: .reef/run/session.pid names process {-spid}, which does not match the session the runner recorded "
+                  "(its start time differs: a reused pid, or a record not the runner's) — not touched; the record is cleared")
+            return 1
         if not spid:
             print("reef-run: no runner is running")
             return 1
@@ -818,7 +847,7 @@ def cmd_stop(root):
         loop_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-loop.py")   # beside this script, as in a project
         r = subprocess.run([sys.executable, loop_py, "stop", why, "--repo", root], cwd=root, capture_output=True, text=True)
         if r.returncode != 0:
-            print(f"reef-run: the loop could not be stopped ({(r.stderr or r.stdout).strip()[-200:]}) — python3 scripts/reef-loop.py stop \"{why}\"")
+            print(f"reef-run: the loop could not be stopped ({(r.stderr or r.stdout).strip()[-200:]}) — python3 scripts/reef-loop.py stop {shlex.quote(why)}")
         refresh_status(root)
         print(f"reef-run: the runner was gone; its session {spid} (since {since}) is ended and the loop stopped — "
               f"python3 scripts/reef-loop.py start, then the runner again, when you are ready")
@@ -833,8 +862,9 @@ def cmd_status(root):
     """Running or not (the lock's process, and the session's), the night, the last live lines, the last session's record."""
     pid = runner_pid(root)
     spid, since = session_record(root)
-    state = (f"running (pid {pid})" + (f"; session {spid} since {since}" if spid else "")) if pid else \
-            (f"runner gone, session {spid} still running since {since} — python3 scripts/reef-run.py stop ends it" if spid
+    state = (f"running (pid {pid})" + (f"; session {spid} since {since}" if spid > 0 else "")) if pid else \
+            (f"runner gone, session {spid} still running since {since} — python3 scripts/reef-run.py stop ends it" if spid > 0
+             else f"not running (session.pid names process {-spid}, not the recorded session — reef-run.py stop clears it)" if spid < 0
              else "not running")
     night = "a night is active" if os.path.isfile(os.path.join(root, NIGHT_DIR, "active")) else "no night active"
     print(f"reef-run: {state}; {night}")
@@ -896,11 +926,12 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
     with open(lock, "w", encoding="utf-8") as f:
         f.write(str(os.getpid()))
 
-    def ending(signum, frame):   # TERM, INT, a closed pipe: the session goes with the runner (2026-10-29), the lock too (finally)
-        end_session()
-        raise SystemExit(128 + signum)
-    for s in (signal.SIGTERM, signal.SIGINT, signal.SIGPIPE):
+    def ending(signum, frame):   # TERM, INT: unwind — session()'s finally ends the session, cmd_run's finally the lock
+        raise SystemExit(128 + signum)   # (the review: never wait on the child from inside a handler — the main thread may hold its wait lock)
+    for s in (signal.SIGTERM, signal.SIGINT):
         signal.signal(s, ending)
+    # no SIGPIPE handler: Python keeps SIGPIPE ignored and a write to a closed pipe raises BrokenPipeError, which unwinds the
+    # same way (an asynchronous SystemExit from a handler fired inside the cleanup itself and at interpreter shutdown)
     atexit.register(end_session)
     log = os.path.join(root, RUN_DIR, "run.log")
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -917,7 +948,11 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
 
     def say(text):
         line = f"{time.strftime('%H:%M')} s{i} {text}"
-        print(line, flush=True)
+        try:
+            print(line, flush=True)
+        except BrokenPipeError:   # 2026-10-29: the terminal that started the runner is gone — silence stdout, then unwind
+            os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
+            raise
         with open(live, "a", encoding="utf-8") as f:
             f.write(line + "\n")
         refresh_status(root)

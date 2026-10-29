@@ -43,8 +43,10 @@ if kind not in ("probe-deny", "probe-write"):
     json.dump(st, open(lp, "w"))
 def ev(**e): print(json.dumps(e), flush=True)
 ev(type="system", subtype="init", session_id="x")
-if kind == "sleep":   # a session mid-gate: alive and quiet for a long time
-    import time; time.sleep(120); sys.exit(0)
+if kind == "sleep":   # a session mid-gate: one step after a second, then quiet for a long time
+    import time; time.sleep(1)
+    ev(type="system", subtype="task_started", tool_use_id="t9", description="Gate full", subagent_type="reef:mechanic")
+    time.sleep(120); sys.exit(0)
 ev(type="assistant", message="a plain string where an object was expected")   # 2026-10-23: this shape killed a night
 ev(type="user", message={"content": "plain text content"})
 ev(type="system", subtype="task_started", tool_use_id="t1", description="Hunter 1203 plan round 2", subagent_type="reef:loophole-hunter")
@@ -121,11 +123,12 @@ class OrphanSession(unittest.TestCase):
         self.d = project()
         self.assertEqual(run(self.d, ["probe-deny"], "probe").returncode, 0)
 
-    def start(self):
+    def start(self, stdout=subprocess.DEVNULL):
         open(os.path.join(self.d, ".fake-plan"), "w").write("sleep:x")
         env = dict(os.environ, PATH=os.path.join(self.d, ".bin") + os.pathsep + os.environ["PATH"])
         env.pop("REEF_CLAUDE", None)
-        p = subprocess.Popen([sys.executable, RUN, "--repo", self.d], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        p = subprocess.Popen([sys.executable, RUN, "--repo", self.d], env=env, stdout=stdout, stderr=subprocess.DEVNULL)
+        self.addCleanup(lambda: p.poll() is None and p.kill())
         sp = os.path.join(self.d, ".reef", "run", "session.pid")
         for _ in range(100):
             if os.path.isfile(sp) and os.path.getsize(sp):
@@ -156,6 +159,37 @@ class OrphanSession(unittest.TestCase):
         self.assertFalse(st["active"])
         self.assertIn("runner gone", st["stop"], "loop.json agrees: the loop is stopped, and says why")
         self.assertIn("not running", run(self.d, [], "status").stdout)
+
+    def test_stop_kills_only_the_process_the_runner_recorded(self):
+        # the security review: session.pid is a file any agent in the checkout can write, and a pid is reused — a record
+        # that names a live process the runner did not start must never be killed; the ps start time is the identity
+        victim = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        try:
+            sp = os.path.join(self.d, ".reef", "run", "session.pid")
+            json.dump({"pid": victim.pid, "started": "2026-10-29T19:00:00Z; rm -rf /", "lstart": "Wed Oct 29 00:00:00 2025"}, open(sp, "w"))
+            r = run(self.d, [], "status")
+            self.assertNotIn("rm -rf", r.stdout + r.stderr, "the record's text is validated before it is printed")
+            r = run(self.d, [], "stop")
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("does not match", r.stdout + r.stderr)
+            self.assertIsNone(victim.poll(), "the process the record named is not the session: untouched")
+            self.assertFalse(os.path.exists(sp), "a record that matches nothing is cleared")
+        finally:
+            victim.kill()
+
+    def test_the_owners_incident_a_closed_stdout_pipe_ends_the_session_with_the_runner(self):
+        # 2026-10-29: the runner's stdout pipe closed (the terminal that started it went away), the runner died on the
+        # write, the session lived on. The runner's exit path ends the session — and the gate that session was running
+        p, rec = self.start(stdout=subprocess.PIPE)
+        p.stdout.close()                       # the reader is gone; the runner's next line is a broken pipe
+        p.wait(timeout=30)
+        for _ in range(150):
+            if not alive(rec["pid"]):
+                break
+            time.sleep(0.1)
+        self.assertFalse(alive(rec["pid"]), "the session died with the runner")
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "run", "lock")))
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "run", "session.pid")))
 
     def test_a_terminated_runner_ends_its_session_itself(self):
         p, rec = self.start()

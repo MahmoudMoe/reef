@@ -7,7 +7,11 @@
   start) and removes it when the session ends; `status` says `runner gone, session <pid> still running since <time>`;
   `stop` ends that session (TERM, KILL after 10 s), clears the lock and the record, and stops the loop with the reason
   (`reef-loop.py stop "<reason>"`, which now takes one) so `.reef/loop.json` agrees, exit 0. The runner's own exit path
-  ends its session — normal, an exception, TERM, INT or a closed pipe (atexit and signal handlers). tests/size-budget.json raised: `script_lines` 17,419 → 17,511.
+  ends its session — normal, an exception, TERM, INT or a closed pipe (session()'s `finally`, TERM/INT handlers that
+  unwind, an atexit). The reviews: the session runs in its own process group and is ended as a group (the gates it
+  spawned are grandchildren, which outlive a kill of `claude` alone); `stop` kills only the process the runner recorded
+  (session.pid carries the ps start time and must still match — a reused pid or a record an agent wrote is refused);
+  the record's text is validated before it is printed; no SIGPIPE handler (a broken pipe unwinds as BrokenPipeError). tests/size-budget.json raised: `script_lines` 17,419 → 17,511.
 - **A task's close moves no plan digest** (2026-10-29, row 9 on the current adoption: a planner's task file has no `## Log`,
   so `reef-merge-close` wrote the journal block at the end of the body, where the digest hashed it — three closes in a
   row, three re-approvals of a plan nobody had changed, each a stop for the owner). The digest strips the

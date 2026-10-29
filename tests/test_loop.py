@@ -725,9 +725,6 @@ class HandoffAndSessionStart(unittest.TestCase):
         self.assertIn("[truncated: writing.session_start_tokens 50]", r.stdout)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class StopWithAReason(unittest.TestCase):
     def test_stop_records_why_so_the_runner_and_the_tick_agree(self):
@@ -739,3 +736,7 @@ class StopWithAReason(unittest.TestCase):
         self.assertFalse(st["active"])
         self.assertEqual(st["stop"], "runner gone; its session 4242 ended by reef-run.py stop")
         self.assertEqual(loop(d, "stop").returncode, 0, "no reason is still a stop")
+
+
+if __name__ == "__main__":
+    unittest.main()
