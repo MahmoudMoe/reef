@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The orphan test's fake session survives its runner's death** (2026-10-29, CI's macOS leg on PR 215: the fake wrote its
+  one event into the dead runner's pipe and died on it, so the "orphan" the test asserts was gone — the real `claude`
+  kept running its gate). The fake swallows the broken pipe like the real one; the test waits past that step first.
 - **A dead runner leaves no orphan** (2026-10-29, the owner: the runner died when its stdout pipe closed, its `claude -p
   /reef-loop` session lived on running gates at full CPU with no window anywhere, and `reef-run.py stop` said "no runner
   is running" — `pkill` was the only way). The runner records the session it is in (`.reef/run/session.pid`: pid and
