@@ -145,6 +145,9 @@ def task_feature(path):
     return m.group(1) if m else ""
 
 
+APPROVAL_SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")   # reef-approval.py's QUESTION: the only slug a record can carry
+
+
 def plan_gate(root, scripts, py, tasks):
     """Split ready tasks into (dispatchable, awaiting): per feature, `reef-plan-check.py --verify-stamp --feature`
     decides — approval MISSING/STALE or stamp MISSING/STALE keeps the feature out of `dispatch now` and names why.
@@ -152,7 +155,7 @@ def plan_gate(root, scripts, py, tasks):
     pc = os.path.join(scripts, "reef-plan-check.py")
     if not os.path.isfile(pc) or not tasks:
         return tasks, []
-    verdict = {}
+    verdict, command = {}, {}
     for t in tasks:
         feat = task_feature(t.get("path", ""))
         if feat in verdict:
@@ -177,13 +180,20 @@ def plan_gate(root, scripts, py, tasks):
             # loop session wrote the wait as "run reef-approval.py --owner … in a terminal". Every wait names the exact
             # line the owner types: the digest comes from the same check (--digest), so the command is never stale.
             why = "approval (the gate: the machines passed)" if re.search(r"^approval: MISSING", out, re.M) else "re-approval (plan edited after approval)"
-            _, dg = run([py, pc, root, "--digest", "--feature", feat], root, timeout=60)
-            m = re.search(r"^digest: \S+ ([0-9a-f]{16})", dg, re.M)
-            verdict[feat] = why + (f' — python3 scripts/reef-approval.py --owner "Approve plan {feat} at {m.group(1)}?"' if m else "")
+            # the reviews (2026-10-29): the digest is on the approval line itself (`plan is <16 hex>`) — no second process,
+            # so the hold is the same text every tick; and the slug is rendered into the owner's shell line only when it
+            # is one the approval question accepts (reef-approval.py QUESTION) — anything else is named, never quoted
+            m = re.search(r"^approval: (?:MISSING|STALE) .*plan is ([0-9a-f]{16})", out, re.M)
+            if m and APPROVAL_SLUG.fullmatch(feat):
+                command[feat] = f'python3 scripts/reef-approval.py --owner "Approve plan {feat} at {m.group(1)}?"'
+            elif m:
+                why += "; the slug is not one an approval can name ([A-Za-z0-9._-]) — fix `feature:` in its tasks"
+            verdict[feat] = why
         else:
             verdict[feat] = "plan review"
     go = [t for t in tasks if verdict.get(task_feature(t.get("path", ""))) is None]
-    held = sorted({f"{feat or '?'} ({why})" for feat, why in verdict.items() if why})
+    # the command stands AFTER the hold's closing paren: the owner copies the line as printed (the review of #210)
+    held = sorted({f"{feat or '?'} ({why})" + (f" — {command[feat]}" if feat in command else "") for feat, why in verdict.items() if why})
     return go, held
 
 
