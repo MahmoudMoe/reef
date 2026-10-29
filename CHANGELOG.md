@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **An implementer never edits a task file** (2026-10-29, row 9 on the current adoption: the implementer refreshed the
+  line numbers in its task's `## Read first` and the next task's, every close carried the edit, the plan's digest moved
+  and the owner re-approved an unchanged plan three times). The guard refuses an implementer's Edit, Write or MultiEdit
+  to a task file under `paths.features` or the legacy `tasks/` (the mechanic's close and the orchestrator's amendments
+  are not implementers); the brief says a moved line goes in the hand-back, never into the task. The reviews: the rule
+  covers the whole feature folder (the digest does: SPEC, ADRs, every task), the Bash route too (`sed -i`, a redirect,
+  `tee`, `git mv|rm`), anchored to the project's roots from any worktree; a ledger row names it (tripwire). tests/size-budget.json raised: `prose_words` 22,672 → 22,710, `script_lines` 17,401 → 17,419.
 - **A task's close moves no plan digest** (2026-10-29, row 9 on the current adoption: a planner's task file has no `## Log`,
   so `reef-merge-close` wrote the journal block at the end of the body, where the digest hashed it — three closes in a
   row, three re-approvals of a plan nobody had changed, each a stop for the owner). The digest strips the

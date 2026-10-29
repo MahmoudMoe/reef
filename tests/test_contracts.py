@@ -856,3 +856,17 @@ class TheGateHoldsItsResourcesOnce(unittest.TestCase):
             self.assertNotIn("heavy suites through `scripts/reef-graph.py lock heavy", text, p)
         self.assertIn("outside the gate", read("agents", "mechanic.md"))
         self.assertLessEqual(len(read("skills", "reef-task", "SKILL.md").splitlines()), 60)
+
+
+class ImplementerNeverEditsATaskFile(unittest.TestCase):
+    """2026-10-29 (row 9 on the current adoption): the implementer refreshed line numbers inside task files and every close
+    moved the plan's digest. The brief says it; the guard enforces it (tests/test_guard.py TaskFilesAreThePlan)."""
+
+    def test_the_brief_says_a_moved_line_goes_in_the_hand_back(self):
+        text = read("agents", "implementer.md")
+        self.assertIn("Never edit a task file", text)
+        self.assertIn("voids the approval", text)
+        self.assertIn("hand-back", text)
+        # the security review: a ledger row per denial
+        ledger = read("README.md")
+        self.assertIn("An implementer never edits the plan it builds", ledger)
