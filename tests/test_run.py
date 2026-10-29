@@ -45,7 +45,10 @@ def ev(**e): print(json.dumps(e), flush=True)
 ev(type="system", subtype="init", session_id="x")
 if kind == "sleep":   # a session mid-gate: one step after a second, then quiet for a long time
     import time; time.sleep(1)
-    ev(type="system", subtype="task_started", tool_use_id="t9", description="Gate full", subagent_type="reef:mechanic")
+    try:
+        ev(type="system", subtype="task_started", tool_use_id="t9", description="Gate full", subagent_type="reef:mechanic")
+    except BrokenPipeError:   # the runner is gone: the real `claude` kept running its gate (2026-10-29) — so does this fake
+        sys.stdout = open(os.devnull, "w")
     time.sleep(120); sys.exit(0)
 ev(type="assistant", message="a plain string where an object was expected")   # 2026-10-23: this shape killed a night
 ev(type="user", message={"content": "plain text content"})
@@ -142,6 +145,7 @@ class OrphanSession(unittest.TestCase):
         p, rec = self.start()
         os.kill(p.pid, 9)   # the runner dies without a word — its session does not
         p.wait(timeout=10)
+        time.sleep(1.5)     # past the fake's one step: on CI's slower start it wrote into the dead pipe (macOS, PR 215's run)
         self.assertTrue(alive(rec["pid"]), "the orphan is what the owner saw")
         r = run(self.d, [], "status")
         self.assertIn(f"runner gone, session {rec['pid']} still running since {rec['started']}", r.stdout)
