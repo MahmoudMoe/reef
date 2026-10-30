@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **A runner's stop on the owner is never silent** (2026-10-30, the owner, twice: the runner stopped on his approval, printed the
+  commands to `runner.out` alone, and `watch` sat on a dead tail under "session ended"). The run's last word — the wait block with
+  the exact commands, a stop, a park, no progress — goes to the terminal, to `live.log` (so `watch` and `status` show it) and,
+  when it waits on the owner, to the desk (macOS's notification center through osascript, notify-send elsewhere; `REEF_NOTIFY=0`
+  keeps a suite quiet); the block names `python3 scripts/reef`, the screen with every wait. `watch` follows while a runner runs
+  and returns when it ends — 2 when the loop waits on the owner. tests/size-budget.json raised: `script_lines` 17,331 → 17,390.
 - **A filed question on an issues queue is answered by its issue** (2026-10-30, the current adoption: the loop filed #90–#93 as
   `reef-question` issues; the runner's wait, the `reef` screen and `reef answer` named the file-queue footnote, which closes no
   issue, so the next session read the same four open questions and ended on the same wait). `reef-queue.py ask` writes the

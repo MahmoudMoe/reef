@@ -124,7 +124,7 @@ def project():
 
 def run(d, plan, *args):
     open(os.path.join(d, ".fake-plan"), "w").write("\n".join(plan))
-    env = dict(os.environ, PATH=os.path.join(d, ".bin") + os.pathsep + os.environ["PATH"])
+    env = dict(os.environ, PATH=os.path.join(d, ".bin") + os.pathsep + os.environ["PATH"], REEF_NOTIFY="0")
     env.pop("REEF_CLAUDE", None)
     return subprocess.run([sys.executable, RUN, *args, "--repo", d], capture_output=True, text=True, env=env)
 
@@ -186,7 +186,7 @@ class OrphanSession(unittest.TestCase):
 
     def start(self, stdout=subprocess.DEVNULL):
         open(os.path.join(self.d, ".fake-plan"), "w").write("sleep:x")
-        env = dict(os.environ, PATH=os.path.join(self.d, ".bin") + os.pathsep + os.environ["PATH"])
+        env = dict(os.environ, PATH=os.path.join(self.d, ".bin") + os.pathsep + os.environ["PATH"], REEF_NOTIFY="0")
         env.pop("REEF_CLAUDE", None)
         p = subprocess.Popen([sys.executable, RUN, "--repo", self.d], env=env, stdout=stdout, stderr=subprocess.DEVNULL)
         self.addCleanup(lambda: p.poll() is None and p.kill())
@@ -428,6 +428,8 @@ class Loop(unittest.TestCase):
     def test_watch_follows_the_live_log_from_another_terminal(self):
         live = os.path.join(self.d, ".reef", "run", "live.log")
         open(live, "w").write("08:16 s1 → Hunter 1204 plan round 2 (reef:loophole-hunter)\n")
+        lock = os.path.join(self.d, ".reef", "run", "lock")
+        open(lock, "w").write(str(os.getpid()))   # a runner is running: this process stands in for it
         w = subprocess.Popen([sys.executable, RUN, "watch", "--repo", self.d], stdout=subprocess.PIPE, text=True)
         time.sleep(1.5)
         open(live, "a").write("08:18 s1 ← Hunter 1204 plan round 2: PASS\n")
@@ -443,7 +445,7 @@ class Loop(unittest.TestCase):
         self.assertEqual(run(self.d, ["stop:x"]).returncode, 0)
         self.assertEqual(open(os.path.join(self.d, ".fake-env")).read(), "10800000")
         open(os.path.join(self.d, ".fake-plan"), "w").write("stop:x")
-        env = dict(os.environ, PATH=os.path.join(self.d, ".bin") + os.pathsep + os.environ["PATH"], CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS="0")
+        env = dict(os.environ, PATH=os.path.join(self.d, ".bin") + os.pathsep + os.environ["PATH"], CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS="0", REEF_NOTIFY="0")
         env.pop("REEF_CLAUDE", None)
         subprocess.run([sys.executable, RUN, "--repo", self.d], capture_output=True, text=True, env=env)
         self.assertEqual(open(os.path.join(self.d, ".fake-env")).read(), "0", "a value the owner set wins")
@@ -508,11 +510,70 @@ class NormalRound(unittest.TestCase):
         self.assertEqual(r.returncode, 0, "a different handoff is progress: " + r.stdout)
         self.assertEqual(len(calls(self.d)), 3)
 
+    def test_watch_ends_with_the_runners_last_word(self):
+        """2026-10-30, the owner: the runner stopped on his approval and `watch` sat on a dead tail, twice. When the runner is gone,
+        watch prints what the run left (the wait block is in live.log now) and returns — 2 when the loop waits on the owner."""
+        live = os.path.join(self.d, ".reef", "run", "live.log")
+        lock = os.path.join(self.d, ".reef", "run", "lock")
+        open(live, "w").write("08:16 s1 → Gate full (reef:mechanic)\n")
+        open(lock, "w").write(str(os.getpid()))
+        w = subprocess.Popen([sys.executable, RUN, "watch", "--repo", self.d], stdout=subprocess.PIPE, text=True)
+        time.sleep(1.5)
+        open(live, "a").write("08:20 s1 session ended: wait 'owner: row 7'\n08:20 s1 reef-run: waiting on you — owner: row 7\n")
+        with open(os.path.join(self.d, ".reef", "loop.json"), "w") as f:
+            json.dump({"active": True, "wait": "owner: row 7", "stop": None, "parked": None, "hashes": []}, f)
+        os.unlink(lock)   # the runner ended
+        try:
+            out, _ = w.communicate(timeout=15)
+        except subprocess.TimeoutExpired:
+            w.kill(); self.fail("watch kept tailing after the runner ended")
+        self.assertEqual(w.returncode, 2, out)
+        self.assertIn("waiting on you — owner: row 7", out)
+        self.assertIn("the runner ended", out)
+        self.assertIn("python3 scripts/reef", out.rsplit("the runner ended", 1)[1], "the pointer that is always true")
+        r = subprocess.run([sys.executable, RUN, "watch", "--repo", self.d], capture_output=True, text=True, timeout=15)
+        self.assertEqual(r.returncode, 2, "no runner: what the last run left, then out — never a dead tail")
+        self.assertIn("waiting on you", r.stdout)
+        self.assertIn("no runner is running", r.stdout, "it never ran under this watch: say so, not 'ended' (the review)")
+
+    def test_the_desk_is_told_when_the_runner_waits_on_the_owner(self):
+        """The runner's stop on the owner reaches the desk: macOS's notification center through osascript (notify-send elsewhere),
+        best effort, one line; REEF_NOTIFY=0 keeps a suite or a server quiet."""
+        crumb = os.path.join(self.d, ".notified")
+        fake = os.path.join(self.d, ".bin", "osascript")
+        open(fake, "w").write(f"#!/usr/bin/env python3\nimport sys\nopen({crumb!r}, 'w').write(' '.join(sys.argv[1:]))\n")
+        os.chmod(fake, 0o755)
+        env = dict(os.environ, PATH=os.path.join(self.d, ".bin") + os.pathsep + os.environ["PATH"], REEF_NOTIFY="1")
+        open(os.path.join(self.d, ".fake-plan"), "w").write('wait:owner: row 7 needs you — say "yes" or \\no')
+        r = subprocess.run([sys.executable, RUN, "--repo", self.d], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertTrue(os.path.exists(crumb), "the desk was told")
+        told = open(crumb).read()
+        self.assertIn("row 7 needs you", told, "the wait itself, not only the title")
+        self.assertIn('\\"yes\\"', told, "a quote in the wait is escaped for the AppleScript literal")
+        self.assertIn("\\\\no", told, "a backslash too")
+        os.unlink(crumb)
+        open(os.path.join(self.d, ".fake-plan"), "w").write("wait:owner: row 7\x1b[2Kneeds you")
+        r = subprocess.run([sys.executable, RUN, "--repo", self.d], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertNotIn("\x1b", open(crumb).read(), "an escape in the wait never reaches the desk")
+        self.assertNotIn("\x1b", open(os.path.join(self.d, ".reef", "run", "live.log")).read(), "nor live.log, which watch prints raw")
+        os.unlink(crumb)
+        open(os.path.join(self.d, ".fake-plan"), "w").write("wait:owner: row 7 needs you")
+        subprocess.run([sys.executable, RUN, "--repo", self.d], capture_output=True, text=True, env=dict(env, REEF_NOTIFY="0"))
+        self.assertFalse(os.path.exists(crumb), "REEF_NOTIFY=0: quiet")
+
     def test_an_owner_wait_names_the_command_that_answers_it(self):
         r = run(self.d, ["wait:owner: the gate: Approve plan demo-row at 0123456789abcdef?"])
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn('python3 scripts/reef-approval.py --owner "Approve plan demo-row at 0123456789abcdef?"', r.stdout)
         self.assertNotIn("interactive session", r.stdout)
+        # 2026-10-30, the owner (twice): `watch` showed "session ended" and nothing more — the block with the commands went to
+        # runner.out alone. The runner's last word is in live.log too, and names the screen that shows every wait
+        live = open(os.path.join(self.d, ".reef", "run", "live.log")).read()
+        self.assertIn("waiting on you", live)
+        self.assertIn('python3 scripts/reef-approval.py --owner "Approve plan demo-row at 0123456789abcdef?"', live)
+        self.assertIn("every wait at once, one key each: python3 scripts/reef", r.stdout, "the screen with every wait, named")
         open(os.path.join(self.d, ".reef", "questions.md"), "w").write("- row 12: share links in host logs? — recommended: accept\n")
         r = run(self.d, ["wait:owner: row 12 — share links?"])
         self.assertEqual(r.returncode, 2)
