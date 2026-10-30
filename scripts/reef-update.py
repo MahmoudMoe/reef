@@ -42,30 +42,37 @@ def plugin_root(arg):
     return None
 
 
+MARKET = __import__("re").compile(r"[A-Za-z0-9._-]+")
+
+
 def marketplace_name(plugin):
     """The marketplace that installed this plugin clone — the known_marketplaces entry whose installLocation (or source
     path) is the clone, else the installed_plugins key `reef@<name>` — or None. 2026-10-29: the reload line printed
     `<marketplace>`, a placeholder in a command the owner types; the name is on disk."""
     base = os.path.join(os.path.expanduser("~"), ".claude", "plugins")
     want = os.path.realpath(plugin)
+    found = None
     try:
         with open(os.path.join(base, "known_marketplaces.json"), encoding="utf-8") as f:
             for name, v in json.load(f).items():
                 if isinstance(v, dict):
                     src = v.get("source") if isinstance(v.get("source"), dict) else {}
                     for c in (v.get("installLocation"), src.get("path")):
-                        if c and os.path.realpath(c) == want:
-                            return name
-    except (OSError, ValueError):
+                        if isinstance(c, str) and c and os.path.realpath(c) == want:
+                            found = name
+    except (OSError, ValueError, AttributeError, TypeError):   # a file of another shape is no crash (the review)
         pass
-    try:
-        with open(os.path.join(base, "installed_plugins.json"), encoding="utf-8") as f:
-            for key in (json.load(f).get("plugins") or {}):
-                if key.startswith("reef@"):
-                    return key.split("@", 1)[1]
-    except (OSError, ValueError):
-        pass
-    return None
+    if found is None:
+        try:
+            with open(os.path.join(base, "installed_plugins.json"), encoding="utf-8") as f:
+                for key in (json.load(f).get("plugins") or {}):
+                    if isinstance(key, str) and key.startswith("reef@"):
+                        found = key.split("@", 1)[1]
+                        break
+        except (OSError, ValueError, AttributeError, TypeError):
+            pass
+    # a marketplace key is any JSON string; only a plain name is rendered into the line the owner types (the review)
+    return found if isinstance(found, str) and MARKET.fullmatch(found) else None
 
 
 def main(argv):
@@ -209,13 +216,20 @@ def main(argv):
         if "--push" in argv:
             rc, out = run(["git", "push", "-q"], root, timeout=600)
             if rc != 0:
-                # 2026-10-29: the owner's loop had pushed meanwhile; "push yourself: git push" fails the same way. The line that
-                # lands it, with the branch filled in; --autostash because the tick's HANDOFF.md rendering is always unstaged
-                rc_b, branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root)
-                branch = branch.strip() if rc_b == 0 and branch.strip() else "HEAD"
                 print(f"reef-update FAILED: push: {out.splitlines()[-1] if out else rc}")
-                print(f"reef-update: the remote moved under you (a loop merge, most likely) — land the commit with:  "
-                      f"git pull --rebase --autostash origin {branch} && git push")
+                # 2026-10-29: the owner's loop had pushed meanwhile; "push yourself: git push" fails the same way. On a
+                # non-fast-forward rejection — that case, not auth or network — the line that lands it, the branch quoted for
+                # the shell (a ref name admits `;` and friends — the review); --autostash because the tick's HANDOFF.md
+                # rendering is always unstaged, and an autostash that does not re-apply is kept, never lost
+                if "non-fast-forward" in out or "fetch first" in out or "rejected" in out:
+                    rc_b, branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root)
+                    branch = branch.strip() if rc_b == 0 and branch.strip() else "HEAD"
+                    if branch == "HEAD":
+                        print("reef-update: the checkout is detached — check out the branch the commit belongs on, then push")
+                        return 1
+                    print(f"reef-update: the remote moved under you (a loop merge, most likely) — land the commit with:  "
+                          f"git pull --rebase --autostash origin {__import__('shlex').quote(branch)} && git push   "
+                          f"(an autostash that does not re-apply stays in `git stash list`)")
                 return 1
             print("project: pushed")
     else:

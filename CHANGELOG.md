@@ -7,7 +7,10 @@
   name is read from `~/.claude/plugins` (the entry whose location is the plugin clone, else `reef@<name>` among the
   installed plugins; none → `/reload-plugins` alone, said so); a rejected push prints
   `git pull --rebase --autostash origin <branch> && git push` with the branch filled in — autostash because the tick's
-  `HANDOFF.md` rendering is always unstaged. tests/size-budget.json raised: `script_lines` 17,501 → 17,540.
+  `HANDOFF.md` rendering is always unstaged (an autostash that does not re-apply stays in `git stash list`). The reviews:
+  the hint only on a non-fast-forward rejection, the branch quoted for the shell (a ref admits `;`), a detached checkout
+  told to check out its branch; a marketplace key outside `[A-Za-z0-9._-]` is never rendered; a plugins file of another
+  shape is no crash. tests/size-budget.json raised: `script_lines` 17,501 → 17,540.
 - **`reef-run.py` refuses an unknown argument** (2026-10-29, the owner: `python3 scripts/reef-run.py --status`, a typo for the
   verb `status`, fell through to a run and started a loop session on the project without a word). Every argument is checked
   first: a verb (`watch`, `status`, `stop`, `probe`, `contract`, first position only), a flag with its value (`--repo`,
