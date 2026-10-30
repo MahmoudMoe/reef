@@ -8,6 +8,16 @@
   the README, the site, the manual and the site plan say so; history (CHANGELOG, docs/perf) keeps its words. The reviews: the
   ledger row claims what the two surfaces show (growth and the journal's rows are `reef-cost.py rows`), the contract test
   reads skills, agents, hooks, commands, templates and scripts too, the plan names the replacement the commit chose. tests/size-budget.json SET to the measurement: `script_lines` 17,501 → 16,945, `prose_words` 22,721 → 22,721.
+- **`reef update`'s two owner lines carry real values** (2026-10-29, the owner's update after the night's PRs: the last line
+  read `/plugin marketplace update <marketplace>` — a placeholder in a command the owner types — and when his push was
+  rejected because the loop had pushed meanwhile, the hint said `git push`, which fails the same way). The marketplace's
+  name is read from `~/.claude/plugins` (the entry whose location is the plugin clone, else `reef@<name>` among the
+  installed plugins; none → `/reload-plugins` alone, said so); a rejected push prints
+  `git pull --rebase --autostash origin <branch> && git push` with the branch filled in — autostash because the tick's
+  `HANDOFF.md` rendering is always unstaged (an autostash that does not re-apply stays in `git stash list`). The reviews:
+  the hint only on a non-fast-forward rejection, the branch quoted for the shell (a ref admits `;`), a detached checkout
+  told to check out its branch; a marketplace key outside `[A-Za-z0-9._-]` is never rendered; a plugins file of another
+  shape is no crash. tests/size-budget.json raised: `script_lines` 17,501 → 17,540.
 - **The orphan test's fake session says why it ended** (2026-10-30, CI's macOS leg still red on the test after #216: the fake
   died before the assertion and nobody could see why — its output went to the dead runner's pipe). The fake ignores SIGHUP
   and SIGPIPE as a session should, treats any OSError on its one write as the pipe being gone, and on any other end writes
