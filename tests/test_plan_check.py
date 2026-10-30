@@ -414,6 +414,14 @@ class Decoration(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn("## Decision cites src/lib/tier.ts:40-52", r.stdout)
         with open(p, "w") as f:
+            f.write(t.replace("## Scope\nx", "## Scope\nMakefile:12 and config.ini:4 change"))
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("## Scope cites Makefile:12", r.stdout, "the review: the scope is in the digest too, and bare Makefile/Dockerfile count")
+        with open(p, "w") as f:
+            f.write(t.replace("## Scope\nx", "## Scope\nthe service at host:8080 answers by 12:30; see v1.2:3 notes"))
+        self.assertEqual(run(tmp).returncode, 0, "a port, a time, a version are not citations: " + run(tmp).stdout)
+        with open(p, "w") as f:
             f.write(t)
         self.assertEqual(run(tmp).returncode, 0, "a criterion that names the content passes: " + run(tmp).stdout)
 
