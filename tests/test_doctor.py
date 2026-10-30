@@ -1,6 +1,7 @@
 """reef-doctor and reef-update (0.7, usability plan A1): the screen names the state and the fix; the update is one command."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -40,6 +41,19 @@ def project():
 def doctor(d, *a):
     env = dict(os.environ, PATH="/nonexistent-gh:" + os.environ["PATH"])
     return subprocess.run([sys.executable, DOCTOR, "--repo", d, "--plugin", ROOT, *a], capture_output=True, text=True, env=env)
+
+
+class ProposalsFix(unittest.TestCase):
+    def test_the_proposals_fix_names_the_plugins_reef_init(self):
+        """2026-10-31, the owner pressed the item: `python3 scripts/reef-init.py --accept …` — a project has no scripts/reef-init.py;
+        the one that renders the proposal is the plugin's, with --root."""
+        d = project()
+        pdir = os.path.join(d, ".git", "reef", "proposed")   # where reef-init renders a proposal (the repo's common dir)
+        os.makedirs(pdir, exist_ok=True)
+        open(os.path.join(pdir, "AGENTS.md"), "w").write("# proposed\n")
+        r = doctor(d)
+        self.assertNotIn("python3 scripts/reef-init.py --accept", r.stdout)
+        self.assertRegex(r.stdout, re.escape(f"python3 {ROOT}/scripts/reef-init.py --root ") + r"\S+ --accept AGENTS\.md", "the plugin's reef-init, with --root (the root as the doctor resolves it)")
 
 
 def legacy_stamped_task(d):

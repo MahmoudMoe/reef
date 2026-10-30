@@ -428,7 +428,8 @@ def cmd_screen(root, args):
 
 
 def run_shown(root, argv, shown):
-    """Run an item's argv — no shell — showing the line the owner would type, and wait for a key."""
+    """Run an item's argv — no shell — showing the line the owner would type, and wait for a key. A decision resumes the runner
+    inside the command that records it (reef-approval.py, reef-queue.py): one home per kind, never a second call here."""
     print(f"\n$ {shown}\n", flush=True)
     rc = subprocess.run(argv, cwd=root).returncode
     try:
@@ -539,7 +540,7 @@ def cmd_approve(root, args):
     print(f"reef approve: {it['cmd']}", flush=True)
     if "--dry-run" in args:
         return 0
-    return subprocess.run(it["argv"], cwd=root).returncode
+    return subprocess.run(it["argv"], cwd=root).returncode   # reef-approval.py resumes the runner itself
 
 
 def cmd_answer(root, args):
@@ -580,7 +581,7 @@ def cmd_answer(root, args):
     gone = drop_question(root, issue=issue) if issue else drop_question(root, row=row)   # on issues `answered` already did; a file queue clears here
     if gone:
         print(f"reef answer: row {row}'s question cleared from .reef/questions.md")
-    return 0
+    return 0   # reef-queue.py resumed the runner itself
 
 
 def cmd_update(root, args):

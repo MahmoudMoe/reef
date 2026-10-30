@@ -686,6 +686,9 @@ def check_runner_cli(seg):
         deny(f"{who}: scripts/reef-run.py starts the runner, which takes the project's loop — the owner starts it (a terminal, or /reef-run in the main session); a sub-agent reads it: status, watch")
     if head == "reef-loop.py" and "unlock" in rest:
         deny(f"{who}: `reef-loop.py unlock` takes the loop from the session that holds it — the owner's own command, never an agent's")
+    if head == "reef" and not (rest[:1] and rest[0] in ("status", "doctor", "cost", "watch", "screen", "--menu", "--all")):   # 2026-10-31: `reef approve 9` is
+        deny(f"{who}: `reef {rest[0] if rest else ''}` is the owner's entry point — it records the owner's decisions and starts the runner; a sub-agent reads: "
+             "reef status, doctor, cost")                                                                                     # reef-approval.py --owner in a coat
 
 
 def check_approval_cli(seg):

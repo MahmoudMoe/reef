@@ -4,6 +4,7 @@
 # defect it exists to catch — a gate never observed failing is decoration.
 set -e
 cd "$(dirname "$0")/.."
+export REEF_NO_RESUME=1   # a typed approval or answer in a test must not start a runner; the resume test unsets it
 # Python suites (unittest discover picks up every tests/test_*.py):
 #   test_guard.py       the PreToolUse guard: bypass spellings, dispatch caps, odometer, stamp
 #   test_attempt.py     reef-attempt: the cap as data, failure signatures

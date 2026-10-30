@@ -284,7 +284,7 @@ class TheScreen(unittest.TestCase):
             self.assertEqual(mod.main(["approve", "9", "--repo", d]), 0)
         finally:
             subprocess.run = orig
-        self.assertEqual(ran[-1][1:], [mod.script("reef-approval.py"), "--owner", "Approve plan reconcile-instruction-layer at 2cc8e8c3487e9ab2?"], "the question, never a placeholder")
+        self.assertEqual(ran[-1][1:], [mod.script("reef-approval.py"), "--owner", "Approve plan reconcile-instruction-layer at 2cc8e8c3487e9ab2?"], "the question, never a placeholder — and no resume of the entry's own: reef-approval.py resumes (the review)")
 
     def test_no_shell_between_the_screen_and_a_command(self):
         # the reviews of #221: every item is an argv list — never a string a shell parses — and agent-written text (a row
