@@ -195,3 +195,50 @@ class DayNumbers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Challenge(unittest.TestCase):
+    """2026-10-31, the owner: "a CTO who challenges — guardrails that keep him right, not ones that slow him." Mahmoud's CHALLENGE on
+    a plan is recorded once per row and the second is the owner's (exit 3) — on disk, so a /clear or a runner restart cannot turn
+    one round into a night of rounds; where the contract does not give him `plan`, a challenge is refused like an approval."""
+
+    def challenge(self, d, row="12", text=None):
+        p = os.path.join(d, ".reef", "ci-local", f"report-mahmoud-challenge-{row}.md")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            f.write(text if text is not None else f"RUN: agent=mahmoud day={TODAY} kind=plan question=plan 12\n"
+                    "CHALLENGE plan row 12 — three tasks for one screen: over-built — one task, the screen and its test\nVERDICT: DONE\n")
+        return subprocess.run([sys.executable, APPROVAL, "--proxy", "--challenge", "--row", row, "--report", os.path.relpath(p, d)],
+                              capture_output=True, text=True, cwd=d)
+
+    def test_the_first_challenge_is_recorded_and_carried_the_second_is_the_owners(self):
+        d = N.project()
+        contract_day(d)
+        pm = os.path.join(d, "reef", "proxy.md")
+        text = open(pm).read()
+        open(pm, "w").write(text.replace("Decides: process, wording", "Decides: process, wording, plan"))
+        approve_day(self, d)
+        r = self.challenge(d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr); self.assertIn("recorded", r.stdout); self.assertIn("once more", r.stdout)
+        log = [json.loads(l) for l in open(os.path.join(d, ".reef", "approvals", "day-decisions.jsonl"))]
+        self.assertEqual((log[-1]["row"], log[-1]["kind"]), ("12", "challenge")); self.assertIn("one task", log[-1]["want"])
+        r = self.challenge(d, text=f"RUN: agent=mahmoud day={TODAY} kind=plan question=plan 12\nCHALLENGE plan row 12 — still two tasks — one\nVERDICT: DONE\n")
+        self.assertEqual(r.returncode, 3, r.stdout); self.assertIn("the owner's", r.stdout); self.assertIn("reef-queue.py ask", r.stdout)
+        self.assertEqual(sum(1 for l in open(os.path.join(d, ".reef", "approvals", "day-decisions.jsonl")) if '"challenge"' in l), 1, "one record per row")
+        r = self.challenge(d, row="3", text=f"RUN: agent=mahmoud day={TODAY} kind=plan question=plan 3\nDECIDE x — y — z\nVERDICT: DONE\n")
+        self.assertEqual(r.returncode, 1); self.assertIn("no `CHALLENGE", r.stdout)
+
+    def test_without_plan_in_decides_or_without_the_approval_a_challenge_is_refused(self):
+        d = N.project()
+        approve_day(self, d)   # the seed: process, wording — no plan
+        r = self.challenge(d)
+        self.assertEqual(r.returncode, 1, r.stdout); self.assertIn("does not name `plan`", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(d, ".reef", "approvals", "day-decisions.jsonl")))
+        d2 = N.project()
+        r = self.challenge(d2)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        # a running night: its contract governs — no day approval needed
+        os.makedirs(os.path.join(d2, ".reef", "night"), exist_ok=True); open(os.path.join(d2, ".reef", "night", "active"), "w").write("x")
+        r = self.challenge(d2)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+

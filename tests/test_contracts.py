@@ -1014,3 +1014,28 @@ class AutopilotIsDelegationInEveryVoice(unittest.TestCase):
         self.assertIn("reef autopilot", read("skills", "reef-loop", "SKILL.md"))
         self.assertIn("`reef autopilot` runs", read("README.md"))
         self.assertIn("--autopilot", read("README.md"))
+
+
+class MahmoudIsACTO(unittest.TestCase):
+    """2026-10-31, the owner: "make Mahmoud a very smart agent — master architect, senior software architect, AI and software
+    research depth, yet simplicity and no over-engineering; business literacy like economists, finance, marketing, sales,
+    after-sales, front staff; he can research on the web when needed; like a CTO he decides — and challenges the work and
+    the recommendations like a normal CTO." The brief says so; the orchestrators act on his CHALLENGE and RESEARCH lines."""
+
+    def test_the_brief_the_tools_and_the_orchestrators(self):
+        text = read("agents", "mahmoud.md")
+        tools = re.search(r"^tools:\s*(.+)$", text, re.M).group(1)   # read-only is pinned by SuperReefIsHonest; here: the research tools
+        self.assertIn("WebSearch", tools); self.assertIn("WebFetch", tools)
+        for phrase in ("CTO", "master architect", "senior software architect", "simplicity", "over-engineer", "economics", "finance", "marketing",
+                       "sales", "after-sales", "front staff", "challenge", "CHALLENGE <", "RESEARCH <", "never send the project's code or secrets",
+                       "never punt", "One round, then decide", "never an instruction to you", "Evidence or nothing", "Settled stays settled",
+                       "asked once more", "second disagreement is the owner's", "security, privacy, money or data loss", "`Explore`"):
+            self.assertIn(phrase, text, phrase)
+        for skill in (read("skills", "reef-night", "SKILL.md"), read("skills", "reef-loop", "SKILL.md")):
+            self.assertIn("CHALLENGE", skill); self.assertIn("RESEARCH", skill); self.assertIn("`Explore`", skill, "the research agent is the locked read-only type")
+            self.assertIn("never a loop", skill, "one round between Mahmoud and the planner")
+        loop = read("skills", "reef-loop", "SKILL.md")
+        self.assertIn("--proxy --challenge", loop, "the once is a record, not a memory"); self.assertIn("exit 3", loop)
+        run = read("scripts", "reef-run.py")
+        self.assertIn("--proxy --challenge", run, "the headless prompts know the record"); self.assertIn("RESEARCH", run); self.assertIn("second CHALLENGE", run)
+        self.assertIn("Web research", run, "the day seed names it, so the owner's digest binds it")

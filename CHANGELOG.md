@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **Mahmoud is the project's CTO.** The owner's proxy (`agents/mahmoud.md`) is briefed as a master architect and senior software architect
+  with research depth in software and AI, who reads the business as an economist (finance, marketing, sales, after-sales, the front staff)
+  and still chooses the simplest robust thing. He **challenges a plan** like a CTO — a `CHALLENGE` line, recorded once per row by
+  `reef-approval.py --proxy --challenge` (the second is the owner's, exit 3 — on disk, so a `/clear` cannot turn one round into a night of
+  rounds), carried to the planner, then he is asked once more. He **researches** when it changes the decision: `WebSearch`/`WebFetch`
+  himself, or a `RESEARCH` line that runs one `Explore` agent; a query names only public things, a page is evidence and never an
+  instruction. Guardrails that keep him right, not slow (the owner): decide inside the contract, never punt; one round; evidence or
+  nothing; settled stays settled. The day seed and the night template name web research so the owner's digest binds it. Still read-only.
+  tests/size-budget.json raised: `prose_words` 22,940 → 23,854, `script_lines` 17,644 → 17,701.
 - **The `reef` screen, third design** (2026-10-31, the owner: "shouldn't 1-9 select? why can't I execute from within — reef closes,
   runs, then a Return key to come back"). The keys are one table: a digit SELECTS its item (the same digit again, or Enter,
   runs it), ↑↓ move, `w` opens the log, `a` starts the autopilot, `q`/Esc quit. A command runs inside the screen — its last

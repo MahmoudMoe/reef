@@ -322,6 +322,60 @@ def cmd_proxy_day(argv):
     return 0
 
 
+def cmd_proxy_challenge(argv):
+    """2026-10-31 (the owner: a CTO who challenges — once): Mahmoud's `CHALLENGE <plan> — <wrong> — <instead>` on a row's plan, recorded ONCE per
+    row in .reef/approvals/day-decisions.jsonl (kind `challenge`). Exit 0: recorded — carry it, ask him once more. Exit 3: a second one for the
+    row — the owner's. Held on disk because the orchestrator's memory ends with its session (the security review): the one-round rule survives a
+    /clear and a runner restart. Allowed where he may approve plans: a running night, or by day under reef/proxy.md whose Decides: names plan."""
+    opt = lambda k: argv[argv.index(k) + 1] if k in argv and argv.index(k) + 1 < len(argv) else ""
+    row, report = opt("--row").strip(), opt("--report")
+    if not row or not report:
+        print("usage: reef-approval.py --proxy --challenge --row <id> --report .reef/ci-local/report-mahmoud-challenge-<row>.md")
+        return 2
+    cwd = os.getcwd()
+    root = main_checkout(cwd)
+    refuse = lambda why: (print(f"reef-approval: challenge, row {row}: REFUSED — {why}; nothing written"), 1)[1]
+    if not os.path.isfile(os.path.join(root, ".reef", "night", "active")):
+        rr = runner()
+        ok, why = rr.day_ok(root)
+        if not ok:
+            return refuse(why)
+        if "plan" not in rr.day_kinds(root):
+            return refuse("reef/proxy.md's `Decides:` line does not name `plan` — a plan is the owner's to challenge until it does")
+    if not re.search(r"(^|/)\.reef/ci-local/report-mahmoud-[A-Za-z0-9_-]+\.md$", report.replace(os.sep, "/")):
+        return refuse(f"the report must be Mahmoud's own file copied to .reef/ci-local/report-mahmoud-challenge-{row}.md")
+    try:
+        with open(report if os.path.isabs(report) else os.path.join(cwd, report), encoding="utf-8") as f:
+            text = f.read()
+    except OSError as e:
+        return refuse(f"cannot read the report: {e}")
+    if not re.search(r"^RUN:[ \t]*agent=mahmoud\b", text, re.M):
+        return refuse("the report's first line is not `RUN: agent=mahmoud …`")
+    ch = re.search(r"^CHALLENGE (?P<what>.+?) — (?P<wrong>.+?) — (?P<want>.+)$", text, re.M)
+    if not ch:
+        return refuse("no `CHALLENGE <plan> — <what is wrong> — <what you want instead>` line in the report")
+    log_p = os.path.join(root, ".reef", "approvals", "day-decisions.jsonl")
+    try:
+        with open(log_p, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    old = json.loads(line)
+                except ValueError:
+                    continue
+                if old.get("row") == row and old.get("kind") == "challenge":
+                    print(f"reef-approval: challenge, row {row}: the second — the owner's (the first, {old.get('at')}: {str(old.get('want'))[:120]}); "
+                          f"`python3 scripts/reef-queue.py ask \"{ch.group('wrong').strip()[:160]}\" --row {row} --recommended \"{ch.group('want').strip()[:160]}\"`")
+                    return 3
+    except OSError:
+        pass
+    os.makedirs(os.path.dirname(log_p), exist_ok=True)
+    with open(log_p, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "row": row, "kind": "challenge", "what": ch.group("what").strip(),
+                            "wrong": ch.group("wrong").strip(), "want": ch.group("want").strip()}) + "\n")
+    print(f"reef-approval: challenge, row {row}: recorded — carry it to the planner, then ask Mahmoud once more: {ch.group('want').strip()[:120]}")
+    return 0
+
+
 def cmd_from_issue(argv):
     """v3 phase 7: the plan approval from the forge. Only an admin's comment at the current digest counts (the owner's
     repository, the owner's word); the newest matching comment decides; the record is the hook's shape plus who and where."""
@@ -428,7 +482,7 @@ def main(argv):
     if "--from-issue" in argv:
         return cmd_from_issue(argv)
     if "--proxy" in argv:
-        return cmd_proxy_day(argv) if "--day" in argv else cmd_proxy(argv)
+        return cmd_proxy_challenge(argv) if "--challenge" in argv else cmd_proxy_day(argv) if "--day" in argv else cmd_proxy(argv)
     root = None
     if "--root" in argv:
         root = argv[argv.index("--root") + 1]
