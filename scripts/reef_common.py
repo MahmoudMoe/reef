@@ -8,6 +8,7 @@ A script whose callers expect another shape keeps a one-line adapter over these,
 """
 import json
 import os
+import re
 import subprocess
 
 _ROOT = object()
@@ -102,6 +103,46 @@ def run(args, cwd, timeout=60, env=None, timeout_rc=124):
         return subprocess.CompletedProcess(args, timeout_rc, "", f"timed out after {timeout} s")
     except OSError as e:
         return subprocess.CompletedProcess(args, 1, "", str(e))
+
+
+LINT_LINE = {"ruff": 'exclude = ["scripts/reef*"]', "mypy": 'exclude = "scripts/reef"'}
+COVERS = re.compile(r"scripts/reef\*|scripts/reef(?![-])|scripts/\*\*|\bscripts/?[\"']")   # a pattern that covers reef-*.py AND reef_common.py
+
+
+def lint_gaps(root):
+    """The project's Python linters that would scan Reef's copied scripts — [(config file, section, the line to add)].
+    2026-10-29 (an adoption): ruff flagged 1,725 style errors in scripts/reef-*.py and CI went red; the scripts are rendered
+    by reef-init and replaced on every upgrade, so their style is Reef's own. `scripts/reef-*` alone no longer covers them
+    (scripts/reef_common.py). Read with a regex, not a TOML parser: the floor is Python 3.9."""
+    out = []
+    for name in ("pyproject.toml", "ruff.toml", ".ruff.toml"):
+        p = os.path.join(root, name)
+        try:
+            text = read(p)
+        except OSError:
+            continue
+        if name != "pyproject.toml":
+            if not COVERS.search(section_text(text, None)):
+                out.append((name, "", LINT_LINE["ruff"]))
+            continue
+        for tool in ("ruff", "mypy"):
+            if re.search(rf"^\[tool\.{tool}(\.|\])", text, re.M) and not COVERS.search(section_text(text, tool)):
+                out.append((name, f"[tool.{tool}]", LINT_LINE[tool]))
+    return out
+
+
+def section_text(text, tool):
+    """The `exclude` values inside the tool's sections (every `[tool.<tool>…]` table), or the whole file for a ruff.toml."""
+    if tool is None:
+        return "\n".join(l for l in text.splitlines() if re.match(r"^\s*(exclude|extend-exclude)\s*=", l) or l.strip().startswith(('"', "'")))
+    out, inside = [], False
+    for line in text.splitlines():
+        if re.match(r"^\[", line):
+            inside = bool(re.match(rf"^\[tool\.{tool}(\.|\])", line))
+            continue
+        if inside and (re.match(r"^\s*(exclude|extend-exclude)\s*=", line) or line.strip().startswith(('"', "'"))):
+            out.append(line)
+    return "\n".join(out)
 
 
 def git(cwd, *args, timeout=None):

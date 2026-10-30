@@ -345,6 +345,28 @@ class ReleaseOnlyCi(unittest.TestCase):
         self.assertEqual(cfg["gates"]["full"], "uv run pytest -q")
         self.assertIn("uv sync", read(d, "AGENTS.md"))
 
+    def test_a_projects_linters_are_told_to_leave_reefs_scripts_alone(self):
+        # 2026-10-29 (Sophia): the project's ruff flagged 1,725 style errors in the copied scripts/reef-*.py and its CI went
+        # red; mypy and import-linter followed. Reef's scripts are rendered and replaced on every upgrade — their style is
+        # Reef's own. init names the line to add; a config that already excludes them gets no line
+        d = tempfile.mkdtemp(prefix="reef-init-lint.")
+        write(d, "pyproject.toml", "[project]\nname='x'\n\n[tool.ruff]\nline-length = 120\n\n[tool.ruff.lint]\nselect = [\"E\", \"F\"]\n\n[tool.mypy]\nstrict = true\n")
+        write(d, "uv.lock", "")
+        subprocess.run(["git", "init", "-q", d], check=True)
+        r = init(d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("LINT: pyproject.toml [tool.ruff] scans Reef's scripts — add  exclude = [\"scripts/reef*\"]", r.stdout)
+        self.assertIn("LINT: pyproject.toml [tool.mypy] scans Reef's scripts — add  exclude = \"scripts/reef\"", r.stdout)
+        write(d, "pyproject.toml", "[project]\nname='x'\n\n[tool.ruff]\nexclude = [\"scripts/reef*\", \"build\"]\n\n[tool.mypy]\nexclude = \"scripts/reef|build/\"\n")
+        r = init(d)
+        self.assertNotIn("LINT:", r.stdout, "an exclusion that covers them: no line")
+        write(d, "pyproject.toml", "[project]\nname='x'\n\n[tool.ruff]\nexclude = [\"scripts/reef-*\"]\n")
+        self.assertIn("LINT: pyproject.toml [tool.ruff]", init(d).stdout, "`scripts/reef-*` misses scripts/reef_common.py: still a line")
+        d2 = tempfile.mkdtemp(prefix="reef-init-rufftoml.")
+        write(d2, "pyproject.toml", "[project]\nname='x'\n"); write(d2, "uv.lock", ""); write(d2, "ruff.toml", "line-length = 100\n")
+        subprocess.run(["git", "init", "-q", d2], check=True)
+        self.assertIn("LINT: ruff.toml scans Reef's scripts — add  exclude = [\"scripts/reef*\"]", init(d2).stdout)
+
     def test_unknown_stack_leaves_gate_empty_and_says_so(self):
         d = tempfile.mkdtemp(prefix="reef-init-none.")
         subprocess.run(["git", "init", "-q", d], check=True)
