@@ -11,6 +11,9 @@
   nothing the scripts do not: it reads loop.json, questions.md, the handoff's tick, the runner's own view, the doctor's
   lines, and every key runs a command you could type. A doctor's fix is read as the last dash-separated part of its line and
   never shown with a placeholder; the doctor prints the plugin's real path in its two lines that said `<plugin>`.
+  The reviews: no shell between a key and a command — every item is an argv, the approval question must match the
+  hook's own regex (shared in reef_common with the runner), a row is digits, a doctor fix with prose or shell syntax is not an
+  item; the doctor's unlock line is a bare command.
   tests/size-budget.json raised for the screen: `script_lines` 16,945 → 17,077.
 - **Consolidation step 2 — the three orphans** (docs/design/consolidation.md, 2026-10-30): `scripts/reef-watch` is gone
   (`reef-run.py status` and `.reef/status.html`, rendered at every tick, replaced it), `scripts/reef-guard-profile.py` is

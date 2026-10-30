@@ -85,6 +85,13 @@ class Doctor(unittest.TestCase):
         self.assertIn("checkout main -- reef/queue.md", r.stdout)
         self.assertIn("worktree: .reef/worktrees/a [feat/a] (feature)", r.stdout)
 
+    def test_every_fix_the_doctor_prints_is_a_bare_command_or_prose_never_both(self):
+        # the screen runs a doctor's fix as an argv: a fix line is a command, or a sentence, never a command with a parenthetical
+        import re as _re
+        src = open(os.path.join(ROOT, "scripts", "reef-doctor.py"), encoding="utf-8").read()
+        for m in _re.finditer(r'say\("WARN",[^\n]*?,\s*f?"(python3 [^"]*)"', src):
+            self.assertNotRegex(m.group(1), r"[();|&<>$`]", f"a fix with shell syntax or prose: {m.group(1)}")
+
     def test_a_linter_that_scans_reefs_scripts_is_a_warning_with_the_line(self):
         # 2026-10-29 (Sophia): ruff on the copied scripts turned CI red; the doctor says which config and the line to add
         d = project()

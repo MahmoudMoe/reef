@@ -94,7 +94,8 @@ class TheScreen(unittest.TestCase):
         d = project(**{
             ".reef/loop.json": '{"active": true, "wait": "owner: approve plan reconcile-instruction-layer at 2cc8e8c3487e9ab2 (Approve plan reconcile-instruction-layer at 2cc8e8c3487e9ab2?) — row 7 holds", "stop": null, "parked": "no progress: 3 identical ticks", "hashes": []}',
             ".reef/questions.md": "- row 7: Keep the old /api/color route on non-KIT pages? — recommended: yes, it is served today\n",
-            "HANDOFF.md": "# Handoff\n\n## The tick\n```\ntick abc  loop=active\nawaiting: reconcile-instruction-layer (re-approval (plan edited after approval)) — " + self.APPROVE + "\nnext: awaiting\n```\n",
+            "HANDOFF.md": "# Handoff\n\n## The tick\n```\ntick abc  loop=active\nawaiting: reconcile-instruction-layer (re-approval (plan edited after approval)) — " + self.APPROVE
+                          + '; other-row (approval (the gate: the machines passed)) — python3 scripts/reef-approval.py --owner "Approve plan other-row at 0123456789abcdef?"' + "\nnext: awaiting\n```\n",
             ".reef/run/live.log": "21:17 s1 session started\n21:18 s1 implementer 903 out → PASS\n",
         })
         r = reef("screen", "--once", "--repo", d)
@@ -102,6 +103,7 @@ class TheScreen(unittest.TestCase):
         out = r.stdout
         self.assertIn("INBOX", out)
         self.assertEqual(out.count(self.APPROVE), 1, "the same approval from the wait and the handoff: one item\n" + out)
+        self.assertIn('--owner "Approve plan other-row at 0123456789abcdef?"', out, "an approval only the handoff names is an item too (the review)")
         self.assertRegex(out, r"(?m)^\s*1\s+approve\b")
         self.assertIn('python3 scripts/reef-queue.py footnote "<your answer>" --row 7', out)
         self.assertIn("recommended: yes, it is served today", out)
@@ -150,6 +152,31 @@ class TheScreen(unittest.TestCase):
         finally:
             subprocess.run = orig
         self.assertEqual(ran[-1][1:], [mod.script("reef-approval.py"), "--owner", "Approve plan reconcile-instruction-layer at 2cc8e8c3487e9ab2?"], "the question, never a placeholder")
+
+    def test_no_shell_between_the_screen_and_a_command(self):
+        # the reviews of #221: every item is an argv list — never a string a shell parses — and agent-written text (a row
+        # in questions.md, a feature slug in the row machine's detail, a doctor line with prose) never becomes a command
+        mod = load_entry()
+        d = project(**{
+            ".reef/loop.json": '{"active": true, "wait": "owner: row 9 and row 7;rm needs you (Approve plan demo at 0123456789abcdef?)", "stop": null, "parked": "x", "hashes": []}',
+            ".reef/questions.md": "- row 7;echo pwned: Keep it? — recommended: yes\n- row 8: Rename it? — recommended: no\n",
+        })
+        mod.row_state = lambda root, row: {"row": row, "state": "approval", "detail": 'in the terminal: python3 scripts/reef-approval.py --owner "Approve plan $(cmd) at 0123456789abcdef?"'}
+        doctor = ["WARN hold: a dead session — python3 scripts/reef-loop.py unlock   (a dead session's hold; the runner takes one over)",
+                  "WARN gate probe: none — the runner refuses to start — python3 scripts/reef-run.py probe"]
+        items = mod.inbox(d, doctor)
+        for it in items:
+            self.assertIsInstance(it["argv"], list, it)
+            self.assertTrue(it["argv"][0] == sys.executable or it["argv"][0] == "python3" and False, f"the interpreter, resolved: {it['argv']}")
+        kinds = [(i["kind"], i["row"]) for i in items]
+        self.assertIn(("approve", None), kinds, "the wait's own question")
+        self.assertNotIn(("approve", "9"), kinds, "a slug outside the approval regex ($(cmd)) is never a command")
+        self.assertIn(("answer", "8"), kinds)
+        self.assertNotIn(("answer", "7;echo pwned"), kinds, "a row is digits")
+        self.assertEqual([i["argv"][-1] for i in items if i["kind"] == "fix"], ["probe"], "a fix with prose or shell syntax is not an item; the probe is")
+        q = [i for i in items if i["kind"] == "approve"][0]
+        self.assertEqual(q["argv"][2:], ["--owner", "Approve plan demo at 0123456789abcdef?"], "the question is ONE argument")
+        self.assertEqual(q["cmd"], 'python3 scripts/reef-approval.py --owner "Approve plan demo at 0123456789abcdef?"', "shown as the line the owner would type")
 
     def test_the_inbox_reads_a_doctors_fix_as_its_last_part_and_never_shows_a_placeholder(self):
         mod = load_entry()

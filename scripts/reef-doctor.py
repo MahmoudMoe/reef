@@ -247,8 +247,8 @@ def main(argv):
             held = json.load(f)
         hpid = int(held.get("pid") or 0)
         alive = bool(hpid) and process_alive(hpid)
-        say("OK" if alive else "WARN", f"hold: session {str(held.get('session', '?'))[:8]} holds the loop (process {hpid or '?'} {'alive' if alive else 'dead'})",
-            "" if alive else "python3 scripts/reef-loop.py unlock   (a dead session's hold; the runner takes one over by itself)")
+        say("OK" if alive else "WARN", f"hold: session {str(held.get('session', '?'))[:8]} holds the loop (process {hpid or '?'} {'alive' if alive else 'dead'}) (a dead session's hold; the runner takes one over by itself)",
+            "" if alive else "python3 scripts/reef-loop.py unlock")
     except (OSError, ValueError, TypeError):
         say("OK", "hold: nobody holds the loop")
     try:
