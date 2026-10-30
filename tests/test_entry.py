@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -263,8 +264,8 @@ class TheScreen(unittest.TestCase):
         self.assertEqual(on(10, 1, 5, "inbox"), ("run", 1), "Enter runs the selected")
         self.assertEqual(on(ord("9"), 0, 2, "inbox"), None, "a digit past the list is nothing")
         self.assertEqual(on(ord("q"), 0, 2, "inbox"), ("quit",)); self.assertEqual(on(27, 0, 2, "inbox"), ("quit",))
-        self.assertEqual(on(ord("w"), 0, 2, "inbox"), ("log",)); self.assertEqual(on(ord("w"), 0, 2, "log"), ("inbox",))
-        self.assertEqual(on(ord("q"), 0, 2, "log"), ("inbox",), "q in the log view goes back, not out")
+        self.assertEqual(on(ord("w"), 0, 2, "inbox"), ("log",)); self.assertEqual(on(ord("w"), 0, 2, "log"), ("back",))
+        self.assertEqual(on(ord("q"), 0, 2, "log"), ("back",), "q in the log view goes back, not out")
         self.assertEqual(on(ord("r"), 0, 2, "inbox"), ("verb", "run"))
         self.assertEqual(on(ord("j"), 0, 2, "inbox"), ("down",)); self.assertEqual(on(ord("k"), 1, 2, "inbox"), ("up",))
         edit = mod.edit_step
@@ -318,7 +319,7 @@ class TheScreen(unittest.TestCase):
         mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["ok"]))[1]
         mod.doctor_lines = lambda root: []
         d2 = project(**{".reef/questions.md": "- row 7: Keep it? — recommended: yes\n- row 8: Rename it? — recommended: no\n"})
-        win = FakeWin([ord("2"), 10, 10, ord("x"), 10, 10, ord("q")])   # 2 selects; Enter runs it and opens the answer line; Enter keeps 'no'; x closes the panel; Enter, Enter again; q
+        win = FakeWin([ord("i"), ord("2"), 10, 10, ord("x"), 10, 10, ord("q")])   # i: the inbox (the screen opens on WORK since the fourth design); 2 selects; Enter runs it and opens the answer line; Enter keeps 'no'; x closes the panel; Enter, Enter again; q
         self.assertEqual(mod.screen_loop(win, d2, FakeCurses()), 0)
         self.assertEqual(len(ran), 2, "Enter ran the selected item twice (the second Enter, after the close): never the close key itself\n" + str(ran))
         self.assertIn("no", ran[0], "the recommendation kept with a plain Enter on the answer line")
@@ -329,6 +330,129 @@ class TheScreen(unittest.TestCase):
         # the child never sees the screen's keyboard (the security review): stdin is empty, prompts are off
         rc, out = real_run(d2, [sys.executable, "-c", "import os, sys; print(repr(sys.stdin.read()), os.environ.get('GIT_TERMINAL_PROMPT'))"])
         self.assertEqual((rc, out), (0, ["'' 0"]))
+
+    def test_the_work_board_shows_the_batch_as_rows_with_state_tasks_lanes_and_what_can_start(self):
+        """2026-10-31, the owner: "before I choose anything I want to see what is pending on this project, what I can start with,
+        what can go in parallel and what cannot, the progress; then I choose the order, start the autopilot, and it shows me the
+        tasks it will finish and which GitHub issues it will close." The screen opens on WORK: the current batch's rows with a
+        state mark (✓ done, ▶ building, ○ ready, ⏸ blocked by whom, ⧖ yours), tasks n/m, depends, a lane (rows that share a module
+        go one at a time; different modules run beside each other), the forge (its issue, its PR); the header carries the batch's
+        progress and today's cost. PLAN is the progress view; `a` is the autopilot's start panel; `?` lists every key."""
+        mod = load_entry()
+        d = project(**{
+            "docs/queue.md": "# Queue\nCurrent batch: 2\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n"
+                             "| 4 | legacy queue to issues (scripts/legacy-queue-issues.ts) | | planned | 2 | |\n"
+                             "| 7 | move specs to reef/ (reef/specs) | | planned | 2 | |\n"
+                             "| 8 | journal to issues (reef/specs/journal.md) | 7 | planned | 2 | |\n"
+                             "| 10 | design conformance (src/lib/design.ts) | | planned | 2 | |\n"
+                             "| 35 | shot-743 live take | 4, 7 | planned | 2 | |\n"
+                             "| 99 | later thing | | planned | 3 | |\n",
+            "reef/features/legacy-queue-to-issues/SPEC.md": "# x\n\nRow: 4\n",
+            "reef/features/legacy-queue-to-issues/tasks/done/401-a.md": "---\nid: 401\nfeature: legacy-queue-to-issues\nstatus: done\n---\n",
+            "reef/features/legacy-queue-to-issues/tasks/done/402-b.md": "---\nid: 402\nfeature: legacy-queue-to-issues\nstatus: done\n---\n",
+            "reef/features/legacy-queue-to-issues/tasks/403-c.md": "---\nid: 403\nfeature: legacy-queue-to-issues\nstatus: in-progress\n---\n",
+            "reef/features/move-specs-to-reef/SPEC.md": "# x\n\nRow: 7\n",
+            "reef/features/move-specs-to-reef/tasks/701-a.md": "---\nid: 701\nfeature: move-specs-to-reef\nstatus: pending\n---\n",
+            ".reef/run/run.log": '{"at": "%sT00:10:00Z", "cost_usd": 4.5, "mode": "autopilot"}\n' % time.strftime("%Y-%m-%d", time.gmtime()),
+        })
+        states = {"4": {"row": "4", "slug": "legacy-queue-to-issues", "state": "build", "next": "/reef-task", "detail": "1 open task(s) (PR #90)"},
+                  "7": {"row": "7", "slug": "move-specs-to-reef", "state": "approval", "next": "/reef-plan", "detail": "the gate: Approve plan move-specs-to-reef at 0123456789abcdef?"}}
+        mod.row_state = lambda root, row: states.get(str(row), {"row": str(row), "state": "plan", "next": "/reef-plan", "detail": ""})
+        wm = mod.work_model(d)
+        self.assertEqual(wm["batch"], "2")
+        ids = [r["id"] for r in wm["rows"]]
+        self.assertEqual(ids, ["4", "7", "8", "10", "35"], "the current batch's rows, in queue order; row 99 is batch 3")
+        by = {r["id"]: r for r in wm["rows"]}
+        self.assertEqual(by["4"]["mark"], "▶"); self.assertEqual(by["4"]["tasks"], (2, 3)); self.assertIn("PR #90", by["4"]["forge"])
+        self.assertEqual(by["7"]["mark"], "⧖", "a row at the owner's gate is his"); self.assertEqual(by["7"]["tasks"], (0, 1))
+        self.assertEqual(by["8"]["mark"], "⏸"); self.assertIn("7", by["8"]["waits"], "blocked by an open row it depends on")
+        self.assertEqual(by["10"]["mark"], "○", "no open depends, not building: can start now")
+        self.assertEqual(by["35"]["waits"], ["4", "7"])
+        self.assertEqual(by["7"]["lane"], by["8"]["lane"], "the same module (reef/specs, as reef-queue.py module_of cuts it): one lane, one at a time")
+        self.assertNotEqual(by["4"]["lane"], by["10"]["lane"], "different modules: beside each other")
+        self.assertEqual(wm["progress"]["rows"], (0, 5)); self.assertEqual(wm["progress"]["tasks"], (2, 4))
+        self.assertEqual(wm["cost_today"], 4.5)
+        lines, styles, sel = mod.render_work(wm, [], width=110, height=36, selected=1)
+        self.assertLessEqual(len(lines), 36); self.assertTrue(all(len(l) <= 110 for l in lines))
+        self.assertTrue(any(l.startswith("██████") for l in lines[:1]), "the banner first")
+        self.assertIn("WORK", lines[6]); self.assertIn("INBOX", lines[6]); self.assertIn("PLAN", lines[6]); self.assertIn("LOG", lines[6])
+        self.assertTrue(any("row" in l and "lane" in l and "forge" in l for l in lines), "the column head")
+        row4 = next(l for l in lines if l.lstrip().startswith("▶ 4")); self.assertIn("2/3", row4)
+        row8 = next(l for l in lines if l.lstrip().startswith("⏸ 8")); self.assertIn("waits: row 7", row8)
+        row10 = next(l for l in lines if l.lstrip().startswith("○ 10")); self.assertIn("can start now", row10)
+        self.assertIn("▶", lines[sel]); self.assertIn("7", lines[sel], "the selected row")
+        self.assertTrue(any(l.startswith("┌─ row 7") for l in lines), "the selected row's details under the table")
+        self.assertEqual(styles.get(0), "banner"); self.assertIn(styles.get(sel), ("sel",))
+        self.assertTrue(any(v == "done" or v == "wait" or v == "blocked" for v in styles.values()), "states carry colors")
+        self.assertIn("batch 2", lines[1]); self.assertIn("0/5 rows", lines[1]); self.assertIn("2/4 tasks", lines[1]); self.assertIn("$4.50 today", lines[1])
+        self.assertEqual([r["id"] for r in mod.ordered(dict(wm, order="start"))], ["10", "4", "7", "8", "35"], "o: what can start first, then building, yours, blocked")
+        short, sstyles2, ssel = mod.render_work(wm, [], width=110, height=14, selected=4)
+        self.assertLessEqual(len(short), 14); self.assertIn("35", short[ssel], "the selected row survives the shedding"); self.assertTrue(any("more (" in l for l in short), "the cut is said")
+        wm["autopilot"] = {"on": True, "pid": 70417, "since": "01:22", "decided_today": 3}
+        plan, pstyles = mod.render_plan(wm, [], width=110, height=30)
+        self.assertLessEqual(len(plan), 30)
+        self.assertTrue(any("row 4" in l and "█" in l for l in plan), "a progress bar per row")
+        self.assertTrue(any("decided by Mahmoud today" in l and "3" in l for l in plan))
+        start, sstyles = mod.render_autopilot(wm, {"digest16": "11a6d568580789c5", "decides": ["plan", "question"], "never": "the release"}, width=110, height=30)
+        self.assertTrue(start[0].startswith("AUTOPILOT")); self.assertIn("plan, question", start[0]); self.assertIn("the release", "\n".join(start))
+        self.assertTrue(any("1." in l and "row 4" in l for l in start), "the order, the first row first")
+        self.assertTrue(any("row 35" in l and "asks you" in l for l in start), "a row that waits on open rows: after them")
+        self.assertTrue(any("Enter starts" in l for l in start))
+        helps, _ = mod.render_help("work", width=100, height=30)
+        for key in ("Tab", "?", "a", "i", "w", "q", "Enter", "1-9", "↑↓", "o"):
+            self.assertTrue(any(key in l for l in helps), f"help names {key}")
+        on = mod.on_key
+        self.assertEqual(on(9, 0, 3, "work"), ("view", "inbox")); self.assertEqual(on(9, 0, 3, "inbox"), ("view", "plan"))
+        self.assertEqual(on(ord("?"), 0, 3, "work"), ("help",)); self.assertEqual(on(ord("i"), 0, 3, "work"), ("view", "inbox"))
+        self.assertEqual(on(ord("a"), 0, 3, "work"), ("autopilot",)); self.assertEqual(on(ord("o"), 0, 3, "work"), ("order",))
+        self.assertEqual(on(ord("3"), 0, 5, "work"), ("select", 2)); self.assertEqual(on(10, 1, 5, "work"), ("open", 1))
+        self.assertEqual(on(10, 1, 5, "plan"), ("open", 1), "PLAN shows rows: Enter never runs an inbox item the view does not show (the security review)")
+        self.assertEqual(on(ord("q"), 0, 2, "log"), ("back",))
+        self.assertEqual(on(27, 0, 3, "help"), ("view", "work")); self.assertEqual(on(ord("q"), 0, 3, "help"), ("view", "work"))
+        attrs = mod.style_attrs({"A_REVERSE": 1, "A_BOLD": 2, "A_NORMAL": 0}, colors=False)
+        self.assertEqual(attrs["sel"], 1); self.assertEqual(attrs["banner"], 2)
+        # 2026-10-31 02:08, the owner: "how do I know if the runner is working, doing something or dead?" — the log was silent
+        # 20 minutes while a converge run ran under the session: the runner line names the live child and the silence
+        tree = [(70418, 70417, "01:03:44", "claude -p /reef-loop …"), (72923, 70418, "22:54", "/bin/zsh -c source snapshot.sh && python3 scripts/reef-converge legacy-queue-to-issues"),
+                (72927, 72923, "22:54", "/Library/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python scripts/reef-converge legacy-queue-to-issues"),
+                (48446, 72927, "00:11", "/usr/bin/python3 /x/.reef/worktrees/legacy-queue-to-issues/scripts/reef-graph lock heavy -- npm exec vitest run -t legacy"),
+                (48452, 48446, "00:11", "npm exec vitest run -t legacy archive: each ledger keeps its bytes")]
+        doing = mod.session_doing(70418, tree)
+        self.assertEqual(doing, "running: reef-converge legacy-queue-to-issues (22:54)", "the Reef script in the chain, its argument, how long it has run")
+        self.assertIn("running: vitest", mod.session_doing(1, [(2, 1, "00:40", "/bin/zsh -c x"), (3, 2, "00:39", "npm exec vitest run -t a"), (4, 1, "00:01", "node helper.cjs")]), "no Reef script: the deepest; a young helper beside the work is ignored")
+        self.assertEqual(mod.session_doing(70418, [(70418, 70417, "01:03:44", "claude -p")]), "", "no child: the session is thinking")
+        self.assertEqual(mod.session_doing(0, tree), "")
+        os.utime(os.path.join(d, ".reef", "run", "run.log"), (time.time() - 1500, time.time() - 1500))
+        open(os.path.join(d, ".reef", "run", "live.log"), "w").write("01:54 s1 last\n"); os.utime(os.path.join(d, ".reef", "run", "live.log"), (time.time() - 1500, time.time() - 1500))
+        line = mod.runner_line(d, 70417, 70418, "01:06", tree)
+        self.assertIn("pid 70417", line); self.assertIn("quiet 25 min", line); self.assertIn("running: ", line)
+        self.assertIn("thinking", mod.runner_line(d, 70417, 70418, "01:06", [(70418, 70417, "1:00", "claude -p")]))
+        self.assertEqual(mod.runner_line(d, 0, 0, ""), "no runner is running"); self.assertIn("gone", mod.runner_line(d, 0, 70418, "01:06", tree))
+        # the loop on the board (a fake curses, as the inbox test below): Enter opens the selected row through the row machine, never an inbox item;
+        # Tab, Tab shows PLAN; q quits
+        class FC:
+            A_REVERSE, A_BOLD, A_NORMAL = 1, 2, 0
+            error = Exception
+            def curs_set(self, *_): pass
+            def flushinp(self): pass
+            def update_lines_cols(self): pass
+            def has_colors(self): return False
+        class FW:
+            def __init__(self, keys): self.keys = list(keys); self.rows = []
+            def getmaxyx(self): return (40, 120)
+            def timeout(self, *_): pass
+            def erase(self): pass
+            def refresh(self): pass
+            def addstr(self, y, x, text, *a): self.rows.append(text)
+            def getch(self): return self.keys.pop(0) if self.keys else ord("q")
+        ran = []
+        mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["state: build"]))[1]
+        mod.doctor_lines = lambda root: []
+        mod.inbox = lambda root, doctor=None, runner=None: [{"kind": "approve", "text": "x", "argv": [sys.executable, "-c", "pass"], "cmd": "approve x", "row": "7", "recommended": "", "issue": ""}]
+        win = FW([ord("2"), 10, ord("x"), 9, 9, 10, ord("x"), ord("q")])   # 2 selects row 7, Enter opens it; x closes; Tab Tab → PLAN; Enter there opens the row too; q
+        self.assertEqual(mod.screen_loop(win, d, FC()), 0)
+        self.assertEqual(len(ran), 2, str(ran)); self.assertTrue(all(os.path.basename(str(r[1])) == "reef-row.py" and r[2:4] == ["state", "7"] for r in ran), str(ran))
+        self.assertTrue(any(r.startswith("PLAN") for r in win.rows), "Tab, Tab reached PLAN")
 
     def test_an_empty_project_has_only_the_doctors_fixes_in_its_inbox(self):
         d = project()
