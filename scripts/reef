@@ -14,6 +14,8 @@ import re
 import shlex
 import subprocess
 import sys
+import queue
+import threading
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
@@ -292,6 +294,33 @@ VIEWS = ("work", "inbox", "plan", "log")   # Tab's cycle (2026-10-31, the fourth
 MARK_ORDER = {"○": 0, "▶": 1, "⧖": 2, "⏸": 3, "✓": 4}   # what can start first, then what runs, then yours, then blocked, then done
 MARK_STYLE = {"✓": "done", "▶": "build", "○": "ready", "⧖": "wait", "⏸": "blocked"}
 BOARD_SECONDS = 60   # the work board costs a subprocess per row (the row machine): read this often, the tick redraws it with its age
+BOARD = {"done": 0, "total": 0}   # the rows read so far, for the frame drawn while the board loads
+BOARD_LOCK = threading.Lock()
+QUIT = threading.Event()   # set when the screen leaves: the row readers stop taking rows, so q returns the prompt at once (the review)
+
+
+def read_rows(ids, fn, workers=4):
+    """{id: fn(id)} for the ids, `workers` daemon threads over one queue — a reading of the row machine is a subprocess each, so four
+    at a time; when QUIT is set the readers take no further row (the one in hand finishes), and daemon threads never hold the exit."""
+    todo, out = queue.Queue(), {}
+    for rid in ids:
+        todo.put(rid)
+
+    def work():
+        while not QUIT.is_set():
+            try:
+                rid = todo.get_nowait()
+            except queue.Empty:
+                return
+            out[rid] = fn(rid)
+            with BOARD_LOCK:
+                BOARD["done"] += 1
+    threads = [threading.Thread(target=work, daemon=True, name="reef-row") for _ in range(max(1, min(workers, len(ids))))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return out
 
 
 def screen_model(root, doctor=None, runner=None):
@@ -501,10 +530,13 @@ def work_model(root, runner=None):
     done_ids = set(archived) | {rid for rid, (d, n) in tasks.items() if n and d == n}
     current = [r for r in rows if not batch or str(r.get("Batch", "")).strip() == batch]
     asked = {rr for rr, _, _, _ in questions(root)}
+    BOARD["done"], BOARD["total"] = 0, sum(1 for r in current if str(r["Id"]) not in done_ids)
+
+    states_by_row = read_rows([str(r["Id"]) for r in current], lambda rid: row_state(root, rid) if rid not in done_ids else {})
     out = []
     for r in current:
         rid = str(r["Id"])
-        st = row_state(root, rid) if rid not in done_ids else {}
+        st = states_by_row.get(rid) or {}
         deps = [d for d in re.split(r"[,\s]+", plain(r.get("Depends", "") or "")) if d]
         waits = [d for d in deps if d not in done_ids]
         state, detail = str(st.get("state") or ""), plain(st.get("detail") or "")
@@ -568,7 +600,7 @@ def tabs_line(view, n_items, w, age=None):
     return row[:w]
 
 
-def render_work(wm, items, width=120, height=None, selected=None, panel=None):
+def render_work(wm, items, width=120, height=None, selected=None, panel=None, note=""):
     """WORK: the banner with the batch's facts, the tabs, the rows as a table, the selected row's details boxed under it, the
     inbox's count, the keys last. Returns (lines, styles {line index: style name}, the selected line's index). Styles name the
     row's state (done, build, ready, wait, blocked), the banner, the selection — the loop maps them to attributes once."""
@@ -576,7 +608,8 @@ def render_work(wm, items, width=120, height=None, selected=None, panel=None):
     rows = ordered(wm) if wm else []
     n = len(rows)
     sel = None if selected is None or not n else min(max(int(selected), 0), n - 1)
-    facts = (wm or {}).get("facts") or ["", "reading the rows …", "", "", ""]
+    facts = (wm or {}).get("facts") or ["", f"reading the rows … {min(BOARD['done'], BOARD['total'])}/{BOARD['total']} (the row machine, four at a time)" if BOARD["total"] else "reading the queue …",
+                                        note or "the keys work meanwhile · q quits", "", ""]   # `note`: a reading that failed, while no board is up
     head = [(row + "   " + fact)[:w] for row, fact in zip(BLOCK, facts)] + ["─" * w, tabs_line("work", len(items or []), w, (time.time() - wm["at"]) if wm and wm.get("at") else None)]
     styles = {i: "banner" for i in range(len(BLOCK))}
     styles[len(head) - 1] = "tabs"
@@ -1023,7 +1056,7 @@ def screen_loop(stdscr, root, curses):
     curses.curs_set(0)
     stdscr.timeout(3000)
     utf = bool(sys.stdout.encoding and "utf" in sys.stdout.encoding.lower())
-    doctor, sel, model, view, offset, panel = None, 0, None, "work", 0, None   # the first frame is drawn before the doctor runs
+    doctor, sel, model, view, offset, panel = None, 0, None, "work", 0, None   # the first frame is drawn before any reading returns
     wm, wm_at, wsel, back, order = None, 0.0, 0, "work", "queue"   # the work board, refreshed every 30 s (a row's state is a subprocess each)
     attrs = style_attrs(curses, colors=os.environ.get("REEF_COLOR", "1") != "0")
 
@@ -1042,43 +1075,81 @@ def screen_loop(stdscr, root, curses):
                 pass
         stdscr.refresh()
 
+    QUIT.clear()
+    jobs, results, failed = {}, {}, {}   # readings run off the UI thread (2026-10-31: the first board froze the screen for minutes on an issues queue)
+
+    def spawn(name, fn):
+        t = jobs.get(name)
+        if name in failed or (t is not None and t.is_alive()):   # a reading that failed is not retried until g: its error stays on the screen
+            return
+        def run():
+            try:
+                results[name] = fn()
+            except Exception as e:   # a reading that fails leaves the last good one on the screen
+                results[name] = e
+        jobs[name] = threading.Thread(target=run, daemon=True, name=f"reef-{name}")
+        jobs[name].start()
+
+    empty = {"facts": [f"{os.path.basename(root)} · reading …", "", "", "", ""], "items": [], "steps": [], "log": [], "warns": [], "doctor": False}
+    model_at = 0.0
+
+    def take():
+        """The readings that landed, swapped in: the inbox (the selection follows its item), the board (the order kept), the doctor.
+        A reading that raised is shown on the screen (never a silent "reading …" forever — the review) and not retried until g."""
+        nonlocal model, model_at, wm, wm_at, doctor, sel
+        for name in ("model", "board", "doctor"):
+            if name in results and isinstance(results[name], Exception):
+                e = results.pop(name)
+                failed[name] = f"{name}: {type(e).__name__}: {str(e)[:120]}"
+        if "model" in results:
+            res = results.pop("model")
+            chosen = model["items"][sel]["cmd"] if model and model["items"] and sel < len(model["items"]) else None
+            model, model_at = res, time.time()
+            sel = reanchor(model["items"], sel, chosen) if chosen else sel
+        if "board" in results:
+            wm, wm_at = results.pop("board"), time.time()
+            wm["order"] = order
+        if "doctor" in results:
+            doctor = results.pop("doctor")
+            model_at = 0.0   # the inbox gains the doctor's fixes on the next reading
+        if failed:
+            empty["facts"][2] = ("reading failed · g retries · " + " · ".join(failed.values()))[:200]
+
     while True:
         h, w = stdscr.getmaxyx()
-        if model is None:   # the model costs subprocesses (the row machine, the doctor): on the tick, after a run, on g — not on an arrow key
-            model = screen_model(root, doctor)
-        n = len(model["items"])
-        sel = min(sel, max(n - 1, 0))
+        # readings: the inbox model on every tick, the board every BOARD_SECONDS, the doctor once and on g — each in its thread
+        if model is None or time.time() - model_at > 3:
+            spawn("model", lambda: screen_model(root, doctor))
         if view in ("work", "plan", "autopilot") and (wm is None or time.time() - wm_at > BOARD_SECONDS):
-            if wm is None:   # the first board costs a subprocess per row: say so, then read
-                lines, styles, _ = render_work(None, model["items"], width=w - 1, height=h)
-                draw(lines, None, styles)
-            wm, wm_at = work_model(root), time.time()
-            wm["order"] = order
+            spawn("board", lambda: work_model(root))
+        if doctor is None:
+            spawn("doctor", lambda: doctor_lines(root))
+        take()
+        cur = model or empty
+        n = len(cur["items"])
+        sel = min(sel, max(n - 1, 0))
         nrows = len(wm["rows"]) if wm else 0
         wsel = min(wsel, max(nrows - 1, 0))
         sel_line, styles = None, None
         if view == "log":
-            lines, most = render_log(model.get("log") or model["steps"], width=w - 1, height=h, offset=offset)
+            lines, most = render_log(cur.get("log") or cur["steps"], width=w - 1, height=h, offset=offset)
             offset = min(offset, most)
-        elif view == "work":
-            lines, styles, sel_line = render_work(wm, model["items"], width=w - 1, height=h, selected=wsel, panel=panel)
+        elif view == "work" or (view in ("plan", "autopilot") and wm is None):
+            lines, styles, sel_line = render_work(wm, cur["items"], width=w - 1, height=h, selected=wsel, panel=panel,
+                                                  note=("reading failed · g retries · " + " · ".join(failed.values()))[:200] if failed else "")
         elif view == "plan":
-            lines, styles = render_plan(wm, model["items"], width=w - 1, height=h)
+            lines, styles = render_plan(wm, cur["items"], width=w - 1, height=h)
         elif view == "autopilot":
             lines, styles = render_autopilot(wm, contract_view(root), width=w - 1, height=h)
         elif view == "help":
             lines, styles = render_help(back, width=w - 1, height=h)
         else:
-            lines, sel_line = render(model, width=w - 1, height=h, selected=sel, panel=panel)
+            lines, sel_line = render(cur, width=w - 1, height=h, selected=sel, panel=panel)
         draw(lines, sel_line, styles)
-        if doctor is None:   # right after the first frame: the doctor, then its lines in the next frame
-            doctor, model = doctor_lines(root), None
-            continue
+        loading = any(t.is_alive() for t in jobs.values())
+        stdscr.timeout(400 if loading or results else 3000)   # while a reading runs, redraw often: the count moves, a result lands
         k = stdscr.getch()
-        if k == -1:   # the tick: a fresh model, the selection kept on the same item (items dedupe by their command)
-            chosen = model["items"][sel]["cmd"] if n else None
-            model = screen_model(root, doctor)
-            sel = reanchor(model["items"], sel, chosen)
+        if k == -1:   # the tick: the next pass spawns the readings that are due
             continue
         if k == KEY_RESIZE:   # the owner widened the window: the next pass measures again
             curses.update_lines_cols()
@@ -1086,10 +1157,29 @@ def screen_loop(stdscr, root, curses):
         if panel is not None and panel.get("rc") is not None:   # any key closes the output panel — and does nothing else (the review:
             panel = None                                          # the item just acted on has left, so Enter would have run the NEXT one)
             continue
+        ch = chr(k).lower() if 0 < k < 256 else ""
+        if (ch == "q" or k == 27) and view in ("work", "inbox"):   # q never waits for a reading: the readers stop at QUIT
+            QUIT.set()
+            return 0
+        if model is None or (wm is None and view in ("work", "plan", "autopilot")):   # a key before the reading its view needs landed: wait for it under one deadline
+            deadline = time.time() + 5
+            for name in (["model"] if view == "inbox" else ["model", "board"]):
+                t = jobs.get(name)
+                if t is not None:
+                    t.join(max(0.0, deadline - time.time()))
+            take()
+            if model is None or (wm is None and view in ("work", "plan", "autopilot")):
+                if hasattr(curses, "ungetch"):   # still not there: the key goes back to the queue and is read again after the next frame
+                    curses.ungetch(k)
+                continue
+            cur = model
+            n = len(cur["items"]); sel = min(sel, max(n - 1, 0))
+            nrows = len(wm["rows"]) if wm else 0; wsel = min(wsel, max(nrows - 1, 0))
         act = on_key(k, wsel if view in ("work", "plan") else sel, nrows if view in ("work", "plan") else n, view)
         if act is None:
             continue
         if act[0] == "quit":
+            QUIT.set()
             return 0
         if act[0] == "back":   # from the log
             view = back if back in VIEWS else "work"; continue
@@ -1120,8 +1210,8 @@ def screen_loop(stdscr, root, curses):
             else:
                 sel = min(max(n - 1, 0), sel + 1)
             continue
-        if act[0] == "refresh":
-            doctor, model, wm = doctor_lines(root), None, None; continue
+        if act[0] == "refresh":   # g: every reading again, the last good ones stay on the screen until the new ones land
+            doctor, model_at, wm_at = None, 0.0, 0.0; continue
         if act[0] == "select":
             if view in ("work", "plan"):
                 wsel = act[1]
@@ -1139,7 +1229,7 @@ def screen_loop(stdscr, root, curses):
         elif act[0] == "verb":
             argv, shown = [PY, os.path.abspath(__file__), act[1], "--repo", root], f"reef {act[1]}"
         elif act[0] == "run":
-            target = model["items"][act[1]]
+            target = cur["items"][act[1]]
             argv, shown = target["argv"], target["cmd"]
             if target["kind"] == "answer":   # the answer typed on the screen, the recommendation prefilled
                 text = edit_line(stdscr, curses, min(h - 1, (sel_line or 0) + 1), w, f"your answer for row {target['row']}: ",
@@ -1154,19 +1244,17 @@ def screen_loop(stdscr, root, curses):
         if argv:
             panel = {"shown": shown, "rc": None, "lines": ["running …"]}
             if view == "work":
-                lines, styles, sel_line = render_work(wm, model["items"], width=w - 1, height=h, selected=wsel, panel=panel)
+                lines, styles, sel_line = render_work(wm, cur["items"], width=w - 1, height=h, selected=wsel, panel=panel)
                 draw(lines, sel_line, styles)
             else:
-                lines, sel_line = render(model, width=w - 1, height=h, selected=sel, panel=panel)
+                lines, sel_line = render(cur, width=w - 1, height=h, selected=sel, panel=panel)
                 draw(lines, sel_line)
             rc, out = run_captured(root, argv)
             panel = {"shown": shown, "rc": rc, "lines": out}
             curses.flushinp()   # a key typed while it ran must not run the next item
-            chosen = model["items"][sel]["cmd"] if n else None
-            doctor = doctor_lines(root)
-            model = screen_model(root, doctor)
-            wm = None if act[0] != "open" else wm   # a command may have changed the board; opening a row changed nothing
-            sel = reanchor(model["items"], sel, chosen)   # the item may have left: the cursor follows its command, not its index
+            doctor, model_at = None, 0.0   # a command may have changed everything: every reading again, in the background
+            if act[0] != "open":
+                wm_at = 0.0   # opening a row changed nothing on the board
 
 
 def cmd_approve(root, args):

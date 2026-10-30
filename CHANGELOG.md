@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The screen never freezes** (the owner, 2026-10-31 03:05, the first run of the fourth screen on an issues queue: "nothing works
+  and still in black and white" — the board had asked the row machine about every row, one subprocess after another, on the UI
+  thread; the first frame stayed for minutes and the keys were dead). Every reading — the inbox, the board, the doctor — now runs
+  in a background thread; the screen draws and the keys answer meanwhile; the first frame counts the rows as they arrive (`reading
+  the rows … 3/7`), the row machine is asked about four rows at a time, and a key pressed before the first reading landed waits
+  for it briefly instead of being dropped (`q` never waits). After a command the last good board stays until the new one lands. tests/size-budget.json: unchanged (nothing grew).
 - **The README and the two sites, reworked** (the owner, 2026-10-31: "rework readme.md and the arabic/english site — simplicity and
   smartness"). The story first: *you write the work, Reef does it, you decide twice*; then **three ways to run it** — the screen
   (`reef`), the autopilot (`reef autopilot`, Mahmoud deciding inside your contract), a night (`/reef-night`), by hand — one table;
