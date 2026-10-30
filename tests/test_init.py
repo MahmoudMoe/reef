@@ -64,7 +64,7 @@ class CopiedScripts(unittest.TestCase):
     plugin, the skill ran it as `python3 scripts/reef-graph-run.py`, and reef-init's SCRIPTS list never named it."""
     # these run from the plugin (hooks and the plugin-side commands), never from a project copy
     # reef-approval.py is both: the hook runs the plugin's copy, a night's --proxy runs the project's (2026-10-23)
-    PLUGIN_RESIDENT = {"reef-guard.py", "reef-init.py", "reef-update.py", "reef-doctor.py", "reef-guard-profile.py", "reef-opencode.py"}
+    PLUGIN_RESIDENT = {"reef-guard.py", "reef-init.py", "reef-update.py", "reef-doctor.py", "reef-opencode.py"}
 
     def scripts_list(self):
         src = read(ROOT, "scripts/reef-init.py")

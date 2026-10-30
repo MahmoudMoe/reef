@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **Consolidation step 2 — the three orphans** (docs/design/consolidation.md, 2026-10-30): `scripts/reef-watch` is gone
+  (`reef-run.py status` and `.reef/status.html`, rendered at every tick, replaced it), `scripts/reef-guard-profile.py` is
+  gone (its one measurement, `docs/perf/guard-profile-2026-10-16.md`, stays and the hook timeouts still rest on it),
+  `scripts/reef-eval` lives at `tests/eval/reef-eval` beside its corpus — a test tool, run by tests only. With their tests;
+  the README, the site, the manual and the site plan say so; history (CHANGELOG, docs/perf) keeps its words. The reviews: the
+  ledger row claims what the two surfaces show (growth and the journal's rows are `reef-cost.py rows`), the contract test
+  reads skills, agents, hooks, commands, templates and scripts too, the plan names the replacement the commit chose. tests/size-budget.json SET to the measurement: `script_lines` 17,501 → 16,945, `prose_words` 22,721 → 22,721.
 - **A project's linters are told to leave Reef's scripts alone** (2026-10-29, an adoption: the project's ruff flagged
   1,725 style errors in the copied `scripts/reef-*.py` and its CI went red; mypy followed). The scripts are rendered by
   reef-init and replaced on every upgrade, so their style is Reef's own. `reef_common.lint_gaps` reads `pyproject.toml`

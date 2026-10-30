@@ -1,4 +1,4 @@
-"""Sabotage suite for scripts/reef-eval (decision 4: no agent prompt change without the eval).
+"""Sabotage suite for tests/eval/reef-eval (decision 4: no agent prompt change without the eval).
 
 The live run needs the CLI and credentials and never runs in CI. What CI proves is the MECHANICAL half:
 the verdict parser, the truth comparison, the metrics and the comparison rule, replayed over fixture
@@ -17,7 +17,7 @@ import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EVAL = os.path.join(ROOT, "scripts", "reef-eval")
+EVAL = os.path.join(ROOT, "tests", "eval", "reef-eval")
 FIX = os.path.join(ROOT, "tests", "eval", "fixtures")
 AGENTS = ("verifier", "hunter", "plan-reviewer")
 

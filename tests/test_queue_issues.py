@@ -637,8 +637,8 @@ class TrustCheck(Base):
 
 
 class ReadersUseTheSnapshot(Base):
-    """The night runner's open-rows check and the watch view read `.reef/queue.json`, never the network: after a
-    migration the queue file has no table, and an empty set would refuse every night contract."""
+    """The night runner's open-rows check reads `.reef/queue.json`, never the network: after a migration the queue file
+    has no table, and an empty set would refuse every night contract. (reef-watch read it too, until consolidation step 2.)"""
 
     def load(self, name):
         import importlib.machinery, importlib.util
@@ -648,12 +648,11 @@ class ReadersUseTheSnapshot(Base):
         loader.exec_module(mod)
         return mod
 
-    def test_the_runner_and_the_watch_read_the_snapshot(self):
-        run, watch = self.load("reef-run.py"), self.load("reef-watch")
+    def test_the_runner_reads_the_snapshot(self):
+        run = self.load("reef-run.py")
         self.assertIsNone(run.queue_open_rows(self.d), "no snapshot yet: unreadable, never an empty queue")
         self.q("status")
         self.assertEqual(run.queue_open_rows(self.d), {"3", "4", "5"})
-        self.assertEqual(watch.section_queue(self.d, self.cfg), ["queue: 3 open row(s) on issues, 2 found: photo resize; cache lifetime"])
 
 
 class Migrate(Base):
