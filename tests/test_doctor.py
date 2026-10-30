@@ -93,7 +93,7 @@ class Doctor(unittest.TestCase):
             f.write("[tool.ruff]\nline-length = 120\n")
         r = doctor(d)
         self.assertIn("WARN lint: pyproject.toml [tool.ruff] scans Reef's scripts (rendered, replaced on every upgrade)", r.stdout)
-        self.assertIn('add  exclude = ["scripts/reef*"]', r.stdout)
+        self.assertIn('add  extend-exclude = ["scripts/reef*"]', r.stdout)
         with open(os.path.join(d, "pyproject.toml"), "w") as f:
             f.write("[tool.ruff]\nexclude = [\"scripts/reef*\"]\n")
         self.assertIn("OK   lint: the project's linters leave Reef's scripts alone", doctor(d).stdout)

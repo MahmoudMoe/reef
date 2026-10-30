@@ -806,8 +806,8 @@ def main(argv):
         print(f"  OFFERED  {r} — optional, never written unasked (minutes, a secret): read its header, then python3 {os.path.abspath(__file__)} --root {os.path.abspath(root)} --accept {r}")
     if not facts["test"]:
         print("  NOTE: no test command detected — gates.full is empty and the gate FAILS LOUDLY until you set it")
-    for cfg_file, section, line in lint_gaps(root):   # 2026-10-29: a project's ruff flagged Reef's copied scripts and its CI went red
-        print(f"  LINT: {cfg_file} {section} scans Reef's scripts — add  {line}  (they are rendered here and replaced on every upgrade; their style is Reef's own)".replace("  scans", " scans"))
+    for where, line in lint_gaps(root):   # 2026-10-29: a project's ruff flagged Reef's copied scripts and its CI went red
+        print(f"  LINT: {where} scans Reef's scripts — {line}  (they are rendered here and replaced on every upgrade; their style is Reef's own)")
     print(f"  {len(w.written)} written, " + (f"{len(w.updated)} updated, " if w.updated else "") +
           f"{len(w.skipped)} skipped, {len(w.proposed)} proposed")
     for line in rails_report(root):

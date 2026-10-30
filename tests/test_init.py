@@ -355,17 +355,38 @@ class ReleaseOnlyCi(unittest.TestCase):
         subprocess.run(["git", "init", "-q", d], check=True)
         r = init(d)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("LINT: pyproject.toml [tool.ruff] scans Reef's scripts — add  exclude = [\"scripts/reef*\"]", r.stdout)
+        # the reviews: `exclude` would REPLACE ruff's defaults and duplicate an existing key — the line is extend-exclude
+        self.assertIn("LINT: pyproject.toml [tool.ruff] scans Reef's scripts — add  extend-exclude = [\"scripts/reef*\"]", r.stdout)
         self.assertIn("LINT: pyproject.toml [tool.mypy] scans Reef's scripts — add  exclude = \"scripts/reef\"", r.stdout)
-        write(d, "pyproject.toml", "[project]\nname='x'\n\n[tool.ruff]\nexclude = [\"scripts/reef*\", \"build\"]\n\n[tool.mypy]\nexclude = \"scripts/reef|build/\"\n")
+        write(d, "pyproject.toml", "[project]\nname='x'\n\n[tool.ruff]\nexclude = [\"scripts/reef*\", \"build\"]\n\n[tool.mypy]\nexclude = \"scripts/|build/\"\n")
         r = init(d)
-        self.assertNotIn("LINT:", r.stdout, "an exclusion that covers them: no line")
+        self.assertNotIn("LINT:", r.stdout, "an exclusion that covers them: no line (mypy's `scripts/` covers the folder)")
         write(d, "pyproject.toml", "[project]\nname='x'\n\n[tool.ruff]\nexclude = [\"scripts/reef-*\"]\n")
-        self.assertIn("LINT: pyproject.toml [tool.ruff]", init(d).stdout, "`scripts/reef-*` misses scripts/reef_common.py: still a line")
+        r = init(d)
+        self.assertIn("LINT: pyproject.toml [tool.ruff]", r.stdout, "`scripts/reef-*` misses scripts/reef_common.py: still a line")
+        self.assertIn("add  \"scripts/reef*\" to the exclude list it has", r.stdout, "a key that exists is extended, never duplicated (a TOML error)")
+        write(d, "pyproject.toml", "[project]\nname='x'\n\n[tool.ruff]\nextend-exclude = [\"scripts/reef_*\"]\n\n[tool.mypy]\nexclude = \"build/\"\n")
+        r = init(d)
+        self.assertIn("add  \"scripts/reef*\" to the extend-exclude list it has", r.stdout, "`scripts/reef_*` alone misses reef-*.py")
+        self.assertIn("add  scripts/reef to the exclude regex it has", r.stdout)
+        # a multi-line array, an exclude under [tool.ruff.lint], and `scripts/**`: every covering form the reviews named
+        for cfg in ("[tool.ruff]\nexclude = [\n  \"build\",\n  \"scripts/reef*\",\n]\n",
+                    "[tool.ruff]\nline-length = 100\n\n[tool.ruff.lint]\nexclude = [\"scripts/**\"]\n",
+                    "[tool.ruff]\nextend-exclude = [\"scripts/\"]\n"):
+            write(d, "pyproject.toml", "[project]\nname='x'\n\n" + cfg)
+            self.assertNotIn("LINT:", init(d).stdout, cfg)
+        # a quote-led line that is not an exclude counts for nothing
+        write(d, "pyproject.toml", "[project]\nname='x'\n\n[tool.ruff]\ninclude = [\n  \"scripts/reef*\",\n]\n")
+        self.assertIn("LINT: pyproject.toml [tool.ruff]", init(d).stdout, "an include is not an exclude")
         d2 = tempfile.mkdtemp(prefix="reef-init-rufftoml.")
-        write(d2, "pyproject.toml", "[project]\nname='x'\n"); write(d2, "uv.lock", ""); write(d2, "ruff.toml", "line-length = 100\n")
+        write(d2, "pyproject.toml", "[project]\nname='x'\n"); write(d2, "uv.lock", ""); write(d2, "ruff.toml", "line-length = 100\n\n[lint]\nselect = [\"E\"]\n")
         subprocess.run(["git", "init", "-q", d2], check=True)
-        self.assertIn("LINT: ruff.toml scans Reef's scripts — add  exclude = [\"scripts/reef*\"]", init(d2).stdout)
+        self.assertIn("LINT: ruff.toml scans Reef's scripts — add  extend-exclude = [\"scripts/reef*\"]", init(d2).stdout)
+        with open(os.path.join(d2, "pyproject.toml"), "wb") as f:
+            f.write(b"[project]\nname='x'\n# caf\xe9\n[tool.mypy]\nstrict = true\n")   # not utf-8: no crash (the security review)
+        r = init(d2)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("LINT: pyproject.toml [tool.mypy]", r.stdout)
 
     def test_unknown_stack_leaves_gate_empty_and_says_so(self):
         d = tempfile.mkdtemp(prefix="reef-init-none.")

@@ -28,7 +28,7 @@ import subprocess
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import git as _git, process_alive, lint_gaps  # noqa: E402
+from reef_common import git as _git, process_alive, lint_state  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LINES = []
@@ -192,12 +192,10 @@ def main(argv):
         else:
             say("OK", "scripts: scripts/reef-* match the plugin")
     # the project's linters and Reef's copied scripts (2026-10-29: ruff on an adoption flagged 1,725 errors, CI red)
-    gaps = lint_gaps(root)
-    for cfg_file, section, line in gaps:
-        say("WARN", f"lint: {cfg_file} {section} scans Reef's scripts (rendered, replaced on every upgrade)".replace("  scans", " scans"), f"add  {line}")
-    if not gaps and any(os.path.isfile(os.path.join(root, n)) for n in ("pyproject.toml", "ruff.toml", ".ruff.toml")) \
-            and any(re.search(r"^\[tool\.(ruff|mypy)", open(os.path.join(root, n), encoding="utf-8", errors="replace").read(), re.M) or n != "pyproject.toml"
-                    for n in ("pyproject.toml", "ruff.toml", ".ruff.toml") if os.path.isfile(os.path.join(root, n))):
+    configured, gaps = lint_state(root)
+    for where, line in gaps:
+        say("WARN", f"lint: {where} scans Reef's scripts (rendered, replaced on every upgrade)", line)
+    if configured and not gaps:
         say("OK", "lint: the project's linters leave Reef's scripts alone")
     # worktrees
     wts = worktrees(root)
