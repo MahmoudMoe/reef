@@ -48,6 +48,11 @@ if kind == "sleep":   # a session mid-gate: one step after a second, then quiet 
     crumb = os.path.join(os.getcwd(), ".fake-died")   # why this fake ended, for the test to show (CI's macOS leg died unseen)
     for s_ in (signal.SIGHUP, signal.SIGPIPE):          # a session outlives its runner: the real `claude` did (2026-10-29)
         signal.signal(s_, signal.SIG_IGN)
+    def _named(signum, frame):                          # any other signal: say which one ended this fake, then die of it
+        open(crumb, "w").write(f"signal {signum} ({signal.Signals(signum).name}) from the outside\n")
+        signal.signal(signum, signal.SIG_DFL); os.kill(os.getpid(), signum)
+    for s_ in (signal.SIGTERM, signal.SIGINT, signal.SIGQUIT, signal.SIGABRT, signal.SIGALRM, signal.SIGUSR1, signal.SIGUSR2, signal.SIGXCPU):
+        signal.signal(s_, _named)
     try:
         time.sleep(1)
         try:

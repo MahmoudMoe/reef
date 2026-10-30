@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The orphan test's fake session names the signal that ends it** (2026-10-30, CI's macOS leg once more, the breadcrumb
+  saying only "killed by a signal"): the fake catches every signal it may, writes its name to `.fake-died`, then dies
+  of it, so the next red names the hand that killed it; SIGHUP and SIGPIPE stay ignored as a session should.
 - **Consolidation step 5 — the `reef` screen** (docs/design/consolidation.md, 2026-10-30): `reef` alone on a terminal opens
   a live screen (stdlib `curses`, the menu where the terminal cannot): one status line (the loop, the runner), **the inbox**
   — every wait Reef recorded, numbered, each with the exact command the row machine names (an approval, a filed question,
