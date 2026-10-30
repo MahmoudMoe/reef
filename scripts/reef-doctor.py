@@ -301,8 +301,8 @@ def main(argv):
     for dp, _, fn in os.walk(pdir):
         props += [os.path.relpath(os.path.join(dp, f), pdir) for f in fn if not f.endswith(".diff")]
     if props:
-        say("WARN", f"proposals: {len(props)} rendering(s) waiting ({props[0]}{'…' if len(props) > 1 else ''})",
-            f"python3 scripts/reef-init.py --accept {props[0]}  (or --keep {props[0]} to keep yours)")
+        say("WARN", f"proposals: {len(props)} rendering(s) waiting ({props[0]}{'…' if len(props) > 1 else ''}; --keep instead of --accept keeps yours)",
+            f"python3 scripts/reef-init.py --accept {props[0]}")
     else:
         say("OK", "proposals: none")
     for l in LINES[:40]:
