@@ -665,5 +665,40 @@ class GuardGuardsItself(unittest.TestCase):
         self.assertEqual(self.edit(".reef/config.json", content=json.dumps(bad)).returncode, 0)
 
 
+
+class PlanReviewRounds(unittest.TestCase):
+    def test_the_record_counts_the_rounds(self):
+        # 2026-10-30 (row 7 on the current adoption): five review rounds; the hunter's pass has a cap, the reviewer's had none
+        d = project({"gates": {"test": "true"}}, {"101-a.md": task_text(101, "demo", "full", "mech")})
+        # the cap at 3 here, so the sequence FAIL, FAIL, PASS, FAIL counts 1, 2, 3, 1: a PASS closes the series (the review)
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"test": "true"}, "review": {"plan_rounds": 3}}, f)
+        for verdict, rounds in (("FAIL", 1), ("FAIL", 2), ("PASS", 3), ("FAIL", 1)):
+            r = subprocess.run([sys.executable, RECORD, "plan-review", "demo", verdict, "--root", d], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            rec = json.load(open(os.path.join(d, ".reef", "review", "plan-demo.json")))
+            self.assertEqual(rec["rounds"], rounds, f"a review is a round; a PASS closes the series: {rec}")
+            self.assertEqual(rec["verdict"], verdict)
+
+    def test_a_pass_past_the_cap_is_the_owners_ruling_bound_to_his_footnote(self):
+        # the security review: past the cap the reviewer runs no more — a bare PASS would dissolve the cap it answers; the
+        # PASS carries the owner's footnote mark, present in the queue, like the hunter's `plan --decided`
+        d = project({"gates": {"test": "true"}, "review": {"plan_rounds": 2}, "paths": {"queue": "docs/queue.md"}}, {"101-a.md": task_text(101, "demo", "full", "mech")})
+        for _ in range(2):
+            subprocess.run([sys.executable, RECORD, "plan-review", "demo", "FAIL", "--root", d], capture_output=True, text=True, check=True)
+        r = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", d], capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0, "refused: " + r.stdout + r.stderr)
+        self.assertIn("--decided", r.stdout + r.stderr)
+        r = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", d, "--decided", "68"], capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0, "no such footnote yet: " + r.stdout + r.stderr)
+        os.makedirs(os.path.join(d, "docs"), exist_ok=True)
+        with open(os.path.join(d, "docs", "queue.md"), "a") as f:
+            f.write("\n⁶⁸ the owner rules: the finding is accepted as is (2026-10-30)\n")
+        r = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", d, "--decided", "68"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        rec = json.load(open(os.path.join(d, ".reef", "review", "plan-demo.json")))
+        self.assertEqual((rec["verdict"], rec["decided"]), ("PASS", "68"))
+
+
 if __name__ == "__main__":
     unittest.main()

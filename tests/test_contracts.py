@@ -944,6 +944,14 @@ class TheScreenIsDocumented(unittest.TestCase):
         self.assertIn("inbox", read("docs", "manual", "ar", "index.html").lower())
 
 
+class PlanReviewRoundsAreCapped(unittest.TestCase):
+    def test_the_template_and_the_skill_name_the_cap(self):
+        import json as _json
+        cfg = _json.loads(read("templates", "config.json"))
+        self.assertEqual(cfg["review"]["plan_rounds"], 2)
+        self.assertIn("review.plan_rounds", read("skills", "reef-plan-review", "SKILL.md"))
+        self.assertLessEqual(len(read("skills", "reef-plan-review", "SKILL.md").splitlines()), 60)
+
 class NoLineNumbersInCriteria(unittest.TestCase):
     def test_the_plan_skill_and_the_planner_say_lines_live_in_read_first(self):
         for p in (("skills", "reef-plan", "SKILL.md"), ("agents", "planner.md")):

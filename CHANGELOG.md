@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The plan review has a round cap** (2026-10-30, row 7 on the current adoption: the reviewer and the planner traded blockers
+  for five rounds; the hunter's plan pass has `hunter.plan_rounds`, the reviewer had none). `reef-record plan-review` counts the
+  rounds in `.reef/review/plan-<slug>.json`; the guard refuses a `plan-reviewer` dispatch after `review.plan_rounds` FAILED
+  rounds (default 2: the review, one fix, one re-review; 0 = no cap) and names the owner's line — the open findings become his
+  `reef-queue.py ask` questions, his footnote rules, and a PASS is recorded on it. The template and the skill say so. tests/size-budget.json raised: `config_keys` 95 → 96, `prose_words` 22,721 → 22,775, `script_lines` 17,092 → 17,174.
 - **The orphan test's fake session survives a runner that dies before its first word** (2026-10-30, CI's macOS leg a
   third time, after #216 and #219): the fake printed its first event before it ignored the dead pipe, so on a slow
   start, with the runner already killed, that print ended it — no handler yet, no breadcrumb. Every print is
