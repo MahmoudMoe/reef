@@ -8,6 +8,14 @@
   the README, the site, the manual and the site plan say so; history (CHANGELOG, docs/perf) keeps its words. The reviews: the
   ledger row claims what the two surfaces show (growth and the journal's rows are `reef-cost.py rows`), the contract test
   reads skills, agents, hooks, commands, templates and scripts too, the plan names the replacement the commit chose. tests/size-budget.json SET to the measurement: `script_lines` 17,501 → 16,945, `prose_words` 22,721 → 22,721.
+- **A project's linters are told to leave Reef's scripts alone** (2026-10-29, an adoption: the project's ruff flagged
+  1,725 style errors in the copied `scripts/reef-*.py` and its CI went red; mypy followed). The scripts are rendered by
+  reef-init and replaced on every upgrade, so their style is Reef's own. `reef_common.lint_gaps` reads `pyproject.toml`
+  (`[tool.ruff]`, `[tool.mypy]`), `ruff.toml` and `.ruff.toml`; `reef-init` prints `LINT: <file> <section> scans Reef's
+  scripts — add <the line>` when nothing excludes them (`scripts/reef-*` alone no longer does: `scripts/reef_common.py`),
+  and `reef-doctor` warns with the same line, OK when the project excludes them. No file of the project's is edited. The
+  reviews: the ruff line is `extend-exclude` (`exclude` would replace ruff's defaults), a key the file has is extended,
+  never duplicated; only the values of exclude keys are read, continuation lines included; a non-utf-8 config is no crash. tests/size-budget.json raised: `script_lines` 17,501 → 17,555.
 - **`reef update`'s two owner lines carry real values** (2026-10-29, the owner's update after the night's PRs: the last line
   read `/plugin marketplace update <marketplace>` — a placeholder in a command the owner types — and when his push was
   rejected because the loop had pushed meanwhile, the hint said `git push`, which fails the same way). The marketplace's

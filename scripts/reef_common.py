@@ -8,6 +8,7 @@ A script whose callers expect another shape keeps a one-line adapter over these,
 """
 import json
 import os
+import re
 import subprocess
 
 _ROOT = object()
@@ -102,6 +103,73 @@ def run(args, cwd, timeout=60, env=None, timeout_rc=124):
         return subprocess.CompletedProcess(args, timeout_rc, "", f"timed out after {timeout} s")
     except OSError as e:
         return subprocess.CompletedProcess(args, 1, "", str(e))
+
+
+# a pattern that covers reef-*.py AND reef_common.py: `scripts/reef*`, `scripts/reef` as a regex stem, or the whole folder
+COVERS = re.compile(r"scripts/reef(?=[*.\"'|)\]\s]|$)|(?<![\w/.])scripts/?(\*\*)?(?=[\"'|)\]\s]|$)", re.M)
+
+
+def lint_state(root):
+    """The project's Python linters and Reef's copied scripts: (configured, gaps). `configured` names every linter config found
+    (`pyproject.toml [tool.ruff]`, `ruff.toml`…); `gaps` is [(where, the line to add)] for each whose exclude does not cover
+    `scripts/reef*`. 2026-10-29 (an adoption): ruff flagged 1,725 style errors in scripts/reef-*.py and CI went red; the scripts
+    are rendered by reef-init and replaced on every upgrade, so their style is Reef's own. `scripts/reef-*` alone no longer
+    covers them (scripts/reef_common.py). Read with a regex, not a TOML parser (the floor is Python 3.9): only the values of
+    `exclude` / `extend-exclude` keys count, continuation lines of an array included (the reviews: a quote-led `include` or
+    `src` line counted before). The advice extends a key the file has, never duplicates it (a TOML error), and for ruff is
+    `extend-exclude`, since `exclude` would replace ruff's own defaults."""
+    configured, gaps = [], []
+    for name in ("pyproject.toml", "ruff.toml", ".ruff.toml"):
+        try:
+            text = read(os.path.join(root, name), errors="replace")
+        except OSError:
+            continue
+        tools = ("ruff", "mypy") if name == "pyproject.toml" else ("ruff",)
+        for tool in tools:
+            keys = exclude_keys(text, tool if name == "pyproject.toml" else None)
+            if keys is None:
+                continue
+            where = f"{name} [tool.{tool}]" if name == "pyproject.toml" else name
+            configured.append(where)
+            if COVERS.search("\n".join(keys.values())):
+                continue
+            if tool == "ruff":
+                line = ('add  "scripts/reef*" to the extend-exclude list it has' if "extend-exclude" in keys
+                        else 'add  "scripts/reef*" to the exclude list it has' if "exclude" in keys
+                        else 'add  extend-exclude = ["scripts/reef*"]')
+            else:
+                line = 'add  scripts/reef to the exclude regex it has' if "exclude" in keys else 'add  exclude = "scripts/reef"'
+            gaps.append((where, line))
+    return configured, gaps
+
+
+def lint_gaps(root):
+    return lint_state(root)[1]
+
+
+def exclude_keys(text, tool):
+    """{key: value text} of `exclude` / `extend-exclude` inside the tool's tables (`[tool.<tool>…]`), or the whole file when
+    tool is None (a ruff.toml, where `[lint]` is a table of ruff's own); None when no table of the tool exists."""
+    out, inside, found, key, depth = {}, tool is None, tool is None, None, 0
+    for line in text.splitlines():
+        if key is not None:                      # inside an array value: collect until its closing bracket
+            out[key] += "\n" + line
+            depth += line.count("[") - line.count("]")
+            if depth <= 0:
+                key = None
+            continue
+        if re.match(r"^\s*\[", line):
+            inside = tool is None or bool(re.match(rf"^\s*\[tool\.{tool}(\.|\])", line))
+            found = found or inside
+            continue
+        m = re.match(r"^\s*(exclude|extend-exclude)\s*=\s*(.*)$", line) if inside else None
+        if m:
+            k, v = m.group(1), m.group(2)
+            out[k] = v
+            depth = v.count("[") - v.count("]")
+            if depth > 0:
+                key = k
+    return out if found else None
 
 
 def git(cwd, *args, timeout=None):

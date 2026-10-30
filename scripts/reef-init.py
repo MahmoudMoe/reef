@@ -45,6 +45,9 @@ import shutil
 import stat
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import lint_gaps  # noqa: E402
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = ["reef", "reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.py", "reef-graph.py",
@@ -803,6 +806,8 @@ def main(argv):
         print(f"  OFFERED  {r} — optional, never written unasked (minutes, a secret): read its header, then python3 {os.path.abspath(__file__)} --root {os.path.abspath(root)} --accept {r}")
     if not facts["test"]:
         print("  NOTE: no test command detected — gates.full is empty and the gate FAILS LOUDLY until you set it")
+    for where, line in lint_gaps(root):   # 2026-10-29: a project's ruff flagged Reef's copied scripts and its CI went red
+        print(f"  LINT: {where} scans Reef's scripts — {line}  (they are rendered here and replaced on every upgrade; their style is Reef's own)")
     print(f"  {len(w.written)} written, " + (f"{len(w.updated)} updated, " if w.updated else "") +
           f"{len(w.skipped)} skipped, {len(w.proposed)} proposed")
     for line in rails_report(root):
