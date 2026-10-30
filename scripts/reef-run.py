@@ -55,7 +55,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question  # noqa: E402
+from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES  # noqa: E402
 
 RUN_DIR = os.path.join(".reef", "run")
 LIVE = os.path.join(RUN_DIR, "live.log")
@@ -501,8 +501,6 @@ def queue_open_rows(root):
         return None
 
 
-HOLD_MINUTES = 30   # the guard's own rule (reef-guard.py HOLD_MINUTES): a holder idle this long is stale
-
 
 def progress_signature(root, wait):
     """What a session leaves behind: the base's head, the handoff's content, the wait — two sessions with the same signature
@@ -560,13 +558,8 @@ def owner_wait_lines(root, wait, mode):
 def release_hold(root, sid):
     """The runner's session is over, so its hold on the loop goes with it (0.7.1): a crashed session that never
     called `wait` must not block the next one for 30 minutes. Another session's hold is not the runner's to drop."""
-    p = os.path.join(root, ".reef", "run", "orchestrator.json")
-    try:
-        with open(p, encoding="utf-8") as f:
-            if sid and json.load(f).get("session") == sid:
-                os.unlink(p)
-    except (OSError, ValueError):
-        pass
+    if sid:
+        drop_hold(root, sid)
 
 
 def ready_rows(root):
@@ -890,21 +883,15 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
         pass
     # 2026-10-28 (the first night: three sessions burned on a hold a dead desktop session left): the runner the owner starts IS
     # the orchestrator — a hold another session left is taken over, and said
-    held_p = os.path.join(root, ".reef", "run", "orchestrator.json")
-    try:
-        with open(held_p, encoding="utf-8") as f:
-            held = json.load(f)
-        hp = int(held.get("pid") or 0)
-        age_min = (time.time() - float(held.get("at") or 0)) / 60
-        alive = bool(hp) and process_alive(hp)
+    held = read_hold(root)
+    if held is not None:
+        hp, age_min, alive, who = held["pid"], held["age_s"] / 60, held["alive"], (held["session"] or "?")[:8]
         if alive and age_min < HOLD_MINUTES:   # one orchestrator at a time: a live, recent holder keeps the loop (the review of PR 202)
-            die(f"session {str(held.get('session', '?'))[:8]} holds this project's loop (process {hp} alive, its last loop action {int(age_min)} min ago) — "
+            die(f"session {who} holds this project's loop (process {hp} alive, its last loop action {int(age_min)} min ago) — "
                 f"stop that session, wait until it has been idle {HOLD_MINUTES} min, or take over: python3 scripts/reef-loop.py unlock")
-        os.unlink(held_p)
-        print(f"reef-run: taking over the loop held by session {str(held.get('session', '?'))[:8]} (process {hp or '?'} "
-              f"{'alive, idle ' + str(int(age_min)) + ' min' if alive else 'dead'}) — the runner the owner starts is the orchestrator", flush=True)
-    except (OSError, ValueError, TypeError):
-        pass
+        if drop_hold(root) is not None:
+            print(f"reef-run: taking over the loop held by session {who} (process {hp or '?'} "
+                  f"{'alive, idle ' + str(int(age_min)) + ' min' if alive else 'dead'}) — the runner the owner starts is the orchestrator", flush=True)
     if detached:
         detach(root)   # every refusal above printed to the caller; from here on the runner is on its own
     with open(lock, "w", encoding="utf-8") as f:

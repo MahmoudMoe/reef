@@ -14,6 +14,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def read(*parts):
     with open(os.path.join(ROOT, *parts), encoding="utf-8") as f:
         return f.read()
+def scripts():
+    """Every script under scripts/ (the entry point included), the shared module too; never .sh/.json."""
+    return [f for f in sorted(glob.glob(os.path.join(ROOT, "scripts", "reef*"))) if not f.endswith((".sh", ".json"))]
+
+
+def read_file(path):
+    return open(path, encoding="utf-8").read()
 
 
 class Version(unittest.TestCase):
@@ -911,6 +918,44 @@ class OneHomePerHelper(unittest.TestCase):
         self.assertIn("scripts/reef-*|scripts/reef_*", read(".github", "workflows", "ci.yml"))
         self.assertIn('"scripts/reef_*"', read("templates", "config.json"))
         self.assertEqual(open(common, encoding="utf-8").readline().strip(), "# CLASS: code", "a change to the shared module needs a test, like every script")
+
+
+class OneDefinitionInTheBigFour(unittest.TestCase):
+    """docs/design/consolidation.md step 3 (2026-10-30): the loop's hold (`.reef/run/orchestrator.json`) is read by one
+    function, `reef_common.read_hold`, and dropped by one, `drop_hold` — the guard, the runner, the doctor and the loop
+    call them; the plan check says "finished task" and "rollup" once each; a markdown table's cells are split by one
+    `table_cells`, in reef-queue.py and in every other script that read a table on its own."""
+
+    def test_the_hold_has_one_reader(self):
+        common = read("scripts", "reef_common.py")
+        for h in ("def read_hold(", "def drop_hold(", "HOLD_FILE = ", "HOLD_MINUTES = ", "def table_cells("):
+            self.assertIn(h, common, f"reef_common defines {h.strip('( =')}")
+        homes = sorted(os.path.basename(f) for f in scripts() if "orchestrator.json" in read_file(f))
+        self.assertEqual(homes, ["reef_common.py"], "the hold file's name has one home")
+        minutes = sorted(os.path.basename(f) for f in scripts() if re.search(r"(?m)^HOLD_MINUTES\s*=", read_file(f)))
+        self.assertEqual(minutes, ["reef_common.py"], "the stale-holder rule has one number")
+        for name in ("reef-guard.py", "reef-run.py", "reef-doctor.py", "reef-loop.py"):
+            imp = re.search(r"(?m)^from reef_common import (.*)$", read("scripts", name))
+            self.assertIsNotNone(imp, f"{name} imports reef_common")
+            self.assertRegex(imp.group(1), r"read_hold|drop_hold", f"{name} reads or drops the hold through reef_common")
+        self.assertIn("write_hold", re.search(r"(?m)^from reef_common import (.*)$", read("scripts", "reef-guard.py")).group(1),
+                      "the guard writes the hold through reef_common too — the record's fields have one home")
+
+    def test_the_plan_check_says_finished_and_rollup_once(self):
+        src = read("scripts", "reef-plan-check.py")
+        self.assertIn("def in_done(", src)
+        self.assertIn("def is_finished(", src)
+        self.assertIn("def is_rollup(", src)
+        code = [l for l in src.splitlines() if not l.lstrip().startswith("#")]   # a comment may quote the old spelling
+        done_tests = [l for l in code if "os.path.basename(os.path.dirname(" in l and '"done"' in l]
+        self.assertLessEqual(len(done_tests), 1, f"the under-done/ test is written once: {done_tests}")
+        self.assertLessEqual(len([l for l in code if re.search(r"R\\d\+", l)]), 1, "the rollup name is matched once")
+        by_letter = [l for l in code if "os.path.basename(" in l and 'startswith("R")' in l]
+        self.assertEqual(by_letter, [], "a rollup is `is_rollup`, not a file name's first letter")
+
+    def test_a_table_row_is_split_once(self):
+        homes = sorted(os.path.basename(f) for f in scripts() if 'strip("|").split("|")' in read_file(f))
+        self.assertEqual(homes, ["reef_common.py"], "one body splits a table row into cells")
 
 
 class ThreeOrphansGone(unittest.TestCase):

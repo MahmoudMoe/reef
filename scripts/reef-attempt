@@ -45,7 +45,7 @@ import time
 import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read_config, repo_root  # noqa: E402
+from reef_common import main_checkout, read_config, repo_root, table_cells  # noqa: E402
 
 DEFAULT_CAP = 3
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
@@ -131,7 +131,7 @@ def rejudge_line(text, rnd):
     proof = re.search(r"^##\s+Proof\s*$(.*?)(?=^##\s|\Z)", text, re.M | re.S)
     non_test = []
     for l in (proof.group(1) if proof else "").splitlines():
-        cells = [c.strip() for c in l.strip().strip("|").split("|")]
+        cells = table_cells(l)
         m = re.match(r"^\**AC-?(\d+)\**$", cells[0]) if len(cells) >= 2 else None
         if m and not re.match(r"^-+$", cells[1]) and not proof_is_test(cells[1]):
             non_test.append(int(m.group(1)))

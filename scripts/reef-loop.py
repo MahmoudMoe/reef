@@ -21,7 +21,7 @@ import calendar
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import run as _run, read_config as config, read_replace as read  # noqa: E402
+from reef_common import run as _run, read_config as config, read_replace as read, main_checkout, drop_hold  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 MAX_LINES = 30
@@ -35,16 +35,7 @@ def root_of(repo):
 
 def release_hold(root):
     """One orchestrator at a time (0.7.1): the session holding the loop lets go; returns who held it."""
-    r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True)
-    main = next((l[len("worktree "):].strip() for l in r.stdout.splitlines() if l.startswith("worktree ")), root)
-    p = os.path.join(main, ".reef", "run", "orchestrator.json")
-    try:
-        with open(p, encoding="utf-8") as f:
-            held = json.load(f).get("session", "?")
-        os.unlink(p)
-        return held
-    except (OSError, ValueError):
-        return None
+    return drop_hold(main_checkout(root))
 
 
 def load_state(root):

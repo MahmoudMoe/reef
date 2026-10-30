@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **Consolidation step 3 — one definition inside the big four** (docs/design/consolidation.md, 2026-10-30): the loop's
+  hold is read by `reef_common.read_hold` and dropped by `drop_hold` — the guard, the runner, the doctor and the loop had
+  four readers of `.reef/run/orchestrator.json` and two `HOLD_MINUTES`; the plan check says `in_done`, `is_finished` and
+  `is_rollup` once each where eleven lines spelled them three ways; `table_cells` splits a markdown row once, for
+  reef-queue.py's three sites and the six other scripts that carried the same line. `write_hold` beside them: the record's three fields have one home. No behaviour the suite
+  describes changes; a malformed hold record now reads the same in all four (a test pins it). tests/size-budget.json raised against main: `script_lines` 17,186 → 17,228 (+42) — the one definition
+  carries the docstring and the normalisation four copies never had; the plan's §2 says a one-definition step is scored by
+  its helper column, not by lines.
 - **The plan review has a round cap** (2026-10-30, row 7 on the current adoption: the reviewer and the planner traded blockers
   for five rounds; the hunter's plan pass has `hunter.plan_rounds`, the reviewer had none). `reef-record plan-review` counts the
   rounds in `.reef/review/plan-<slug>.json`; the guard refuses a `plan-reviewer` dispatch after `review.plan_rounds` FAILED

@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 _ROOT = object()
 
@@ -85,13 +86,70 @@ def process_alive(pid):
     """True when the pid names a live process (another user's counts as alive); False for a dead or malformed pid."""
     try:
         os.kill(int(pid), 0)
-    except (ProcessLookupError, ValueError, TypeError):
+    except (ProcessLookupError, ValueError, TypeError, OverflowError):   # OverflowError: a pid no process can have (the review)
         return False
     except PermissionError:
         return True
     except OSError:
         return False
     return True
+
+
+HOLD_FILE = os.path.join(".reef", "run", "orchestrator.json")
+HOLD_MINUTES = 30   # one orchestrator at a time (0.7.1): a holder idle this long is stale
+
+
+def read_hold(root):
+    """The loop's hold — who runs this project's loop (0.7.1, one orchestrator at a time): `{"session", "at", "pid",
+    "age_s", "alive"}`, or None when nobody holds it (no file, or not a JSON object). `session` is None when the record
+    names none; a `pid` that is not a number is 0 — a hold from before 0.7.2, which names no process; an `at` that is not
+    a number is 0, long stale. The guard, the runner, the doctor and the loop read the hold here and nowhere else."""
+    try:
+        held = json.loads(read(os.path.join(root, HOLD_FILE)))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(held, dict):
+        return None
+    try:
+        pid = int(held.get("pid") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    try:
+        at = float(held.get("at") or 0)
+    except (TypeError, ValueError):
+        at = 0.0
+    session = str(held["session"]) if held.get("session") else None
+    return {"session": session, "at": at, "pid": pid, "age_s": time.time() - at, "alive": bool(pid) and process_alive(pid)}
+
+
+def write_hold(root, session, pid):
+    """Record the hold for `session`, owned by `pid`, now — atomically (a tmp beside it, then os.replace). The guard writes it;
+    the record's three fields are named here and read by read_hold, nowhere else."""
+    p = os.path.join(root, HOLD_FILE)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    tmp = f"{p}.{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"session": session, "at": time.time(), "pid": pid}, f)
+    os.replace(tmp, p)
+
+
+def drop_hold(root, session=None):
+    """Remove the hold — anyone's, or only `session`'s when given (the runner drops its own session's, never another's).
+    Returns the dropped holder's session ("?" when the record named none), or None when nothing was dropped."""
+    h = read_hold(root)
+    if h is None or (session is not None and h["session"] != session):
+        return None
+    try:
+        os.unlink(os.path.join(root, HOLD_FILE))
+    except OSError:
+        return None
+    return h["session"] or "?"
+
+
+def table_cells(line):
+    """A markdown table row's cells, stripped: `| a | b |` → ["a", "b"] — the one body behind every table a script
+    reads (the queue, the journal, a task's Proof, the threat model, the cost ledger)."""
+    return [c.strip() for c in line.strip().strip("|").split("|")]
 
 
 def run(args, cwd, timeout=60, env=None, timeout_rc=124):

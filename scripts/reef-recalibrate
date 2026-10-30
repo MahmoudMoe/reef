@@ -28,7 +28,7 @@ import subprocess
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import git as _git, read_replace as read  # noqa: E402
+from reef_common import git as _git, read_replace as read, table_cells  # noqa: E402
 
 KEEP = {"README.md", "LICENSE", "LICENSE.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md", "CODEOWNERS", "CODE_OF_CONDUCT.md", "AGENTS.md", "CLAUDE.md", "HANDOFF.md"}
 # 0.7.2 (first adoption, 2026-10-24, item 16): a licence anywhere, under any name (a font's OFL.md, LICENSE-fonts.md, NOTICE.md), is kept;
@@ -284,7 +284,7 @@ def parse_old_queue(text):
         if not line.strip().startswith("|"):
             header = None
             continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        cells = table_cells(line)
         if header is None:
             low = [c.lower() for c in cells]
             if any(c in ("id", "#", "row", "no", "n") for c in low) and any(re.search(r"status|state", c) for c in low):

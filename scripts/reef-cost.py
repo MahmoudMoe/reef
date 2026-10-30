@@ -23,6 +23,10 @@ import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.dont_write_bytecode = True
+from reef_common import table_cells  # noqa: E402
+
 TAIL_BYTES = 256 * 1024
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 REEF_TASK = re.compile(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", re.M)      # the guard's own regexes
@@ -335,7 +339,7 @@ def fix_rounds(repo):
         if os.path.isfile(p):
             with open(p, encoding="utf-8") as f:
                 for line in f:
-                    cells = [c.strip() for c in line.strip().strip("|").split("|")]
+                    cells = table_cells(line)
                     if len(cells) >= 4 and cells[3].isdigit():
                         journal += int(cells[3])
             break
