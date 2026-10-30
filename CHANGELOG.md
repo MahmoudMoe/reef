@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The runner never stops dead** (docs/design/owner-hands-off.md step 2; 2026-10-30, the owner: task 403's 85-minute run died
+  with its session and the runner stopped "so nothing runs twice", naming no way out). The guard's in-flight marker names the
+  session's process; at a session's end the runner releases a dead session's marker itself ("released in-flight 403 … the task
+  retries") and goes on; a live one, or a marker from before this change, is the owner's — the stop names `reef-run.py release
+  <task>` (new) and `--detach`, and the desk is told. "No progress" (the same `/clear` wait twice) files a question the screen
+  shows and tells the desk, instead of a silent exit 3. `/reef-run autopilot` starts the autopilot from a session. tests/size-budget.json raised: `prose_words` 22,900 → 22,940, `script_lines` 17,476 → 17,541.
+- **The `reef` screen on the owner's project** (2026-10-30, his first look after the update: "nothing works, no list, too much
+  old runner log"): the lines were cut at a third of the width — curses' counted write measures bytes and the banner and rules
+  are three-byte glyphs — so the screen draws by characters; an idle runner's log is a tail of five steps and when the run
+  ended, not the screen; and the inbox holds the runner's own waits — a task left in flight by the last run (`reef-run.py
+  release <task>`) and a loop that is active with no runner (`reef run`).
 - **Autopilot** (2026-10-30, the owner: "I need the runner autopilot to really work on its own — I give it work for the next 5–6
   hours and it finishes bulk work; I don't want to babysit it"). `reef-run.py --autopilot` (`reef autopilot`) is the night's
   machinery as a standing mode: `reef/proxy.md` is the contract, approved once (`Approve proxy by day at <digest16>?`); its

@@ -128,7 +128,7 @@ class TheScreen(unittest.TestCase):
         self.assertIn("python3 scripts/reef-loop.py start", out, "a parked loop is a wait with its command")
         self.assertIn("implementer 903 out → PASS", out, "the runner's last steps")
         self.assertIn("no runner is running", out)
-        self.assertRegex(out, r"keys:.*\br\b.*run.*\bq\b.*quit", "every key is a verb the owner could type")
+        self.assertRegex(out, r"keys: q quit.*\br\b.*run", "every key is a verb the owner could type; quit first")
         self.assertNotIn("Traceback", r.stderr)
 
     def test_on_an_issues_queue_a_question_is_answered_by_its_issue(self):
@@ -187,7 +187,7 @@ class TheScreen(unittest.TestCase):
         self.assertIn("loop", lines[1]); self.assertIn("runner", lines[2])
         self.assertLessEqual(len(lines), 34, "never more lines than the terminal")
         self.assertTrue(all(len(l) <= 100 for l in lines), "never wider than the terminal")
-        self.assertTrue(lines[-1].startswith("keys:") and "↑↓" in lines[-1] and "Enter" in lines[-1], lines[-1])
+        self.assertTrue(lines[-1].startswith("keys: q quit") and "↑↓" in lines[-1] and "Enter" in lines[-1], "quit first: a narrow terminal cuts the end, never the exit (the owner, 2026-10-30)\n" + lines[-1])
         self.assertIn("▶", lines[sel]); self.assertIn("2  answer", lines[sel])
         box = " ".join(l.strip("│ ") for l in lines if l.startswith("│"))
         self.assertIn("python3 scripts/reef-queue.py footnote 'Batch 9' --row 4", box, "the selected item's command, whole, in the box")
@@ -205,7 +205,7 @@ class TheScreen(unittest.TestCase):
             lines, sel = mod.render(full, width=width, height=height, selected=selected)
             self.assertLessEqual(len(lines), height, f"{height}x{width}: {len(lines)} lines\n" + "\n".join(lines))
             self.assertTrue(all(len(l) <= width for l in lines), f"{height}x{width}: a line wider than the terminal")
-            self.assertIn("q quit", lines[-1], f"{height}x{width}: the keys end the screen\n" + "\n".join(lines))
+            self.assertIn("q quit", " ".join(lines[-3:]), f"{height}x{width}: the keys end the screen (on one row or wrapped)\n" + "\n".join(lines))
             if height >= 16:
                 self.assertIsNotNone(sel, f"{height}x{width}: the selection is on screen"); self.assertIn("▶", lines[sel])
         huge = dict(model, items=[dict(model["items"][0], cmd="python3 scripts/reef-queue.py footnote " + " ".join(f"word{i}" for i in range(80)) + " --row 7")])
@@ -218,6 +218,33 @@ class TheScreen(unittest.TestCase):
         self.assertNotIn("▶", once, "--once lists, it does not select")
         self.assertIn("python3 scripts/reef-queue.py footnote yes --row 4", once, "--once still lists every command")
         self.assertIn("re-takes them' --row 7", once, "--once wraps a long command, never cuts it")
+
+    def test_the_screen_draws_characters_tails_an_idle_runner_and_lists_the_runners_own_waits(self):
+        """2026-10-30, the owner's first screen on his project: lines cut at 13 and 33 characters (curses' addnstr counts BYTES, and
+        the banner and rules are three-byte glyphs), the runner's old log filling the screen two hours after the run ended, and an
+        inbox that missed what actually waited on him — the loop active with no runner, and task 403 left in flight."""
+        src = open(ENTRY, encoding="utf-8").read()
+        self.assertNotIn("addnstr", src, "addnstr counts bytes: a three-byte glyph line is cut at a third of the width")
+        mod = load_entry()
+        d = project(**{".reef/loop.json": '{"active": true, "wait": null, "stop": null, "parked": null, "hashes": []}',
+                       ".reef/inflight/403": '{"id": "403", "agent": "implementer"}',   # what the guard wrote at the dispatch, left by the dead session
+                       ".reef/run/live.log": "".join(f"21:{i:02d} s1 → step {i}\n" for i in range(40)) + "21:51 s1 session ended: in flight ['403'] · 1863.1 s · $6.11\n"})
+        mod.runner_view = lambda root: (0, 0, "")   # no runner is running
+        items = mod.inbox(d)
+        kinds = [i["kind"] for i in items]
+        self.assertIn("release", kinds, "work left in flight by the last run is an item\n" + str(kinds))
+        self.assertIn("python3 scripts/reef-run.py release 403", [i["cmd"] for i in items])
+        self.assertIn("run", kinds, "the loop is active and no runner runs: starting it is an item")
+        self.assertIn("python3 scripts/reef run", [i["cmd"] for i in items])
+        self.assertLess(kinds.index("release"), kinds.index("run"), "the leftover first: a restart would wait on it")
+        model = mod.screen_model(d)
+        lines, _ = mod.render(model, width=100, height=40, selected=0)
+        runner = lines[lines.index("RUNNER  the last steps · w follows live"):]
+        runner = runner[:next((i for i, l in enumerate(runner) if l.startswith(("DOCTOR", "─"))), len(runner))]
+        self.assertLessEqual(len(runner), 8, "an idle runner's log is a tail of a few steps, not the screen\n" + "\n".join(runner))
+        self.assertTrue(runner[-1].startswith("  (the run ended"), "and the tail ends by saying so\n" + "\n".join(runner))
+        os.unlink(os.path.join(d, ".reef", "inflight", "403"))
+        self.assertNotIn("release", [i["kind"] for i in mod.inbox(d)], "released: the item leaves with the marker (one source)")
 
     def test_an_empty_project_has_only_the_doctors_fixes_in_its_inbox(self):
         d = project()

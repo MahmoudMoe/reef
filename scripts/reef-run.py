@@ -17,6 +17,7 @@ Usage (the owner's terminal, in the project's main checkout):
                first); the probe and the gate are per host (`probe --host opencode`)
   reef-run.py watch [--repo DIR]   the live steps of the run in progress, then the runner's last word when it ends (2 = waiting on you)
   reef-run.py status [--repo DIR]  one look: running or not, the night, the last steps and the last session
+  reef-run.py release <task> [--repo DIR]  remove the task's in-flight marker when its work is not running (the next run dispatches it again)
   reef-run.py stop [--repo DIR]    (0.7.1) the running runner ends after its current session (never mid-merge); a session
       the runner left behind (the runner died, its `claude -p` did not — 2026-10-29) is ended now, TERM then KILL, and
       the loop is stopped (`reef-loop.py stop "<reason>"`); `status` names such a session: "runner gone, session <pid> …"
@@ -59,7 +60,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command  # noqa: E402
+from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question  # noqa: E402
 
 RUN_DIR = os.path.join(".reef", "run")
 LIVE = os.path.join(RUN_DIR, "live.log")
@@ -416,10 +417,14 @@ def loop_state(root):
         return {}
 
 
-def in_flight(root):
-    """In-flight and verifying markers in any checkout, newer than loop.inflight_stale_minutes (90) — the tick's own
+NO_PROGRESS = "the loop made no progress across two sessions"   # the no-progress question's words: filed once, cleared when the runner starts again
+
+
+def in_flight_markers(root, all_ages=False):
+    """The in-flight and verifying markers in any checkout, newer than loop.inflight_stale_minutes (90) — the tick's own
     rule: an older marker is a returned agent, not running work (2026-10-21: row 12's leftover markers would have stopped
-    the runner with "work in flight" while nothing ran)."""
+    the runner with "work in flight" while nothing ran). Each: {"id", "path", "pid"} — the pid is the session's process the
+    guard recorded at the dispatch (2026-10-30), 0 for a marker from before that."""
     try:
         with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
             stale = int(((json.load(f).get("loop") or {}).get("inflight_stale_minutes", 90)) or 90)
@@ -427,14 +432,40 @@ def in_flight(root):
         stale = 90
     r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True)
     roots = [l[len("worktree "):].strip() for l in r.stdout.splitlines() if l.startswith("worktree ")] or [root]
-    ids, now = [], time.time()
+    out, now = [], time.time()
     for d in roots:
         for kind in ("inflight", "verifying"):
             p = os.path.join(d, ".reef", kind)
-            for f in (os.listdir(p) if os.path.isdir(p) else []):
-                if not f.startswith(".") and now - os.path.getmtime(os.path.join(p, f)) < stale * 60:
-                    ids.append(f)
-    return sorted(set(ids))
+            for f in sorted(os.listdir(p) if os.path.isdir(p) else []):
+                fp = os.path.join(p, f)
+                if f.startswith(".") or (not all_ages and now - os.path.getmtime(fp) >= stale * 60):
+                    continue
+                try:
+                    with open(fp, encoding="utf-8") as fh:
+                        pid = int((json.load(fh) or {}).get("pid") or 0)
+                except (OSError, ValueError, AttributeError, TypeError, OverflowError):   # a pid no process can have reads as none
+                    pid = 0
+                out.append({"id": f, "path": fp, "pid": pid if pid > 0 else 0})   # a negative pid would name a process group
+    return out
+
+
+def in_flight(root):
+    """The ids of the markers in_flight_markers finds."""
+    return sorted({m["id"] for m in in_flight_markers(root)})
+
+
+def cmd_release(root, task_id):
+    """`release <id>` (2026-10-30, step 2 of owner-hands-off): the owner, knowing the work is not running, removes the task's
+    in-flight and verifying markers in every checkout; the next run dispatches the task again. 1 when there was none."""
+    gone = [m["path"] for m in in_flight_markers(root, all_ages=True) if m["id"] == str(task_id)]
+    for fp in gone:
+        try:
+            os.unlink(fp)
+        except OSError:
+            pass
+    print(f"reef-run: released {task_id} — {len(gone)} marker(s) removed; the next run dispatches it again: python3 scripts/reef-run.py --detach"
+          if gone else f"reef-run: nothing in flight for {task_id} — no marker to release")
+    return 0 if gone else 1
 
 
 def files_digest(root, rels):
@@ -1008,6 +1039,7 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
             f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": day_digest(root)[:16]}))
     live = os.path.join(root, LIVE)
     open(live, "w", encoding="utf-8").close()
+    drop_question(root, when=lambda line: NO_PROGRESS in line)   # the owner started the runner again: the no-progress notice has served
     stop_req = os.path.join(root, RUN_DIR, "stop-request")
     if os.path.exists(stop_req):
         os.unlink(stop_req)   # a request from before this run is not about this run
@@ -1050,7 +1082,8 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
             release_hold(root, out.get("session_id"))
             st = loop_state(root)
             wait, stop, parked = CONTROL.sub(" ", str(st.get("wait") or "")), st.get("stop") or "", st.get("parked") or ""   # agent text: nothing a terminal reads
-            flying = [] if (wait or stop or parked) else in_flight(root)
+            markers = [] if (wait or stop or parked) else in_flight_markers(root)   # read once: the log line and the release judge the same snapshot
+            flying = sorted({m["id"] for m in markers})
             with open(log, "a", encoding="utf-8") as f:
                 f.write(json.dumps({"iteration": i, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "session": out.get("session_id"),
                                     "seconds": out.get("_seconds"), "cost_usd": out.get("total_cost_usd"), "rc": out.get("_rc"),
@@ -1069,7 +1102,22 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
             if wait and not owner_wait(wait):
                 sig = progress_signature(root, wait)
                 if sig == prev_sig:   # 2026-10-28: the same state twice (the base's head, the handoff, the wait) is no progress — not a tenth session on it
-                    return end(3, f"reef-run: no progress — two sessions ended on the same wait with nothing changed: {wait[:160]} — fix what stops them (HANDOFF.md names it), then start again")
+                    ask = os.path.join(root, "scripts", "reef-queue.py")   # 2026-10-30: a question in the inbox and a word to the desk, never a silent exit
+                    q_text, q_rec = f"the loop made no progress across two sessions — the same wait twice: {wait[:160]}", "read HANDOFF.md, fix what stops the row, then python3 scripts/reef-run.py --detach"
+                    rows_named = sorted(set(re.findall(r"\brow (\d+)", wait)))
+                    q_row = rows_named[0] if len(rows_named) == 1 else None   # the row the wait names, so the question can be answered and cleared on it
+                    filed = any(NO_PROGRESS in q for _, _, q, _ in questions(root))   # once: a restart on the same stuck wait files no second one
+                    if not filed and os.path.isfile(ask):   # the queue files it (an issue too, on an issues queue)
+                        try:
+                            filed = subprocess.run([sys.executable, ask, "ask", q_text, "--recommended", q_rec, *(["--row", q_row] if q_row else []), "--repo", root],
+                                                   capture_output=True, text=True, cwd=root, timeout=90).returncode == 0
+                        except (OSError, subprocess.TimeoutExpired):
+                            filed = False
+                    if not filed:   # no queue script, or it refused: the line the screen reads, written here (the review: "filed" must be true)
+                        with open(os.path.join(root, ".reef", "questions.md"), "a", encoding="utf-8") as f:
+                            f.write(question_line(q_row or "-", q_text, q_rec) + "\n")
+                    return end(2, f"reef-run: no progress — two sessions ended on the same wait with nothing changed: {wait[:160]} — fix what stops them "
+                                  "(HANDOFF.md names it), then start again: python3 scripts/reef-run.py --detach\n  filed as your question: python3 scripts/reef shows it")
                 prev_sig = sig
                 continue
             if wait and autopilot:   # a decision the contract covers is Mahmoud's: the next session takes it; the same wait twice is the owner's
@@ -1084,9 +1132,22 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
             if wait:
                 return end(2, owner_wait_lines(root, wait, mode) + "\n  every wait at once, one key each: python3 scripts/reef")
             if flying:
-                # a session that returns with work in flight would start it twice next time; Bash background work is
-                # waited for headless (checked 2026-10-20), the Workflow tool is not proven yet — stop and say so
-                return end(3, f"reef-run: a session ended with work in flight ({', '.join(flying)}) — stopped so nothing runs twice")
+                # a session that returns with work in flight would start it twice next time (Bash background work is waited for
+                # headless, checked 2026-10-20). 2026-10-30 (task 403, an 85-minute run that died with its session): a marker whose
+                # session is GONE is released here and the task retries; a live one, or one that names no session, is the owner's
+                dead = [m for m in markers if m["pid"] and not process_alive(m["pid"])]
+                for m in dead:
+                    try:
+                        os.unlink(m["path"])
+                    except OSError:
+                        pass
+                    say(f"released in-flight {m['id']}: its session (pid {m['pid']}) is gone — the task retries in the next session")
+                still = sorted({m["id"] for m in markers if m not in dead})
+                if not still:
+                    continue
+                return end(2, f"reef-run: a session ended with work in flight ({', '.join(still)}) — stopped so nothing runs twice; "
+                              "when you know that work is not running:\n" + "\n".join(f"    python3 scripts/reef-run.py release {t}" for t in still)
+                              + "\n  then start it again: python3 scripts/reef-run.py --detach")
         return end(4, f"reef-run: {cap} sessions, the iteration cap — the last state is in {log}")
     finally:
         for p in (lock, active if night else None):
@@ -1106,7 +1167,7 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
             morning_report(root, started, log, mode="autopilot")
 
 
-VERBS = ("watch", "status", "stop", "probe", "contract")
+VERBS = ("watch", "status", "stop", "probe", "contract", "release")
 VALUE_FLAGS = ("--repo", "--permission-mode", "--host", "--max-iterations", "--row", "--from")
 BARE_FLAGS = ("--night", "--detach", "--day", "--autopilot")
 
@@ -1114,7 +1175,7 @@ BARE_FLAGS = ("--night", "--detach", "--day", "--autopilot")
 def unknown_argument(args):
     """The first argument that is neither a verb (first position only) nor a known flag with its value — None when all
     are known. 2026-10-29: `--status`, a typo for the verb, fell through to cmd_run and started a loop session."""
-    i = 1 if args[:1] and args[0] in VERBS else 0
+    i = (2 if args[:1] == ["release"] and len(args) > 1 and re.fullmatch(r"R?\d+", args[1]) else 1) if args[:1] and args[0] in VERBS else 0   # `release <task>` takes its one value
     while i < len(args):
         if args[i] in VALUE_FLAGS:
             if i + 1 >= len(args) or args[i + 1].startswith("--"):
@@ -1158,6 +1219,10 @@ def main(argv):
         return cmd_status(root)
     if args[:1] == ["stop"]:
         return cmd_stop(root)
+    if args[:1] == ["release"]:
+        if len(args) < 2 or not re.fullmatch(r"R?\d+", args[1]):
+            die("release takes the task id whose in-flight marker to remove: reef-run.py release 403")
+        return cmd_release(root, args[1])
     if args[:1] == ["probe"]:
         return cmd_probe(root, mode)
     if args[:1] == ["contract"]:
