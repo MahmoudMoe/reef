@@ -116,8 +116,7 @@ class TheScreen(unittest.TestCase):
         r = reef("screen", "--once", "--repo", d)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         items = [l for l in r.stdout.splitlines() if re.match(r"^\s*\d+\s+\w+", l)]
-        self.assertTrue(all(re.match(r"^\s*\d+\s+fix", l) for l in items), "no approval, question or park: only the doctor's fixes, if any
-" + r.stdout)
+        self.assertTrue(all(re.match(r"^\s*\d+\s+fix\b", l) for l in items), "no approval, question or park: only the doctor's fixes, if any\n" + r.stdout)
         mod = load_entry()
         self.assertEqual(mod.inbox(d), [], "without the doctor's lines the inbox is empty")
         self.assertIn("nothing waits on you", mod.screen_text(d))
@@ -151,6 +150,23 @@ class TheScreen(unittest.TestCase):
         finally:
             subprocess.run = orig
         self.assertEqual(ran[-1][1:], [mod.script("reef-approval.py"), "--owner", "Approve plan reconcile-instruction-layer at 2cc8e8c3487e9ab2?"], "the question, never a placeholder")
+
+    def test_the_inbox_reads_a_doctors_fix_as_its_last_part_and_never_shows_a_placeholder(self):
+        mod = load_entry()
+        d = project()
+        doctor = ["WARN gate probe: none — the runner refuses to start — python3 scripts/reef-run.py probe",
+                  "WARN setup: scripts/reef-setup.py is missing — python3 <plugin>/scripts/reef-update.py --commit",
+                  "WARN env: the local gate reads .env — compare once: DATABASE_URL= npm test",
+                  "OK   scripts: match"]
+        items = mod.inbox(d, doctor)
+        self.assertEqual([i["cmd"] for i in items], ["python3 scripts/reef-run.py probe"],
+                         "the fix is the last dash part; a line with <…> is not a command the owner can run; prose is not a command")
+
+    def test_the_doctor_never_prints_a_placeholder(self):
+        # the screen runs what the doctor prints — so the doctor prints the plugin's real path, never `<plugin>`
+        d = project()
+        r = reef("doctor", "--repo", d)
+        self.assertNotIn("<plugin>", r.stdout + r.stderr, r.stdout)
 
     def test_reef_alone_is_the_menu_off_a_terminal(self):
         r = reef("--repo", project())

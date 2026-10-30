@@ -9,7 +9,9 @@
   Two verbs for what the owner types most: `reef approve <row>` (the row's approval at its current digest, from the row
   machine) and `reef answer <row> "<text>"` (the footnote the loop reads; the question line cleared). The screen knows
   nothing the scripts do not: it reads loop.json, questions.md, the handoff's tick, the runner's own view, the doctor's
-  lines, and every key runs a command you could type. tests/size-budget.json: unchanged (nothing grew).
+  lines, and every key runs a command you could type. A doctor's fix is read as the last dash-separated part of its line and
+  never shown with a placeholder; the doctor prints the plugin's real path in its two lines that said `<plugin>`.
+  tests/size-budget.json raised for the screen: `script_lines` 16,945 → 17,077.
 - **Consolidation step 2 — the three orphans** (docs/design/consolidation.md, 2026-10-30): `scripts/reef-watch` is gone
   (`reef-run.py status` and `.reef/status.html`, rendered at every tick, replaced it), `scripts/reef-guard-profile.py` is
   gone (its one measurement, `docs/perf/guard-profile-2026-10-16.md`, stays and the hook timeouts still rest on it),

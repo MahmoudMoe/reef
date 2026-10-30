@@ -252,9 +252,11 @@ def inbox(root, doctor=None):
     if not pid and spid > 0:
         add("stop", f"runner gone, session {spid} still running since {since}", "python3 scripts/reef-run.py stop")
     for line in (doctor if doctor is not None else []):
-        m = re.match(r"^WARN\s+(.*?) — (.*)$", line)
-        if m and m.group(2).startswith(COMMAND_WORDS):
-            add("fix", m.group(1), m.group(2))
+        if not line.startswith("WARN") or " — " not in line:
+            continue
+        what, fix = line[4:].strip().rsplit(" — ", 1)   # the fix is the LAST part; a `<…>` is a placeholder, not a command
+        if fix.startswith(COMMAND_WORDS) and not re.search(r"<[^>]+>", fix):
+            add("fix", what, fix)
     return items
 
 

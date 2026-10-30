@@ -183,7 +183,7 @@ def main(argv):
                 mv = f.read().strip()
         except OSError:
             mv = "none (a 0.5 project)"
-        say("OK" if mv == pv else "WARN", f"version: project {mv}, plugin {pv}", "" if mv == pv else "python3 scripts/reef-init.py --root . --plugin <plugin> brings the project's copy up")
+        say("OK" if mv == pv else "WARN", f"version: project {mv}, plugin {pv}", "" if mv == pv else f"python3 {plugin}/scripts/reef-init.py --root {root} brings the project's copy up")
         # scripts, main checkout and every worktree
         b = behind_scripts(root, plugin)
         if b:
@@ -268,7 +268,7 @@ def main(argv):
         except (OSError, subprocess.TimeoutExpired):
             say("WARN", "setup: reef-setup.py state did not run", "")
     else:
-        say("WARN", "setup: scripts/reef-setup.py is missing (the proof that a fresh worktree passes the gate)", "python3 <plugin>/scripts/reef-update.py --commit")
+        say("WARN", "setup: scripts/reef-setup.py is missing (the proof that a fresh worktree passes the gate)", f"python3 {plugin}/scripts/reef-update.py --repo {root} --commit")
     say(*plugin_enabled())
     page = os.path.join(root, ".reef", "status.html")
     say("OK" if os.path.isfile(page) else "WARN", f"status page: {page}" if os.path.isfile(page) else "status page: not written yet",
