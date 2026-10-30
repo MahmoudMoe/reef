@@ -52,7 +52,7 @@ In Claude Code (another host: [Hosts](#hosts)):
 /plugin install reef@mahmoudmoe
 ```
 
-**From a terminal**, `reef` is the one entry point, copied into `scripts/` by `/reef-init`: alone it shows a banner, one status line and the owner's verbs with a line each — `reef run`, `reef night`, `reef status`, `reef doctor`, `reef update`, `reef setup prove`, `reef factory <row>`, `reef cost`; `reef --all` lists every script with its purpose. Every stop Reef makes names the one command that answers it.
+**From a terminal**, `reef` is the one entry point, copied into `scripts/` by `/reef-init`: alone, on a terminal, it opens the screen — one status line, **the inbox** (every wait Reef recorded, numbered, each carrying the exact command the row machine names, so one key runs it: an approval, a footnote answer, a parked loop's restart, a doctor's fix), the runner's last steps, the doctor's warnings; `reef screen --once` prints it and exits (a log, an SSH session), `reef --menu` is the verb list. Two verbs exist for the two things you type most: `reef approve <row>` writes the row's plan approval at its current digest, `reef answer <row> "<text>"` files your answer as the footnote the loop reads. The screen knows nothing the scripts do not — every key runs a command you could type. The verbs, a line each — `reef run`, `reef night`, `reef status`, `reef doctor`, `reef update`, `reef setup prove`, `reef factory <row>`, `reef cost`; `reef --all` lists every script with its purpose. Every stop Reef makes names the one command that answers it.
 
 Then, inside your project:
 

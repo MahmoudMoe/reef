@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **Consolidation step 5 — the `reef` screen** (docs/design/consolidation.md, 2026-10-30): `reef` alone on a terminal opens
+  a live screen (stdlib `curses`, the menu where the terminal cannot): one status line (the loop, the runner), **the inbox**
+  — every wait Reef recorded, numbered, each with the exact command the row machine names (an approval, a filed question,
+  a parked loop's restart, an orphaned session's stop, a doctor's fix), the runner's last steps, the doctor's warnings; a
+  number runs the item, `r n s d c u` run the verbs, `g` refreshes, `q` quits. `reef screen --once` prints it and exits.
+  Two verbs for what the owner types most: `reef approve <row>` (the row's approval at its current digest, from the row
+  machine) and `reef answer <row> "<text>"` (the footnote the loop reads; the question line cleared). The screen knows
+  nothing the scripts do not: it reads loop.json, questions.md, the handoff's tick, the runner's own view, the doctor's
+  lines, and every key runs a command you could type. tests/size-budget.json: unchanged (nothing grew).
 - **Consolidation step 2 — the three orphans** (docs/design/consolidation.md, 2026-10-30): `scripts/reef-watch` is gone
   (`reef-run.py status` and `.reef/status.html`, rendered at every tick, replaced it), `scripts/reef-guard-profile.py` is
   gone (its one measurement, `docs/perf/guard-profile-2026-10-16.md`, stays and the hook timeouts still rest on it),

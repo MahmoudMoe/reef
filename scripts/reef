@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 # CLASS: code
 """reef — the owner's one entry point (2026-10-28: "the person opens the terminal, writes reef, sees a logo and the options,
-each with a short description"). `reef` alone: the banner, one status line, the owner's verbs. `reef <verb> [args]` runs the
-sibling script that verb names, in the project this runs in (`--repo DIR` for another). `reef --all`: every script here with
-its purpose line — the internal ones, which the skills and agents run, not a person.
-Verbs: status · doctor · run [n] · night · watch · stop · setup [prove|digest|apply] · update · factory [row] · cost [--since …]
+each with a short description"). `reef` alone on a terminal: THE SCREEN (consolidation step 5, 2026-10-30) — the status line,
+the inbox of every wait Reef recorded, each with the exact command the row machine names so one key runs it, the runner's last
+steps, the doctor's warnings; off a terminal, the menu. `reef <verb> [args]` runs the sibling script that verb names, in the
+project this runs in (`--repo DIR` for another). `reef --all`: every script here with its purpose line — the internal ones,
+which the skills and agents run, not a person. The screen knows nothing the scripts do not: every key runs a command you could type.
+Verbs: screen [--once] · approve <row> · answer <row> "<text>" · status · doctor · run [n] · night · watch · stop · setup · update · factory [row] · cost
 """
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
+import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
 from reef_common import main_checkout  # noqa: E402
@@ -24,6 +28,12 @@ BANNER = r"""
  |_| \_\____||____||_|
 """
 VERBS = [
+    ("screen",  "the live screen: the inbox of what waits on you, one key per command (`screen --once` prints it and exits)",
+     lambda root, a: cmd_screen(root, a)),
+    ("approve", "`approve <row>`: the row's plan approval at its current digest — the line you would type, typed for you",
+     lambda root, a: cmd_approve(root, a)),
+    ("answer",  "`answer <row> \"<text>\"`: your answer to a filed question, as the footnote the loop reads",
+     lambda root, a: cmd_answer(root, a)),
     ("status",  "where things stand: the runner, the night, the last session, the loop's wait",
      lambda root, a: run_script("reef-run.py", ["status", "--repo", root], root)),
     ("doctor",  "what is wrong and the one command that fixes each thing (plugin, probe, hold, setup, scripts)",
@@ -127,6 +137,277 @@ def status_line(root):
 
 
 
+# ---------------------------------------------------------------- the screen (consolidation step 5)
+
+APPROVE_Q = re.compile(r"Approve (?:plan [A-Za-z0-9._-]+|night \d{4}-\d\d-\d\d|proxy by day) at [0-9a-f]{16}\?")   # reef-run.py's
+COMMAND_WORDS = ("python3 ", "git ", "claude ", "sh ", "gh ", "reef ")
+
+
+def load_sibling(name, modname):
+    """A sibling script as a module (reef-run.py: the runner's own view of its lock and session), or None."""
+    path = script(name)
+    if not path:
+        return None
+    import importlib.machinery, importlib.util
+    loader = importlib.machinery.SourceFileLoader(modname, path)
+    spec = importlib.util.spec_from_loader(modname, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def read_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def row_state(root, row):
+    """The row machine's view (reef-row.py state --json), or {}."""
+    path = script("reef-row.py")
+    if not path:
+        return {}
+    try:
+        r = subprocess.run([PY, path, "state", str(row), "--json", "--repo", root], capture_output=True, text=True, timeout=60)
+        return json.loads(r.stdout) if r.returncode == 0 else {}
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return {}
+
+
+def questions(root):
+    """[(row, question, recommended)] from .reef/questions.md — the lines reef-queue.py ask writes."""
+    out = []
+    try:
+        with open(os.path.join(root, ".reef", "questions.md"), encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r"^- row (\S+): (.*?)(?: — recommended: (.*))?$", line.rstrip("\n"))
+                if m:
+                    out.append((m.group(1), m.group(2).strip(), (m.group(3) or "").strip()))
+    except OSError:
+        pass
+    return out
+
+
+def handoff_awaiting(root):
+    """The tick's `awaiting:` line as HANDOFF.md renders it — since #210 it carries each approval's exact command."""
+    try:
+        with open(os.path.join(root, "HANDOFF.md"), encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return ""
+    m = re.search(r"^## The tick\n```\n(.*?)\n```", text, re.S | re.M)
+    block = m.group(1) if m else ""
+    m2 = re.search(r"^awaiting: (.*)$", block, re.M)
+    return m2.group(1) if m2 else ""
+
+
+def runner_view(root):
+    """(runner pid or 0, session pid or 0, since) through the runner's own functions — never a second reading of its files."""
+    mod = load_sibling("reef-run.py", "reef_run_for_screen")
+    if mod is None:
+        return 0, 0, ""
+    try:
+        spid, since = mod.session_record(root)
+        return mod.runner_pid(root), spid, since
+    except Exception:
+        return 0, 0, ""
+
+
+def doctor_lines(root):
+    path = script("reef-doctor.py")
+    if not path:
+        return []
+    try:
+        r = subprocess.run([PY, path, "--repo", root], capture_output=True, text=True, timeout=120)
+        return r.stdout.splitlines()
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+
+
+def inbox(root, doctor=None):
+    """Every wait Reef has recorded, as items {kind, text, cmd, row, recommended} — the exact command each, never twice."""
+    items = []
+
+    def add(kind, text, cmd, row=None, recommended=""):
+        if cmd and cmd not in [i["cmd"] for i in items]:
+            items.append({"kind": kind, "text": text, "cmd": cmd, "row": row, "recommended": recommended})
+
+    st = read_json(os.path.join(root, ".reef", "loop.json"))
+    wait = str(st.get("wait") or "")
+    for q in dict.fromkeys(APPROVE_Q.findall(wait + "\n" + handoff_awaiting(root))):
+        add("approve", q, f'python3 scripts/reef-approval.py --owner "{q}"')
+    for r in dict.fromkeys(re.findall(r"\brow (\d+)", wait)):
+        d = row_state(root, r)
+        m = re.search(r'python3 scripts/reef-approval\.py --owner "[^"]+"', str(d.get("detail") or ""))
+        if m:
+            add("approve", f"row {r}: {d.get('state')}", m.group(0), row=r)
+    for r, q, rec in questions(root):
+        add("answer", f"row {r}: {q}" + (f" (recommended: {rec})" if rec else ""),
+            f'python3 scripts/reef-queue.py footnote "<your answer>" --row {r}', row=r, recommended=rec)
+    if st.get("parked"):
+        add("unpark", f"the loop parked: {str(st['parked'])[:100]}", "python3 scripts/reef-loop.py start")
+    pid, spid, since = runner_view(root)
+    if not pid and spid > 0:
+        add("stop", f"runner gone, session {spid} still running since {since}", "python3 scripts/reef-run.py stop")
+    for line in (doctor if doctor is not None else []):
+        m = re.match(r"^WARN\s+(.*?) — (.*)$", line)
+        if m and m.group(2).startswith(COMMAND_WORDS):
+            add("fix", m.group(1), m.group(2))
+    return items
+
+
+def screen_text(root, doctor=None, width=120):
+    """The screen as text: the status line, the inbox, the runner's last steps, the doctor's warnings, the keys."""
+    st = read_json(os.path.join(root, ".reef", "loop.json"))
+    pid, spid, since = runner_view(root)
+    runner = (f"runner running (pid {pid})" if pid else f"runner gone, session {spid} still running since {since}" if spid > 0 else "no runner is running")
+    loop = ("the loop waits on you" if st.get("wait") else "the loop parked" if st.get("parked") else "the loop is active" if st.get("active") else "the loop is idle")
+    try:
+        with open(os.path.join(root, ".reef", "version"), encoding="utf-8") as f:
+            ver = f.read().strip()
+    except OSError:
+        ver = "?"
+    items = inbox(root, doctor)
+    lines = [f"reef {os.path.basename(root)} · Reef {ver} · {loop} · {runner} · {time.strftime('%H:%M:%S')}", "",
+             "INBOX — what waits on you (a number runs it)"]
+    if not items:
+        lines.append("  nothing waits on you")
+    for n, it in enumerate(items, 1):
+        lines.append(f"  {n:>2}  {it['kind']:<8} {it['text'][:width - 14]}")
+        lines.append(f"      {it['cmd']}")
+    lines += ["", "RUNNER — the last steps"]
+    try:
+        with open(os.path.join(root, ".reef", "run", "live.log"), encoding="utf-8") as f:
+            tail = f.read().splitlines()[-10:]
+    except OSError:
+        tail = []
+    lines += ["  " + l[:width - 2] for l in tail] or ["  (no steps recorded)"]
+    if doctor is not None:
+        warns = [l for l in doctor if l.startswith(("WARN", "FAIL"))]
+        lines += ["", "DOCTOR — " + (f"{len(warns)} warning(s) (d for the whole report)" if warns else "nothing wrong")]
+        lines += ["  " + l[:width - 2] for l in warns[:6]]
+    lines += ["", "keys: 1-9 run an item · r run · n night · s stop · d doctor · c cost · u update · g refresh · q quit"]
+    return "\n".join(lines) + "\n"
+
+
+def cmd_screen(root, args):
+    if "--once" in args or not (sys.stdout.isatty() and sys.stdin.isatty()):
+        print(screen_text(root, doctor_lines(root)), end="")
+        return 0
+    try:
+        import curses
+    except ImportError:
+        print(screen_text(root, doctor_lines(root)), end="")
+        return 0
+    return curses.wrapper(lambda stdscr: screen_loop(stdscr, root, curses))
+
+
+def run_shown(root, cmd):
+    """Run the exact line the screen showed — as the owner would type it — and wait for a key."""
+    print(f"\n$ {cmd}\n", flush=True)
+    rc = subprocess.run(cmd, shell=True, cwd=root).returncode
+    try:
+        input(f"\n[exit {rc}] press Enter to return to the screen")
+    except EOFError:
+        pass
+
+
+def screen_loop(stdscr, root, curses):
+    curses.curs_set(0)
+    stdscr.timeout(3000)
+    doctor, doctor_at = doctor_lines(root), time.time()
+    while True:
+        if time.time() - doctor_at > 30:
+            doctor, doctor_at = doctor_lines(root), time.time()
+        h, w = stdscr.getmaxyx()
+        text = screen_text(root, doctor, width=max(40, w - 1))
+        stdscr.erase()
+        for y, line in enumerate(text.splitlines()[:h - 1]):
+            try:
+                stdscr.addnstr(y, 0, line, w - 1)
+            except curses.error:
+                pass
+        stdscr.refresh()
+        k = stdscr.getch()
+        if k == -1:
+            continue
+        ch = chr(k) if 0 < k < 256 else ""
+        if ch == "q":
+            return 0
+        if ch == "g":
+            doctor, doctor_at = doctor_lines(root), time.time()
+            continue
+        verb = {"r": "run", "n": "night", "s": "stop", "d": "doctor", "c": "cost", "u": "update"}.get(ch)
+        cmd = f"python3 scripts/reef {verb}" if verb else None
+        if ch.isdigit() and ch != "0":
+            items = inbox(root, doctor)
+            n = int(ch)
+            if n <= len(items):
+                it = items[n - 1]
+                cmd = it["cmd"]
+                if it["kind"] == "answer":
+                    curses.endwin()
+                    try:
+                        text = input(f"your answer for row {it['row']} [{it['recommended']}]: ").strip() or it["recommended"]
+                    except EOFError:
+                        text = ""
+                    cmd = f"python3 scripts/reef answer {it['row']} {shlex.quote(text)}" if text else None
+        if cmd:
+            curses.endwin()
+            run_shown(root, cmd if not cmd.startswith("python3 scripts/reef ") else cmd.replace("python3 scripts/reef", shlex.quote(PY) + " " + shlex.quote(os.path.abspath(__file__)), 1))
+            doctor, doctor_at = doctor_lines(root), time.time()
+            stdscr.clear()
+
+
+def cmd_approve(root, args):
+    """The row's plan approval, as the row machine names it: `reef-approval.py --owner "Approve plan <slug> at <digest>?"`."""
+    rows = [a for a in args if not a.startswith("--")]
+    if len(rows) != 1:
+        print("reef approve <row>", file=sys.stderr)
+        return 2
+    d = row_state(root, rows[0])
+    m = re.search(r'python3 scripts/reef-approval\.py --owner "([^"]+)"', str(d.get("detail") or ""))
+    if not m:
+        print(f"reef approve: row {rows[0]} is in state {d.get('state', 'unknown')!r} — nothing to approve ({str(d.get('detail') or 'the row machine has no view of it')[:160]})")
+        return 1
+    q = m.group(1)
+    argv = [PY, script("reef-approval.py"), "--owner", q]
+    print(f"reef approve: python3 scripts/reef-approval.py --owner \"{q}\"", flush=True)
+    if "--dry-run" in args:
+        return 0
+    return subprocess.run(argv, cwd=root).returncode
+
+
+def cmd_answer(root, args):
+    """Your answer to a filed question: the footnote on its row (what the loop reads), then the question line is cleared."""
+    pos = [a for a in args if not a.startswith("--")]
+    if len(pos) != 2 or not pos[0].isdigit():
+        print('reef answer <row> "<text>"', file=sys.stderr)
+        return 2
+    row, text = pos
+    cmd = [PY, script("reef-queue.py"), "footnote", text, "--row", row]
+    print(f"reef answer: python3 scripts/reef-queue.py footnote {shlex.quote(text)} --row {row}", flush=True)
+    if "--dry-run" in args:
+        return 0
+    rc = subprocess.run(cmd, cwd=root).returncode
+    if rc != 0:
+        return rc
+    q = os.path.join(root, ".reef", "questions.md")
+    try:
+        with open(q, encoding="utf-8") as f:
+            lines = f.read().splitlines(True)
+        kept = [l for l in lines if not l.startswith(f"- row {row}:")]
+        if len(kept) != len(lines):
+            with open(q, "w", encoding="utf-8") as f:
+                f.writelines(kept)
+            print(f"reef answer: row {row}'s question cleared from .reef/questions.md")
+    except OSError:
+        pass
+    return 0
+
+
 def cmd_update(root, args):
     plugin = args[args.index("--plugin") + 1] if "--plugin" in args and args.index("--plugin") + 1 < len(args) else plugin_dir()
     if not plugin:
@@ -178,7 +459,8 @@ def menu(root):
     print(f"  Reef {ver} · {root} · {status_line(root)}\n")
     for verb, what, _ in VERBS:
         print(f"  {verb:<9}{what}")
-    print("\n  reef <verb> [args] · reef --all lists every script and its purpose · reef <verb> --repo <dir> for another project")
+    print("\n  reef <verb> [args] · reef --all lists every script and its purpose · reef <verb> --repo <dir> for another project"
+          "\n  on a terminal `reef` alone opens the screen: the inbox of what waits on you, one key per command; `reef --menu` is this list")
     return 0
 
 
@@ -190,6 +472,10 @@ def main(argv):
         del args[args.index("--repo"):args.index("--repo") + 2]
     root = main_checkout(os.path.abspath(repo))   # the abspath fallback the entry point always had
     if not args:
+        if sys.stdout.isatty() and sys.stdin.isatty() and not os.environ.get("REEF_NO_SCREEN"):
+            return cmd_screen(root, [])   # a terminal: the screen; `reef --menu`, or no terminal, the menu
+        return menu(root)
+    if args == ["--menu"]:
         return menu(root)
     if args[0] == "--all":
         for name in sorted(os.listdir(HERE)):
