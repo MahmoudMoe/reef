@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The README and the two sites, reworked** (the owner, 2026-10-31: "rework readme.md and the arabic/english site — simplicity and
+  smartness"). The story first: *you write the work, Reef does it, you decide twice*; then **three ways to run it** — the screen
+  (`reef`), the autopilot (`reef autopilot`, Mahmoud deciding inside your contract), a night (`/reef-night`), by hand — one table;
+  the screen described as it is (WORK, the inbox, PLAN, LOG, the autopilot panel, the runner line that says what the session is
+  doing); Mahmoud as the project's CTO in the roles table and on both sites; the autopilot in the situations table, in "What you
+  accept", in "When it stops" and in the status; the English site's hero and a first "Hands off" tab; the Arabic manual's lead,
+  its autopilot and screen entries, its asks table. Every pinned sentence kept. tests/size-budget.json: unchanged (nothing grew).
 - **The reef screen, fourth design** (the owner, 2026-10-31: "before I choose anything I want to see what is pending, what I can
   start with, what can go in parallel and what cannot, the progress; then I choose the order, start the autopilot, and it shows
   me what it will finish and which issues it closes"). `reef` opens on **WORK**: the current batch's rows with a mark (✓ done ·

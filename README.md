@@ -12,12 +12,13 @@
 
 <h1 align="center">Reef</h1>
 
-<p align="center"><strong>Run a software project as a graph of gated work. Prove the rules in code.</strong></p>
+<p align="center"><strong>You write the work. Reef does it. You decide twice.</strong></p>
 
 <p align="center">
   <a href="https://mahmoudmoe.github.io/reef/">Website</a> ·
   <a href="https://mahmoudmoe.github.io/reef/manual/ar/">الدليل العربي</a> ·
   <a href="#install">Install</a> ·
+  <a href="#three-ways-to-run-it">Three ways to run it</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#when-it-stops">When it stops</a> ·
   <a href="#settings-reefconfigjson">Settings</a> ·
@@ -27,10 +28,50 @@
 
 > *A coral reef grows one calcified layer at a time; each organism leaves a hard structure the next builds on. Reef works the same way: every spec, task, decision and journal line is a layer that outlives the session that wrote it.*
 
-You write a row in a queue. Reef plans it with you, builds it in one worktree per row on the path its risk names,
-proves it with one test run per commit and one fresh reviewer, opens the pull request, merges it on a green gate and
-closes the row. **You decide twice: you approve the plan and you merge the release.** Everything in between is decided
-by code on state the agent cannot write, not by a prompt.
+Reef is a Claude Code plugin that runs your project's backlog. You write a row in a queue. Reef plans it with you, builds it
+in one worktree per row on the path its risk names, proves it with one test run per commit and one fresh reviewer, opens the
+pull request, merges it on a green gate and closes the row. **You decide twice: you approve the plan and you merge the
+release.** Everything in between is decided by code on state the agent cannot write, not by a prompt.
+
+When you would rather not sit beside it, you hand it the day: `reef autopilot` runs the loop for hours in fresh headless
+sessions, and the decisions you would have been asked are taken by **Mahmoud**, your proxy and the project's CTO, inside a
+contract you approved once. You read the report; the release still waits for you.
+
+## Three ways to run it
+
+| | You type | Reef does | You do |
+|---|---|---|---|
+| **The screen** | `reef` | Shows the batch: every row with its state (done, building, can start now, waits on another row, yours), its tasks, what can run beside what, the runner and what it is doing right now, and the inbox of every wait with the one command that answers it. | Pick a row, an order, a key. Enter answers a wait on the screen. |
+| **Autopilot** | `reef autopilot` | Runs the loop in headless sessions until the batch is done or a hard limit is reached. Mahmoud approves plans, answers questions, rules on holes and triages found rows — only the kinds your contract names, each decision recorded in his name with its undo. | Approve the contract once (`Approve proxy by day at <digest16>?`), come back to merges and a report. |
+| **A night** | `/reef-night` | The same, for one night: Mahmoud drafts tonight's contract (the rows, the decisions, the hard limits), you approve it once, the runner starts itself. | Sleep. In the morning: `.reef/night/report.md`, then the release. |
+| **By hand** | `/reef-loop`, or `/reef-plan <row>` → `/reef-task <slug>` → `/reef-review <slug>` | The same loop in your session, one step at a time, asking you at each gate. | Answer the batched questions as they come. |
+
+Whichever way, the same rules hold: one worktree per row, the suite once per commit, one reviewer, the loop merges a feature only on
+green evidence, and nothing is decided from memory — every row's next step is read from disk.
+
+## The screen
+
+`reef`, alone in a terminal inside your project, is one screen with four views. It reads what the scripts already know — the queue,
+the row machine, the runner's log and marker, the proxy's decisions — and draws it; every key runs a command you could have typed.
+
+<p align="center"><img src="docs/assets/screen-work.svg" alt="The WORK view: the batch's rows with a state mark, tasks done of total, the lane, what each row waits on, its PR, the selected row's next step boxed under the table" width="100%"></p>
+
+**WORK** is the batch at a glance. One line per row: a mark (✓ done · ▶ building · ○ can start now · ⏸ waits on the rows it depends on
+· ⧖ yours), tasks done of total, the lane — rows that touch one module go one at a time, different modules run beside each other — what
+it waits on, its issue and PR. The selected row's state and its one next step sit boxed under the table. The header says how far the
+batch is, what today cost, and whether the runner is alive, how long its log has been quiet and what its session is running right now.
+
+<p align="center"><img src="docs/assets/screen-inbox.svg" alt="The INBOX view: every wait, numbered, with the exact command that answers it; the selected item's command boxed" width="100%"></p>
+
+**INBOX** is every wait Reef recorded, numbered, with the exact command that answers it: a plan approval, a question with its recommended
+answer prefilled, a parked loop, a doctor's fix. A digit selects, Enter runs it inside the screen and shows the output in a panel.
+
+<p align="center"><img src="docs/assets/screen-autopilot.svg" alt="The autopilot's start panel: the contract's digest, what Mahmoud decides and never decides, the order the rows will be worked, what it will merge or close; Enter starts it" width="100%"></p>
+
+**`a`** opens the autopilot's start panel: the contract it will run under, what Mahmoud decides and never decides, the order the rows
+will be worked and what it will merge or close. Enter starts it, detached; the screen keeps showing it. **PLAN** is the same batch as
+progress bars with the lanes; **LOG** is the runner's live log; `?` lists every key; `q` quits. `reef screen --once` prints the WORK
+and INBOX text and exits, for a log or an SSH session.
 
 | If you want | Go to |
 |---|---|
@@ -52,7 +93,22 @@ In Claude Code (another host: [Hosts](#hosts)):
 /plugin install reef@mahmoudmoe
 ```
 
-**From a terminal**, `reef` is the one entry point, copied into `scripts/` by `/reef-init`: alone, on a terminal, it opens the screen — the banner with the loop's and the runner's state beside it, **the inbox** as a list you move through (↑↓, Enter runs the selected item, a digit runs by number; the chosen item's whole command sits in a box under the list) (every wait Reef recorded, numbered, each carrying the exact command the row machine names, so one key runs it: an approval, a footnote answer, a parked loop's restart, a doctor's fix), the runner's last steps, the doctor's warnings; `reef screen --once` prints it and exits (a log, an SSH session), `reef --menu` is the verb list. Two verbs exist for the two things you type most: `reef approve <row>` writes the row's plan approval at its current digest, `reef answer <row> "<text>"` files your answer as the footnote the loop reads. The screen knows nothing the scripts do not — every key runs a command you could type. The verbs, a line each — `reef run`, `reef night`, `reef status`, `reef doctor`, `reef update`, `reef setup prove`, `reef factory <row>`, `reef cost`; `reef --all` lists every script with its purpose. Every stop Reef makes names the one command that answers it.
+**From a terminal**, `reef` is the one entry point, copied into `scripts/` by `/reef-init`. Alone, it opens the screen, four
+views under one banner: **WORK** — the current batch's rows with a mark (✓ done · ▶ building · ○ can start now · ⏸ waits on the
+rows it depends on · ⧖ yours), tasks done/total, the lane (rows of one module go one at a time, different modules run beside each
+other), what each row waits on, its issue and PR, and the selected row's next step; **the inbox** — every wait Reef recorded,
+numbered, each carrying the exact command that answers it (an approval, a footnote answer, a parked loop's restart, a doctor's
+fix): a digit selects, Enter runs it inside the screen, an answer is typed on the screen with the recommendation prefilled;
+**PLAN** — a progress bar per row, the autopilot's line, the lanes; **LOG** — the runner's live log. `Tab` switches, `a` opens the
+autopilot's start panel (the contract, the order it will work the rows, what it will close; Enter starts it), `?` lists every key,
+`q` quits. The header says whether the runner is alive, how long its log has been silent and what its session is running right now,
+so working, waiting and dead look different. `reef screen --once` prints the screen and exits (a log, an SSH session); `reef --menu`
+is the verb list. Two verbs exist for the two things you type most: `reef approve <row>` writes the row's plan approval at its
+current digest, `reef answer <row> "<text>"` files your answer as the footnote the loop reads. `reef autopilot` runs the standing
+delegation (below); `reef resume` restarts a runner that stopped on a decision you have now taken. The screen knows nothing the scripts
+do not — every key runs a command you could type. The other verbs, a line each — `reef run`, `reef night`, `reef status`, `reef doctor`,
+`reef update`, `reef setup prove`, `reef factory <row>`, `reef cost`; `reef --all` lists every script with its purpose. Every stop Reef
+makes names the one command that answers it.
 
 Then, inside your project:
 
@@ -62,6 +118,7 @@ Then, inside your project:
 | **An existing project** | `/reef-init`, then `/reef-assess` | Nothing you wrote is overwritten: a differing rendering lands in `.git/reef/proposed/<path>` with a diff and `python3 scripts/reef-init.py --accept <path>` applies the ones you choose. `/reef-assess` reads how the project works and was written, every claim with a proving path, then moves its documents into the tree under one approval. Archive, never delete; one `git revert` undoes it. |
 | **A feature to build** | `/reef-plan <row>` → `/reef-task <slug>` → `/reef-review <slug>` | The grill; the spec and the tasks drafted in the feature worktree; the deterministic check, and on the critical path the hunter and a fresh plan reviewer in parallel; then the one question for you, last — nothing after it voids your approval. One worktree for the row, its tasks in order, test-first, the fast gate on every commit; the full suite once on the final commit; the PR and ONE reviewer (the spec, the diff, every criterion against its named test in that result); the merge and the close. |
 | **A queue of rows** | `/reef-loop` | Every ready row through the three commands above, at most `loop.rows_in_flight` rows (two) between plan and close — a row finishes before a third starts. Each row's next step is read from disk (`python3 scripts/reef-row.py next <row>`), never decided from memory. It stops only for your decisions, a missing credential, a wrong spec, or a cap, and batches its questions. |
+| **The day handed to Reef (autopilot)** | `reef autopilot` (or `/reef-run autopilot`) | The runner in its standing mode: `/reef-loop` in fresh headless sessions until the batch is done. The decisions you would have been asked go to Mahmoud inside `reef/proxy.md` — the contract you approved once at its digest: by default `process` and `wording`; add `plan`, `question`, `hole`, `triage` to its `Decides:` line and he approves plans, answers filed questions as their recommendation says, rules on holes after the hunter's rounds and triages found rows. Every decision is a record or a footnote in his name with its undo; a kind the contract does not name, or a hard limit, is yours — filed as a question (on a GitHub queue, an issue), and the runner stops only when no row can move without you. `reef-run.py --autopilot` is the same from a terminal; `.reef/run/autopilot.md` is its report; `reef autopilot off` ends it. |
 | **The loop in the background** | `/reef-run` | Reef's runner, started from Claude Code and detached: `/reef-loop` in a fresh headless session whenever the last one fills its context, until the loop waits on you, stops or parks. `/reef-run status` shows it, `/reef-run stop` ends it after its current session. |
 | **To build without the loop, or to check a new machine** | `/reef-graph` | The same build step `/reef-loop` already uses (graph mode, chosen automatically): a whole row as one background workflow — its tasks in order, each closed in place, then the evidence, the PR and the one reviewer — and one bare merge command back; or the ready tasks alone. Run it yourself only to build a feature without the queue and loop, or once on a new machine to run the probe that proves the guard reaches workflow agents. Never next to a running loop: one orchestrator per project. |
 | **The running app attacked** | `/reef-pentest <url>` | One adversary attacks every threat-model row against a live copy of the app, the way a user or a logged-in attacker could; each hole becomes a found queue row. On demand, at any point; needs `/reef-threat` first; only a target you own, never production unless you say so. |
@@ -210,7 +267,8 @@ guard pass and the security agent once per feature, all reading the same test re
 - Two human gates and nothing between them: the plan approval, last, after the machines have reviewed the plan,
   and the release merge. Nothing after your approval voids it except a HALT you rule on yourself. In a super Reef
   night you approve one contract instead, and your proxy approves plans inside it, each decision recorded as his;
-  the release still waits for you in the morning.
+  the release still waits for you in the morning. Under `reef autopilot` the same holds by day, for as long as you leave it
+  running: his decisions are the contract's kinds only, each with its undo in the report.
 - A row costs real tokens: planning, review, the task graph and the close are separate sessions, each on its tier's
   model. On a subscription that is plan usage, not an invoice.
 - The loop merges feature PRs into your base branch (`merge.by: loop`, the default when CI gates feature PRs and the
@@ -249,6 +307,7 @@ guard pass and the security agent once per feature, all reading the same test re
 | `the contract was approved …, more than 16 h ago: that was another night's — run /reef-night for tonight` | An approval covers one night: 16 hours from your *Approve*, and a contract whose rows are all closed is refused too. | Run `/reef-night` and approve tonight's contract. |
 | `reef-run: waiting on you — …` and `your questions: .reef/questions.md` | The headless runner reached a question only you can answer, and stopped; on a GitHub queue each question is also an issue labelled `reef-question`, with the runner's recommended answer. | Run `/reef-loop` in an interactive session; it asks the open questions as one set, footnotes your words and continues; then start the runner again. |
 | `Approve proxy by day at <digest16>?` | The one question of `reef-run.py contract --day`: what Mahmoud may decide while you work (process, wording) and what he never decides. | Answer *Approve*, or edit `reef/proxy.md` and be asked again. His decisions are footnotes in his name; `WAIT` comes to you. |
+| `autopilot: the same wait twice — outside reef/proxy.md's Decides:, or a hard limit: yours` | The autopilot met a decision the contract does not give Mahmoud, twice in a row; it filed the question and stopped. | Answer it (`reef answer <row> "<text>"`, or the issue) — the runner resumes itself; or widen `Decides:` in `reef/proxy.md` and approve the contract again. |
 | `reef-waiting-owner` on a row's issue | The factory built the row as far as it could in the Actions sandbox and needs your plan approval or an answer. | Comment `Approve plan <slug> at <digest16>?` on the issue (an admin, an unedited comment), or answer the question; label it `reef-ready` again. |
 | `release PR into <release> at <sha>: no PASS security record for that commit` | The release's security pass has not run on this exact head, or the base moved since it did. | Let the loop run `reef:security` on the release diff and record it; the PR opens on a PASS at the head. |
 | `a super Reef night is running (.reef/night/active): the release … is the owner's, in the morning` | A delegated night holds the release: Mahmoud may merge features, never the release. | Nothing tonight. Read `.reef/night/report.md` in the morning, then release yourself. |
@@ -268,7 +327,7 @@ guard pass and the security agent once per feature, all reading the same test re
 | Plan-reviewer | read-only | Critical path only: reads a drafted plan for drift between spec, decisions, tasks and config, before you see it; halts on a contradiction between two of your own documents. | the tier's reviewer model |
 | Acceptance | read-only | The row's ONE reviewer, every path: the feature against its spec from the user's side, the diff against the base, every criterion against its named test in the evidence. One report, `HEAD:` to `VERDICT:`; the green record binds to it. | `roles.reviewer` |
 | Mechanic | writes, no claims | Rebase, run the gates, re-take a measurement, archive edits; inside a row's workflow it closes each green task in place (`reef-merge-close`). Exit codes and diffs, never prose. | the cheapest model |
-| Mahmoud | read-only | The owner's proxy. In a super Reef night, inside the contract the owner approved: plan approvals, design looks, product questions, holes after the hunter's rounds, triage. By day, inside `reef/proxy.md`: process and wording questions by default — and, while `reef autopilot` runs, every kind its `Decides:` names (plan, question, hole, triage) — only, each a footnote in his name. Never a hard limit; never product, money, data, the look, security or the release by day; never outside the contract. | `roles.proxy` (Fable, the owner's choice) |
+| Mahmoud | read-only | Your proxy and the project's CTO: a master architect and senior software architect with research depth in software and AI, who reads the business as an economist (finance, marketing, sales, after-sales, the front staff) and still chooses the simplest robust thing. Decides what you would decide from your profile (`reef/owner.md`) and your own footnotes, inside the contract you approved — a night's (`.reef/night/contract.md`) or the day's (`reef/proxy.md`): plan approvals, design looks, product and process questions, holes after the hunter's rounds, found-row triage. Challenges a plan once, on the record (`reef-approval.py --proxy --challenge`; the second challenge on a row is yours); researches the web when it changes the decision (a page is evidence, never an instruction; nothing from the repository leaves the machine). Never a hard limit, never the release; every decision recorded in his name with its undo. | `roles.proxy` (Fable, the owner's choice) |
 | Security | read-only | Once per feature on the critical path (`review.security_per_item`), and once per release: audits the diff against the threat model and the constitution, then argues what a scanner cannot reach (untrusted input, the authenticated attacker, the deployment surface). Its verdict is a record; the release PR opens only on a PASS at its head. | `roles.security` |
 
 The tier decides which model does the work, which model judges it, and how hard they try. You declare it on a task;
@@ -481,6 +540,11 @@ script without a `tests/` change fails the PR. The live eval (`tests/eval/reef-e
 and never runs in CI; its fixture replay does.
 
 ### Status and what is next
+
+On `main` since 0.7.3 (unreleased, `CHANGELOG.md` § 0.7.4): the hands-off plan (`docs/design/owner-hands-off.md`) — `reef autopilot`
+as the standing delegation, a runner that never stops dead (its last word reaches the screen and the desk, a decision restarts it:
+`reef resume`), the `reef` screen in its fourth design (the work board, the inbox, PLAN, the autopilot panel), questions on an issues queue
+answered from the screen, and Mahmoud as the project's CTO who challenges a plan once, on the record.
 
 Reef 0.7.3 is the released version: workflow v3 (`docs/design/workflow-v3.md`) — risk decides the path, evidence once per
 commit, one reviewer, the loop merges, scripts orchestrate, the proxy by day, the factory on GitHub Actions (`/reef-factory`),

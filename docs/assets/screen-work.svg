@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1034" height="522" viewBox="0 0 1034 522" font-family="SF Mono, Menlo, Consolas, DejaVu Sans Mono, monospace" font-size="13">
+<title>reef — WORK: the batch, what runs, what can start, what waits on what, what is yours</title>
+<rect width="1034" height="522" rx="12" fill="#0E1B21"/>
+<circle cx="22" cy="20" r="6" fill="#E8766A"/><circle cx="42" cy="20" r="6" fill="#F0B35A"/><circle cx="62" cy="20" r="6" fill="#67C587"/>
+<text x="517" y="25" text-anchor="middle" fill="#8CA0AA" font-size="12">reef — WORK: the batch, what runs, what can start, what waits on what, what is yours</text>
+<text x="18" y="48" fill="#F0B35A" font-weight="600" textLength="483.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">██████  ███████ ███████ ███████   shop · Reef 0.7.4 · 09:56:30</text>
+<text x="18" y="67" fill="#F0B35A" font-weight="600" textLength="608.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">██   ██ ██      ██      ██        batch 3 · 1/6 rows · 4/7 tasks · $6.80 today</text>
+<text x="18" y="86" fill="#F0B35A" font-weight="600" textLength="998.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">██████  █████   █████   █████     runner  running · pid 48120 · session 48131 since 08:02 · quiet 4 min · running: reef-gate.sh </text>
+<text x="18" y="105" fill="#F0B35A" font-weight="600" textLength="483.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">██   ██ ██      ██      ██        autopilot  off · a starts it</text>
+<text x="18" y="124" fill="#F0B35A" font-weight="600" textLength="265.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">██   ██ ███████ ███████ ██        </text>
+<text x="18" y="143" fill="#C9D4DA" textLength="998.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</text>
+<text x="18" y="162" fill="#E8EEF2" font-weight="600" textLength="444.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">[WORK]   INBOX 2    PLAN    LOG     Tab switches · ? keys</text>
+<text x="18" y="181" fill="#8CA0AA" textLength="616.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">      row  tasks  lane             what                     forge          item</text>
+<text x="18" y="200" fill="#5CC8D8" font-weight="600" textLength="951.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  ▶ 12     2/3  src/checkout     building                 PR #96         checkout: apply coupons at payment (src/checkout)</text>
+<rect x="12" y="205" width="1010" height="19" fill="#E8EEF2" rx="3"/>
+<text x="18" y="219" fill="#0B1A20" textLength="975.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">▶ ⧖ 14     0/2  src/billing      yours: plan approval                    invoices as PDF, mailed monthly (src/billing/pdf.ts)</text>
+<text x="18" y="238" fill="#E8766A" textLength="990.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  ⏸ 15       -  src/billing      waits: row 14                           invoice numbering per country (src/billing/numbers.ts)</text>
+<text x="18" y="257" fill="#67C587" textLength="873.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  ✓ 17     2/2  src/api          done                                    rate limits on the public API (src/api)</text>
+<text x="18" y="276" fill="#E8766A" textLength="780.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  ⏸ 19       -  src/admin        waits: row 12                           admin audit log (src/admin)</text>
+<text x="18" y="295" fill="#F0B35A" font-weight="600" textLength="889.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  ⧖ 21       -  src/mail         yours: a question                       onboarding emails, three steps (src/mail)</text>
+<text x="18" y="314" fill="#C9D4DA" textLength="998.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">┌─ row 14 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐</text>
+<text x="18" y="333" fill="#C9D4DA" textLength="998.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ invoices as PDF, mailed monthly (src/billing/pdf.ts)                                                                         │</text>
+<text x="18" y="352" fill="#C9D4DA" textLength="998.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ approval · the gate: Approve plan invoices-pdf at 3f9a1c77be02d4e1?                                                          │</text>
+<text x="18" y="371" fill="#C9D4DA" textLength="998.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ next: /reef-plan 14                                                                                                          │</text>
+<text x="18" y="390" fill="#C9D4DA" textLength="998.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ tasks 0/2 · lane src/billing                                                                                                 │</text>
+<text x="18" y="409" fill="#C9D4DA" textLength="998.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘</text>
+<text x="18" y="428" fill="#C9D4DA" textLength="319.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">INBOX  2 item(s) wait on you · i opens it</text>
+<text x="18" y="447" fill="#C9D4DA" textLength="998.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</text>
+<text x="18" y="466" fill="#C9D4DA" textLength="982.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">keys: q quit · Tab views · ↑↓ 1-9 select · Enter runs · w log · a autopilot · ? help · r run · n night · s stop · d doctor · c</text>
+<text x="18" y="485" fill="#C9D4DA" textLength="117.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">cost · u update</text>
+</svg>

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1034" height="465" viewBox="0 0 1034 465" font-family="SF Mono, Menlo, Consolas, DejaVu Sans Mono, monospace" font-size="13">
+<title>reef — INBOX: every wait with the one command that answers it</title>
+<rect width="1034" height="465" rx="12" fill="#0E1B21"/>
+<circle cx="22" cy="20" r="6" fill="#E8766A"/><circle cx="42" cy="20" r="6" fill="#F0B35A"/><circle cx="62" cy="20" r="6" fill="#67C587"/>
+<text x="517" y="25" text-anchor="middle" fill="#8CA0AA" font-size="12">reef — INBOX: every wait with the one command that answers it</text>
+<text x="18" y="48" fill="#C9D4DA" textLength="483.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">██████  ███████ ███████ ███████   shop · Reef 0.7.4 · 09:56:30</text>
+<text x="18" y="67" fill="#C9D4DA" textLength="608.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">██   ██ ██      ██      ██        batch 3 · 1/6 rows · 4/7 tasks · $6.80 today</text>
+<text x="18" y="86" fill="#C9D4DA" textLength="811.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">██████  █████   █████   █████     runner  running · pid 48120 · session 48131 since 08:02 · quiet 4 min </text>
+<text x="18" y="105" fill="#C9D4DA" textLength="483.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">██   ██ ██      ██      ██        autopilot  off · a starts it</text>
+<text x="18" y="124" fill="#C9D4DA" textLength="265.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">██   ██ ███████ ███████ ██        </text>
+<text x="18" y="143" fill="#C9D4DA" textLength="811.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">────────────────────────────────────────────────────────────────────────────────────────────────────────</text>
+<text x="18" y="162" fill="#C9D4DA" textLength="218.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">INBOX  2 item(s) wait on you</text>
+<rect x="12" y="167" width="1010" height="19" fill="#E8EEF2" rx="3"/>
+<text x="18" y="181" fill="#0B1A20" textLength="811.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  ▶ 1  answer   row 21 (#88): Three onboarding emails, or one with three sections? (recommended: three —</text>
+<text x="18" y="200" fill="#C9D4DA" textLength="546.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">    2  approve  row 14: Approve plan invoices-pdf at 3f9a1c77be02d4e1?</text>
+<text x="18" y="219" fill="#C9D4DA" textLength="811.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">┌─ selected ───────────────────────────────────────────────────────────────────────────────────────────┐</text>
+<text x="18" y="238" fill="#C9D4DA" textLength="811.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ reef answer &quot;#88&quot; &quot;three — each measurable&quot;                                                          │</text>
+<text x="18" y="257" fill="#C9D4DA" textLength="811.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">└──────────────────────────────────────────────────────────────────────────────────────────────────────┘</text>
+<text x="18" y="276" fill="#C9D4DA" xml:space="preserve"></text>
+<text x="18" y="295" fill="#C9D4DA" textLength="296.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">RUNNER  the last steps · w for the log</text>
+<text x="18" y="314" fill="#C9D4DA" textLength="358.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  09:41 s2 → Implement 1203 (reef:implementer)</text>
+<text x="18" y="333" fill="#C9D4DA" textLength="288.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  09:52 s2 ← Implement 1203: returned</text>
+<text x="18" y="352" fill="#C9D4DA" textLength="351.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  09:52 s2 → Verify task 1203 (reef:verifier)</text>
+<text x="18" y="371" fill="#C9D4DA" textLength="163.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">DOCTOR  nothing wrong</text>
+<text x="18" y="390" fill="#C9D4DA" textLength="811.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">────────────────────────────────────────────────────────────────────────────────────────────────────────</text>
+<text x="18" y="409" fill="#C9D4DA" textLength="811.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">keys: q quit · Tab views · ↑↓ 1-9 select · Enter runs · w log · a autopilot · ? help · r run · n night ·</text>
+<text x="18" y="428" fill="#C9D4DA" textLength="288.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">s stop · d doctor · c cost · u update</text>
+</svg>
