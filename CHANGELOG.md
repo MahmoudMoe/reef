@@ -6,6 +6,12 @@
   rounds in `.reef/review/plan-<slug>.json`; the guard refuses a `plan-reviewer` dispatch after `review.plan_rounds` FAILED
   rounds (default 2: the review, one fix, one re-review; 0 = no cap) and names the owner's line — the open findings become his
   `reef-queue.py ask` questions, his footnote rules, and a PASS is recorded on it. The template and the skill say so. tests/size-budget.json raised: `config_keys` 95 → 96, `prose_words` 22,721 → 22,775, `script_lines` 17,092 → 17,174.
+- **A line number in a criterion or a decision fails the plan check** (2026-10-30, row 7 on the current adoption: rounds 4 and
+  5 of the plan review were one criterion citing `AGENTS.md:74` where the sentence had moved to `:75` — every plan that touches
+  a file another row edits paid a round). `reef-plan-check.py` refuses a `path:line` citation inside `## Acceptance Criteria`
+  or `## Decision` and says to name the content (a symbol, a sentence, a heading); `## Read first` keeps its ranges — its check
+  greps the symbol when lines move. The plan skill and the planner brief say so. The reviews: `## Scope` is covered too, bare `Makefile`/`Dockerfile` and more
+  extensions count, the match is bounded, the docstring lists the rule. tests/size-budget.json raised: `prose_words` 22,721 → 22,762, `script_lines` 17,092 → 17,100.
 - **Consolidation step 5 — the `reef` screen** (docs/design/consolidation.md, 2026-10-30): `reef` alone on a terminal opens
   a live screen (stdlib `curses`, the menu where the terminal cannot): one status line (the loop, the runner), **the inbox**
   — every wait Reef recorded, numbered, each with the exact command the row machine names (an approval, a filed question,

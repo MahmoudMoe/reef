@@ -951,3 +951,9 @@ class PlanReviewRoundsAreCapped(unittest.TestCase):
         self.assertEqual(cfg["review"]["plan_rounds"], 2)
         self.assertIn("review.plan_rounds", read("skills", "reef-plan-review", "SKILL.md"))
         self.assertLessEqual(len(read("skills", "reef-plan-review", "SKILL.md").splitlines()), 60)
+
+class NoLineNumbersInCriteria(unittest.TestCase):
+    def test_the_plan_skill_and_the_planner_say_lines_live_in_read_first(self):
+        for p in (("skills", "reef-plan", "SKILL.md"), ("agents", "planner.md")):
+            self.assertIn("no `file:line` in a criterion, a decision or the scope", read(*p), p)
+        self.assertLessEqual(len(read("skills", "reef-plan", "SKILL.md").splitlines()), 60)

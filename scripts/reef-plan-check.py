@@ -5,7 +5,8 @@ Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
 - Checks task files, ADRs, brief, and .reef/config.json for structural defects. No model, no network.
   A FINISHED task (under tasks/done/ with `status: done`) keeps the structural checks only — schema, filename and id,
   folder and status, blocked-by and cycles, duplicates, the section order, the test-name ledger; the planner's
-  authoring rules (proof shape, read first, word, sentence and criteria caps, keys, HUMAN AC, the design Decision)
+  authoring rules (proof shape, read first, word, sentence and criteria caps, keys, HUMAN AC, the design Decision, no
+  `path:line` in a criterion, a decision or the scope)
   judge the tasks being planned, and `--feature SLUG` scopes them to that feature's tasks (2026-10-28: the v3 proof
   rule ran on rows already closed and no new plan could be approved). A `--feature` run writes only that feature's
   digest into the stamp; the other entries carry over (their rules did not run).
@@ -188,6 +189,10 @@ LOG_HEADING = re.compile(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", re.M)
 # edits re-ran three hunters, three approvals and three reviews). Only the Log may follow it.
 NOTES_HEADING = re.compile(r"^##[ \t]+Reviewer notes[ \t]*$", re.M)
 CUT_HEADING = re.compile(r"^##[ \t]+(?:[Ll][Oo][Gg]|Reviewer notes)[ \t]*$", re.M)
+# a `path:line` citation — fine in `## Read first` (its check greps the symbol when lines move), a moving target in a criterion
+# or a decision (2026-10-30, row 7 on the current adoption: two review rounds over AGENTS.md:74 that had become :75)
+LINE_CITE = re.compile(r"\b(?:[\w./-]+\.(?:md|py|ts|tsx|js|jsx|mjs|json|ya?ml|sh|toml|cfg|ini|env|lock|xml|csv|html|css|go|rs|java|kt|rb|sql|txt)"
+                       r"|(?:[\w./-]+/)?(?:Makefile|Dockerfile)):\d+(?:-\d+)?\b")
 # the close (reef-merge-close) appends `\n<!-- journal -->…<!-- /journal -->\n` after the body's own last bytes, on a task that
 # has no `## Log`: execution's record, outside the digest like the Log — stripped exactly, so the body hashes as it did
 # (2026-10-29, row 9 on the current adoption: three closes, three re-approvals of an unchanged plan)
@@ -1110,6 +1115,13 @@ def main():
         # 0.7: a task is one slice a verifier judges in one sitting. plan.max_acs set → FAIL above it (split the task);
         # unset → WARN above 8 (2026-10-17: 1302 carried 21 criteria; Superpowers plans 2–5 minute tasks)
         n_crit = len(crits)
+        moving = "a line number is a moving target; name the content (a symbol, a sentence, a heading); `## Read first` carries the lines"
+        for n_, c in enumerate(crits, 1):
+            for cite in LINE_CITE.findall(c[:4000])[:1]:   # bounded: the pattern is quadratic on a pathological line (the review)
+                a_fail(f"{rel}: AC {n_} cites {cite} — {moving}")
+        for sec in ("Decision", "Scope"):   # the review: the scope is where paths cluster, and it is in the digest too
+            for cite in LINE_CITE.findall((section(text, sec) or "")[:4000])[:1]:
+                a_fail(f"{rel}: ## {sec} cites {cite} — {moving}")
         max_acs = int((cfg.get("plan") or {}).get("max_acs", 0) or 0) if isinstance(cfg.get("plan"), dict) else 0
         if max_acs and n_crit > max_acs:
             a_fail(f"{rel}: {n_crit} acceptance criteria > plan.max_acs {max_acs} — split the task (one slice a verifier judges in one sitting)")
