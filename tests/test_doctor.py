@@ -85,6 +85,19 @@ class Doctor(unittest.TestCase):
         self.assertIn("checkout main -- reef/queue.md", r.stdout)
         self.assertIn("worktree: .reef/worktrees/a [feat/a] (feature)", r.stdout)
 
+    def test_a_linter_that_scans_reefs_scripts_is_a_warning_with_the_line(self):
+        # 2026-10-29 (Sophia): ruff on the copied scripts turned CI red; the doctor says which config and the line to add
+        d = project()
+        self.assertNotIn("lint:", doctor(d).stdout, "no linter config: no line")
+        with open(os.path.join(d, "pyproject.toml"), "w") as f:
+            f.write("[tool.ruff]\nline-length = 120\n")
+        r = doctor(d)
+        self.assertIn("WARN lint: pyproject.toml [tool.ruff] scans Reef's scripts (rendered, replaced on every upgrade)", r.stdout)
+        self.assertIn('add  extend-exclude = ["scripts/reef*"]', r.stdout)
+        with open(os.path.join(d, "pyproject.toml"), "w") as f:
+            f.write("[tool.ruff]\nexclude = [\"scripts/reef*\"]\n")
+        self.assertIn("OK   lint: the project's linters leave Reef's scripts alone", doctor(d).stdout)
+
     def test_a_local_env_file_is_named_by_its_keys_never_its_values(self):
         # 0.7.2 (ai-coach, 2026-10-24): Prisma loads the checkout's .env; two keys made 21 tests fail locally that pass in CI
         d = project()
