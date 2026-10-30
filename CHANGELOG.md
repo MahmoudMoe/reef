@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The orphan test's fake session says why it ended** (2026-10-30, CI's macOS leg still red on the test after #216: the fake
+  died before the assertion and nobody could see why — its output went to the dead runner's pipe). The fake ignores SIGHUP
+  and SIGPIPE as a session should, treats any OSError on its one write as the pipe being gone, and on any other end writes
+  `.fake-died` with the traceback, which the assertion prints; a kill by signal leaves no crumb and the message says so.
 - **`reef-run.py` refuses an unknown argument** (2026-10-29, the owner: `python3 scripts/reef-run.py --status`, a typo for the
   verb `status`, fell through to a run and started a loop session on the project without a word). Every argument is checked
   first: a verb (`watch`, `status`, `stop`, `probe`, `contract`, first position only), a flag with its value (`--repo`,
