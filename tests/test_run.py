@@ -519,6 +519,38 @@ class NormalRound(unittest.TestCase):
         self.assertIn("reef-queue.py footnote", r.stdout, "a free question has a terminal answer too")
         self.assertIn("--row 12", r.stdout)
 
+    def test_on_an_issues_queue_the_answer_is_reef_queue_answered(self):
+        """2026-10-30, the current adoption: the loop filed #90–#93 as reef-question issues and the runner printed the footnote
+        command, which closes no issue — the next session read the same four open questions and ended on the same wait. On
+        `queue.home: issues` the command is `reef-queue.py answered <#> '<the recommended answer>'`; on a file queue the
+        footnote carries the recommended answer too — no placeholder in either; the owner edits the words."""
+        open(os.path.join(self.d, ".reef", "questions.md"), "w").write("- row 7: which way? — recommended: (a) comments only\n")
+        r = run(self.d, ["wait:owner: row 7 — which way?"])
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("python3 scripts/reef-queue.py footnote '(a) comments only' --row 7", r.stdout)
+        self.assertNotIn("<your answer>", r.stdout)
+        open(os.path.join(self.d, ".reef", "config.json"), "w").write('{"gates": {"full": "true"}, "queue": {"home": "issues"}}')
+        open(os.path.join(self.d, ".reef", "questions.md"), "w").write("- row 7 #90: which way? — recommended: (a) comments only\n"
+                                                                       "- row 4 #91: where? — recommended: Batch 9\n")
+        r = run(self.d, ["wait:owner: #90 (row 7 blocked) and #91 (row 4 grill)"])
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("python3 scripts/reef-queue.py answered 90 '(a) comments only'", r.stdout)
+        self.assertIn("python3 scripts/reef-queue.py answered 91 'Batch 9'", r.stdout)
+        self.assertNotIn("footnote", r.stdout, "a footnote closes no issue")
+        # a line from before this change names no issue (the owner's four live questions): gh names it by the title ask gave it,
+        # and when gh cannot, the wait still names the look — never a wait with no command (the review)
+        open(os.path.join(self.d, ".reef", "questions.md"), "w").write("- row 7: which way? — recommended: (a) comments only\n- row -: a row-less one? — recommended: yes\n")
+        gh = os.path.join(self.d, ".bin", "gh")
+        open(gh, "w").write("#!/usr/bin/env python3\nimport json, sys\nprint(json.dumps([{'number': 90, 'title': 'question: row 7: which way?'}]) if 'list' in sys.argv else '')\n")
+        os.chmod(gh, 0o755)
+        r = run(self.d, ["wait:owner: #90 (row 7)"])
+        self.assertIn("python3 scripts/reef-queue.py answered 90 '(a) comments only'", r.stdout, "the number, from the open reef-question issues")
+        self.assertIn('gh issue list --label reef-question --search "row -"', r.stdout, "a question gh did not name: the look, not silence")
+        open(gh, "w").write("#!/bin/sh\nexit 1\n")
+        r = run(self.d, ["wait:owner: #90 (row 7)"])
+        self.assertIn('gh issue list --label reef-question --search "row 7"', r.stdout, "gh failing: the look, not silence")
+        self.assertNotIn("answered 90", r.stdout)
+
     def test_a_missing_night_approval_names_the_two_commands(self):
         os.makedirs(os.path.join(self.d, ".reef", "night"), exist_ok=True)
         os.makedirs(os.path.join(self.d, "reef"), exist_ok=True)

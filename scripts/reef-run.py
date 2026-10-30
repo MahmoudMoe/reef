@@ -55,7 +55,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES  # noqa: E402
+from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command  # noqa: E402
 
 RUN_DIR = os.path.join(".reef", "run")
 LIVE = os.path.join(RUN_DIR, "live.log")
@@ -525,27 +525,32 @@ def progress_signature(root, wait):
 
 def owner_wait_lines(root, wait, mode):
     """The wait, and the ONE terminal command that answers each part of it (2026-10-28, the owner: a stop that names no command is
-    a bug): an approval question → reef-approval.py --owner with that exact question; a filed question → a footnote on its row."""
+    a bug): an approval question → reef-approval.py --owner with that exact question; a filed question → `reef-queue.py answered <#>`
+    on an issues queue, the footnote on its row on a file queue, the recommended answer filled in (reef_common.answer_command)."""
     host = "OpenCode" if mode == "opencode" else "Claude Code"
     lines = [f"reef-run: waiting on you — {wait}"]
     cmds = [f'python3 scripts/reef-approval.py --owner "{q}"' for q in dict.fromkeys(APPROVE_Q.findall(wait))]
     q = os.path.join(root, ".reef", "questions.md")
     rows = list(dict.fromkeys(re.findall(r"\brow (\d+)", wait)))
+    filed = questions(root)
     if os.path.isfile(q):
         lines.append(f"  your questions: {q}")
-        try:
-            with open(q, encoding="utf-8") as f:
-                rows += [r for r in re.findall(r"^- row (\d+):", f.read(), re.M) if r not in rows]
-        except OSError:
-            pass
+        rows += [r for r, _, _, _ in filed if r.isdigit() and r not in rows]
     # the owner's first round alone (2026-10-28): the loop wrote "re-approve row 46's plan at <digest>", not the exact question,
     # and a footnote command was offered for an approval — the ROW MACHINE knows the command its state needs; ask it
     row_py = os.path.join(root, "scripts", "reef-row.py")
-    for r in rows:
-        q_ = row_approval_question(root, r, row_py if os.path.isfile(row_py) else None)
-        cmd = f'python3 scripts/reef-approval.py --owner "{q_}"' if q_ else f'python3 scripts/reef-queue.py footnote "<your answer>" --row {r}'
+    approvals = {r: row_approval_question(root, r, row_py if os.path.isfile(row_py) else None) for r in rows}
+    cmds += [f'python3 scripts/reef-approval.py --owner "{q_}"' for q_ in approvals.values() if q_ and f'python3 scripts/reef-approval.py --owner "{q_}"' not in cmds]
+    for r, issue, _, rec in filed:   # every filed question, a row-less one too — never a wait that names no command (the review)
+        a = answer_command(root, r, issue, rec or "<your answer>")
+        cmd = a[1] if a else f'gh issue list --label reef-question --search "row {r}"   # this question\'s issue, which its line does not name'
         if cmd not in cmds:
             cmds.append(cmd)
+    for r in rows:   # a row the wait names with no approval and no filed question: the footnote is the one way to tell it anything
+        if not approvals.get(r) and not any(row_ == r for row_, _, _, _ in filed):
+            cmd = f'python3 scripts/reef-queue.py footnote "<your answer>" --row {r}'
+            if cmd not in cmds:
+                cmds.append(cmd)
     if cmds:
         lines.append("  answer in the terminal:")
         lines += [f"    {c}" for c in cmds]

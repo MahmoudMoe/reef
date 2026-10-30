@@ -9,6 +9,7 @@ A script whose callers expect another shape keeps a one-line adapter over these,
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -150,6 +151,97 @@ def table_cells(line):
     """A markdown table row's cells, stripped: `| a | b |` → ["a", "b"] — the one body behind every table a script
     reads (the queue, the journal, a task's Proof, the threat model, the cost ledger)."""
     return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def issues_mode(cfg):
+    """`queue.home: issues` — the queue's rows and the owner's questions live in GitHub issues."""
+    return (cfg.get("queue") or {}).get("home") == "issues"
+
+
+QUESTION_LINE = re.compile(r"^- row (\d+|-)(?: #(\d+))?: (.*?)(?: — recommended: (.*))?$")
+CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")   # a terminal reads these; the owner's screen and paste must not (the review)
+QUESTION_TITLE = re.compile(r"^question: row (\d+|-): (.*)$", re.S)
+
+
+def plain(text):
+    """Agent-written text as the owner's terminal may show it: control characters and line separators become spaces."""
+    return CONTROL.sub(" ", str(text or "")).strip()
+
+
+def question_line(row, question, recommended="", issue=""):
+    """The line `reef-queue.py ask` writes to .reef/questions.md: `- row 7 #90: <question> — recommended: <answer>` — the
+    issue's number since 0.7.4 on an issues queue, so every reader can name the command that answers it."""
+    return f"- row {row or '-'}" + (f" #{issue}" if issue else "") + f": {plain(question)}" + (f" — recommended: {plain(recommended)}" if plain(recommended) else "")
+
+
+def question_issues(root):
+    """{(row, question[:180]): number} for the open reef-question issues — the title `ask` gives them — or {} when gh
+    cannot say. For a line from before 0.7.4, which names no issue."""
+    r = run(["gh", "issue", "list", "--label", "reef-question", "--state", "open", "--limit", "200", "--json", "number,title"], root, timeout=15)
+    try:
+        items = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []
+    except ValueError:
+        return {}
+    out = {}
+    for it in items if isinstance(items, list) else []:
+        m = QUESTION_TITLE.match(str(it.get("title", "")))
+        if m and str(it.get("number", "")).isdigit():
+            out.setdefault((m.group(1), plain(m.group(2))), str(it["number"]))
+    return out
+
+
+def questions(root):
+    """[(row, issue, question, recommended)] from .reef/questions.md — the lines reef-queue.py ask writes, control characters
+    out; `issue` is the reef-question issue's number ("" on a file queue). A line from before 0.7.4 names no issue: on an
+    issues queue the open reef-question issues are asked once and the number filled in by the title `ask` gave it."""
+    out = []
+    for line in read(os.path.join(root, ".reef", "questions.md"), default="").splitlines():
+        m = QUESTION_LINE.match(line.rstrip())
+        if m:
+            out.append((m.group(1), m.group(2) or "", plain(m.group(3)), plain(m.group(4))))
+    if any(not issue for _, issue, _, _ in out) and issues_mode(read_config(root)):
+        known = question_issues(root)
+        out = [(r, issue or known.get((r, q[:180]), ""), q, rec) for r, issue, q, rec in out]
+    return out
+
+
+def answer_command(root, row, issue, answer):
+    """The ONE terminal command that answers a filed question (2026-10-30, the current adoption: the runner named a footnote
+    for a question that lived in a reef-question issue, and a footnote closes no issue): on an issues queue
+    `reef-queue.py answered <#> '<answer>'`, on a file queue the footnote on its row. `answer` is the owner's text, or the
+    recommended answer a reader shows for them to keep or edit. Returns (argv, the line the owner would type), or None
+    for an issues queue whose line names no issue and whose issue gh could not find — the caller says where to look."""
+    text = plain(answer)
+    if issue:
+        argv, shown = ["python3", "scripts/reef-queue.py", "answered", str(issue), text], f"python3 scripts/reef-queue.py answered {issue} {shlex.quote(text)}"
+    elif issues_mode(read_config(root)):
+        return None
+    else:
+        argv, shown = ["python3", "scripts/reef-queue.py", "footnote", text, "--row", str(row)], f"python3 scripts/reef-queue.py footnote {shlex.quote(text)} --row {row}"
+    return argv, shown
+
+
+def drop_question(root, row=None, issue=None, question=None, when=None):
+    """Remove the question lines that match every filter given — `row`, `issue` (as written on the line), `question` (its
+    text) and `when(line)` — from .reef/questions.md; the file goes when nothing is left. Returns how many lines left.
+    The one body behind `answered`, `reef answer` and the approval's own clearing (the review: three filters, two policies)."""
+    p = os.path.join(root, ".reef", "questions.md")
+    lines = read(p, default="").splitlines()   # no file, nothing to drop
+    if not lines:
+        return 0
+    def hit(line):
+        m = QUESTION_LINE.match(line.rstrip())
+        return (m is not None and (row is None or m.group(1) == str(row)) and (issue is None or (m.group(2) or "") == str(issue))
+                and (question is None or plain(m.group(3)) == plain(question)) and (when is None or bool(when(line))))
+    kept = [l for l in lines if not hit(l)]
+    gone = len(lines) - len(kept)
+    if gone:
+        if any(l.strip() for l in kept):
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("\n".join(kept) + "\n")
+        else:
+            os.unlink(p)
+    return gone
 
 
 def run(args, cwd, timeout=60, env=None, timeout_rc=124):

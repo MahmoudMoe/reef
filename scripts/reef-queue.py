@@ -77,7 +77,7 @@ import subprocess
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_config as config, repo_root, read, table_cells  # noqa: E402
+from reef_common import read_config as config, repo_root, read, table_cells, issues_mode, question_line, QUESTION_LINE, drop_question, questions  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 TASK_NAME_RE = re.compile(r"R?\d+-.*\.md$")
@@ -207,10 +207,6 @@ STATE_LABELS = {"reef-ready": "0052cc", "reef-building": "fbca04", "reef-review"
 # factory's trigger and the row's state — created when first applied, not by the migration (its label set is the queue's own)
 PRIORITIES = ("p1", "p2", "p3")
 _SNAPS = {}
-
-
-def issues_mode(cfg):
-    return (cfg.get("queue") or {}).get("home") == "issues"
 
 
 class GhError(Exception):
@@ -986,7 +982,9 @@ def cmd_ask(root, question, row_id, recommended):
     q = " ".join(question.split())
     if not q:
         die("ask: the question, one line")
-    line = f"- row {row_id or '-'}: {q}" + (f" — recommended: {recommended.strip()}" if recommended.strip() else "")
+    if row_id and not re.fullmatch(r"\d+", str(row_id)):   # the row is digits: a `--row "7 #42"` must not read as issue 42 (the security review)
+        die(f"ask: --row is a queue row's number, not {row_id!r}")
+    line = question_line(row_id, q, recommended.strip())
     p = os.path.join(root, ".reef", "questions.md")
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, "a", encoding="utf-8") as f:
@@ -997,15 +995,37 @@ def cmd_ask(root, question, row_id, recommended):
     ensure_labels(root, "reef-question")
     url = gh_write(root, "issue", "create", "--title", f"question: row {row_id or '-'}: {q[:180]}", "--label", "reef-question",
                    "--assignee", "@me", "--body", line[2:] + "\n").strip()
-    print("#" + url.rstrip("/").rsplit("/", 1)[-1])
+    number = url.rstrip("/").rsplit("/", 1)[-1]
+    if number.isdigit():   # the line names its issue (2026-10-30), so the runner, the screen and `reef answer` can name `answered <#>`
+        head, sep, tail = read(p).rpartition(line + "\n")   # the line this call wrote is the last copy
+        if sep:
+            write_text(p, head + question_line(row_id, q, recommended.strip(), number) + "\n" + tail)
+    print("#" + number)
     return 0
 
 
 def cmd_answered(root, number, answer):
     if not issues_mode(config(root)):
         die("answered is for queue.home: issues; the file queue keeps questions in .reef/questions.md", 1)
-    gh_write(root, "issue", "close", number.lstrip("#"), "--reason", "completed", "--comment", f"answered: {answer.strip()}")
-    print(f"#{number.lstrip('#')}\tanswered")
+    n = number.lstrip("#")
+    if not n.isdigit():
+        die("answered: the question's issue number", 1)
+    # only a reef-question issue closes here (the security review: on this queue a closed [id] issue is an archived row, and the
+    # number came from an agent-written line) — the labels are read first, and a gh that cannot say is a refusal
+    try:
+        labels = [l.get("name") for l in json.loads(gh(root, "issue", "view", n, "--json", "labels")).get("labels", [])]
+    except (GhError, ValueError, AttributeError) as e:
+        die(f"answered: cannot read #{n}'s labels — nothing closed: {e}", 1)
+    if "reef-question" not in labels:
+        die(f"answered: #{n} is not a reef-question issue (labels: {', '.join(l for l in labels if l) or 'none'}) — nothing closed", 1)
+    gh_write(root, "issue", "close", n, "--reason", "completed", "--comment", f"answered: {answer.strip()}")
+    # the question's line leaves .reef/questions.md (the screen and the handoff kept showing answered questions); a line
+    # from before 0.7.4 names no issue, so it is found by the row and the text the issue's title carries
+    gone = drop_question(root, issue=n)
+    for r, issue, q, _ in questions(root):
+        if issue == n and not gone:
+            gone += drop_question(root, row=r, question=q)
+    print(f"#{n}\tanswered" + (" · its line left .reef/questions.md" if gone else ""))
     return 0
 
 
