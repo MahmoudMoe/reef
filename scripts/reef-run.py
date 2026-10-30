@@ -15,7 +15,7 @@ Usage (the owner's terminal, in the project's main checkout):
   reef-run.py [--repo DIR] [--max-iterations 10] [--permission-mode auto] [--night] [--host opencode]
   --host opencode: each session is `opencode run --command reef-loop --format json` (scripts/reef-opencode.py install
                first); the probe and the gate are per host (`probe --host opencode`)
-  reef-run.py watch [--repo DIR]   the live steps of the run in progress (any terminal; Ctrl-C to leave)
+  reef-run.py watch [--repo DIR]   the live steps of the run in progress, then the runner's last word when it ends (2 = waiting on you)
   reef-run.py status [--repo DIR]  one look: running or not, the night, the last steps and the last session
   reef-run.py stop [--repo DIR]    (0.7.1) the running runner ends after its current session (never mid-merge); a session
       the runner left behind (the runner died, its `claude -p` did not — 2026-10-29) is ended now, TERM then KILL, and
@@ -325,8 +325,35 @@ def refresh_status(root):
             f.write(new)
 
 
+CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029]")   # what a terminal reads and a live line must not carry (the review)
+
+
+def notify_owner(summary):
+    """The desk is told (2026-10-30, the owner: the runner stopped on his approval and nothing told him — twice): macOS's
+    notification center through osascript, notify-send elsewhere, whichever is on PATH; best effort, five seconds, never a
+    reason to fail; REEF_NOTIFY=0 keeps a suite or a server quiet."""
+    if os.environ.get("REEF_NOTIFY", "1") == "0":
+        return
+    import shutil
+    text = CONTROL.sub(" ", (str(summary).splitlines() or [""])[0])[:200]   # one line, nothing a terminal or AppleScript reads as a break
+    if shutil.which("osascript"):
+        safe = text.replace("\\", "\\\\").replace('"', '\\"')
+        argv = ["osascript", "-e", f'display notification "{safe}" with title "Reef: waiting on you"']
+    elif shutil.which("notify-send"):
+        argv = ["notify-send", "--", "Reef: waiting on you", text]   # GLib parses options anywhere: a wait starting with `-` is text, not an option (the review)
+    else:
+        return
+    try:
+        subprocess.run(argv, capture_output=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
 def cmd_watch(root):
-    """Follow .reef/run/live.log: the last 20 lines, then each new one (a new run truncates it — start again from 0)."""
+    """Follow .reef/run/live.log: the last 20 lines, then each new one (a new run truncates it — start again from 0) — while a
+    runner runs. When it ends, or none is running, the run's last word is on the screen already (the runner writes it to
+    live.log), one line says the runner ended, and watch returns: 2 when the loop waits on the owner, else 0 (2026-10-30,
+    the owner: a dead tail under "session ended", twice)."""
     p, pos = os.path.join(root, LIVE), 0
     try:
         with open(p, encoding="utf-8") as f:
@@ -335,9 +362,10 @@ def cmd_watch(root):
         print("\n".join(lines[-20:]) or "reef-run: no live steps yet", flush=True)
     except OSError:
         print(f"reef-run: no {LIVE} yet — it appears when a run starts", flush=True)
+    ran = bool(runner_pid(root))
+    gone = 0
     try:
-        while True:
-            time.sleep(1)
+        while ran:
             size = os.path.getsize(p) if os.path.exists(p) else 0
             if size < pos:
                 pos = 0
@@ -346,8 +374,26 @@ def cmd_watch(root):
                     f.seek(pos)
                     print(f.read(), end="", flush=True)
                     pos = f.tell()
+                gone = 0
+            elif not runner_pid(root):
+                gone += 1
+                if gone >= 2:   # two quiet ticks with no runner: its last lines are read
+                    break
+            time.sleep(1)
     except KeyboardInterrupt:
         return 0
+    wait = str(loop_state(root).get("wait") or "")
+    spid, since = session_record(root)
+    what = ("the runner ended" if ran else "no runner is running") + (f"; its session {spid} still runs since {since} — python3 scripts/reef-run.py stop ends it" if spid > 0 else "")
+    how = (" — waiting on you: `python3 scripts/reef` shows every wait with its command" if owner_wait(wait)
+           else " — start it again: python3 scripts/reef-run.py --detach" if wait else "")
+    print(f"reef-run: {what}{how}", flush=True)
+    return 2 if owner_wait(wait) else 0
+
+
+def owner_wait(wait):
+    """A recorded wait that is the owner's to answer — not the `/clear …` hand-over between sessions."""
+    return bool(wait) and not str(wait).startswith("/clear")
 
 
 def loop_state(root):
@@ -747,7 +793,10 @@ def morning_report(root, started, log):
     lines += [f"Sessions: {len(tonight)} · cost: ${cost:.2f} · log: {os.path.relpath(log, root)}"]
     with open(os.path.join(root, NIGHT_DIR, "report.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
-    print(f"reef-run: the night report — {os.path.join(NIGHT_DIR, 'report.md')}")
+    line = f"reef-run: the night report — {os.path.join(NIGHT_DIR, 'report.md')}"
+    with open(os.path.join(root, LIVE), "a", encoding="utf-8") as f:   # the owner watching sees where the report is (the review)
+        f.write(f"{time.strftime('%H:%M')} -- {line}\n")
+    print(line)
 
 
 def cmd_probe(root, mode):
@@ -922,16 +971,34 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
         os.unlink(stop_req)   # a request from before this run is not about this run
     i, prev_sig = 0, None
 
+    def record(text):
+        """A line the owner sees everywhere — live.log (watch, status, the status page) first, the terminal after: the
+        record never depends on a stdout that may be a closed pipe (the review of the 2026-10-30 fix)."""
+        lines = [f"{time.strftime('%H:%M')} s{i} {CONTROL.sub(' ', l)}" for l in text.splitlines()]
+        with open(live, "a", encoding="utf-8") as f:
+            f.write("".join(l + "\n" for l in lines))
+        refresh_status(root)
+        return lines
+
     def say(text):
-        line = f"{time.strftime('%H:%M')} s{i} {text}"
+        lines = record(text)
         try:
-            print(line, flush=True)
+            print("\n".join(lines), flush=True)
         except BrokenPipeError:   # 2026-10-29: the terminal that started the runner is gone — silence stdout, then unwind
             os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
             raise
-        with open(live, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-        refresh_status(root)
+
+    def end(rc, text):
+        """The run's last word (2026-10-30, the owner, twice: it went to runner.out alone and `watch` showed a dead tail):
+        recorded, printed as the runner's own lines, and sent to the desk when it waits on the owner."""
+        record(text)
+        try:
+            print(text, flush=True)
+        except BrokenPipeError:
+            os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
+        if rc == 2:
+            notify_owner(text.splitlines()[0])
+        return rc
 
     try:
         for i in range(1, cap + 1):
@@ -952,32 +1019,24 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
                 + f" · {out.get('_seconds')} s" + (f" · ${cost:.2f}" if isinstance(cost, (int, float)) else ""))
             if os.path.exists(stop_req):
                 os.unlink(stop_req)
-                say("stopped on the owner's request (reef-run.py stop)")
-                print("reef-run: stopped on the owner's request")
-                return 0
+                return end(0, "reef-run: stopped on the owner's request (reef-run.py stop)")
             if stop:
-                print(f"reef-run: the loop stopped — {stop}")
-                return 0
+                return end(0, f"reef-run: the loop stopped — {stop}")
             if parked:
-                print(f"reef-run: the loop parked — {parked}")
-                return 3
-            if wait.startswith("/clear"):
+                return end(3, f"reef-run: the loop parked — {parked}")
+            if wait and not owner_wait(wait):
                 sig = progress_signature(root, wait)
                 if sig == prev_sig:   # 2026-10-28: the same state twice (the base's head, the handoff, the wait) is no progress — not a tenth session on it
-                    print(f"reef-run: no progress — two sessions ended on the same wait with nothing changed: {wait[:160]} — fix what stops them (HANDOFF.md names it), then start again")
-                    return 3
+                    return end(3, f"reef-run: no progress — two sessions ended on the same wait with nothing changed: {wait[:160]} — fix what stops them (HANDOFF.md names it), then start again")
                 prev_sig = sig
                 continue
             if wait:
-                print(owner_wait_lines(root, wait, mode))
-                return 2
+                return end(2, owner_wait_lines(root, wait, mode) + "\n  every wait at once, one key each: python3 scripts/reef")
             if flying:
                 # a session that returns with work in flight would start it twice next time; Bash background work is
                 # waited for headless (checked 2026-10-20), the Workflow tool is not proven yet — stop and say so
-                print(f"reef-run: a session ended with work in flight ({', '.join(flying)}) — stopped so nothing runs twice")
-                return 3
-        print(f"reef-run: {cap} sessions, the iteration cap — the last state is in {log}")
-        return 4
+                return end(3, f"reef-run: a session ended with work in flight ({', '.join(flying)}) — stopped so nothing runs twice")
+        return end(4, f"reef-run: {cap} sessions, the iteration cap — the last state is in {log}")
     finally:
         for p in (lock, active if night else None):
             try:
