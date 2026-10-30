@@ -17,7 +17,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, approval_questions, questions, answer_command, drop_question  # noqa: E402
+from reef_common import main_checkout, approval_questions, questions, answer_command, drop_question, process_alive, plain  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
@@ -286,8 +286,12 @@ COMMAND_WORDS = ("python3 ", "git ", "claude ", "sh ", "gh ")
 
 BLOCK = ("██████  ███████ ███████ ███████", "██   ██ ██      ██      ██     ", "██████  █████   █████   █████  ",
          "██   ██ ██      ██      ██     ", "██   ██ ███████ ███████ ██     ")
-VERB_KEYS = {"r": "run", "a": "autopilot", "n": "night", "s": "stop", "d": "doctor", "c": "cost", "u": "update"}
-KEYS = "keys: q quit · ↑↓ 1-9 select · Enter runs · w log · " + " · ".join(f"{k} {v}" for k, v in VERB_KEYS.items())   # quit first: never cut at the edge; g refreshes too
+VERB_KEYS = {"r": "run", "n": "night", "s": "stop", "d": "doctor", "c": "cost", "u": "update"}
+KEYS = "keys: q quit · Tab views · ↑↓ 1-9 select · Enter runs · w log · a autopilot · ? help · " + " · ".join(f"{k} {v}" for k, v in VERB_KEYS.items())   # quit first: never cut at the edge; g refreshes too
+VIEWS = ("work", "inbox", "plan", "log")   # Tab's cycle (2026-10-31, the fourth screen)
+MARK_ORDER = {"○": 0, "▶": 1, "⧖": 2, "⏸": 3, "✓": 4}   # what can start first, then what runs, then yours, then blocked, then done
+MARK_STYLE = {"✓": "done", "▶": "build", "○": "ready", "⧖": "wait", "⏸": "blocked"}
+BOARD_SECONDS = 60   # the work board costs a subprocess per row (the row machine): read this often, the tick redraws it with its age
 
 
 def screen_model(root, doctor=None, runner=None):
@@ -295,8 +299,7 @@ def screen_model(root, doctor=None, runner=None):
     st = read_json(os.path.join(root, ".reef", "loop.json"))
     runner = runner if runner is not None else runner_view(root)
     pid, spid, since = runner
-    runner_s = (f"running · pid {pid}" + (f" · session {spid} since {since}" if spid > 0 else "") if pid
-                else f"gone · session {spid} still running since {since} — s ends it" if spid > 0 else "no runner is running")
+    runner_s = runner_line(root, pid, spid, since)
     loop = ("waits on you" if st.get("wait") else "parked" if st.get("parked") else "active" if st.get("active") else "idle")
     try:
         with open(os.path.join(root, ".reef", "version"), encoding="utf-8") as f:
@@ -320,6 +323,435 @@ def screen_model(root, doctor=None, runner=None):
     if not pid and spid <= 0 and steps:   # no run of ours is alive: a tail of the log and that it ended, not the screen (2026-10-30)
         steps = steps[-5:] + ["(the run ended · w for the whole log)"]
     return {"facts": facts, "items": inbox(root, doctor, runner), "steps": steps, "log": log, "warns": warns, "doctor": doctor is not None}
+
+
+_TREE = {"at": 0.0, "tree": []}
+
+
+def process_tree():
+    """Every process as (pid, ppid, elapsed, command) from one `ps` — macOS and Linux share these columns; cached 10 s (the tick)."""
+    if time.time() - _TREE["at"] < 10:
+        return _TREE["tree"]
+    _TREE["at"] = time.time()
+    try:
+        r = subprocess.run(["ps", "-axo", "pid=,ppid=,etime=,command="], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    out = []
+    for line in r.stdout.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) == 4 and parts[0].isdigit() and parts[1].isdigit():
+            out.append((int(parts[0]), int(parts[1]), parts[2], parts[3]))
+    _TREE["tree"] = out
+    return out
+
+
+def session_doing(spid, tree=None):
+    """What the runner's session is doing now: the longest-running command under its pid — a Reef script with its first argument
+    where one is in the chain (`reef-converge legacy-queue-to-issues`), else the deepest command — and how long it has run; "" when
+    the session has no child (it is thinking, or waiting on the model). The owner's question (2026-10-31): a silent log for twenty
+    minutes was a converge run, not a hang; the screen now says so."""
+    if not spid or spid <= 0:
+        return ""
+    tree = process_tree() if tree is None else tree
+    kids = {}
+    for pid, ppid, et, cmd in tree:
+        kids.setdefault(ppid, []).append((pid, et, cmd))
+    cur, chain = spid, []
+    while cur in kids:   # the oldest child at each level: the work, not a helper the host just spawned
+        pid, et, cmd = max(kids[cur], key=lambda k: (len(k[1].strip()), k[1].strip()))
+        chain.append((et.strip(), cmd)); cur = pid
+    if not chain:
+        return ""
+    for et, cmd in chain:
+        m = re.search(r"(reef-[a-z-]+(?:\.py|\.sh)?)(?:\s+(?!--)(\S+))?", cmd)
+        if m:
+            return f"running: {m.group(1)} {m.group(2) or ''}".strip()[:60] + f" ({et})"
+    et, cmd = chain[-1]
+    words = [w for w in cmd.split() if not w.startswith("-")]
+    name = next((os.path.basename(w) for w in words if os.path.basename(w) not in ("zsh", "bash", "sh", "Python", "python3", "node", "npm", "exec", "source")), "a command")
+    return f"running: {name}"[:60] + f" ({et})"
+
+
+def last_word_age(root):
+    """Minutes since the runner's live log last moved, or None without a log."""
+    try:
+        return int((time.time() - os.path.getmtime(os.path.join(root, ".reef", "run", "live.log"))) // 60)
+    except OSError:
+        return None
+
+
+def runner_line(root, pid, spid, since, tree=None):
+    """One line on the runner: alive or not, its session, how long the log has been silent and what the session runs now —
+    so the owner can tell working from waiting from dead without a terminal."""
+    if not pid and spid <= 0:
+        return "no runner is running"
+    if not pid:
+        return f"gone · session {spid} still running since {since} — s ends it"
+    line = f"running · pid {pid}" + (f" · session {spid} since {since}" if spid > 0 else "")
+    age = last_word_age(root)
+    if age is not None and age >= 2:
+        line += f" · last word {age} min ago"
+    doing = session_doing(spid, tree) if spid > 0 else ""
+    return line + (f" · {doing}" if doing else (" · thinking" if spid > 0 and age is not None and age >= 2 else ""))
+
+
+def queue_rows(root, cfg):
+    """(current batch, the queue's rows as dicts, archived ids) through reef-queue.py's own parser — the file, or on an issues queue
+    the synced snapshot `.reef/queue.json` (no network on the screen)."""
+    q = load_sibling("reef-queue.py", "reef_queue_for_screen")
+    if q is None:
+        return "", [], set()
+    if (cfg.get("queue") or {}).get("home") == "issues":
+        snap = read_json(os.path.join(root, ".reef", "queue.json"))
+        snap = snap if isinstance(snap, dict) else {}
+        ok = lambda r: isinstance(r, dict) and re.fullmatch(r"[0-9]+", str(r.get("Id", "")))   # digits: the one value that reaches an argv (the review)
+        rows = sorted((dict(r) for r in (snap.get("rows") or []) if ok(r)), key=lambda r: int(r["Id"]))
+        return str(snap.get("current_batch") or ""), rows, {str(r.get("Id")) for r in (snap.get("closed") or []) if ok(r)}
+    rel = (cfg.get("paths") or {}).get("queue", "docs/queue.md")
+    try:
+        with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return "", [], set()
+    try:
+        with open(os.path.join(root, os.path.dirname(rel), "queue-archive.md"), encoding="utf-8", errors="replace") as f:
+            archived = {r["Id"] for r in q.parse_table(f.read())}
+    except OSError:
+        archived = set()
+    return str(q.current_batch(text) or ""), [r for r in q.parse_table(text) if re.fullmatch(r"[0-9]+", str(r.get("Id", "")))], archived
+
+
+def today_keys():
+    """Today's date, local and UTC — the runner stamps in UTC, the owner reads local."""
+    return {time.strftime("%Y-%m-%d"), time.strftime("%Y-%m-%d", time.gmtime())}
+
+
+def cost_today(root):
+    """Today's spend from the runner's own ledger (.reef/run/run.log: one JSON record per session, `at` in UTC)."""
+    days, total = today_keys(), 0.0
+    try:
+        with open(os.path.join(root, ".reef", "run", "run.log"), encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                    if isinstance(rec, dict) and str(rec.get("at", ""))[:10] in days:
+                        total += float(rec.get("cost_usd") or 0)
+                except (ValueError, TypeError):
+                    continue
+    except OSError:
+        pass
+    return round(total, 2)
+
+
+def autopilot_view(root):
+    """{"on", "pid", "since", "decided_today"} from the autopilot's marker and the proxy's decision log — read, never computed."""
+    ap = read_json(os.path.join(root, ".reef", "night", "autopilot"))
+    pid = int(ap.get("pid") or 0) if str(ap.get("pid") or "").isdigit() else 0
+    since = str(ap.get("started") or "")
+    since = since[11:16] if len(since) >= 16 and since[10] == "T" else since[:16]
+    days, decided = today_keys(), 0
+    try:
+        with open(os.path.join(root, ".reef", "approvals", "day-decisions.jsonl"), encoding="utf-8", errors="replace") as f:
+            for line in f:   # the writer's own shape (reef-approval.py): one JSON record per line
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(rec, dict) and str(rec.get("at", ""))[:10] in days:
+                    decided += 1
+    except OSError:
+        pass
+    return {"on": bool(pid) and process_alive(pid), "pid": pid, "since": since, "decided_today": decided}
+
+
+def contract_view(root):
+    """The standing contract as the start panel shows it: its approved digest, the kinds Mahmoud decides, the Never line."""
+    rec = read_json(os.path.join(root, ".reef", "approvals", "day.json"))
+    digest = str(rec.get("digest16") or str(rec.get("digest") or "")[:16] or "")
+    rr = load_sibling("reef-run.py", "reef_run_for_screen")
+    try:
+        decides = [plain(k) for k in rr.day_kinds(root)] if rr is not None else []   # the runner's own reading of Decides: (one vocabulary)
+    except Exception:
+        decides = []
+    never = ""
+    try:
+        with open(os.path.join(root, "reef", "proxy.md"), encoding="utf-8", errors="replace") as f:
+            m = re.search(r"^Never:\s*(.+)$", f.read(), re.M)
+        never = plain(m.group(1)) if m else ""
+    except OSError:
+        pass
+    return {"digest16": plain(digest)[:16], "decides": decides, "never": never, "approved": bool(digest)}
+
+
+def work_model(root, runner=None):
+    """The batch as the owner asked to see it before choosing (2026-10-31): every row of the current batch with a state mark
+    (✓ done · ▶ building · ○ can start now · ⏸ waits on the open rows it depends on · ⧖ yours — a gate or a question), its
+    tasks done/total, its lane (the module its Item names: rows of one module go one at a time, different modules run beside
+    each other), its forge (issue, PR), plus the batch's progress and today's cost. States come from the row machine
+    (`row_state`), the rows from the queue's own parser — the screen computes nothing the scripts do not."""
+    cfg = read_json(os.path.join(root, ".reef", "config.json"))
+    batch, rows, archived = queue_rows(root, cfg)
+    q = load_sibling("reef-queue.py", "reef_queue_for_screen")
+    try:
+        states = q.task_states(root, cfg) if q is not None else {}   # the queue's own rule for done (reef-queue.py load): no third counting here
+    except Exception:
+        states = {}
+    tasks = {rid: (sum(1 for x in st if x == "done"), len(st)) for rid, st in states.items()}
+    done_ids = set(archived) | {rid for rid, (d, n) in tasks.items() if n and d == n}
+    current = [r for r in rows if not batch or str(r.get("Batch", "")).strip() == batch]
+    asked = {rr for rr, _, _, _ in questions(root)}
+    out = []
+    for r in current:
+        rid = str(r["Id"])
+        st = row_state(root, rid) if rid not in done_ids else {}
+        deps = [d for d in re.split(r"[,\s]+", plain(r.get("Depends", "") or "")) if d]
+        waits = [d for d in deps if d not in done_ids]
+        state, detail = str(st.get("state") or ""), plain(st.get("detail") or "")
+        if rid in done_ids or state == "closed":
+            mark, state = "✓", "done"
+        elif waits:
+            mark = "⏸"
+        elif state == "approval" or rid in asked or approval_questions(detail):
+            mark = "⧖"
+        elif state in ("build", "review", "merge", "close"):
+            mark = "▶"
+        else:
+            mark = "○"
+        pr = re.search(r"PR #\d+", detail)
+        issue = plain(r.get("_issue") or r.get("Issue") or r.get("issue") or "")   # the snapshot's key is _issue (reef-queue.py sync)
+        item = re.sub(r"[⁰¹²³⁴⁵⁶⁷⁸⁹]+", "", plain(r.get("Item", ""))).strip()
+        out.append({"id": rid, "item": item, "mark": mark, "tasks": tasks.get(rid, (0, 0)), "depends": deps, "waits": waits,
+                    "lane": q.module_of(item) if q is not None else "general", "forge": " · ".join(x for x in ((f"#{issue}" if issue else ""), (pr.group(0) if pr else "")) if x),
+                    "state": state or "plan", "detail": detail, "next": plain(st.get("next") or ""), "slug": str(st.get("slug") or "")})
+    pid, spid, since = runner if runner is not None else runner_view(root)
+    ap, cost = autopilot_view(root), cost_today(root)
+    dt, nt = sum(t["tasks"][0] for t in out), sum(t["tasks"][1] for t in out)
+    dr = sum(1 for t in out if t["mark"] == "✓")
+    try:
+        with open(os.path.join(root, ".reef", "version"), encoding="utf-8") as f:
+            ver = f.read().strip()
+    except OSError:
+        ver = "?"
+    facts = [f"{os.path.basename(root)} · Reef {ver} · {time.strftime('%H:%M:%S')}",
+             (f"batch {batch} · " if batch else "no current batch · ") + f"{dr}/{len(out)} rows · {dt}/{nt} tasks · ${cost:.2f} today",
+             "runner  " + runner_line(root, pid, spid, since),
+             "autopilot  " + (f"on · pid {ap['pid']} · since {ap['since']} · {ap['decided_today']} decided by Mahmoud today" if ap["on"] else "off · a starts it"), ""]
+    return {"batch": batch, "rows": out, "progress": {"rows": (dr, len(out)), "tasks": (dt, nt)}, "cost_today": cost, "facts": facts,
+            "autopilot": ap, "order": "queue", "cap": int(((cfg.get("loop") or {}).get("rows_in_flight", 2)) or 0), "at": time.time()}
+
+
+def ordered(wm):
+    """The rows in the chosen order: the queue's, or (o) what can start first — ready, building, yours, blocked, done."""
+    rows = list(wm.get("rows") or [])
+    return sorted(rows, key=lambda r: MARK_ORDER.get(r["mark"], 9)) if wm.get("order") == "start" else rows
+
+
+def row_what(r):
+    """One phrase per row: why it waits, that it can start, that it is yours, what it is doing."""
+    if r["mark"] == "✓":
+        return "done"
+    if r["mark"] == "⏸":
+        return "waits: row" + ("s " if len(r["waits"]) > 1 else " ") + ", ".join(r["waits"])
+    if r["mark"] == "⧖":
+        return "yours: " + ("plan approval" if r["state"] == "approval" else "a question")
+    if r["mark"] == "▶":
+        return {"build": "building", "review": "in review", "merge": "merging", "close": "closing"}.get(r["state"], "running")
+    return "can start now"
+
+
+def tabs_line(view, n_items, w, age=None):
+    cells = [("WORK", "work"), (f"INBOX {n_items}" if n_items else "INBOX", "inbox"), ("PLAN", "plan"), ("LOG", "log")]
+    row = "  ".join(f"[{t}]" if v == view else f" {t} " for t, v in cells) + "    Tab switches · ? keys"
+    if age is not None and age >= 5:
+        row += f" · board {int(age)} s old (g reads it now)"
+    return row[:w]
+
+
+def render_work(wm, items, width=120, height=None, selected=None, panel=None):
+    """WORK: the banner with the batch's facts, the tabs, the rows as a table, the selected row's details boxed under it, the
+    inbox's count, the keys last. Returns (lines, styles {line index: style name}, the selected line's index). Styles name the
+    row's state (done, build, ready, wait, blocked), the banner, the selection — the loop maps them to attributes once."""
+    w = max(60, int(width))
+    rows = ordered(wm) if wm else []
+    n = len(rows)
+    sel = None if selected is None or not n else min(max(int(selected), 0), n - 1)
+    facts = (wm or {}).get("facts") or ["", "reading the rows …", "", "", ""]
+    head = [(row + "   " + fact)[:w] for row, fact in zip(BLOCK, facts)] + ["─" * w, tabs_line("work", len(items or []), w, (time.time() - wm["at"]) if wm and wm.get("at") else None)]
+    styles = {i: "banner" for i in range(len(BLOCK))}
+    styles[len(head) - 1] = "tabs"
+    col = f"      row  tasks  {'lane':<16} {'what':<24} {'forge':<14} state"[:w]
+    table = []
+    for r in rows:
+        t = f"{r['tasks'][0]}/{r['tasks'][1]}" if r["tasks"][1] else "-"
+        table.append((f"  {r['mark']} {r['id']:<4} {t:>5}  {r['lane'][:16]:<16} {row_what(r)[:24]:<24} {r['forge'][:14]:<14} {r['item']}"[:w],
+                      MARK_STYLE.get(r["mark"], "ready")))
+    box = []
+    if sel is not None:
+        r = rows[sel]
+        inner = [r["item"], f"{r['state']}" + (f" · {r['detail']}" if r["detail"] else ""), f"next: {r['next']}" if r["next"] else "",
+                 f"depends: {', '.join(r['depends'])}" if r["depends"] else "", f"tasks {r['tasks'][0]}/{r['tasks'][1]} · lane {r['lane']}" + (f" · {r['forge']}" if r["forge"] else "")]
+        for text in (x for x in inner if x):
+            box += wrap(text, w - 4)[:2]
+    panel_lines = list((panel or {}).get("lines") or ["(no output)"])[-12:] if panel else []
+    panel_head = (f"OUTPUT  $ {panel.get('shown', '')} · " + ("running …" if panel.get("rc") is None else f"exit {panel['rc']} · any key closes"))[:w] if panel else ""
+    keys = wrap(KEYS, w)
+
+    def frame(lo, hi, box, panel_lines):
+        out, st = list(head), dict(styles)
+        out.append(col); st[len(out) - 1] = "head"
+        sel_line = None
+        for i in range(lo, hi):
+            line, style = table[i]
+            cur = "▶" if i == sel else " "
+            if i == sel:
+                sel_line = len(out)
+            out.append((cur + line[1:])[:w]); st[len(out) - 1] = "sel" if i == sel else style
+        if n == 0:
+            out.append("  (no rows in the current batch — add one: python3 scripts/reef-queue.py add-row \"<item>\")"[:w])
+        if hi < n or lo > 0:
+            out.append(f"       … {lo + (n - hi)} more ({'↑' if lo else ''}{'↓' if hi < n else ''})"[:w])
+        if box and sel is not None:
+            title = f"┌─ row {rows[sel]['id']} "
+            out += [(title + "─" * (w - len(title) - 1) + "┐")[:w]] + ["│ " + b.ljust(w - 4)[:w - 4] + " │" for b in box] + ["└" + "─" * (w - 2) + "┘"]
+        if panel:
+            out += [panel_head] + ["  " + l[:w - 2] for l in panel_lines]
+        out.append((f"INBOX  {len(items)} item(s) wait on you · i opens it" if items else "INBOX  nothing waits on you")[:w])
+        out += ["─" * w] + keys
+        return out, st, sel_line
+
+    lo, hi = 0, n
+    lines, st, sel_line = frame(lo, hi, box, panel_lines)
+    if height is None:
+        return lines, st, sel_line
+    h = int(height)
+    dropped = 0
+    while len(lines) > h and len(panel_lines) > 1:
+        panel_lines, dropped = panel_lines[1:], dropped + 1
+        panel_lines[0] = f"… {dropped} more line(s) above"
+        lines, st, sel_line = frame(lo, hi, box, panel_lines)
+    while len(lines) > h and len(box) > 1:
+        box = box[:-1]
+        lines, st, sel_line = frame(lo, hi, box, panel_lines)
+    while len(lines) > h and hi - lo > 1:
+        anchor = sel if sel is not None else 0
+        if hi - 1 > anchor and (hi - 1 - anchor) >= (anchor - lo):
+            hi -= 1
+        else:
+            lo += 1
+        lines, st, sel_line = frame(lo, hi, box, panel_lines)
+    if len(lines) > h:
+        lines = lines[:max(0, h - len(keys))] + keys
+        sel_line = sel_line if sel_line is not None and sel_line < h - len(keys) else None
+    return lines, st, sel_line
+
+
+def render_plan(wm, items, width=120, height=None):
+    """PLAN: the progress — a bar per row, the autopilot's line (on since when, how many decisions Mahmoud took today), the lanes
+    (what runs beside what under loop.rows_in_flight), the inbox's count. Returns (lines, styles)."""
+    w = max(60, int(width))
+    ap = wm.get("autopilot") or {}
+    pr, pt = wm["progress"]["rows"], wm["progress"]["tasks"]
+    lines = [f"PLAN  batch {wm['batch'] or '-'} · {pr[0]}/{pr[1]} rows · {pt[0]}/{pt[1]} tasks · ${wm['cost_today']:.2f} today · order: {'what can start first' if wm.get('order') == 'start' else 'the queue'} (o)"[:w], ""]
+    styles = {0: "tabs"}
+    for r in ordered(wm):
+        d, t = r["tasks"]
+        k = round(20 * d / t) if t else 0
+        bar = "█" * k + "░" * (20 - k)
+        styles[len(lines)] = MARK_STYLE.get(r["mark"], "ready")
+        lines.append(f"  {r['mark']} row {r['id']:<4} {bar} {f'{d}/{t}' if t else '  -':>5}  {row_what(r)[:22]:<22} {r['item']}"[:w])
+    lines.append("")
+    lines.append(("AUTOPILOT  " + (f"on · pid {ap.get('pid')} · since {ap.get('since')} · {ap.get('decided_today', 0)} decided by Mahmoud today" if ap.get("on")
+                                   else "off · a opens the start panel"))[:w])
+    styles[len(lines) - 1] = "head"
+    lanes = {}
+    for r in ordered(wm):
+        if r["mark"] != "✓":
+            lanes.setdefault(r["lane"], []).append(r["id"])
+    lines.append(f"LANES  {len(lanes)} lane(s) · up to {wm.get('cap') or '∞'} row(s) in flight (loop.rows_in_flight) · one lane, one row at a time"[:w])
+    styles[len(lines) - 1] = "head"
+    for lane, ids in lanes.items():
+        lines.append(f"  {lane[:20]:<20} rows {' → '.join(ids)}"[:w])
+    lines.append("")
+    lines.append((f"INBOX  {len(items)} item(s) wait on you · i opens it" if items else "INBOX  nothing waits on you")[:w])
+    keys = wrap(KEYS, w)
+    if height is not None and len(lines) + 1 + len(keys) > int(height):
+        lines = lines[:max(0, int(height) - 1 - len(keys))]
+    return lines + ["─" * w] + keys, styles
+
+
+def render_autopilot(wm, contract, width=120, height=None):
+    """The autopilot's start panel (a): the contract it runs under, what Mahmoud decides and never decides, the order the rows
+    will be worked (o toggles), which forge items it will close, and the one key that starts it. Returns (lines, styles)."""
+    w = max(60, int(width))
+    decides = ", ".join(contract.get("decides") or []) or "-"
+    lines = [f"AUTOPILOT  start · the contract at {contract.get('digest16') or 'NOT APPROVED'} · Mahmoud decides: {decides}"[:w],
+             f"  never: {contract.get('never') or '-'}"[:w], ""]
+    styles = {0: "tabs", 1: "wait"}
+    if not contract.get("approved"):
+        lines.append("  no approved contract: Enter runs `reef autopilot`, which prints the one approval line to type first"[:w])
+        lines.append("")
+    lines.append(f"  the order it works ({'what can start first' if wm.get('order') == 'start' else 'the queue'} · o toggles):")
+    closes = []
+    i = 0
+    for r in ordered(wm):
+        if r["mark"] == "✓":
+            continue
+        i += 1
+        if r["mark"] == "⏸":
+            what = f"after row{'s' if len(r['waits']) > 1 else ''} {', '.join(r['waits'])} · asks you only for what the contract does not name"
+        elif r["mark"] == "⧖":
+            what = ("at the gate — Mahmoud approves it (plan is in Decides)" if "plan" in (contract.get("decides") or []) else "at your gate — approve it first (plan is not in Decides)") if r["state"] == "approval" \
+                else ("a question — Mahmoud answers it (question is in Decides)" if "question" in (contract.get("decides") or []) else "a question — yours first (question is not in Decides)")
+        elif r["mark"] == "▶":
+            what = row_what(r) + (f" · {r['tasks'][1] - r['tasks'][0]} task(s) left" if r["tasks"][1] else "") + (f" · {r['forge']}" if r["forge"] else "")
+        else:
+            what = "can start now" + (f" · {r['tasks'][1]} task(s)" if r["tasks"][1] else " · to plan")
+        styles[len(lines)] = MARK_STYLE.get(r["mark"], "ready")
+        lines.append(f"  {i}. row {r['id']:<4} {r['item'][:36]:<36} — {what}"[:w])
+        closes += [x for x in r["forge"].split(" · ") if x]
+    if i == 0:
+        lines.append("  (nothing to work: the batch is done or empty)")
+    lines.append("")
+    if closes:
+        lines.append(f"  it merges or closes: {', '.join(closes)}"[:w])
+    lines.append("  Enter starts `reef autopilot` (detached; the screen keeps showing it) · Esc back · q quit"[:w])
+    styles[len(lines) - 1] = "head"
+    if height is not None and len(lines) > int(height):
+        lines = lines[:int(height) - 1] + [lines[-1]]
+    return lines, styles
+
+
+def render_help(view, width=120, height=None):
+    """Every key, one line each (?)."""
+    w = max(60, int(width))
+    lines = [f"KEYS  (you are on {view.upper()}) · Esc, q or ? closes this",
+             "  Tab        next view: WORK → INBOX → PLAN → LOG", "  i / p / w  INBOX / PLAN / LOG", "  ↑↓ j k     move the selection (LOG: scroll)",
+             "  1-9        select the row or item", "  Enter      WORK, PLAN: open the row (its state and next step) · INBOX: run the item (an answer is typed on the screen)",
+             "  o          order: the queue's, or what can start first", "  a          the autopilot's start panel (Enter there starts it)",
+             "  g          refresh now (the screen refreshes itself every 3 s)", "  r n s d c u  reef run · night · stop · doctor · cost · update",
+             "  q / Esc    quit (in LOG or help: back)", "", "  marks: ✓ done · ▶ building · ○ can start now · ⏸ waits on open rows · ⧖ yours (a gate or a question)",
+             "  lanes: rows of one module go one at a time; different modules run beside each other (loop.rows_in_flight caps them)"]
+    return [l[:w] for l in lines][:int(height)] if height is not None else [l[:w] for l in lines], {0: "tabs"}
+
+
+def style_attrs(c, colors=True):
+    """Style name → curses attribute, once per screen: the selection reversed, the banner and tabs bold, the states colored where
+    the terminal has colors (green done, cyan building, yellow yours, red blocked), plain otherwise. `c` is the curses module (or,
+    in a test, a dict of its constants)."""
+    g = (lambda k, d=0: c.get(k, d)) if isinstance(c, dict) else (lambda k, d=0: getattr(c, k, d))
+    bold, rev, normal = g("A_BOLD"), g("A_REVERSE"), g("A_NORMAL")
+    attrs = {"banner": bold, "tabs": bold, "head": normal, "sel": rev, "done": normal, "build": bold, "ready": bold, "wait": bold, "blocked": normal}
+    if colors and not isinstance(c, dict):
+        try:
+            if c.has_colors():
+                c.start_color(); c.use_default_colors()
+                for i, color in ((1, c.COLOR_GREEN), (2, c.COLOR_CYAN), (3, c.COLOR_YELLOW), (4, c.COLOR_RED), (5, c.COLOR_WHITE)):
+                    c.init_pair(i, color, -1)
+                attrs.update({"done": c.color_pair(1), "build": c.color_pair(2) | bold, "wait": c.color_pair(3) | bold, "blocked": c.color_pair(4), "ready": c.color_pair(5) | bold})
+        except Exception:
+            pass
+    return attrs
 
 
 def wrap(text, width):
@@ -451,17 +883,39 @@ def render_log(steps, width=120, height=24, offset=0):
 
 
 def on_key(k, sel, n, view):
-    """The screen's keys as one table → an action, or None. In the inbox: a digit SELECTS its item and Enter runs it, ↑↓/j/k move, the verb letters run a verb, w opens the log, g refreshes, q/Esc quit. In the log: ↑↓ scroll, w/q/Esc
-    back. (2026-10-31, the owner: a digit should select, and a command should run without leaving the screen.)"""
+    """The screen's keys as one table → an action, or None. WORK, PLAN and INBOX: a digit SELECTS, Enter opens the row (WORK, PLAN) / runs the item (INBOX),
+    ↑↓/j/k move, Tab cycles the views, i/p/w jump, a opens the autopilot panel, o toggles the order, ? the help, the verb letters
+    run a verb, g refreshes, q/Esc quit. LOG: ↑↓ scroll, w/q/Esc back. Help: q/Esc/? back. Autopilot panel: Enter starts, o, q/Esc back.
+    (2026-10-31, the owner: a digit should select, a command should run without leaving the screen; the fourth screen: see the work first.)"""
     ch = chr(k).lower() if 0 < k < 256 else ""   # one case: a caps lock is not silence
+    if view == "help":
+        return ("view", "work") if ch in ("q", "?") or k == 27 else None
+    if view == "autopilot":
+        if ch == "q" or k == 27:
+            return ("view", "work")
+        if k in (10, 13, KEY_ENTER):
+            return ("start",)
+        return ("order",) if ch == "o" else None
     if view == "log":
         if ch in ("q", "w") or k == 27:
-            return ("inbox",)
+            return ("back",)   # to the view the log was opened from
         if k in (KEY_UP, ord("k")):
             return ("up",)
         if k in (KEY_DOWN, ord("j")):
             return ("down",)
         return None
+    if k == 9:   # Tab: the next view
+        return ("view", VIEWS[(VIEWS.index(view) + 1) % len(VIEWS)] if view in VIEWS else "work")
+    if ch == "?":
+        return ("help",)
+    if ch == "i":
+        return ("view", "inbox")
+    if ch == "p":
+        return ("view", "plan")
+    if ch == "a":
+        return ("autopilot",)
+    if ch == "o":
+        return ("order",)
     if ch == "q" or k == 27:
         return ("quit",)
     if ch == "g":
@@ -473,7 +927,7 @@ def on_key(k, sel, n, view):
     if k in (KEY_DOWN, ord("j")):
         return ("down",)
     if k in (10, 13, KEY_ENTER):
-        return ("run", sel) if n else None
+        return (("open" if view in ("work", "plan") else "run"), sel) if n else None   # PLAN shows rows, never the inbox: Enter opens a row (the security review)
     if ch in VERB_KEYS:
         return ("verb", VERB_KEYS[ch])
     if ch and ch in "123456789" and int(ch) <= n:
@@ -569,13 +1023,18 @@ def screen_loop(stdscr, root, curses):
     curses.curs_set(0)
     stdscr.timeout(3000)
     utf = bool(sys.stdout.encoding and "utf" in sys.stdout.encoding.lower())
-    doctor, sel, model, view, offset, panel = None, 0, None, "inbox", 0, None   # the first frame is drawn before the doctor runs
+    doctor, sel, model, view, offset, panel = None, 0, None, "work", 0, None   # the first frame is drawn before the doctor runs
+    wm, wm_at, wsel, back, order = None, 0.0, 0, "work", "queue"   # the work board, refreshed every 30 s (a row's state is a subprocess each)
+    attrs = style_attrs(curses, colors=os.environ.get("REEF_COLOR", "1") != "0")
 
-    def draw(lines, sel_line):
+    def draw(lines, sel_line, styles=None):
         h, w = stdscr.getmaxyx()
         stdscr.erase()
         for y, line in enumerate(lines[:h]):
-            attr = curses.A_REVERSE if y == sel_line else (curses.A_BOLD if y < len(BLOCK) and view == "inbox" else curses.A_NORMAL)
+            if styles is not None:
+                attr = attrs["sel"] if y == sel_line else attrs.get((styles or {}).get(y, ""), curses.A_NORMAL)
+            else:
+                attr = curses.A_REVERSE if y == sel_line else (curses.A_BOLD if y < len(BLOCK) and view == "inbox" else curses.A_NORMAL)
             try:
                 text = (line if utf else line.encode("ascii", "replace").decode("ascii"))[:w - 1]   # characters: curses' counted write measures bytes
                 stdscr.addstr(y, 0, text, attr)
@@ -589,13 +1048,29 @@ def screen_loop(stdscr, root, curses):
             model = screen_model(root, doctor)
         n = len(model["items"])
         sel = min(sel, max(n - 1, 0))
+        if view in ("work", "plan", "autopilot") and (wm is None or time.time() - wm_at > BOARD_SECONDS):
+            if wm is None:   # the first board costs a subprocess per row: say so, then read
+                lines, styles, _ = render_work(None, model["items"], width=w - 1, height=h)
+                draw(lines, None, styles)
+            wm, wm_at = work_model(root), time.time()
+            wm["order"] = order
+        nrows = len(wm["rows"]) if wm else 0
+        wsel = min(wsel, max(nrows - 1, 0))
+        sel_line, styles = None, None
         if view == "log":
             lines, most = render_log(model.get("log") or model["steps"], width=w - 1, height=h, offset=offset)
             offset = min(offset, most)
-            draw(lines, None)
+        elif view == "work":
+            lines, styles, sel_line = render_work(wm, model["items"], width=w - 1, height=h, selected=wsel, panel=panel)
+        elif view == "plan":
+            lines, styles = render_plan(wm, model["items"], width=w - 1, height=h)
+        elif view == "autopilot":
+            lines, styles = render_autopilot(wm, contract_view(root), width=w - 1, height=h)
+        elif view == "help":
+            lines, styles = render_help(back, width=w - 1, height=h)
         else:
             lines, sel_line = render(model, width=w - 1, height=h, selected=sel, panel=panel)
-            draw(lines, sel_line)
+        draw(lines, sel_line, styles)
         if doctor is None:   # right after the first frame: the doctor, then its lines in the next frame
             doctor, model = doctor_lines(root), None
             continue
@@ -611,33 +1086,57 @@ def screen_loop(stdscr, root, curses):
         if panel is not None and panel.get("rc") is not None:   # any key closes the output panel — and does nothing else (the review:
             panel = None                                          # the item just acted on has left, so Enter would have run the NEXT one)
             continue
-        act = on_key(k, sel, n, view)
+        act = on_key(k, wsel if view in ("work", "plan") else sel, nrows if view in ("work", "plan") else n, view)
         if act is None:
             continue
         if act[0] == "quit":
             return 0
-        if act[0] == "inbox":
-            view = "inbox"; continue
-        if act[0] == "log":
-            view, offset = "log", 0; continue
+        if act[0] == "back":   # from the log
+            view = back if back in VIEWS else "work"; continue
+        if act[0] == "view":
+            view = act[1]; continue
+        if act[0] in ("log", "help", "autopilot"):
+            back = view if view in VIEWS else "work"
+            view, offset = {"log": "log", "help": "help", "autopilot": "autopilot"}[act[0]], 0
+            continue
+        if act[0] == "order":
+            order = "start" if order == "queue" else "queue"
+            if wm:
+                wm["order"] = order
+            continue
         if act[0] == "up":
             if view == "log":
                 offset += 1
+            elif view in ("work", "plan"):
+                wsel = max(0, wsel - 1)
             else:
                 sel = max(0, sel - 1)
             continue
         if act[0] == "down":
             if view == "log":
                 offset = max(0, offset - 1)
+            elif view in ("work", "plan"):
+                wsel = min(max(nrows - 1, 0), wsel + 1)
             else:
                 sel = min(max(n - 1, 0), sel + 1)
             continue
         if act[0] == "refresh":
-            doctor, model = doctor_lines(root), None; continue
+            doctor, model, wm = doctor_lines(root), None, None; continue
         if act[0] == "select":
-            sel = act[1]; continue
+            if view in ("work", "plan"):
+                wsel = act[1]
+            else:
+                sel = act[1]
+            continue
         argv, shown = None, None
-        if act[0] == "verb":
+        if act[0] == "start":   # the autopilot panel's Enter: the verb, then back to the work board
+            argv, shown, view = [PY, os.path.abspath(__file__), "autopilot", "--repo", root], "reef autopilot", "work"
+        elif act[0] == "open":   # a row: its state and its one next step, from the row machine, in the panel
+            rid = ordered(wm)[act[1]]["id"] if wm and act[1] < nrows else None
+            if rid is None:
+                continue
+            argv, shown = [PY, script("reef-row.py") or "scripts/reef-row.py", "state", rid, "--repo", root], f"python3 scripts/reef-row.py state {rid}"
+        elif act[0] == "verb":
             argv, shown = [PY, os.path.abspath(__file__), act[1], "--repo", root], f"reef {act[1]}"
         elif act[0] == "run":
             target = model["items"][act[1]]
@@ -654,14 +1153,19 @@ def screen_loop(stdscr, root, curses):
             continue
         if argv:
             panel = {"shown": shown, "rc": None, "lines": ["running …"]}
-            lines, sel_line = render(model, width=w - 1, height=h, selected=sel, panel=panel)
-            draw(lines, sel_line)
+            if view == "work":
+                lines, styles, sel_line = render_work(wm, model["items"], width=w - 1, height=h, selected=wsel, panel=panel)
+                draw(lines, sel_line, styles)
+            else:
+                lines, sel_line = render(model, width=w - 1, height=h, selected=sel, panel=panel)
+                draw(lines, sel_line)
             rc, out = run_captured(root, argv)
             panel = {"shown": shown, "rc": rc, "lines": out}
             curses.flushinp()   # a key typed while it ran must not run the next item
             chosen = model["items"][sel]["cmd"] if n else None
             doctor = doctor_lines(root)
             model = screen_model(root, doctor)
+            wm = None if act[0] != "open" else wm   # a command may have changed the board; opening a row changed nothing
             sel = reanchor(model["items"], sel, chosen)   # the item may have left: the cursor follows its command, not its index
 
 
@@ -809,7 +1313,11 @@ def main(argv):
     verb, rest = args[0], args[1:]
     for name, _, do in VERBS:
         if name == verb:
-            return do(root, rest)
+            try:
+                return do(root, rest)
+            except KeyboardInterrupt:   # Ctrl-C on `reef watch` and the like: the owner stopped it; no traceback (2026-10-31)
+                print()
+                return 130
     print(f"reef: unknown verb {verb!r} — run `reef` for the list", file=sys.stderr)
     return 2
 

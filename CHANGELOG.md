@@ -1,6 +1,23 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The reef screen, fourth design** (the owner, 2026-10-31: "before I choose anything I want to see what is pending, what I can
+  start with, what can go in parallel and what cannot, the progress; then I choose the order, start the autopilot, and it shows
+  me what it will finish and which issues it closes"). `reef` opens on **WORK**: the current batch's rows with a mark (✓ done ·
+  ▶ building · ○ can start now · ⏸ waits on the open rows it depends on · ⧖ yours — a gate or a question), tasks done/total,
+  the lane (the module the Item names, as `reef-queue.py module_of` cuts it: one lane, one row at a time; different lanes run
+  beside each other), what it waits on, the forge (issue, PR), the selected row's state and next step boxed under the table;
+  the header carries the batch's progress and today's cost. **Tab** cycles WORK → INBOX → PLAN → LOG (`i`, `p`, `w` jump);
+  **PLAN** is a progress bar per row, the autopilot's line (since when, how many decisions Mahmoud took today) and the lanes
+  under `loop.rows_in_flight`; **a** opens the autopilot's start panel — the contract's digest, what Mahmoud decides and never
+  decides, the order the rows will be worked (`o` toggles the queue's order / what can start first), what it merges or closes,
+  Enter starts it; **?** lists every key; Enter on a row shows its state from the row machine in the panel; states carry colors
+  where the terminal has them (`REEF_COLOR=0` turns them off). Every fact comes from the scripts' own readings (the queue's
+  parser and task states, `reef-row.py state`, the runner's ledger and marker, the proxy's decision log) — the screen computes nothing new.
+  **The runner line says what the session is doing** (the owner, 02:08: "how do I know if the runner is working, doing something or dead?"
+  — a log silent for twenty minutes was a converge run): `running · pid … · session … · last word 18 min ago · running: reef-converge
+  legacy-queue-to-issues (25:30)` from the process table, `thinking` when the session has no child, `gone` when the runner died and
+  its session lives, `no runner is running`. Ctrl-C on a verb run from the command line (`reef watch`) exits quietly, no traceback. tests/size-budget.json: unchanged (nothing grew).
 - **Mahmoud is the project's CTO.** The owner's proxy (`agents/mahmoud.md`) is briefed as a master architect and senior software architect
   with research depth in software and AI, who reads the business as an economist (finance, marketing, sales, after-sales, the front staff)
   and still chooses the simplest robust thing. He **challenges a plan** like a CTO — a `CHALLENGE` line, recorded once per row by
