@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1034" height="446" viewBox="0 0 1034 446" font-family="SF Mono, Menlo, Consolas, DejaVu Sans Mono, monospace" font-size="13">
+<title>reef — PLAN: progress per row, the autopilot, the lanes</title>
+<rect width="1034" height="446" rx="12" fill="#0E1B21"/>
+<circle cx="22" cy="20" r="6" fill="#E8766A"/><circle cx="42" cy="20" r="6" fill="#F0B35A"/><circle cx="62" cy="20" r="6" fill="#67C587"/>
+<text x="517" y="25" text-anchor="middle" fill="#8CA0AA" font-size="12">reef — PLAN: progress per row, the autopilot, the lanes</text>
+<text x="18" y="48" fill="#E8EEF2" font-weight="600" textLength="569.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">PLAN  batch 3 · 1/6 rows · 4/7 tasks · $6.80 today · order: the queue (o)</text>
+<text x="18" y="67" fill="#C9D4DA" xml:space="preserve"></text>
+<text x="18" y="86" fill="#5CC8D8" font-weight="600" textLength="881.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  ▶ row 12   █████████████░░░░░░░   2/3  building               checkout: apply coupons at payment (src/checkout)</text>
+<text x="18" y="105" fill="#F0B35A" font-weight="600" textLength="904.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  ⧖ row 14   ░░░░░░░░░░░░░░░░░░░░   0/2  yours: plan approval   invoices as PDF, mailed monthly (src/billing/pdf.ts)</text>
+<text x="18" y="124" fill="#E8766A" textLength="920.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  ⏸ row 15   ░░░░░░░░░░░░░░░░░░░░     -  waits: row 14          invoice numbering per country (src/billing/numbers.ts)</text>
+<text x="18" y="143" fill="#67C587" textLength="803.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  ✓ row 17   ████████████████████   2/2  done                   rate limits on the public API (src/api)</text>
+<text x="18" y="162" fill="#E8766A" textLength="709.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  ⏸ row 19   ░░░░░░░░░░░░░░░░░░░░     -  waits: row 12          admin audit log (src/admin)</text>
+<text x="18" y="181" fill="#F0B35A" font-weight="600" textLength="819.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  ⧖ row 21   ░░░░░░░░░░░░░░░░░░░░     -  yours: a question      onboarding emails, three steps (src/mail)</text>
+<text x="18" y="200" fill="#C9D4DA" xml:space="preserve"></text>
+<text x="18" y="219" fill="#8CA0AA" textLength="530.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">AUTOPILOT  on · pid 48120 · since 08:02 · 4 decided by Mahmoud today</text>
+<text x="18" y="238" fill="#8CA0AA" textLength="741.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">LANES  4 lane(s) · up to 2 row(s) in flight (loop.rows_in_flight) · one lane, one row at a time</text>
+<text x="18" y="257" fill="#C9D4DA" textLength="234.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  src/checkout         rows 12</text>
+<text x="18" y="276" fill="#C9D4DA" textLength="273.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  src/billing          rows 14 → 15</text>
+<text x="18" y="295" fill="#C9D4DA" textLength="234.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  src/admin            rows 19</text>
+<text x="18" y="314" fill="#C9D4DA" textLength="234.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  src/mail             rows 21</text>
+<text x="18" y="333" fill="#C9D4DA" xml:space="preserve"></text>
+<text x="18" y="352" fill="#C9D4DA" textLength="319.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">INBOX  2 item(s) wait on you · i opens it</text>
+<text x="18" y="371" fill="#C9D4DA" textLength="998.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</text>
+<text x="18" y="390" fill="#C9D4DA" textLength="982.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">keys: q quit · Tab views · ↑↓ 1-9 select · Enter runs · w log · a autopilot · ? help · r run · n night · s stop · d doctor · c</text>
+<text x="18" y="409" fill="#C9D4DA" textLength="117.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">cost · u update</text>
+</svg>

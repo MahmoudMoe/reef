@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1034" height="294" viewBox="0 0 1034 294" font-family="SF Mono, Menlo, Consolas, DejaVu Sans Mono, monospace" font-size="13">
+<title>reef — a: the autopilot&#x27;s start panel</title>
+<rect width="1034" height="294" rx="12" fill="#0E1B21"/>
+<circle cx="22" cy="20" r="6" fill="#E8766A"/><circle cx="42" cy="20" r="6" fill="#F0B35A"/><circle cx="62" cy="20" r="6" fill="#67C587"/>
+<text x="517" y="25" text-anchor="middle" fill="#8CA0AA" font-size="12">reef — a: the autopilot&#x27;s start panel</text>
+<text x="18" y="48" fill="#E8EEF2" font-weight="600" textLength="912.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">AUTOPILOT  start · the contract at 11a6d568580789c5 · Mahmoud decides: process, wording, plan, question, hole, triage</text>
+<text x="18" y="67" fill="#F0B35A" font-weight="600" textLength="756.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  never: product, money, data, look, security, the release, anything the owner kept in a footnote</text>
+<text x="18" y="86" fill="#C9D4DA" xml:space="preserve"></text>
+<text x="18" y="105" fill="#C9D4DA" textLength="351.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  the order it works (the queue · o toggles):</text>
+<text x="18" y="124" fill="#5CC8D8" font-weight="600" textLength="678.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  1. row 12   checkout: apply coupons at payment ( — building · 1 task(s) left · PR #96</text>
+<text x="18" y="143" fill="#F0B35A" font-weight="600" textLength="834.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  2. row 14   invoices as PDF, mailed monthly (src — at the gate — Mahmoud approves it (plan is in Decides)</text>
+<text x="18" y="162" fill="#E8766A" textLength="912.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  3. row 15   invoice numbering per country (src/b — after row 14 · asks you only for what the contract does not name</text>
+<text x="18" y="181" fill="#E8766A" textLength="912.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  4. row 19   admin audit log (src/admin)          — after row 12 · asks you only for what the contract does not name</text>
+<text x="18" y="200" fill="#F0B35A" font-weight="600" textLength="850.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  5. row 21   onboarding emails, three steps (src/ — a question — Mahmoud answers it (question is in Decides)</text>
+<text x="18" y="219" fill="#C9D4DA" xml:space="preserve"></text>
+<text x="18" y="238" fill="#C9D4DA" textLength="226.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  it merges or closes: PR #96</text>
+<text x="18" y="257" fill="#8CA0AA" textLength="709.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Enter starts `reef autopilot` (detached; the screen keeps showing it) · Esc back · q quit</text>
+</svg>

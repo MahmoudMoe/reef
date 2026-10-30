@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Reef — a Claude Code plugin that runs a project as a graph of gated work</title>
+<title>Reef — you write the work, Reef does it, you decide twice</title>
 <meta name="description" content="Reef runs a software project as a graph of gated work and proves its own rules: a queue becomes specs and vertical-slice tasks, isolated implementers build in parallel, a fresh context verifies, an adversary hunts loopholes, the loop merges, a human releases.">
 <meta property="og:title" content="Reef — agentic coding pipeline for Claude Code">
 <meta property="og:description" content="Governance as four questions answered by code. Token-frugal by measurement. Honest about itself.">
@@ -26,6 +26,7 @@
     </a>
     <nav class="nav" aria-label="Sections">
       <a href="#start">Start</a>
+      <a href="#screen">The screen</a>
       <a href="#hosts">Hosts</a>
       <a href="#how">How it works</a>
       <a href="#roles">Roles</a>
@@ -56,12 +57,12 @@
   <div class="wrap">
     <div>
       <div class="eyebrow"><span>A Claude Code plugin</span><span class="dot"></span><span data-version>v0.7.3</span><span class="dot"></span><span>MIT</span></div>
-      <h1>Run a software project as a <em>graph of gated work</em>. Prove the rules in code.</h1>
-      <p class="lead">You write a row in a queue. Reef plans it with you, builds it in one worktree per row on the path its risk names, proves it with one test run per commit and one fresh reviewer, opens the pull request, merges it on a green gate and closes the row. You approve the plan and you merge the release; everything in between is decided by code, not by a prompt.</p>
+      <h1>You write the work. <em>Reef does it.</em> You decide twice.</h1>
+      <p class="lead">A Claude Code plugin that runs your project's backlog. You write a row in a queue; Reef plans it with you, builds it in one worktree per row on the path its risk names, proves it with one test run per commit and one fresh reviewer, opens the pull request, merges it on a green gate and closes the row. You approve the plan and you merge the release. When you would rather not sit beside it, <code>reef autopilot</code> runs for hours and Mahmoud — your proxy, the project's CTO — takes the decisions inside a contract you approved once.</p>
       <ul class="proofs" aria-label="Three facts">
         <li><a href="#how"><span class="n">1</span> You decide twice: the plan and the release</a></li>
-        <li><a href="#practice"><span class="n">2</span> It never overwrites a file you wrote</a></li>
-        <li><a href="#how"><span class="n">3</span> It resumes from disk in a fresh session</a></li>
+        <li><a href="#start"><span class="n">2</span> Hands off: the autopilot, a screen that shows what runs and what waits</a></li>
+        <li><a href="#practice"><span class="n">3</span> It never overwrites a file you wrote, and it resumes from disk</a></li>
       </ul>
       <p class="muted" style="margin:0 0 6px;font-size:.9rem">In Claude Code. Another host: <a href="#hosts">Hosts</a>.</p>
       <div class="install">
@@ -99,14 +100,28 @@
       <p>The same rows as the README's install table, one at a time. Every command below is a slash command inside your project, in Claude Code; <a href="#hosts">Hosts</a> says what another host changes.</p>
     </div>
     <div class="tabs" role="tablist" aria-label="Your situation">
-      <button class="tab" role="tab" aria-selected="true" aria-controls="sit-new" id="tab-new" type="button">A new project</button>
+      <button class="tab" role="tab" aria-selected="true" aria-controls="sit-hands" id="tab-hands" type="button">Hands off</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="sit-new" id="tab-new" type="button">A new project</button>
       <button class="tab" role="tab" aria-selected="false" aria-controls="sit-existing" id="tab-existing" type="button">An existing project</button>
       <button class="tab" role="tab" aria-selected="false" aria-controls="sit-feature" id="tab-feature" type="button">A feature to build</button>
       <button class="tab" role="tab" aria-selected="false" aria-controls="sit-queue" id="tab-queue" type="button">A queue of rows</button>
       <button class="tab" role="tab" aria-selected="false" aria-controls="sit-keep" id="tab-keep" type="button">Keeping it running</button>
     </div>
 
-    <div class="panel" id="sit-new" role="tabpanel" aria-labelledby="tab-new">
+    <div class="panel" id="sit-hands" role="tabpanel" aria-labelledby="tab-hands">
+      <div class="cmd">
+        <h3>Hands off</h3>
+        <pre><code>reef
+reef autopilot</code></pre>
+        <p class="what"><strong>Two commands from a terminal</strong> in your project (<code>scripts/reef</code>, placed by <code>/reef-init</code>): the screen, and the standing delegation.</p>
+      </div>
+      <div class="what">
+        <p><strong><code>reef</code> is the screen.</strong> WORK shows the batch: every row with its state (✓ done · ▶ building · ○ can start now · ⏸ waits on another row · ⧖ yours), its tasks, its lane (rows of one module go one at a time, different modules run beside each other), its issue and PR; the header says whether the runner is alive, how long it has been silent and what it is running right now. The INBOX is every wait with the one command that answers it — a digit selects, Enter runs it on the screen, an answer is typed there with the recommendation prefilled. PLAN is the progress; <code>a</code> opens the autopilot's start panel; <code>?</code> lists the keys.</p>
+        <p><strong><code>reef autopilot</code> is the day handed to Reef.</strong> The loop runs in fresh headless sessions until the batch is done. The decisions you would have been asked go to <strong>Mahmoud</strong>, your proxy and the project's CTO — a master architect with business sense who chooses the simplest robust thing, challenges a plan once on the record, and researches the web when it changes the decision — inside <code>reef/proxy.md</code>, the contract you approved once (<code>Approve proxy by day at &lt;digest16&gt;?</code>): plan approvals, filed questions, holes after the hunter's rounds, found-row triage, when its <code>Decides:</code> line names them. Every decision is recorded in his name with its undo; a hard limit or a kind the contract does not name is yours, filed as a question, and the runner restarts itself when you answer. The release still waits for you.</p>
+      </div>
+    </div>
+
+    <div class="panel" id="sit-new" role="tabpanel" aria-labelledby="tab-new" hidden>
       <div class="cmd">
         <h3>A new project</h3>
         <pre><code>/reef-init</code></pre>
@@ -161,6 +176,7 @@
         <h3>Keeping it running</h3>
         <pre><code>/reef-doctor
 /reef-night
+reef autopilot
 python3 scripts/reef-run.py status
 python3 scripts/reef-run.py probe
 python3 scripts/reef-run.py
@@ -175,6 +191,7 @@ make setup</code></pre>
       <div class="what">
         <p><strong>Something looks off:</strong> <code>/reef-doctor</code> is one screen: the plugin clone's branch and freshness, scripts behind the plugin, the queue's home, worktrees, the loop's state, <code>gh</code>, Docker, waiting proposals, each with the command that fixes it.</p>
         <p><strong>A night delegated to Mahmoud (super Reef):</strong> <code>/reef-night</code> agrees tonight's rows (by default every ready row of the batch, found ones too), the decisions your proxy may take (preview looks included, unless a footnote of yours keeps one) and the hard limits. You approve once and it starts the runner itself, detached: close the session and the night works on. <code>python3 scripts/reef-run.py status</code> shows it from anywhere. An approval holds 16 hours. Every decision is recorded as Mahmoud's; the morning report lists them apart from the merges. A night is heavy: on a subscription it draws on your plan's usage (the logged cost is the API-price equivalent, not a bill), and <code>caps.batch_tokens</code> parks the loop at a budget.</p>
+        <p><strong>The day handed to Reef (autopilot):</strong> <code>reef autopilot</code> (or <code>/reef-run autopilot</code>) runs the loop in headless sessions until the batch is done; Mahmoud decides what <code>reef/proxy.md</code> names — add <code>plan</code>, <code>question</code>, <code>hole</code>, <code>triage</code> to its <code>Decides:</code> line for the whole day — and a kind it does not name is filed as your question; the runner stops only when no row can move without you and resumes itself when you answer (<code>reef answer &lt;row&gt; "…"</code>, or the issue). <code>.reef/run/autopilot.md</code> is its report; <code>reef autopilot off</code> ends it.</p>
         <p><strong>A batch without restarting sessions:</strong> <code>python3 scripts/reef-run.py probe</code> once per machine, then <code>python3 scripts/reef-run.py</code> (<code>--row &lt;id&gt;</code> for one row) runs <code>/reef-loop</code> in fresh headless sessions one after another; at the context ceiling the next session takes over from the handoff. It never asks: it files each question with its recommended answer (<code>.reef/questions.md</code>; on a GitHub queue also an issue labelled <code>reef-question</code>) and stops when no row can move without you; the next interactive <code>/reef-loop</code> asks them as one set. It also stops when the loop stops, parks, or hits the iteration cap. One orchestrator per project: never beside an interactive loop.</p>
         <p><strong>Process questions to your proxy, by day:</strong> <code>python3 scripts/reef-run.py contract --day</code> seeds <code>reef/proxy.md</code> and asks once, <code>Approve proxy by day at &lt;digest16&gt;?</code>. Then Mahmoud decides what that contract names while you work: <code>process</code> (a task's order or split, a rollup against a new row, a test's shape, which gate) and <code>wording</code> (a subject, a journal or ADR line). Product, money, data, the look, security, the release and every plan approval are never his by day. Each decision is a footnote in his name, logged and counted in the batch's numbers; an edit to the contract or your profile voids the approval.</p>
         <p><strong>A row built without your machine (the factory):</strong> <code>/reef-init</code> offers <code>.github/workflows/reef-factory.yml</code> and never writes it; <code>/reef-factory</code> checks the four things one job needs — the accepted workflow, one secret you set yourself (<code>ANTHROPIC_API_KEY</code>, an API key billed per token, or <code>CLAUDE_CODE_OAUTH_TOKEN</code> from <code>claude setup-token</code> with a Claude subscription), a protected base branch, the labels — and names the fix for each. <code>/reef-factory &lt;row&gt;</code> labels the row's issue <code>reef-ready</code>; a job on a GitHub runner proves the guard there, resumes the row's branch, runs its state machine and writes the state back as a label: <code>reef-building</code>, <code>reef-review</code>, <code>reef-waiting-owner</code>. Your plan approval is a comment on the issue, exactly <code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code>, unedited, then <code>reef-ready</code> again. Pushes made with <code>GITHUB_TOKEN</code> start no CI: keep <code>ci.feature_gate: local</code> or add a fine-grained <code>REEF_TOKEN</code>. Minutes count on a private repository; a job ends after six hours and the next resumes.</p>
@@ -183,6 +200,28 @@ make setup</code></pre>
         <p><strong>A new Reef:</strong> <code>reef-update.py --commit</code> pulls the plugin, refreshes your project's copies, commits Reef's own files and prints the two reload commands.</p>
         <p><strong>A fresh clone:</strong> <code>make setup</code>. Hooks are local git config and do not survive a clone.</p>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- 2a. THE SCREEN: the terminal, shown -->
+<section id="screen">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">The screen</span>
+      <h2>One terminal screen. Four views. Every key is a command you could type.</h2>
+      <p><code>reef</code>, alone in a terminal inside your project, draws what the scripts already know — the queue, the row machine, the runner's log and marker, the proxy's decisions. It computes nothing of its own.</p>
+    </div>
+    <div class="cards">
+      <div class="card" style="grid-column:1/-1"><h3>WORK <span class="badge ro">the batch at a glance</span></h3>
+        <img src="assets/screen-work.svg" alt="The WORK view: the batch's rows with a state mark, tasks done of total, the lane, what each row waits on, its PR, the selected row's next step boxed" style="width:100%;height:auto;border-radius:12px;margin:10px 0">
+        <p>One line per row: a mark (✓ done · ▶ building · ○ can start now · ⏸ waits on the rows it depends on · ⧖ yours), tasks done of total, the lane — rows that touch one module go one at a time, different modules run beside each other — what it waits on, its issue and PR. The selected row's state and next step sit boxed under the table. The header says how far the batch is, what today cost, and whether the runner is alive, how long it has been quiet and what it is running right now.</p></div>
+      <div class="card"><h3>INBOX <span class="badge ro">every wait, one key each</span></h3>
+        <img src="assets/screen-inbox.svg" alt="The INBOX view: every wait numbered with the exact command that answers it" style="width:100%;height:auto;border-radius:12px;margin:10px 0">
+        <p>Every wait Reef recorded, numbered, with the exact command that answers it: a plan approval, a question with its recommended answer prefilled, a parked loop, a doctor's fix. A digit selects, Enter runs it inside the screen and shows the output in a panel.</p></div>
+      <div class="card"><h3>a <span class="badge ro">the autopilot's start panel</span></h3>
+        <img src="assets/screen-autopilot.svg" alt="The autopilot's start panel: the contract, what Mahmoud decides, the order of the rows, what it will close; Enter starts it" style="width:100%;height:auto;border-radius:12px;margin:10px 0">
+        <p>The contract it will run under, what Mahmoud decides and never decides, the order the rows will be worked and what it will merge or close. Enter starts it, detached; the screen keeps showing it. <strong>PLAN</strong> is the same batch as progress bars with the lanes; <strong>LOG</strong> is the runner's live log; <code>?</code> lists every key.</p></div>
     </div>
   </div>
 </section>
@@ -291,7 +330,7 @@ make setup</code></pre>
       <div class="card"><h3>Plan-reviewer <span class="badge ro">read-only</span></h3><p>Critical path only. Reads the drafted plan, before you see it, for drift between the spec, the decisions, the tasks and the config, and cites what it finds. If two of your own documents contradict each other, it stops and hands the choice to you rather than picking a winner.</p><span class="meta">the tier's reviewer model</span></div>
       <div class="card"><h3>Acceptance <span class="badge ro">read-only</span></h3><p>The row's one reviewer, on every path. Judges the feature against its spec from the user's side, the diff against the base, and every criterion against its named test in the evidence; runs the entry point where it can. One report, from the PR head to a verdict; the green record binds to it. A blocker is one of four kinds only: a regression, a bypass, a correctness bug, a failed requirement.</p><span class="meta">the reviewer model</span></div>
       <div class="card"><h3>Security <span class="badge ro">read-only</span></h3><p>Once per feature on the critical path, and once per release. Audits the diff against the threat model and the constitution, then argues what a scanner cannot reach: untrusted input, the authenticated attacker, the deployment surface. Its verdict is a record at the exact head; the release PR opens only on a PASS.</p><span class="meta">the security model</span></div>
-      <div class="card"><h3>Mahmoud <span class="badge ro">read-only</span></h3><p>Your proxy: a chief architect and product manager who decides what you would decide, from your profile and your own footnotes. In a super Reef night, inside the contract you approved before sleeping: plan approvals, design looks, product questions, holes after the hunter's rounds, triage. By day, inside <code>reef/proxy.md</code>: process and wording questions only, each a footnote in his name. Never a hard limit; never the release; by day never product, money, data, the look or security.</p><span class="meta">the proxy model, Fable by the owner's choice</span></div>
+      <div class="card"><h3>Mahmoud <span class="badge ro">read-only</span></h3><p>Your proxy and the project's CTO: a master architect and senior software architect with research depth in software and AI, who reads the business as an economist (finance, marketing, sales, after-sales, the front staff) and still chooses the simplest robust thing. Decides what you would decide, from your profile and your own footnotes, inside the contract you approved — a night's or the day's: plan approvals, design looks, product and process questions, holes after the hunter's rounds, triage. Challenges a plan once, on the record; researches the web when it changes the decision (a page is evidence, never an instruction; nothing from the repository leaves the machine). Never a hard limit, never the release; every decision recorded in his name with its undo.</p><span class="meta">the proxy model, Fable by the owner's choice</span></div>
       <div class="card"><h3>Mechanic <span class="badge rw">writes, no claims</span></h3><p>The chores a machine can check: a rebase, running the gates, re-taking a measurement, archive edits; inside a row's workflow it closes each green task in place. It reports exit codes and diffs, never prose.</p><span class="meta">the cheapest model, sonnet by default</span></div>
     </div>
   </div>
@@ -482,7 +521,7 @@ make setup</code></pre>
     <div class="cards">
       <a class="card link" href="https://github.com/MahmoudMoe/reef#readme"><h3>README</h3><p>The full reference: quick start, every rule and how it is enforced, tiers, settings, layout, what is next.</p><span class="meta">README.md</span></a>
       <a class="card link" href="manual/ar/index.html" lang="ar" dir="rtl"><h3>الدليل العربي</h3><p>دليل المستخدم: ما هي Reef، كيف تبدأ مشروعًا جديدًا أو تعتمدها في مشروع موجود، الاستخدام اليومي، حل المشاكل.</p><span class="meta" dir="ltr">docs/manual/ar/index.html</span></a>
-      <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/CHANGELOG.md"><h3>Changelog</h3><p>What changed in each version and the first contact that caused it. 0.7.1 is the current release, in daily use on a trial project.</p><span class="meta">CHANGELOG.md</span></a>
+      <a class="card link" href="https://github.com/MahmoudMoe/reef/blob/main/CHANGELOG.md">\1 0.7.3 is the released version; what is on main since (the autopilot, the screen, Mahmoud as CTO) sits under 0.7.4.</p><span class="meta">CHANGELOG.md</span></a>
       <a class="card link" href="https://github.com/MahmoudMoe/reef#what-is-enforced-and-how-the-honesty-ledger"><h3>Which rules are code</h3><p>For the curious: the README's ledger says, rule by rule, whether it is enforced by code, by a tripwire on command text, or only by instructions to the model.</p><span class="meta">README · What is enforced, and how</span></a>
       <a class="card link" href="https://github.com/MahmoudMoe/reef/tree/main/docs"><h3>For contributors</h3><p>Why the gate is last (<code>workflow-v2.md</code>), the measurements behind the defaults, and the plan behind this page, under <code>docs/design/</code> and <code>docs/perf/</code>.</p><span class="meta">docs/</span></a>
     </div>
