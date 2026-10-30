@@ -393,6 +393,30 @@ class Decoration(unittest.TestCase):
         self.assertIn("journal block", r.stdout)
         self.assertIn("end of the file", r.stdout)
 
+    def test_a_line_number_in_a_criterion_or_a_decision_is_a_moving_target(self):
+        # 2026-10-30 (row 7 on the current adoption): rounds 4 and 5 of the plan review were one criterion citing AGENTS.md:74
+        # where the sentence had moved to :75 — every plan that touches a file another row edits pays a round. A criterion
+        # names the content; `## Read first` carries the lines (its check greps the symbol)
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp, acs="- AC-1 (FR-1): test_bar keeps AGENTS.md:74's sentence about the bar\n- AC-2 (FR-1): test_heading says the heading `## The bar` names rule 17")
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("AC 1 cites AGENTS.md:74", r.stdout)
+        self.assertIn("moving target", r.stdout)
+        self.assertNotIn("AC 2 cites", r.stdout, "a heading is content, not a line")
+        repo(tmp, acs="- AC-1 (FR-1): test_bar keeps the sentence about the bar in AGENTS.md")
+        p = os.path.join(tmp, "tasks", "001-demo.md")
+        with open(p) as f:
+            t = f.read()
+        with open(p, "w") as f:
+            f.write(t.replace("## Acceptance Criteria", "## Decision\nkeep src/lib/tier.ts:40-52 as the exemption\n\n## Acceptance Criteria"))
+        r = run(tmp)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("## Decision cites src/lib/tier.ts:40-52", r.stdout)
+        with open(p, "w") as f:
+            f.write(t)
+        self.assertEqual(run(tmp).returncode, 0, "a criterion that names the content passes: " + run(tmp).stdout)
+
     def test_adr_status_line_is_outside_the_digest(self):
         # 2026-10-17: "Status: Accepted (number at merge)" written after the gate voided two approvals
         tmp = tempfile.mkdtemp(prefix="reef-pc.")
