@@ -219,6 +219,33 @@ class TheScreen(unittest.TestCase):
         self.assertIn("python3 scripts/reef-queue.py footnote yes --row 4", once, "--once still lists every command")
         self.assertIn("re-takes them' --row 7", once, "--once wraps a long command, never cuts it")
 
+    def test_the_screen_draws_characters_tails_an_idle_runner_and_lists_the_runners_own_waits(self):
+        """2026-10-30, the owner's first screen on his project: lines cut at 13 and 33 characters (curses' addnstr counts BYTES, and
+        the banner and rules are three-byte glyphs), the runner's old log filling the screen two hours after the run ended, and an
+        inbox that missed what actually waited on him — the loop active with no runner, and task 403 left in flight."""
+        src = open(ENTRY, encoding="utf-8").read()
+        self.assertNotIn("addnstr", src, "addnstr counts bytes: a three-byte glyph line is cut at a third of the width")
+        mod = load_entry()
+        d = project(**{".reef/loop.json": '{"active": true, "wait": null, "stop": null, "parked": null, "hashes": []}',
+                       ".reef/inflight/403": '{"id": "403", "agent": "implementer"}',   # what the guard wrote at the dispatch, left by the dead session
+                       ".reef/run/live.log": "".join(f"21:{i:02d} s1 → step {i}\n" for i in range(40)) + "21:51 s1 session ended: in flight ['403'] · 1863.1 s · $6.11\n"})
+        mod.runner_view = lambda root: (0, 0, "")   # no runner is running
+        items = mod.inbox(d)
+        kinds = [i["kind"] for i in items]
+        self.assertIn("release", kinds, "work left in flight by the last run is an item\n" + str(kinds))
+        self.assertIn("python3 scripts/reef-run.py release 403", [i["cmd"] for i in items])
+        self.assertIn("run", kinds, "the loop is active and no runner runs: starting it is an item")
+        self.assertIn("python3 scripts/reef run", [i["cmd"] for i in items])
+        self.assertLess(kinds.index("release"), kinds.index("run"), "the leftover first: a restart would wait on it")
+        model = mod.screen_model(d)
+        lines, _ = mod.render(model, width=100, height=40, selected=0)
+        runner = lines[lines.index("RUNNER  the last steps · w follows live"):]
+        runner = runner[:next((i for i, l in enumerate(runner) if l.startswith(("DOCTOR", "─"))), len(runner))]
+        self.assertLessEqual(len(runner), 8, "an idle runner's log is a tail of a few steps, not the screen\n" + "\n".join(runner))
+        self.assertTrue(runner[-1].startswith("  (the run ended"), "and the tail ends by saying so\n" + "\n".join(runner))
+        os.unlink(os.path.join(d, ".reef", "inflight", "403"))
+        self.assertNotIn("release", [i["kind"] for i in mod.inbox(d)], "released: the item leaves with the marker (one source)")
+
     def test_an_empty_project_has_only_the_doctors_fixes_in_its_inbox(self):
         d = project()
         r = reef("screen", "--once", "--repo", d)

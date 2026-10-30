@@ -395,14 +395,48 @@ class Loop(unittest.TestCase):
         self.assertEqual(run(self.d, ["stop:batch 2 released"]).returncode, 0)
         self.assertEqual(run(self.d, ["park:no progress"]).returncode, 3)
         r = run(self.d, ["flight:302"])
-        self.assertEqual(r.returncode, 3)
+        self.assertEqual(r.returncode, 2, "a marker that names no session: the owner decides, with the command (2026-10-30)\n" + r.stdout)
         self.assertIn("work in flight (302)", r.stdout)
+        self.assertIn("python3 scripts/reef-run.py release 302", r.stdout, "the way out is named")
         # a marker older than loop.inflight_stale_minutes is a returned agent, not running work (2026-10-21)
         old = os.path.join(self.d, ".reef", "inflight", "302")
         os.utime(old, (os.path.getmtime(old) - 2 * 3600,) * 2)
         r = run(self.d, ["none", "none", "none"], "--max-iterations", "2")
         self.assertEqual(r.returncode, 4)
         self.assertIn("2 sessions, the iteration cap", r.stdout)
+
+    def test_a_dead_sessions_in_flight_marker_is_released_and_a_live_one_names_the_release(self):
+        """2026-10-30, the owner: task 403's 85-minute run died with its session; the runner stopped "so nothing runs twice" and
+        named no way out. The marker names the session's process now (the guard writes its pid): a dead session's marker is
+        released by the runner itself and the task retries in the next session; a live one is real work — the runner stops and
+        names `reef-run.py release <id>` for when the owner knows it is not running; `release` removes the marker."""
+        gone = subprocess.Popen([sys.executable, "-c", "pass"]); gone.wait()
+        mk = os.path.join(self.d, ".reef", "inflight")
+        os.makedirs(mk, exist_ok=True)
+        with open(os.path.join(mk, "403"), "w") as f:
+            json.dump({"id": "403", "pid": gone.pid, "agent": "implementer"}, f)
+        vk = os.path.join(self.d, ".reef", "verifying"); os.makedirs(vk, exist_ok=True)
+        with open(os.path.join(vk, "404"), "w") as f:
+            json.dump({"id": "404", "pid": gone.pid, "agent": "verifier"}, f)   # a verifier's marker is released the same way (the review)
+        r = run(self.d, ["none:x", "stop:done"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(len(calls(self.d)), 2, "the next session ran: the markers were a dead session's")
+        self.assertFalse(os.path.exists(os.path.join(mk, "403")))
+        self.assertFalse(os.path.exists(os.path.join(vk, "404")))
+        live = open(os.path.join(self.d, ".reef", "run", "live.log")).read()
+        self.assertIn("released in-flight 403", live)
+        with open(os.path.join(mk, "403"), "w") as f:
+            json.dump({"id": "403", "pid": os.getpid(), "agent": "implementer"}, f)   # this test stands in for a live session
+        open(os.path.join(self.d, ".fake-calls"), "w").write("")
+        r = run(self.d, ["none:x", "stop:done"])
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertEqual(len(calls(self.d)), 1, "live work: nothing runs twice")
+        self.assertIn("python3 scripts/reef-run.py release 403", r.stdout)
+        r = run(self.d, [], "release", "403")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(mk, "403")), "release removes the marker")
+        self.assertIn("403", r.stdout)
+        self.assertEqual(run(self.d, [], "release", "403").returncode, 1, "nothing to release: says so")
 
     def test_the_owner_sees_each_step_live_in_the_terminal_the_log_and_the_status_page(self):
         # 2026-10-21: the owner watched a silent terminal through a night session — "I cannot see any progress"
@@ -504,9 +538,32 @@ class NormalRound(unittest.TestCase):
 
     def test_two_sessions_on_the_same_wait_stop_the_runner(self):
         r = run(self.d, ["wait:/clear requested — row 3 blocked, same handoff", "wait:/clear requested — row 3 blocked, same handoff", "stop:never"])
-        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertEqual(r.returncode, 2, "no progress is a question for the owner, told to the desk — not a silent exit (2026-10-30)\n" + r.stdout + r.stderr)
         self.assertEqual(len(calls(self.d)), 2, "no third session when two in a row changed nothing")
         self.assertIn("no progress", r.stdout)
+        q = open(os.path.join(self.d, ".reef", "questions.md")).read()
+        self.assertIn("- row 3: the loop made no progress", q, "filed on the row the wait names, where the screen shows it and `reef answer 3` clears it")
+        open(os.path.join(self.d, ".fake-calls"), "w").write("")
+        r = run(self.d, ["wait:/clear requested — row 3 blocked, same handoff", "wait:/clear requested — row 3 blocked, same handoff", "stop:never"])
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(open(os.path.join(self.d, ".reef", "questions.md")).read().count("made no progress"), 1, "a restart on the same stuck wait: filed once, and the restart cleared the old notice first")
+        open(os.path.join(self.d, ".fake-calls"), "w").write("")
+        self.assertEqual(run(self.d, ["stop:done"]).returncode, 0)
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "questions.md")), "a runner that starts and runs clears the notice: it has served")
+        # a project with the queue script: the question goes through `reef-queue.py ask` (an issue too, on an issues queue); a refusal falls back to the line
+        os.makedirs(os.path.join(self.d, "scripts"), exist_ok=True)
+        stub = os.path.join(self.d, "scripts", "reef-queue.py")
+        open(stub, "w").write("import json, sys\nopen('.ask-argv', 'a').write(json.dumps(sys.argv[1:]) + '\\n')\nsys.exit(int(open('.ask-rc').read()) if __import__('os').path.exists('.ask-rc') else 0)\n")
+        open(os.path.join(self.d, ".fake-calls"), "w").write("")   # the notice is gone already: the last run cleared it
+        r = run(self.d, ["wait:/clear requested — stuck", "wait:/clear requested — stuck"])
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        argv = json.loads(open(os.path.join(self.d, ".ask-argv")).read().splitlines()[-1])
+        self.assertEqual(argv[0], "ask"); self.assertIn("no progress", argv[1]); self.assertIn("--recommended", argv)
+        self.assertNotIn("--row", argv, "a wait that names no row: a row-less question")
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "questions.md")), "the queue filed it: no second line here")
+        open(os.path.join(self.d, ".ask-rc"), "w").write("1"); open(os.path.join(self.d, ".fake-calls"), "w").write("")
+        r = run(self.d, ["wait:/clear requested — stuck", "wait:/clear requested — stuck"])
+        self.assertIn("no progress", open(os.path.join(self.d, ".reef", "questions.md")).read(), "the queue refused: the line is written here")
         open(os.path.join(self.d, ".fake-calls"), "w").write("")
         r = run(self.d, ["wait:/clear requested — step one", "wait:/clear requested — step two", "stop:done"])
         self.assertEqual(r.returncode, 0, "a different handoff is progress: " + r.stdout)

@@ -248,6 +248,20 @@ def inbox(root, doctor=None, runner=None):
         else:   # an issues queue, a line from before 0.7.4, and gh could not name the issue: the look that finds it (never silence)
             add(item("look", text + " — its reef-question issue is not named here", ["gh", "issue", "list", "--label", "reef-question", "--search", f"row {r}"],
                      shown=f'gh issue list --label reef-question --search "row {r}"', row=r))
+    # the runner's own waits (2026-10-30, the owner's first screen: the loop active with no runner, task 403 left in flight — neither was an item)
+    pid_, spid_, _ = runner if runner is not None else runner_view(root)
+    if not pid_ and spid_ <= 0:
+        mod = load_sibling("reef-run.py", "reef_run_for_screen")   # the runner's own reading of what is in flight — one source; the item leaves with the marker
+        try:
+            flying = list(mod.in_flight(root)) if mod is not None else []
+        except Exception:
+            flying = []
+        for t in flying:
+            if re.fullmatch(r"R?\d+", str(t)):
+                add(item("release", f"task {t} is marked in flight by the last run — when its work is not running, release it (the next run dispatches it again)",
+                         [PY, script("reef-run.py") or "scripts/reef-run.py", "release", str(t), "--repo", root], shown=f"python3 scripts/reef-run.py release {t}"))
+        if st.get("active") and not st.get("wait") and not st.get("parked") and not st.get("stop"):
+            add(item("run", "the loop is active and no runner is running — start it", [PY, os.path.abspath(__file__), "run", "--repo", root], shown="python3 scripts/reef run"))
     if st.get("parked"):
         add(item("unpark", f"the loop parked: {str(st['parked'])[:100]}", [PY, script("reef-loop.py") or "scripts/reef-loop.py", "start", "--repo", root],
                  shown="python3 scripts/reef-loop.py start"))
@@ -302,6 +316,8 @@ def screen_model(root, doctor=None, runner=None):
     except OSError:
         steps = []
     warns = [l for l in (doctor or []) if l.startswith(("WARN", "FAIL"))]
+    if not pid and spid <= 0 and steps:   # no run of ours is alive: a tail of the log and that it ended, not the screen (2026-10-30)
+        steps = steps[-5:] + ["(the run ended · w for the whole log)"]
     return {"facts": facts, "items": inbox(root, doctor, runner), "steps": steps, "warns": warns, "doctor": doctor is not None}
 
 
@@ -458,7 +474,8 @@ def screen_loop(stdscr, root, curses):
         for y, line in enumerate(lines[:h]):
             attr = curses.A_REVERSE if y == sel_line else (curses.A_BOLD if y < len(BLOCK) else curses.A_NORMAL)
             try:
-                stdscr.addnstr(y, 0, line if utf else line.encode("ascii", "replace").decode("ascii"), w - 1, attr)
+                text = (line if utf else line.encode("ascii", "replace").decode("ascii"))[:w - 1]   # characters: curses' counted write measures bytes, and the glyphs are three (2026-10-30)
+                stdscr.addstr(y, 0, text, attr)
             except (curses.error, UnicodeEncodeError):
                 pass
         stdscr.refresh()

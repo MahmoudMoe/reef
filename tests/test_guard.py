@@ -469,6 +469,8 @@ class DispatchGuard(unittest.TestCase):
         elsewhere = tempfile.mkdtemp(prefix="reef-guard-elsewhere.")
         r = dispatch(elsewhere, f"REEF-TASK: {p}\nimplement")
         self.assertEqual(r.returncode, 0, r.stderr)
+        marker = json.load(open(os.path.join(elsewhere, ".reef", "inflight", "7")))
+        self.assertEqual(marker.get("pid"), os.getpid(), "the marker names the session's process (the hook's parent) — the runner releases a dead one (2026-10-30)")
 
     def test_non_utf8_task_fails_closed(self):
         p = make_task(self.dir)
@@ -963,7 +965,7 @@ class TheEntryPointAndTheRunnerAreTheOwners(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
 
     def test_a_sub_agent_never_takes_the_loop(self):
-        for cmd in ("python3 scripts/reef-run.py --detach", "python3 scripts/reef-run.py --night --detach", "python3 scripts/reef-loop.py unlock",
+        for cmd in ("python3 scripts/reef-run.py release 403", "python3 scripts/reef-run.py --detach", "python3 scripts/reef-run.py --night --detach", "python3 scripts/reef-loop.py unlock",
                     "cd /x && python3 /x/scripts/reef-run.py --max-iterations 3"):
             with self.subTest(cmd=cmd):
                 r = run_guard({"tool_name": "Bash", "cwd": self.d, "agent_id": "a1", "agent_type": "reef:implementer", "tool_input": {"command": cmd}})

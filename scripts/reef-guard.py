@@ -1307,7 +1307,7 @@ def _check_dispatch(tool_input, payload):
                          f"is the owner's decision at the gate (`reef-adversarial <task> plan --decided <mark>` on his footnote), "
                          f"or an AC whose Proof row the code proves")
                 return
-            write_marker(troot, sub, "verifying", {"id": fm.get("id", "?"), "task": os.path.abspath(path), "tier": tier})
+            write_marker(troot, sub, "verifying", {"id": fm.get("id", "?"), "task": os.path.abspath(path), "tier": tier, "pid": os.getppid()})   # its session, for the runner
         return
     m = re.search(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", prompt, re.M)
     if not m:
@@ -1369,8 +1369,8 @@ def _check_dispatch(tool_input, payload):
         # every check passed: the odometer moves and the task becomes in-progress as
         # part of the dispatch itself (it now holds its resources and a parallel slot)
         bump_dispatches(path, text, dispatches, mark_in_progress=(fm.get("status", "pending") != "in-progress"))
-        write_marker(root, sub, "inflight", {"id": fm.get("id", "?"), "task": os.path.abspath(path),
-                                             "feature": fm.get("feature", ""), "tier": task_tier(fm)})
+        write_marker(root, sub, "inflight", {"id": fm.get("id", "?"), "task": os.path.abspath(path), "pid": os.getppid(),   # the session's process: a dead one
+                                             "feature": fm.get("feature", ""), "tier": task_tier(fm)})                       # releases its marker (reef-run.py)
 
 
 # ---------------- 0.6: the guard guards itself (Edit/Write/MultiEdit) ----------------

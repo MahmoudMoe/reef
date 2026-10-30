@@ -10,6 +10,7 @@ Not a long session moved to the background: that one re-reads a full context at 
 
 1. `python3 scripts/reef-run.py status`. A live runner, or `$ARGUMENTS` = `status`: report it and stop. A recorded wait in `.reef/loop.json` is not a reason to hold back (2026-10-28: the skill refused to start on a wait the owner had already answered): the runner's first session clears it and asks the row machine; only a live runner stops this step.
 2. `$ARGUMENTS` = `stop`: `python3 scripts/reef-run.py stop` (it ends after its current session, never mid-merge). Report and stop.
+2b. `$ARGUMENTS` = `autopilot`: `python3 scripts/reef-run.py --autopilot --detach` — the runner on its own under the approved `reef/proxy.md` (it refuses, naming the one approval question, when the contract is not approved); `autopilot off` is `stop`. Report the pid and stop.
 3. No ok for auto mode in `.reef/run/gate.json`: `python3 scripts/reef-run.py probe --permission-mode auto` first; a failed probe stops here.
 4. `python3 scripts/reef-run.py --detach` (`--max-iterations <n>` when `$ARGUMENTS` is a number). It refuses before detaching, or returns the runner's pid.
 5. No loop work in this session afterwards: the runner's sessions hold the project.
