@@ -541,3 +541,60 @@ class TheScreen(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("screen", r.stdout, "the menu names the screen")
         self.assertNotIn("INBOX", r.stdout, "no terminal: the menu, not the screen")
+
+
+class TheScreenNeverFreezes(unittest.TestCase):
+    """2026-10-31 03:05, the owner's first run of the fourth screen on an issues queue: "nothing works and still in black and white"
+    — the board asked the row machine about every row, one subprocess after another, on the UI thread; the first frame stayed for
+    minutes and the keys were dead. Now every reading runs in a thread, the rows are read four at a time, and q works at once."""
+
+    def test_the_rows_are_read_in_parallel_and_the_keys_work_while_the_board_loads(self):
+        import time as _t
+        mod = load_entry()
+        d = project(**{"docs/queue.md": "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n"
+                                        + "".join(f"| {i} | row {i} (src/m{i}) | | planned | 1 | |\n" for i in range(1, 9))})
+        mod.row_state = lambda root, row: (_t.sleep(0.25), {"row": str(row), "state": "plan", "next": "", "detail": ""})[1]
+        t0 = _t.time(); wm = mod.work_model(d); dt = _t.time() - t0
+        self.assertEqual(len(wm["rows"]), 8); self.assertLess(dt, 1.2, f"eight rows at 0.25 s each took {dt:.2f} s: not in parallel")
+        self.assertEqual(mod.BOARD["done"], 8)
+        # the loop: a slow board, a slow doctor — the placeholder frame is drawn, q quits at once
+        class FC:
+            A_REVERSE, A_BOLD, A_NORMAL = 1, 2, 0
+            error = Exception
+            def curs_set(self, *_): pass
+            def flushinp(self): pass
+            def update_lines_cols(self): pass
+            def has_colors(self): return False
+        class FW:
+            def __init__(self, keys): self.keys = list(keys); self.rows = []; self.timeouts = []
+            def getmaxyx(self): return (40, 120)
+            def timeout(self, ms): self.timeouts.append(ms)
+            def erase(self): pass
+            def refresh(self): pass
+            def addstr(self, y, x, text, *a): self.rows.append(text)
+            def getch(self): return self.keys.pop(0) if self.keys else ord("q")
+        mod.work_model = lambda root, runner=None: (_t.sleep(3), {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": _t.time()})[1]
+        mod.doctor_lines = lambda root: (_t.sleep(3), [])[1]
+        win = FW([-1, -1, ord("q")])
+        t0 = _t.time(); self.assertEqual(mod.screen_loop(win, d, FC()), 0); dt = _t.time() - t0
+        self.assertLess(dt, 1.5, f"q took {dt:.2f} s while the board loaded: the UI thread ran a reading")
+        self.assertTrue(any("reading the" in r for r in win.rows), "the placeholder frame says what it waits for")
+        self.assertTrue(any("keys work" in r for r in win.rows))
+        self.assertIn(400, win.timeouts, "while a reading runs the screen redraws often")
+        self.assertTrue(mod.QUIT.is_set(), "q sets QUIT")
+        self.assertFalse([t for t in __import__("threading").enumerate() if not t.daemon and t is not __import__("threading").main_thread()],
+                         "no non-daemon thread outlives the screen: q returns the prompt at once (the review: an executor's workers would hold the exit)")
+        # the row readers stop at QUIT: eight slow rows, QUIT set after the first wave — read_rows returns at once with what it has
+        mod.QUIT.clear(); seen = []
+        def slow(rid):
+            seen.append(rid); _t.sleep(0.2); mod.QUIT.set(); return {}
+        t0 = _t.time(); out = mod.read_rows([str(i) for i in range(8)], slow); dt = _t.time() - t0
+        self.assertLess(dt, 0.6, f"the readers kept taking rows after QUIT: {dt:.2f} s"); self.assertLessEqual(len(out), 4)
+        mod.QUIT.clear()
+        # a reading that raises is shown, not swallowed into "reading …" forever
+        mod.work_model = lambda root, runner=None: (_ for _ in ()).throw(RuntimeError("the queue file is not a table"))
+        mod.doctor_lines = lambda root: []
+        win = FW([-1, -1, -1, ord("q")])
+        self.assertEqual(mod.screen_loop(win, d, FC()), 0)
+        self.assertTrue(any("reading failed" in r and "RuntimeError" in r for r in win.rows), "the error is on the screen\n" + "\n".join(win.rows[-12:]))
+
