@@ -441,6 +441,19 @@ def write_text(path, text):
         f.write(text)
 
 
+def resume_runner(root):
+    """A decision continues the loop (owner-hands-off step 1, 2026-10-31): the runner, if it had stopped on this, starts again."""
+    runner = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-run.py")
+    if not os.path.isfile(runner) or os.environ.get("REEF_NO_RESUME") == "1":
+        return
+    try:
+        r = subprocess.run([sys.executable, runner, "resume", "--repo", root], capture_output=True, text=True, timeout=150)
+    except (OSError, subprocess.TimeoutExpired):
+        return
+    if r.returncode == 0:   # only a start is news; a refusal (running, never ran, stopped) is the runner's business, and the mark stays the last line
+        print(((r.stdout or "").strip().splitlines() or [""])[-1])
+
+
 def cmd_footnote(root, text, row_id):
     """The owner's decision as the next footnote, one sequence across the queue and its archive, dated today. These
     were hand-written by the orchestrator as inline Python (first full loop, 2026-10-17: `assistant:tool_use` was the
@@ -473,6 +486,8 @@ def cmd_footnote(root, text, row_id):
             die(f"no row {row_id} in the queue", 1)
         q = q[:m.start()] + m.group(1) + m.group(2).rstrip() + mark + m.group(3) + q[m.end():]
     write_text(qpath, q)
+    if row_id:
+        resume_runner(root)   # the owner's word on a row: the runner that waited on it starts again (said before the mark, which stays last)
     print(mark)
     return 0
 
@@ -1025,6 +1040,7 @@ def cmd_answered(root, number, answer):
     for r, issue, q, _ in questions(root):
         if issue == n and not gone:
             gone += drop_question(root, row=r, question=q)
+    resume_runner(root)
     print(f"#{n}\tanswered" + (" · its line left .reef/questions.md" if gone else ""))
     return 0
 

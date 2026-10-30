@@ -299,7 +299,7 @@ def main(argv):
         props += [os.path.relpath(os.path.join(dp, f), pdir) for f in fn if not f.endswith(".diff")]
     if props:
         say("WARN", f"proposals: {len(props)} rendering(s) waiting ({props[0]}{'…' if len(props) > 1 else ''}; --keep instead of --accept keeps yours)",
-            f"python3 scripts/reef-init.py --accept {props[0]}")
+            f"python3 {plugin}/scripts/reef-init.py --root {root} --accept {props[0]}")   # a project has no scripts/reef-init.py (2026-10-31)
     else:
         say("OK", "proposals: none")
     for l in LINES[:40]:

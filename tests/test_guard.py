@@ -965,13 +965,14 @@ class TheEntryPointAndTheRunnerAreTheOwners(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
 
     def test_a_sub_agent_never_takes_the_loop(self):
-        for cmd in ("python3 scripts/reef-run.py release 403", "python3 scripts/reef-run.py --detach", "python3 scripts/reef-run.py --night --detach", "python3 scripts/reef-loop.py unlock",
+        for cmd in ("python3 scripts/reef-run.py release 403", "python3 scripts/reef-run.py resume", "python3 scripts/reef approve 9", "python3 scripts/reef answer 7 x",
+                    "python3 scripts/reef run", "python3 scripts/reef autopilot", "python3 scripts/reef-run.py --detach", "python3 scripts/reef-run.py --night --detach", "python3 scripts/reef-loop.py unlock",
                     "cd /x && python3 /x/scripts/reef-run.py --max-iterations 3"):
             with self.subTest(cmd=cmd):
                 r = run_guard({"tool_name": "Bash", "cwd": self.d, "agent_id": "a1", "agent_type": "reef:implementer", "tool_input": {"command": cmd}})
                 self.assertEqual(r.returncode, 2, "NOT DENIED: " + cmd)
                 self.assertIn("owner", r.stderr)
-        for cmd in ("python3 scripts/reef-run.py status", "python3 scripts/reef-run.py watch", "python3 scripts/reef-loop.py tick"):
+        for cmd in ("python3 scripts/reef-run.py status", "python3 scripts/reef-run.py watch", "python3 scripts/reef-loop.py tick", "python3 scripts/reef status", "python3 scripts/reef doctor"):
             with self.subTest(cmd=cmd):
                 r = run_guard({"tool_name": "Bash", "cwd": self.d, "agent_id": "a1", "agent_type": "reef:implementer", "tool_input": {"command": cmd}})
                 self.assertEqual(r.returncode, 0, f"FALSE POSITIVE: {cmd}\n{r.stderr}")

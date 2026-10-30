@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **A decision continues the loop** (docs/design/owner-hands-off.md step 1, 2026-10-31): `reef-run.py resume` starts the runner
+  again, detached, in the mode of its last run (the loop or the autopilot; a night is one approval) — unless it is running, a
+  Claude session holds the loop (it continues itself), the loop is stopped or parked, or `REEF_NO_RESUME=1`. The screen's Enter
+  on an approval or an answer, `reef approve`, `reef answer`, a typed `reef-approval.py --owner` call it; the stop's block
+  says so instead of "then start the runner again". The run record names its mode. The doctor's proposals fix names the
+  plugin's `reef-init.py --root <root> --accept <file>` — a project has no `scripts/reef-init.py` (the owner pressed it). tests/size-budget.json raised: `script_lines` 17,541 → 17,644.
 - **The runner never stops dead** (docs/design/owner-hands-off.md step 2; 2026-10-30, the owner: task 403's 85-minute run died
   with its session and the runner stopped "so nothing runs twice", naming no way out). The guard's in-flight marker names the
   session's process; at a session's end the runner releases a dead session's marker itself ("released in-flight 403 … the task

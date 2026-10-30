@@ -671,6 +671,52 @@ class NormalRound(unittest.TestCase):
         self.assertIn('gh issue list --label reef-question --search "row 7"', r.stdout, "gh failing: the look, not silence")
         self.assertNotIn("answered 90", r.stdout)
 
+    def test_a_decision_restarts_the_runner_that_stopped_on_it(self):
+        """docs/design/owner-hands-off.md step 1 (2026-10-31): the runner stopped on the owner's decision; once the decision is
+        recorded, `reef-run.py resume` starts it again in the same mode — unless it is running, a Claude session holds the loop
+        (it continues itself), the loop is stopped or parked, the last run was a night (one approval), or REEF_NO_RESUME=1."""
+        r = run(self.d, ["wait:owner: the gate: Approve plan demo-row at 0123456789abcdef?", "stop:done"])
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("starts again by itself", r.stdout, "the block says the runner resumes on the decision — nobody types --detach")
+        rec = json.loads(open(os.path.join(self.d, ".reef", "run", "run.log")).read().splitlines()[-1])
+        self.assertEqual(rec.get("mode"), "loop", "the run record names its mode, so resume knows the flags")
+        env = dict(os.environ, PATH=os.path.join(self.d, ".bin") + os.pathsep + os.environ["PATH"], REEF_NOTIFY="0")
+        env.pop("REEF_NO_RESUME", None)   # the suite sets it (tests/run.sh); this test is the one that resumes
+        r = subprocess.run([sys.executable, RUN, "resume", "--repo", self.d], capture_output=True, text=True, env=dict(env, REEF_NO_RESUME="1"))
+        self.assertEqual(r.returncode, 3); self.assertIn("REEF_NO_RESUME", r.stdout)
+        with open(os.path.join(self.d, ".reef", "run", "orchestrator.json"), "w") as f:
+            json.dump({"session": "live1234", "at": time.time(), "pid": os.getpid()}, f)   # an interactive session holds the loop
+        r = subprocess.run([sys.executable, RUN, "resume", "--repo", self.d], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 3, r.stdout); self.assertIn("holds the loop", r.stdout)
+        os.unlink(os.path.join(self.d, ".reef", "run", "orchestrator.json"))
+        r = subprocess.run([sys.executable, RUN, "resume", "--repo", self.d], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("starts again", r.stdout)
+        lock = os.path.join(self.d, ".reef", "run", "lock")
+        for _ in range(200):   # the detached runner runs the fake's next step (stop:done) and ends
+            if calls(self.d)[-1:] == ["stop:done"] and not os.path.exists(lock):
+                break
+            time.sleep(0.1)
+        self.assertEqual(calls(self.d), ["wait:owner: the gate: Approve plan demo-row at 0123456789abcdef?", "stop:done"], "the resumed runner ran the next session")
+        r = subprocess.run([sys.executable, RUN, "resume", "--repo", self.d], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 3, r.stdout); self.assertIn("stopped", r.stdout, "a stopped loop is not resumed: reef-loop.py start is the owner's word")
+        # the reviews: the mode comes from guarded state, not run.log; a night is not resumed; the owner's stop is not undone; a failed child is a refusal
+        open(os.path.join(self.d, ".reef", "loop.json"), "w").write('{"active": true, "wait": "owner: x", "stop": null, "parked": null, "hashes": []}')
+        with open(os.path.join(self.d, ".reef", "run", "run.log"), "a") as f:
+            f.write(json.dumps({"iteration": 9, "at": "2026-10-31T00:00:00Z", "wait": "owner: x", "in_flight": [], "mode": "autopilot", "stop_requested": False}) + "\n")
+        with open(os.path.join(self.d, ".reef", "night", "last-mode.json"), "w") as f:
+            json.dump({"mode": "night"}, f)
+        r = subprocess.run([sys.executable, RUN, "resume", "--repo", self.d], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 3); self.assertIn("a night", r.stdout, "the guarded last mode wins over a forged run.log")
+        with open(os.path.join(self.d, ".reef", "night", "last-mode.json"), "w") as f:
+            json.dump({"mode": "autopilot"}, f)
+        r = subprocess.run([sys.executable, RUN, "resume", "--repo", self.d], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 3, r.stdout); self.assertIn("not resuming", r.stdout); self.assertIn("standing contract", r.stdout, "autopilot without the contract: the child's refusal, not a false 'starts again'")
+        with open(os.path.join(self.d, ".reef", "run", "run.log"), "a") as f:
+            f.write(json.dumps({"iteration": 10, "at": "2026-10-31T00:01:00Z", "wait": "/clear requested", "in_flight": [], "mode": "loop", "stop_requested": True}) + "\n")
+        r = subprocess.run([sys.executable, RUN, "resume", "--repo", self.d], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 3); self.assertIn("your stop", r.stdout, "the owner's stop is never undone by a decision")
+
     def test_a_missing_night_approval_names_the_two_commands(self):
         os.makedirs(os.path.join(self.d, ".reef", "night"), exist_ok=True)
         os.makedirs(os.path.join(self.d, "reef"), exist_ok=True)

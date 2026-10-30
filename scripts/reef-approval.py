@@ -301,7 +301,8 @@ def cmd_proxy_day(argv):
     except OSError:
         pass
     here = os.path.dirname(os.path.abspath(__file__))
-    r = subprocess.run([sys.executable, os.path.join(here, "reef-queue.py"), "footnote", note, "--row", row, "--repo", root], capture_output=True, text=True, cwd=root)
+    r = subprocess.run([sys.executable, os.path.join(here, "reef-queue.py"), "footnote", note, "--row", row, "--repo", root], capture_output=True, text=True, cwd=root,
+                       env=dict(os.environ, REEF_NO_RESUME="1"))   # the proxy decides while the runner runs: nothing to resume
     if r.returncode != 0:
         return refuse(f"the footnote was refused: {(r.stderr or r.stdout).strip().splitlines()[-1][:200] if (r.stderr or r.stdout).strip() else r.returncode}")
     mark = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
@@ -315,7 +316,7 @@ def cmd_proxy_day(argv):
         for r_, issue, _, _ in questions(root):
             if r_ == row and issue:
                 subprocess.run([sys.executable, os.path.join(here, "reef-queue.py"), "answered", issue, f"Mahmoud (proxy, day): {dec.group('a').strip()}", "--repo", root],
-                               capture_output=True, text=True, cwd=root)
+                               capture_output=True, text=True, cwd=root, env=dict(os.environ, REEF_NO_RESUME="1"))
     drop_question(root, row=row)
     print(f"reef-approval: day, row {row} ({kind}): footnote {mark} — {note[:120]}")
     return 0
@@ -457,7 +458,7 @@ def main(argv):
         ti = payload.get("tool_input") or {}
         answers = ti.get("answers") if isinstance(ti.get("answers"), dict) else {}
     root = root or main_checkout(payload.get("cwd") or os.getcwd())
-    wrote = 0
+    wrote, plan_wrote = 0, 0
     for question, label in answers.items():
         dq = DAY_Q.match(str(question).strip())
         if dq:
@@ -532,8 +533,14 @@ def main(argv):
         if gone:
             print(f"reef-approval: {feature}: {gone} filed question(s) answered by this approval cleared from .reef/questions.md (its reef-question issue closed)")
         wrote += 1
+        plan_wrote += 1
     if not wrote and not answers:
         print("reef-approval: no answers in the payload — nothing written")
+    if owner and plan_wrote:   # a PLAN approval typed in a terminal: the runner that stopped on it starts again (step 1, 2026-10-31); a hook's answer is
+        try:                   # a session's own; a night's or the day contract's approval is the start of its own run, not a decision the loop waited on
+            runner().cmd_resume(root)
+        except Exception as e:   # never the approval's failure
+            print(f"reef-approval: the runner was not resumed: {e}")
     return 1 if owner and not wrote else 0
 
 

@@ -17,6 +17,7 @@ Usage (the owner's terminal, in the project's main checkout):
                first); the probe and the gate are per host (`probe --host opencode`)
   reef-run.py watch [--repo DIR]   the live steps of the run in progress, then the runner's last word when it ends (2 = waiting on you)
   reef-run.py status [--repo DIR]  one look: running or not, the night, the last steps and the last session
+  reef-run.py resume [--repo DIR]   after a decision: start the runner again in its last mode, unless it runs, a session holds the loop, or the loop is stopped/parked
   reef-run.py release <task> [--repo DIR]  remove the task's in-flight marker when its work is not running (the next run dispatches it again)
   reef-run.py stop [--repo DIR]    (0.7.1) the running runner ends after its current session (never mid-merge); a session
       the runner left behind (the runner died, its `claude -p` did not — 2026-10-29) is ended now, TERM then KILL, and
@@ -399,7 +400,7 @@ def cmd_watch(root):
     spid, since = session_record(root)
     what = ("the runner ended" if ran else "no runner is running") + (f"; its session {spid} still runs since {since} — python3 scripts/reef-run.py stop ends it" if spid > 0 else "")
     how = (" — waiting on you: `python3 scripts/reef` shows every wait with its command" if owner_wait(wait)
-           else " — start it again: python3 scripts/reef-run.py --detach" if wait else "")
+           else " — it starts again by itself when you decide; python3 scripts/reef run starts it now" if wait else "")
     print(f"reef-run: {what}{how}", flush=True)
     return 2 if owner_wait(wait) else 0
 
@@ -454,6 +455,73 @@ def in_flight(root):
     return sorted({m["id"] for m in in_flight_markers(root)})
 
 
+LAST_MODE = os.path.join(NIGHT_DIR, "last-mode.json")   # the mode of the last run, under the guarded .reef/night/ — what `resume` restarts
+
+
+def resume_reason(root):
+    """(why the runner would NOT start again now, the last run's mode) — why is "" when it should: the owner (or the proxy) decided
+    what the last run stopped on. Not when it is running, a session it left still runs, the loop is stopped (reef-loop.py start) or
+    parked, a Claude session holds the loop and acted within HOLD_MINUTES (it continues itself; an idle hold is taken over, as
+    `reef run` does), the runner never ran here, the last run ended on the owner's stop or on its own (the cap) and not on a
+    decision, the last run was a night (one approval, one night), or REEF_NO_RESUME=1 (a hook, a test)."""
+    try:
+        with open(os.path.join(root, LAST_MODE), encoding="utf-8") as f:
+            mode = str((json.load(f) or {}).get("mode") or "loop")
+    except (OSError, ValueError, AttributeError):
+        mode = "loop"
+    if os.environ.get("REEF_NO_RESUME") == "1":
+        return "REEF_NO_RESUME=1", mode
+    pid = runner_pid(root)
+    if pid:
+        return f"the runner is running (pid {pid})", mode
+    spid, since = session_record(root)
+    if spid > 0:
+        return f"a session the runner left is still running (pid {spid}, since {since}) — python3 scripts/reef-run.py stop ends it", mode
+    st = loop_state(root)
+    if st.get("stop"):
+        return f"the loop is stopped ({str(st['stop'])[:80]}) — python3 scripts/reef-loop.py start is the owner's word", mode
+    if st.get("parked"):
+        return f"the loop is parked ({str(st['parked'])[:80]}) — python3 scripts/reef-loop.py start", mode
+    hold = read_hold(root)
+    if hold is not None and hold["alive"] and hold["age_s"] < HOLD_MINUTES * 60:
+        return f"a Claude session holds the loop (pid {hold['pid']}, acted {int(hold['age_s'] // 60)} min ago): it continues itself", mode
+    try:
+        with open(os.path.join(root, RUN_DIR, "run.log"), encoding="utf-8") as f:
+            last = json.loads((f.read().splitlines() or ["{}"])[-1])
+    except (OSError, ValueError):
+        return "the runner never ran here — python3 scripts/reef run starts it", mode
+    if not isinstance(last, dict):
+        return "the runner's log is unreadable", mode
+    if last.get("stop_requested"):
+        return "the last run ended on your stop — python3 scripts/reef run starts it again when you want it", mode
+    if not (last.get("wait") or last.get("in_flight")):
+        return "the last run ended on its own (a stop, a park, the cap), not on a decision — python3 scripts/reef run starts it", mode
+    if mode == "night":
+        return "the last run was a night — a night is one approval; /reef-night for the next", mode
+    return "", mode
+
+
+def cmd_resume(root):
+    """`resume` (step 1 of owner-hands-off, 2026-10-31): the decision was recorded — start the runner again, detached, in the
+    mode of its last run (autopilot or the plain loop). 0 started · 3 not, with the reason — the child's own when it refused."""
+    why, mode = resume_reason(root)
+    if why:
+        print(f"reef-run: not resuming — {why}")
+        return 3
+    argv = [sys.executable, os.path.abspath(__file__), "--repo", root, "--detach"] + (["--autopilot"] if mode == "autopilot" else [])
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"reef-run: not resuming — the runner could not start: {e}")
+        return 3
+    last_line = lambda t: ((t or "").strip().splitlines() or ["(no output)"])[-1][:200]
+    if r.returncode != 0:
+        print(f"reef-run: not resuming — {last_line(r.stderr or r.stdout)}")
+        return 3
+    print(f"reef-run: the loop waited on this decision — the runner starts again by itself ({'autopilot' if mode == 'autopilot' else 'the loop'}): {last_line(r.stdout)}")
+    return 0
+
+
 def cmd_release(root, task_id):
     """`release <id>` (2026-10-30, step 2 of owner-hands-off): the owner, knowing the work is not running, removes the task's
     in-flight and verifying markers in every checkout; the next run dispatches the task again. 1 when there was none."""
@@ -463,9 +531,12 @@ def cmd_release(root, task_id):
             os.unlink(fp)
         except OSError:
             pass
-    print(f"reef-run: released {task_id} — {len(gone)} marker(s) removed; the next run dispatches it again: python3 scripts/reef-run.py --detach"
-          if gone else f"reef-run: nothing in flight for {task_id} — no marker to release")
-    return 0 if gone else 1
+    if not gone:
+        print(f"reef-run: nothing in flight for {task_id} — no marker to release")
+        return 1
+    print(f"reef-run: released {task_id} — {len(gone)} marker(s) removed; the next run dispatches it again")
+    cmd_resume(root)   # a release is the owner's decision: the runner that stopped on it starts again by itself
+    return 0
 
 
 def files_digest(root, rels):
@@ -648,7 +719,7 @@ def owner_wait_lines(root, wait, mode):
     if cmds:
         lines.append("  answer in the terminal:")
         lines += [f"    {c}" for c in cmds]
-        lines.append(f"  then start the runner again — or answer in /reef-loop in {host}")
+        lines.append(f"  the runner starts again by itself once you decide — any command above, or the reef screen — or answer in /reef-loop in {host}")
     else:
         lines.append(f"  answer in /reef-loop in {host}")
     return "\n".join(lines)
@@ -998,6 +1069,8 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
     if not gate.get("ok") or gate.get("mode") != mode:
         die(f"no GATE OK for --permission-mode {mode} on this machine — run `python3 scripts/reef-run.py probe --permission-mode {mode}` first")
     lock = os.path.join(root, RUN_DIR, "lock")
+    with open(os.path.join(root, LAST_MODE), "w", encoding="utf-8") as f:   # what `resume` restarts, under the guarded dir (never run.log, which an agent can write)
+        json.dump({"mode": "night" if night else "autopilot" if autopilot else "loop", "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f)
     try:
         with open(lock, encoding="utf-8") as f:
             other = int(f.read().strip() or 0)
@@ -1087,7 +1160,9 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
             with open(log, "a", encoding="utf-8") as f:
                 f.write(json.dumps({"iteration": i, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "session": out.get("session_id"),
                                     "seconds": out.get("_seconds"), "cost_usd": out.get("total_cost_usd"), "rc": out.get("_rc"),
-                                    "wait": wait, "stop": stop, "parked": parked, "in_flight": flying}) + "\n")
+                                    "wait": wait, "stop": stop, "parked": parked, "in_flight": flying,
+                                    "mode": "night" if night else "autopilot" if autopilot else "loop",
+                                    "stop_requested": os.path.exists(stop_req)}) + "\n")   # the owner's stop: `resume` never undoes it
             cost = out.get("total_cost_usd")
             say("session ended: " + (f"wait {wait!r}" if wait else f"stop {stop!r}" if stop else f"parked {parked!r}" if parked
                                      else f"in flight {flying}" if flying else "no wait recorded")
@@ -1103,7 +1178,7 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
                 sig = progress_signature(root, wait)
                 if sig == prev_sig:   # 2026-10-28: the same state twice (the base's head, the handoff, the wait) is no progress — not a tenth session on it
                     ask = os.path.join(root, "scripts", "reef-queue.py")   # 2026-10-30: a question in the inbox and a word to the desk, never a silent exit
-                    q_text, q_rec = f"the loop made no progress across two sessions — the same wait twice: {wait[:160]}", "read HANDOFF.md, fix what stops the row, then python3 scripts/reef-run.py --detach"
+                    q_text, q_rec = f"the loop made no progress across two sessions — the same wait twice: {wait[:160]}", "read HANDOFF.md, fix what stops the row, then answer this question — the runner starts again by itself"
                     rows_named = sorted(set(re.findall(r"\brow (\d+)", wait)))
                     q_row = rows_named[0] if len(rows_named) == 1 else None   # the row the wait names, so the question can be answered and cleared on it
                     filed = any(NO_PROGRESS in q for _, _, q, _ in questions(root))   # once: a restart on the same stuck wait files no second one
@@ -1117,7 +1192,7 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
                         with open(os.path.join(root, ".reef", "questions.md"), "a", encoding="utf-8") as f:
                             f.write(question_line(q_row or "-", q_text, q_rec) + "\n")
                     return end(2, f"reef-run: no progress — two sessions ended on the same wait with nothing changed: {wait[:160]} — fix what stops them "
-                                  "(HANDOFF.md names it), then start again: python3 scripts/reef-run.py --detach\n  filed as your question: python3 scripts/reef shows it")
+                                  "(HANDOFF.md names it), then answer the question it filed — the runner starts again by itself\n  filed as your question: python3 scripts/reef shows it")
                 prev_sig = sig
                 continue
             if wait and autopilot:   # a decision the contract covers is Mahmoud's: the next session takes it; the same wait twice is the owner's
@@ -1147,7 +1222,7 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
                     continue
                 return end(2, f"reef-run: a session ended with work in flight ({', '.join(still)}) — stopped so nothing runs twice; "
                               "when you know that work is not running:\n" + "\n".join(f"    python3 scripts/reef-run.py release {t}" for t in still)
-                              + "\n  then start it again: python3 scripts/reef-run.py --detach")
+                              + "\n  the release starts the runner again by itself")
         return end(4, f"reef-run: {cap} sessions, the iteration cap — the last state is in {log}")
     finally:
         for p in (lock, active if night else None):
@@ -1167,7 +1242,7 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
             morning_report(root, started, log, mode="autopilot")
 
 
-VERBS = ("watch", "status", "stop", "probe", "contract", "release")
+VERBS = ("watch", "status", "stop", "probe", "contract", "release", "resume")
 VALUE_FLAGS = ("--repo", "--permission-mode", "--host", "--max-iterations", "--row", "--from")
 BARE_FLAGS = ("--night", "--detach", "--day", "--autopilot")
 
@@ -1219,6 +1294,8 @@ def main(argv):
         return cmd_status(root)
     if args[:1] == ["stop"]:
         return cmd_stop(root)
+    if args[:1] == ["resume"]:
+        return cmd_resume(root)
     if args[:1] == ["release"]:
         if len(args) < 2 or not re.fullmatch(r"R?\d+", args[1]):
             die("release takes the task id whose in-flight marker to remove: reef-run.py release 403")
