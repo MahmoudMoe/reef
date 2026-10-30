@@ -128,7 +128,7 @@ class TheScreen(unittest.TestCase):
         self.assertIn("python3 scripts/reef-loop.py start", out, "a parked loop is a wait with its command")
         self.assertIn("implementer 903 out → PASS", out, "the runner's last steps")
         self.assertIn("no runner is running", out)
-        self.assertRegex(out, r"keys:.*\br\b.*run.*\bq\b.*quit", "every key is a verb the owner could type")
+        self.assertRegex(out, r"keys: q quit.*\br\b.*run", "every key is a verb the owner could type; quit first")
         self.assertNotIn("Traceback", r.stderr)
 
     def test_on_an_issues_queue_a_question_is_answered_by_its_issue(self):
@@ -187,7 +187,7 @@ class TheScreen(unittest.TestCase):
         self.assertIn("loop", lines[1]); self.assertIn("runner", lines[2])
         self.assertLessEqual(len(lines), 34, "never more lines than the terminal")
         self.assertTrue(all(len(l) <= 100 for l in lines), "never wider than the terminal")
-        self.assertTrue(lines[-1].startswith("keys:") and "↑↓" in lines[-1] and "Enter" in lines[-1], lines[-1])
+        self.assertTrue(lines[-1].startswith("keys: q quit") and "↑↓" in lines[-1] and "Enter" in lines[-1], "quit first: a narrow terminal cuts the end, never the exit (the owner, 2026-10-30)\n" + lines[-1])
         self.assertIn("▶", lines[sel]); self.assertIn("2  answer", lines[sel])
         box = " ".join(l.strip("│ ") for l in lines if l.startswith("│"))
         self.assertIn("python3 scripts/reef-queue.py footnote 'Batch 9' --row 4", box, "the selected item's command, whole, in the box")
@@ -205,7 +205,7 @@ class TheScreen(unittest.TestCase):
             lines, sel = mod.render(full, width=width, height=height, selected=selected)
             self.assertLessEqual(len(lines), height, f"{height}x{width}: {len(lines)} lines\n" + "\n".join(lines))
             self.assertTrue(all(len(l) <= width for l in lines), f"{height}x{width}: a line wider than the terminal")
-            self.assertIn("q quit", lines[-1], f"{height}x{width}: the keys end the screen\n" + "\n".join(lines))
+            self.assertIn("q quit", " ".join(lines[-3:]), f"{height}x{width}: the keys end the screen (on one row or wrapped)\n" + "\n".join(lines))
             if height >= 16:
                 self.assertIsNotNone(sel, f"{height}x{width}: the selection is on screen"); self.assertIn("▶", lines[sel])
         huge = dict(model, items=[dict(model["items"][0], cmd="python3 scripts/reef-queue.py footnote " + " ".join(f"word{i}" for i in range(80)) + " --row 7")])

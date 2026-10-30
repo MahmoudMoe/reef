@@ -287,7 +287,7 @@ COMMAND_WORDS = ("python3 ", "git ", "claude ", "sh ", "gh ")
 BLOCK = ("██████  ███████ ███████ ███████", "██   ██ ██      ██      ██     ", "██████  █████   █████   █████  ",
          "██   ██ ██      ██      ██     ", "██   ██ ███████ ███████ ██     ")
 VERB_KEYS = {"r": "run", "n": "night", "s": "stop", "w": "watch", "d": "doctor", "c": "cost", "u": "update"}
-KEYS = "keys: ↑↓ Enter 1-9 · " + " · ".join(f"{k} {v}" for k, v in VERB_KEYS.items()) + " · q quit"   # g refreshes too; the screen refreshes itself every 3 s
+KEYS = "keys: q quit · ↑↓ Enter 1-9 · " + " · ".join(f"{k} {v}" for k, v in VERB_KEYS.items())   # quit first: never cut at the edge (the owner, 2026-10-30); g refreshes too
 
 
 def screen_model(root, doctor=None, runner=None):
@@ -421,7 +421,10 @@ def cmd_screen(root, args):
     except ImportError:
         print(screen_text(root, doctor_lines(root)), end="")
         return 0
-    return curses.wrapper(lambda stdscr: screen_loop(stdscr, root, curses))
+    try:
+        return curses.wrapper(lambda stdscr: screen_loop(stdscr, root, curses))
+    except KeyboardInterrupt:   # Ctrl-C leaves the screen like q, with no traceback
+        return 0
 
 
 def run_shown(root, argv, shown):
@@ -496,7 +499,7 @@ def screen_loop(stdscr, root, curses):
         if k in (curses.KEY_DOWN, ord("j")):
             sel = min(max(n - 1, 0), sel + 1); continue
         ch = chr(k) if 0 < k < 256 else ""
-        if ch == "q":
+        if ch in ("q", "Q") or k == 27:   # q, or Esc
             return 0
         if ch == "g":
             doctor, model = doctor_lines(root), None; continue
