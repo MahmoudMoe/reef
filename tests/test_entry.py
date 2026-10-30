@@ -2,6 +2,7 @@
 options with a short description each"). The owner's verbs, one line each; the internal scripts under --all; every verb runs
 the sibling script it names."""
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -9,7 +10,7 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENTRY = os.path.join(ROOT, "scripts", "reef")
-OWNER_VERBS = ("status", "doctor", "run", "night", "watch", "stop", "setup", "update", "factory", "cost")
+OWNER_VERBS = ("status", "doctor", "run", "night", "watch", "stop", "setup", "update", "factory", "cost", "screen", "approve", "answer")
 
 
 def reef(*args, cwd=None):
@@ -57,3 +58,145 @@ class UpdatePushes(unittest.TestCase):
         src = open(ENTRY, encoding="utf-8").read()
         self.assertIn('["git", "push"', src)
         self.assertIn("reef update: pushed", src)
+
+
+def project(**files):
+    d = tempfile.mkdtemp(prefix="reef-screen.")
+    subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+    os.makedirs(os.path.join(d, ".reef", "run"))
+    open(os.path.join(d, ".reef", "config.json"), "w").write('{"gates": {"full": "true"}}')
+    open(os.path.join(d, ".reef", "version"), "w").write("0.7.3\n")
+    for rel, text in files.items():
+        p = os.path.join(d, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        open(p, "w", encoding="utf-8").write(text)
+    return d
+
+
+def load_entry():
+    import importlib.machinery, importlib.util
+    loader = importlib.machinery.SourceFileLoader("reef_entry_under_test", ENTRY)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+class TheScreen(unittest.TestCase):
+    """docs/design/consolidation.md step 5 (2026-10-30): `reef` alone opens a live screen — the status line, THE INBOX (every
+    wait Reef recorded, numbered, each carrying the exact command the row machine names, so one key runs it), the runner's
+    last steps, the doctor's warnings — and falls back to the menu when the terminal cannot. `reef screen --once` is that
+    screen as text, once (a test, an SSH session, a log). The screen knows nothing the scripts do not."""
+
+    APPROVE = 'python3 scripts/reef-approval.py --owner "Approve plan reconcile-instruction-layer at 2cc8e8c3487e9ab2?"'
+
+    def test_once_lists_every_wait_with_its_exact_command_and_nothing_twice(self):
+        d = project(**{
+            ".reef/loop.json": '{"active": true, "wait": "owner: approve plan reconcile-instruction-layer at 2cc8e8c3487e9ab2 (Approve plan reconcile-instruction-layer at 2cc8e8c3487e9ab2?) — row 7 holds", "stop": null, "parked": "no progress: 3 identical ticks", "hashes": []}',
+            ".reef/questions.md": "- row 7: Keep the old /api/color route on non-KIT pages? — recommended: yes, it is served today\n",
+            "HANDOFF.md": "# Handoff\n\n## The tick\n```\ntick abc  loop=active\nawaiting: reconcile-instruction-layer (re-approval (plan edited after approval)) — " + self.APPROVE
+                          + '; other-row (approval (the gate: the machines passed)) — python3 scripts/reef-approval.py --owner "Approve plan other-row at 0123456789abcdef?"' + "\nnext: awaiting\n```\n",
+            ".reef/run/live.log": "21:17 s1 session started\n21:18 s1 implementer 903 out → PASS\n",
+        })
+        r = reef("screen", "--once", "--repo", d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        out = r.stdout
+        self.assertIn("INBOX", out)
+        self.assertEqual(out.count(self.APPROVE), 1, "the same approval from the wait and the handoff: one item\n" + out)
+        self.assertIn('--owner "Approve plan other-row at 0123456789abcdef?"', out, "an approval only the handoff names is an item too (the review)")
+        self.assertRegex(out, r"(?m)^\s*1\s+approve\b")
+        self.assertIn('python3 scripts/reef-queue.py footnote "<your answer>" --row 7', out)
+        self.assertIn("recommended: yes, it is served today", out)
+        self.assertIn("python3 scripts/reef-loop.py start", out, "a parked loop is a wait with its command")
+        self.assertIn("implementer 903 out → PASS", out, "the runner's last steps")
+        self.assertIn("no runner is running", out)
+        self.assertRegex(out, r"keys:.*\br\b.*run.*\bq\b.*quit", "every key is a verb the owner could type")
+        self.assertNotIn("Traceback", r.stderr)
+
+    def test_an_empty_project_has_only_the_doctors_fixes_in_its_inbox(self):
+        d = project()
+        r = reef("screen", "--once", "--repo", d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        items = [l for l in r.stdout.splitlines() if re.match(r"^\s*\d+\s+\w+", l)]
+        self.assertTrue(all(re.match(r"^\s*\d+\s+fix\b", l) for l in items), "no approval, question or park: only the doctor's fixes, if any\n" + r.stdout)
+        mod = load_entry()
+        self.assertEqual(mod.inbox(d), [], "without the doctor's lines the inbox is empty")
+        self.assertIn("nothing waits on you", mod.screen_text(d))
+
+    def test_the_model_asks_the_row_machine_for_a_rows_command(self):
+        mod = load_entry()
+        d = project(**{".reef/loop.json": '{"active": true, "wait": "owner: row 9 needs you", "stop": null, "parked": null, "hashes": []}'})
+        mod.row_state = lambda root, row: {"row": row, "state": "approval", "detail": "the gate: … — in the terminal: " + self.APPROVE}
+        items = mod.inbox(d)
+        self.assertEqual([i["kind"] for i in items], ["approve"])
+        self.assertEqual(items[0]["cmd"], self.APPROVE)
+        mod.row_state = lambda root, row: {"row": row, "state": "build", "detail": "2 open task(s)"}
+        self.assertEqual(mod.inbox(d), [], "a row that is building asks nothing of the owner")
+
+    def test_approve_and_answer_are_verbs_that_run_the_exact_commands(self):
+        d = project(**{".reef/questions.md": "- row 7: Keep the old route? — recommended: yes\n- row 8: Rename it? — recommended: no\n"})
+        r = reef("approve", "9", "--repo", d, "--dry-run")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("row 9", r.stdout + r.stderr)
+        self.assertIn("nothing to approve", r.stdout + r.stderr)
+        r = reef("answer", "7", "yes, keep it", "--repo", d, "--dry-run")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("reef-queue.py footnote 'yes, keep it' --row 7", r.stdout)
+        self.assertIn("row 7", open(os.path.join(d, ".reef", "questions.md")).read(), "a dry run clears nothing")
+        mod = load_entry()
+        mod.row_state = lambda root, row: {"row": row, "state": "approval", "detail": "… — in the terminal: " + TheScreen.APPROVE}
+        ran, orig = [], subprocess.run
+        try:
+            mod.subprocess.run = lambda cmd, **kw: ran.append(cmd) or orig(["true"], capture_output=True)   # the module's subprocess is the one subprocess: restore it
+            self.assertEqual(mod.main(["approve", "9", "--repo", d]), 0)
+        finally:
+            subprocess.run = orig
+        self.assertEqual(ran[-1][1:], [mod.script("reef-approval.py"), "--owner", "Approve plan reconcile-instruction-layer at 2cc8e8c3487e9ab2?"], "the question, never a placeholder")
+
+    def test_no_shell_between_the_screen_and_a_command(self):
+        # the reviews of #221: every item is an argv list — never a string a shell parses — and agent-written text (a row
+        # in questions.md, a feature slug in the row machine's detail, a doctor line with prose) never becomes a command
+        mod = load_entry()
+        d = project(**{
+            ".reef/loop.json": '{"active": true, "wait": "owner: row 9 and row 7;rm needs you (Approve plan demo at 0123456789abcdef?)", "stop": null, "parked": "x", "hashes": []}',
+            ".reef/questions.md": "- row 7;echo pwned: Keep it? — recommended: yes\n- row 8: Rename it? — recommended: no\n",
+        })
+        mod.row_state = lambda root, row: {"row": row, "state": "approval", "detail": 'in the terminal: python3 scripts/reef-approval.py --owner "Approve plan $(cmd) at 0123456789abcdef?"'}
+        doctor = ["WARN hold: a dead session — python3 scripts/reef-loop.py unlock   (a dead session's hold; the runner takes one over)",
+                  "WARN gate probe: none — the runner refuses to start — python3 scripts/reef-run.py probe"]
+        items = mod.inbox(d, doctor)
+        for it in items:
+            self.assertIsInstance(it["argv"], list, it)
+            self.assertTrue(it["argv"][0] == sys.executable or it["argv"][0] == "python3" and False, f"the interpreter, resolved: {it['argv']}")
+        kinds = [(i["kind"], i["row"]) for i in items]
+        self.assertIn(("approve", None), kinds, "the wait's own question")
+        self.assertNotIn(("approve", "9"), kinds, "a slug outside the approval regex ($(cmd)) is never a command")
+        self.assertIn(("answer", "8"), kinds)
+        self.assertNotIn(("answer", "7;echo pwned"), kinds, "a row is digits")
+        self.assertEqual([i["argv"][-1] for i in items if i["kind"] == "fix"], ["probe"], "a fix with prose or shell syntax is not an item; the probe is")
+        q = [i for i in items if i["kind"] == "approve"][0]
+        self.assertEqual(q["argv"][2:], ["--owner", "Approve plan demo at 0123456789abcdef?"], "the question is ONE argument")
+        self.assertEqual(q["cmd"], 'python3 scripts/reef-approval.py --owner "Approve plan demo at 0123456789abcdef?"', "shown as the line the owner would type")
+
+    def test_the_inbox_reads_a_doctors_fix_as_its_last_part_and_never_shows_a_placeholder(self):
+        mod = load_entry()
+        d = project()
+        doctor = ["WARN gate probe: none — the runner refuses to start — python3 scripts/reef-run.py probe",
+                  "WARN setup: scripts/reef-setup.py is missing — python3 <plugin>/scripts/reef-update.py --commit",
+                  "WARN env: the local gate reads .env — compare once: DATABASE_URL= npm test",
+                  "OK   scripts: match"]
+        items = mod.inbox(d, doctor)
+        self.assertEqual([i["cmd"] for i in items], ["python3 scripts/reef-run.py probe"],
+                         "the fix is the last dash part; a line with <…> is not a command the owner can run; prose is not a command")
+
+    def test_the_doctor_never_prints_a_placeholder(self):
+        # the screen runs what the doctor prints — so the doctor prints the plugin's real path, never `<plugin>`
+        d = project()
+        r = reef("doctor", "--repo", d)
+        self.assertNotIn("<plugin>", r.stdout + r.stderr, r.stdout)
+
+    def test_reef_alone_is_the_menu_off_a_terminal(self):
+        r = reef("--repo", project())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("screen", r.stdout, "the menu names the screen")
+        self.assertNotIn("INBOX", r.stdout, "no terminal: the menu, not the screen")

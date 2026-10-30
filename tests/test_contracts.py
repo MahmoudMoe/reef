@@ -932,3 +932,13 @@ class ThreeOrphansGone(unittest.TestCase):
                 self.assertNotIn(name, text, f"{os.path.relpath(f, ROOT)} still names {name}")
         self.assertIn("tests/eval/reef-eval", read("README.md"))
         self.assertIn("reef-run.py status", read("README.md"))
+
+
+class TheScreenIsDocumented(unittest.TestCase):
+    def test_the_readme_and_the_manual_say_reef_alone_opens_the_screen_with_the_inbox(self):
+        readme = read("README.md")
+        self.assertIn("the inbox", readme)
+        self.assertIn("`reef approve <row>`", readme)
+        self.assertIn("`reef answer <row> \"<text>\"`", readme)
+        self.assertIn("reef screen --once", readme)
+        self.assertIn("inbox", read("docs", "manual", "ar", "index.html").lower())

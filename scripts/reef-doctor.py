@@ -183,7 +183,7 @@ def main(argv):
                 mv = f.read().strip()
         except OSError:
             mv = "none (a 0.5 project)"
-        say("OK" if mv == pv else "WARN", f"version: project {mv}, plugin {pv}", "" if mv == pv else "python3 scripts/reef-init.py --root . --plugin <plugin> brings the project's copy up")
+        say("OK" if mv == pv else "WARN", f"version: project {mv}, plugin {pv}", "" if mv == pv else f"python3 {plugin}/scripts/reef-init.py --root {root} brings the project's copy up")
         # scripts, main checkout and every worktree
         b = behind_scripts(root, plugin)
         if b:
@@ -247,8 +247,8 @@ def main(argv):
             held = json.load(f)
         hpid = int(held.get("pid") or 0)
         alive = bool(hpid) and process_alive(hpid)
-        say("OK" if alive else "WARN", f"hold: session {str(held.get('session', '?'))[:8]} holds the loop (process {hpid or '?'} {'alive' if alive else 'dead'})",
-            "" if alive else "python3 scripts/reef-loop.py unlock   (a dead session's hold; the runner takes one over by itself)")
+        say("OK" if alive else "WARN", f"hold: session {str(held.get('session', '?'))[:8]} holds the loop (process {hpid or '?'} {'alive' if alive else 'dead'}) (a dead session's hold; the runner takes one over by itself)",
+            "" if alive else "python3 scripts/reef-loop.py unlock")
     except (OSError, ValueError, TypeError):
         say("OK", "hold: nobody holds the loop")
     try:
@@ -268,7 +268,7 @@ def main(argv):
         except (OSError, subprocess.TimeoutExpired):
             say("WARN", "setup: reef-setup.py state did not run", "")
     else:
-        say("WARN", "setup: scripts/reef-setup.py is missing (the proof that a fresh worktree passes the gate)", "python3 <plugin>/scripts/reef-update.py --commit")
+        say("WARN", "setup: scripts/reef-setup.py is missing (the proof that a fresh worktree passes the gate)", f"python3 {plugin}/scripts/reef-update.py --repo {root} --commit")
     say(*plugin_enabled())
     page = os.path.join(root, ".reef", "status.html")
     say("OK" if os.path.isfile(page) else "WARN", f"status page: {page}" if os.path.isfile(page) else "status page: not written yet",
@@ -301,8 +301,8 @@ def main(argv):
     for dp, _, fn in os.walk(pdir):
         props += [os.path.relpath(os.path.join(dp, f), pdir) for f in fn if not f.endswith(".diff")]
     if props:
-        say("WARN", f"proposals: {len(props)} rendering(s) waiting ({props[0]}{'…' if len(props) > 1 else ''})",
-            f"python3 scripts/reef-init.py --accept {props[0]}  (or --keep {props[0]} to keep yours)")
+        say("WARN", f"proposals: {len(props)} rendering(s) waiting ({props[0]}{'…' if len(props) > 1 else ''}; --keep instead of --accept keeps yours)",
+            f"python3 scripts/reef-init.py --accept {props[0]}")
     else:
         say("OK", "proposals: none")
     for l in LINES[:40]:

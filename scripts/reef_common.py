@@ -10,6 +10,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 
 _ROOT = object()
 
@@ -170,6 +171,28 @@ def exclude_keys(text, tool):
             if depth > 0:
                 key = k
     return out if found else None
+
+
+APPROVE_Q = re.compile(r"Approve (?:plan [A-Za-z0-9._-]+|night \d{4}-\d\d-\d\d|proxy by day) at [0-9a-f]{16}\?")   # the hook's questions
+
+
+def approval_questions(text):
+    """The approval questions a text names, in order, once each — the only strings reef-approval.py --owner accepts."""
+    return list(dict.fromkeys(APPROVE_Q.findall(text or "")))
+
+
+def row_approval_question(root, row, row_script):
+    """The approval question the row machine names for a row (reef-row.py state --json, its `detail`), or None. The
+    question is accepted only when it matches APPROVE_Q whole — a slug is an agent-named folder (the reviews of #221)."""
+    if not row_script or not str(row).isdigit():
+        return None
+    r = run([sys.executable, row_script, "state", str(row), "--json", "--repo", root], root, timeout=60)
+    try:
+        detail = str(json.loads(r.stdout).get("detail") or "") if r.returncode == 0 else ""
+    except ValueError:
+        detail = ""
+    qs = approval_questions(detail)
+    return qs[0] if qs else None
 
 
 def git(cwd, *args, timeout=None):

@@ -55,7 +55,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, process_alive  # noqa: E402
+from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question  # noqa: E402
 
 RUN_DIR = os.path.join(".reef", "run")
 LIVE = os.path.join(RUN_DIR, "live.log")
@@ -502,7 +502,6 @@ def queue_open_rows(root):
 
 
 HOLD_MINUTES = 30   # the guard's own rule (reef-guard.py HOLD_MINUTES): a holder idle this long is stale
-APPROVE_Q = re.compile(r"Approve (?:plan [A-Za-z0-9._-]+|night \d{4}-\d\d-\d\d|proxy by day) at [0-9a-f]{16}\?")
 
 
 def progress_signature(root, wait):
@@ -545,15 +544,8 @@ def owner_wait_lines(root, wait, mode):
     # and a footnote command was offered for an approval — the ROW MACHINE knows the command its state needs; ask it
     row_py = os.path.join(root, "scripts", "reef-row.py")
     for r in rows:
-        detail = ""
-        if os.path.isfile(row_py):
-            try:
-                out = subprocess.run([sys.executable, row_py, "state", r, "--json", "--repo", root], capture_output=True, text=True, timeout=60).stdout
-                detail = str(json.loads(out).get("detail") or "")
-            except (OSError, ValueError, subprocess.TimeoutExpired):
-                detail = ""
-        m = re.search(r"python3 scripts/reef-approval\.py --owner \"[^\"]+\"", detail)
-        cmd = m.group(0) if m else f'python3 scripts/reef-queue.py footnote "<your answer>" --row {r}'
+        q_ = row_approval_question(root, r, row_py if os.path.isfile(row_py) else None)
+        cmd = f'python3 scripts/reef-approval.py --owner "{q_}"' if q_ else f'python3 scripts/reef-queue.py footnote "<your answer>" --row {r}'
         if cmd not in cmds:
             cmds.append(cmd)
     if cmds:
