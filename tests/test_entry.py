@@ -169,6 +169,56 @@ class TheScreen(unittest.TestCase):
         self.assertNotIn("\x1b", r.stdout)
         self.assertIn("answered 95 'yes [2Kpython3 evil'", r.stdout, "the escape byte is a space; what is left is one quoted argument")
 
+    def test_the_screen_has_a_banner_a_selection_and_fits_the_terminal(self):
+        """2026-10-30, the owner's first look at the screen: "no reef written word, no proper selector, empty huge space then a few
+        sections". The screen is a model rendered for a width and a height: the block banner with the facts beside it, the inbox
+        as a list with a selected row and its WHOLE command boxed under the list, the runner's steps filling what is left, the
+        doctor's top warnings, the keys last — never more lines than the terminal has, the selection always on screen."""
+        mod = load_entry()
+        long_q = "Which way for the stale served records: count 027 as one more known stale record and file a found row, or re-take it now?"
+        d = project(**{".reef/loop.json": '{"active": true, "wait": "owner: row 7", "stop": null, "parked": null, "hashes": []}',
+                       ".reef/questions.md": f"- row 7: {long_q} — recommended: (a) count it as stale; the class has 31 members and a later row re-takes them\n"
+                                             "- row 4: Where do the 125 rows land? — recommended: Batch 9\n- row 4: Footnotes verbatim? — recommended: yes\n",
+                       ".reef/run/live.log": "".join(f"21:2{i} s1 → step {i}\n" for i in range(10))})
+        model = mod.screen_model(d)
+        lines, sel = mod.render(model, width=100, height=34, selected=1)
+        self.assertTrue(lines[0].startswith("██████"), "the banner, block letters, first line\n" + lines[0])
+        self.assertIn("Reef 0.7.3", lines[0])
+        self.assertIn("loop", lines[1]); self.assertIn("runner", lines[2])
+        self.assertLessEqual(len(lines), 34, "never more lines than the terminal")
+        self.assertTrue(all(len(l) <= 100 for l in lines), "never wider than the terminal")
+        self.assertTrue(lines[-1].startswith("keys:") and "↑↓" in lines[-1] and "Enter" in lines[-1], lines[-1])
+        self.assertIn("▶", lines[sel]); self.assertIn("2  answer", lines[sel])
+        box = " ".join(l.strip("│ ") for l in lines if l.startswith("│"))
+        self.assertIn("python3 scripts/reef-queue.py footnote 'Batch 9' --row 4", box, "the selected item's command, whole, in the box")
+        lines, sel = mod.render(model, width=100, height=34, selected=0)
+        box = " ".join(l.strip("│ ").strip() for l in lines if l.startswith("│"))
+        self.assertIn("the class has 31 members and a later row re-takes them' --row 7", box, "a long command wraps inside the box, never cut")
+        lines, sel = mod.render(model, width=100, height=16, selected=2)
+        self.assertLessEqual(len(lines), 16, "a short terminal: still fits\n" + "\n".join(lines))
+        self.assertTrue(lines[-1].startswith("keys:"), "the keys are last even when short")
+        self.assertIn("3  answer", lines[sel], "the selected row scrolled into view\n" + "\n".join(lines))
+        # the review's probe: a narrow terminal (the keys wrap to two rows), a short one, a long run and the doctor on — never a
+        # line past the height, the keys always last, the selection always on screen; a cut command is marked, never silent
+        full = dict(model, steps=[f"21:00 s1 → step {i}" for i in range(40)], warns=["WARN a", "WARN b", "WARN c"], doctor=True)
+        for height, width, selected in ((24, 79, 2), (16, 79, 1), (12, 60, 0), (66, 80, 2), (10, 40, 0)):
+            lines, sel = mod.render(full, width=width, height=height, selected=selected)
+            self.assertLessEqual(len(lines), height, f"{height}x{width}: {len(lines)} lines\n" + "\n".join(lines))
+            self.assertTrue(all(len(l) <= width for l in lines), f"{height}x{width}: a line wider than the terminal")
+            self.assertIn("q quit", lines[-1], f"{height}x{width}: the keys end the screen\n" + "\n".join(lines))
+            if height >= 16:
+                self.assertIsNotNone(sel, f"{height}x{width}: the selection is on screen"); self.assertIn("▶", lines[sel])
+        huge = dict(model, items=[dict(model["items"][0], cmd="python3 scripts/reef-queue.py footnote " + " ".join(f"word{i}" for i in range(80)) + " --row 7")])
+        lines, sel = mod.render(huge, width=100, height=34, selected=0)
+        box = [l for l in lines if l.startswith("│")]
+        self.assertEqual(len(box), 4, "the box is at most four lines")
+        self.assertTrue(box[-1].rstrip("│ ").endswith("…"), "a cut is marked, never silent (the review)\n" + box[-1])
+        self.assertEqual(reef("answer", "7", "-h", "--repo", d, "--dry-run").returncode, 2, "`-h` is not an answer")
+        once = mod.screen_text(d, width=100)
+        self.assertNotIn("▶", once, "--once lists, it does not select")
+        self.assertIn("python3 scripts/reef-queue.py footnote yes --row 4", once, "--once still lists every command")
+        self.assertIn("re-takes them' --row 7", once, "--once wraps a long command, never cuts it")
+
     def test_an_empty_project_has_only_the_doctors_fixes_in_its_inbox(self):
         d = project()
         r = reef("screen", "--once", "--repo", d)

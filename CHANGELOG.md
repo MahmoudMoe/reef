@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The `reef` screen, second design** (2026-10-30, the owner's first look: "no reef written word, no proper selector, empty huge
+  space then a few sections"): the block-letter banner with the project, the loop, the runner and the base beside it; **the inbox**
+  as a list — ↑↓ (or j/k) move, Enter runs the selected item, a digit runs by number — with the chosen item's whole command in a box
+  under the list (wrapped, never cut); the runner's steps fill what is left; the doctor's top three warnings; the keys last. The
+  screen is a model (`screen_model`) rendered for a width and a height (`render`): never more lines than the terminal, the selection
+  scrolled into view, redrawn on resize (a 32-row block sat in a 66-row window). An answer item opens a prompt with the
+  recommendation prefilled (Enter keeps it). `screen --once` lists every item with its command, as before. tests/size-budget.json: unchanged (nothing grew).
 - **`reef update`'s last line names the marketplace** (2026-10-30, the owner's update: the step's own line said `mahmoudmoe`,
   the done line said `<marketplace>` — a placeholder in a command the owner types). The done line is built from the name on
   disk (`reef-update.marketplace_name`); without one it says the reload alone. tests/size-budget.json: unchanged (nothing grew).
