@@ -28,7 +28,7 @@ BANNER = r"""
  |_| \_\____||____||_|
 """
 VERBS = [
-    ("screen",  "the live screen: the inbox of what waits on you — ↑↓ and Enter, or a number (`screen --once` prints it and exits)",
+    ("screen",  "the live screen: the inbox of what waits on you, its keys on its last line (`screen --once` prints it and exits)",
      lambda root, a: cmd_screen(root, a)),
     ("approve", "`approve <row>`: the row's plan approval at its current digest — the line you would type, typed for you",
      lambda root, a: cmd_approve(root, a)),
@@ -286,8 +286,8 @@ COMMAND_WORDS = ("python3 ", "git ", "claude ", "sh ", "gh ")
 
 BLOCK = ("██████  ███████ ███████ ███████", "██   ██ ██      ██      ██     ", "██████  █████   █████   █████  ",
          "██   ██ ██      ██      ██     ", "██   ██ ███████ ███████ ██     ")
-VERB_KEYS = {"r": "run", "n": "night", "s": "stop", "w": "watch", "d": "doctor", "c": "cost", "u": "update"}
-KEYS = "keys: q quit · ↑↓ Enter 1-9 · " + " · ".join(f"{k} {v}" for k, v in VERB_KEYS.items())   # quit first: never cut at the edge (the owner, 2026-10-30); g refreshes too
+VERB_KEYS = {"r": "run", "a": "autopilot", "n": "night", "s": "stop", "d": "doctor", "c": "cost", "u": "update"}
+KEYS = "keys: q quit · ↑↓ 1-9 select · Enter runs · w log · " + " · ".join(f"{k} {v}" for k, v in VERB_KEYS.items())   # quit first: never cut at the edge; g refreshes too
 
 
 def screen_model(root, doctor=None, runner=None):
@@ -316,9 +316,10 @@ def screen_model(root, doctor=None, runner=None):
     except OSError:
         steps = []
     warns = [l for l in (doctor or []) if l.startswith(("WARN", "FAIL"))]
+    log = list(steps)   # the whole live log, for the log view (w)
     if not pid and spid <= 0 and steps:   # no run of ours is alive: a tail of the log and that it ended, not the screen (2026-10-30)
         steps = steps[-5:] + ["(the run ended · w for the whole log)"]
-    return {"facts": facts, "items": inbox(root, doctor, runner), "steps": steps, "warns": warns, "doctor": doctor is not None}
+    return {"facts": facts, "items": inbox(root, doctor, runner), "steps": steps, "log": log, "warns": warns, "doctor": doctor is not None}
 
 
 def wrap(text, width):
@@ -336,20 +337,21 @@ def wrap(text, width):
     return out + [line] if line or not out else out
 
 
-def render(model, width=120, height=None, selected=None):
+def render(model, width=120, height=None, selected=None, panel=None):
     """The screen as lines for a terminal of `width` and, when known, `height`: the banner with the facts beside it, the inbox
     as a list — with `selected` an index, the chosen row marked and its command boxed under the list (wrapped; a command past
     four lines is cut with a mark, `run` shows it whole); with None (`--once`, a log; no height), every item with its command
     wrapped — the runner's steps filling what is left, the doctor's top warnings, the keys last. The sections are built whole,
     then rows are shed in one declared order until the screen fits: the oldest steps, the doctor's warnings, the box's tail,
-    the items farthest from the selection — the keys are measured, never assumed. Returns (lines, the selected line's index)."""
+    the items farthest from the selection — the keys are measured, never assumed. `panel` ({"shown", "rc", "lines"}) is the last
+    command's output, a section under the box until a key (2026-10-31: a command runs inside the screen). Returns (lines, the
+    selected line's index)."""
     w = max(40, int(width))
     items, warns = model["items"], model["warns"]
     n = len(items)
     sel = None if selected is None or not n else min(max(int(selected), 0), n - 1)
     head = [(row + "   " + fact)[:w] for row, fact in zip(BLOCK, model["facts"])] + ["─" * w]
-    head.append(((f"INBOX  {n} item(s) wait on you" + (" · ↑↓ move · Enter runs · a number runs" if sel is not None else " · a number runs")) if n
-                 else "INBOX  nothing waits on you")[:w])
+    head.append((f"INBOX  {n} item(s) wait on you" if n else "INBOX  nothing waits on you")[:w])   # the keys have one home: the last line
     rows = []   # one entry per item: its lines
     for idx, it in enumerate(items):
         mark = "▶" if idx == sel else " "
@@ -361,8 +363,11 @@ def render(model, width=120, height=None, selected=None):
     steps = list(model["steps"]) or ["(no steps recorded)"]
     warn_rows = warns[:3]
     keys = wrap(KEYS, w)   # measured, never assumed: two rows under 96 columns, three under 50
+    panel_lines = list((panel or {}).get("lines") or ["(no output)"])[-12:] if panel else []
+    panel_head = (f"OUTPUT  $ {panel.get('shown', '')} · " + ("running … (Ctrl-C leaves the screen)" if panel.get("rc") is None else f"exit {panel['rc']} · any key closes"))[:w] if panel else ""
 
-    def frame(box, steps, warn_rows, lo, hi):
+    def frame(box, steps, warn_rows, lo, hi, panel_lines=None):
+        panel_lines = panel_lines if panel_lines is not None else []
         out = list(head)
         sel_line = None
         for idx in range(lo, hi):
@@ -373,7 +378,9 @@ def render(model, width=120, height=None, selected=None):
             out.append(f"       … {lo + (n - hi)} more ({'↑' if lo else ''}{'↓' if hi < n else ''})"[:w])
         if box:
             out += ["┌─ selected " + "─" * (w - 13) + "┐"] + ["│ " + b.ljust(w - 4) + " │" for b in box] + ["└" + "─" * (w - 2) + "┘"]
-        out += ["", "RUNNER  the last steps · w follows live"] + ["  " + st[:w - 2] for st in steps]
+        if panel:
+            out += [panel_head] + ["  " + l[:w - 2] for l in panel_lines]
+        out += ["", "RUNNER  the last steps · w for the log"] + ["  " + st[:w - 2] for st in steps]
         if model["doctor"]:
             out.append(f"DOCTOR  {len(warns)} warning(s) · d for the whole report" if warns else "DOCTOR  nothing wrong")
             out += ["  " + l[:w - 2] for l in warn_rows]
@@ -382,25 +389,30 @@ def render(model, width=120, height=None, selected=None):
 
     lo, hi = 0, n
     if height is None:
-        return frame(box, steps[-10:], warn_rows, lo, hi)
+        return frame(box, steps[-10:], warn_rows, lo, hi, panel_lines)
     h = int(height)
-    lines, sel_line = frame(box, steps, warn_rows, lo, hi)
+    lines, sel_line = frame(box, steps, warn_rows, lo, hi, panel_lines)
     while len(lines) > h and len(steps) > 1:                      # 1. the oldest steps
         steps = steps[-(len(steps) - min(len(steps) - 1, len(lines) - h)):]
-        lines, sel_line = frame(box, steps, warn_rows, lo, hi)
+        lines, sel_line = frame(box, steps, warn_rows, lo, hi, panel_lines)
     while len(lines) > h and warn_rows:                           # 2. the doctor's warnings (the count stays)
         warn_rows = warn_rows[:-1]
-        lines, sel_line = frame(box, steps, warn_rows, lo, hi)
-    while len(lines) > h and len(box) > 1:                        # 3. the box's tail
+        lines, sel_line = frame(box, steps, warn_rows, lo, hi, panel_lines)
+    dropped = 0
+    while len(lines) > h and len(panel_lines) > 1:                # 3. the panel's oldest lines, the cut marked (the review)
+        panel_lines, dropped = panel_lines[1:], dropped + 1
+        panel_lines[0] = f"… {dropped} more line(s) above"
+        lines, sel_line = frame(box, steps, warn_rows, lo, hi, panel_lines)
+    while len(lines) > h and len(box) > 1:                        # 4. the box's tail
         box = box[:-2] + [box[-2][:w - 6] + " …"] if len(box) > 1 else box
-        lines, sel_line = frame(box, steps, warn_rows, lo, hi)
-    while len(lines) > h and hi - lo > 1:                         # 4. the items farthest from the selection
+        lines, sel_line = frame(box, steps, warn_rows, lo, hi, panel_lines)
+    while len(lines) > h and hi - lo > 1:                         # 5. the items farthest from the selection
         anchor = sel if sel is not None else 0
         if hi - 1 > anchor and (hi - 1 - anchor) >= (anchor - lo):
             hi -= 1
         else:
             lo += 1
-        lines, sel_line = frame(box, steps, warn_rows, lo, hi)
+        lines, sel_line = frame(box, steps, warn_rows, lo, hi, panel_lines)
     if len(lines) > h:                                            # a terminal too small for the furniture: the keys stay last
         lines = lines[:max(0, h - len(keys))] + keys
         sel_line = sel_line if sel_line is not None and sel_line < h - len(keys) else None
@@ -427,62 +439,163 @@ def cmd_screen(root, args):
         return 0
 
 
-def run_shown(root, argv, shown):
-    """Run an item's argv — no shell — showing the line the owner would type, and wait for a key. A decision resumes the runner
-    inside the command that records it (reef-approval.py, reef-queue.py): one home per kind, never a second call here."""
-    print(f"\n$ {shown}\n", flush=True)
-    rc = subprocess.run(argv, cwd=root).returncode
-    try:
-        input(f"\n[exit {rc}] press Enter to return to the screen")
-    except EOFError:
-        pass
+def render_log(steps, width=120, height=24, offset=0):
+    """The whole live log as a screen: the newest lines at the bottom, `offset` lines scrolled back. Returns (lines, the largest offset)."""
+    w = max(40, int(width)); h = max(5, int(height))
+    body_h = h - 2
+    top = max(0, len(steps) - body_h - int(offset))
+    body = steps[top:top + body_h]
+    most = max(0, len(steps) - body_h)
+    return ([f"LOG  {len(steps)} line(s) · ↑↓ scroll · q, Esc or w back"[:w]] + ["  " + l[:w - 2] for l in body]
+            + ["─" * w]), most
 
 
-def ask_answer(it, root):
-    """The answer prompt for a question item: the question and its recommendation on screen, the recommendation prefilled
-    (readline) so Enter keeps it; Ctrl-D goes back. Returns (argv, shown) for `reef answer`, or (None, None)."""
-    print(f"\nANSWER  row {it['row']}" + (f" · #{it['issue']}" if it.get("issue") else "") + f"\n  {it['text']}\n", flush=True)
-    if it.get("recommended"):
-        print(f"  recommended  {it['recommended']}\n", flush=True)
+def on_key(k, sel, n, view):
+    """The screen's keys as one table → an action, or None. In the inbox: a digit SELECTS its item and Enter runs it, ↑↓/j/k move, the verb letters run a verb, w opens the log, g refreshes, q/Esc quit. In the log: ↑↓ scroll, w/q/Esc
+    back. (2026-10-31, the owner: a digit should select, and a command should run without leaving the screen.)"""
+    ch = chr(k).lower() if 0 < k < 256 else ""   # one case: a caps lock is not silence
+    if view == "log":
+        if ch in ("q", "w") or k == 27:
+            return ("inbox",)
+        if k in (KEY_UP, ord("k")):
+            return ("up",)
+        if k in (KEY_DOWN, ord("j")):
+            return ("down",)
+        return None
+    if ch == "q" or k == 27:
+        return ("quit",)
+    if ch == "g":
+        return ("refresh",)
+    if ch == "w":
+        return ("log",)
+    if k in (KEY_UP, ord("k")):
+        return ("up",)
+    if k in (KEY_DOWN, ord("j")):
+        return ("down",)
+    if k in (10, 13, KEY_ENTER):
+        return ("run", sel) if n else None
+    if ch in VERB_KEYS:
+        return ("verb", VERB_KEYS[ch])
+    if ch and ch in "123456789" and int(ch) <= n:
+        return ("select", int(ch) - 1)   # a digit selects; Enter runs — two rules, as the keys line says
+    return None
+
+
+KEY_UP, KEY_DOWN, KEY_ENTER, KEY_BACKSPACE, KEY_RESIZE = 259, 258, 343, 263, 410   # curses' codes, named here so on_key needs no curses
+
+
+def edit_step(buf, k):
+    """One key into the answer line — a character (str, from get_wch) or a special key (int): (the buffer after it, "done" |
+    "cancel" | None). Enter is done, Esc cancels, Backspace deletes, a printable character appends; anything else changes nothing."""
+    if isinstance(k, str):
+        if k in ("\n", "\r"):
+            return buf, "done"
+        if k == "\x1b":
+            return buf, "cancel"
+        if k in ("\x7f", "\b"):
+            return buf[:-1], None
+        return (buf + k, None) if k.isprintable() else (buf, None)
+    if k == KEY_ENTER:
+        return buf, "done"
+    if k == KEY_BACKSPACE:
+        return buf[:-1], None
+    return buf, None
+
+
+def read_key(stdscr):
+    """One key from the screen as edit_step wants it: a special key as int, a character as str — UTF-8 bytes gathered until
+    they decode (the owner's Python is linked without get_wch, the review: an Arabic answer is whole characters, never bytes)."""
+    k = stdscr.getch()
+    if k < 0 or k >= 256:
+        return k
+    if k < 0x80:
+        return chr(k)
+    raw = bytes([k])
+    for _ in range(3):
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            nxt = stdscr.getch()
+            if nxt < 0 or nxt >= 256:
+                return ""
+            raw += bytes([nxt])
+    return raw.decode("utf-8", "replace")
+
+
+def edit_line(stdscr, curses, y, w, prompt, text):
+    """An answer typed on the screen: the prompt, the recommendation prefilled; Enter keeps or takes the edit, Esc cancels (None)."""
+    buf = text
+    curses.curs_set(1)
     try:
-        import readline
-        readline.set_startup_hook(lambda: readline.insert_text(it.get("recommended") or ""))
-    except ImportError:
-        readline = None
-    try:
-        text = input("  your answer: ").strip() or (it.get("recommended") or "")
-    except EOFError:
-        text = ""
+        while True:
+            line = f"{prompt}{buf}"
+            try:
+                stdscr.move(y, 0); stdscr.clrtoeol()
+                stdscr.addstr(y, 0, line[-(w - 1):] if len(line) > w - 1 else line, curses.A_BOLD)
+            except curses.error:
+                pass
+            stdscr.refresh()
+            k = read_key(stdscr)
+            if k == -1 or k == "":
+                continue
+            buf, state = edit_step(buf, k)
+            if state == "done":
+                return buf.strip()
+            if state == "cancel":
+                return None
     finally:
-        if readline:
-            readline.set_startup_hook()
-    if not text:
-        return None, None
-    key = f"#{it['issue']}" if it.get("issue") else it["row"]   # a row-less question answers by its issue
-    return [PY, os.path.abspath(__file__), "answer", key, text, "--repo", root], f"reef answer {shlex.quote(key)} {shlex.quote(text)}"
+        curses.curs_set(0)
+
+
+def reanchor(items, sel, chosen):
+    """The selection after the list changed: the item with the same command, else the same index clamped."""
+    return next((i for i, it in enumerate(items) if it["cmd"] == chosen), min(sel, max(len(items) - 1, 0)))
+
+
+def run_captured(root, argv, timeout=900):
+    """A command run for the screen: its last lines and exit code, never a shell, never the terminal."""
+    try:
+        r = subprocess.run(argv, cwd=root, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
+                           env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1", "GIT_PAGER": "cat", "GH_PAGER": "cat", "PAGER": "cat"})   # no prompt, no pager
+        lines = [l for l in (r.stdout + ("\n" + r.stderr if r.stderr.strip() else "")).splitlines() if l.strip()]
+        return r.returncode, lines
+    except subprocess.TimeoutExpired:
+        return 124, [f"timed out after {timeout} s"]
+    except OSError as e:
+        return 1, [str(e)]
 
 
 def screen_loop(stdscr, root, curses):
     curses.curs_set(0)
     stdscr.timeout(3000)
     utf = bool(sys.stdout.encoding and "utf" in sys.stdout.encoding.lower())
-    doctor, sel, model = None, 0, None   # the first frame is drawn before the doctor runs (its checks can take seconds; a screen must not open blank)
+    doctor, sel, model, view, offset, panel = None, 0, None, "inbox", 0, None   # the first frame is drawn before the doctor runs
+
+    def draw(lines, sel_line):
+        h, w = stdscr.getmaxyx()
+        stdscr.erase()
+        for y, line in enumerate(lines[:h]):
+            attr = curses.A_REVERSE if y == sel_line else (curses.A_BOLD if y < len(BLOCK) and view == "inbox" else curses.A_NORMAL)
+            try:
+                text = (line if utf else line.encode("ascii", "replace").decode("ascii"))[:w - 1]   # characters: curses' counted write measures bytes
+                stdscr.addstr(y, 0, text, attr)
+            except (curses.error, UnicodeEncodeError):
+                pass
+        stdscr.refresh()
+
     while True:
         h, w = stdscr.getmaxyx()
         if model is None:   # the model costs subprocesses (the row machine, the doctor): on the tick, after a run, on g — not on an arrow key
             model = screen_model(root, doctor)
         n = len(model["items"])
         sel = min(sel, max(n - 1, 0))
-        lines, sel_line = render(model, width=w - 1, height=h, selected=sel)
-        stdscr.erase()
-        for y, line in enumerate(lines[:h]):
-            attr = curses.A_REVERSE if y == sel_line else (curses.A_BOLD if y < len(BLOCK) else curses.A_NORMAL)
-            try:
-                text = (line if utf else line.encode("ascii", "replace").decode("ascii"))[:w - 1]   # characters: curses' counted write measures bytes, and the glyphs are three (2026-10-30)
-                stdscr.addstr(y, 0, text, attr)
-            except (curses.error, UnicodeEncodeError):
-                pass
-        stdscr.refresh()
+        if view == "log":
+            lines, most = render_log(model.get("log") or model["steps"], width=w - 1, height=h, offset=offset)
+            offset = min(offset, most)
+            draw(lines, None)
+        else:
+            lines, sel_line = render(model, width=w - 1, height=h, selected=sel, panel=panel)
+            draw(lines, sel_line)
         if doctor is None:   # right after the first frame: the doctor, then its lines in the next frame
             doctor, model = doctor_lines(root), None
             continue
@@ -490,39 +603,66 @@ def screen_loop(stdscr, root, curses):
         if k == -1:   # the tick: a fresh model, the selection kept on the same item (items dedupe by their command)
             chosen = model["items"][sel]["cmd"] if n else None
             model = screen_model(root, doctor)
-            sel = next((i for i, it in enumerate(model["items"]) if it["cmd"] == chosen), min(sel, max(len(model["items"]) - 1, 0)))
+            sel = reanchor(model["items"], sel, chosen)
             continue
-        if k == curses.KEY_RESIZE:   # the owner widened the window: the next pass measures again (2026-10-30: a 32-row block in a 66-row window)
+        if k == KEY_RESIZE:   # the owner widened the window: the next pass measures again
             curses.update_lines_cols()
             continue
-        if k in (curses.KEY_UP, ord("k")):
-            sel = max(0, sel - 1); continue
-        if k in (curses.KEY_DOWN, ord("j")):
-            sel = min(max(n - 1, 0), sel + 1); continue
-        ch = chr(k) if 0 < k < 256 else ""
-        if ch in ("q", "Q") or k == 27:   # q, or Esc
+        if panel is not None and panel.get("rc") is not None:   # any key closes the output panel — and does nothing else (the review:
+            panel = None                                          # the item just acted on has left, so Enter would have run the NEXT one)
+            continue
+        act = on_key(k, sel, n, view)
+        if act is None:
+            continue
+        if act[0] == "quit":
             return 0
-        if ch == "g":
+        if act[0] == "inbox":
+            view = "inbox"; continue
+        if act[0] == "log":
+            view, offset = "log", 0; continue
+        if act[0] == "up":
+            if view == "log":
+                offset += 1
+            else:
+                sel = max(0, sel - 1)
+            continue
+        if act[0] == "down":
+            if view == "log":
+                offset = max(0, offset - 1)
+            else:
+                sel = min(max(n - 1, 0), sel + 1)
+            continue
+        if act[0] == "refresh":
             doctor, model = doctor_lines(root), None; continue
-        target = None
-        if k in (10, 13, curses.KEY_ENTER) and n:
-            target = model["items"][sel]
-        elif ch in "123456789" and ch and int(ch) <= n:
-            target = model["items"][int(ch) - 1]
+        if act[0] == "select":
+            sel = act[1]; continue
         argv, shown = None, None
-        if ch in VERB_KEYS:
-            argv, shown = [PY, os.path.abspath(__file__), VERB_KEYS[ch], "--repo", root], f"reef {VERB_KEYS[ch]}"
-        elif target is not None:
+        if act[0] == "verb":
+            argv, shown = [PY, os.path.abspath(__file__), act[1], "--repo", root], f"reef {act[1]}"
+        elif act[0] == "run":
+            target = model["items"][act[1]]
             argv, shown = target["argv"], target["cmd"]
-            if target["kind"] == "answer":
-                curses.endwin()
-                argv, shown = ask_answer(target, root)
+            if target["kind"] == "answer":   # the answer typed on the screen, the recommendation prefilled
+                text = edit_line(stdscr, curses, min(h - 1, (sel_line or 0) + 1), w, f"your answer for row {target['row']}: ",
+                                 "".join(c for c in (target.get("recommended") or "") if c.isprintable()))   # agent text on the owner's line: printable only
+                if not text:
+                    continue
+                key = f"#{target['issue']}" if target.get("issue") else target["row"]
+                argv, shown = [PY, os.path.abspath(__file__), "answer", key, text, "--repo", root], f"reef answer {shlex.quote(key)} {shlex.quote(text)}"
+        if argv and [os.path.basename(str(argv[0]))] + list(argv[1:3]) == ["gh", "auth", "login"]:   # interactive by nature: the screen cannot carry it
+            panel = {"shown": shown, "rc": 1, "lines": ["this command needs your terminal — run it there, then g refreshes"]}
+            continue
         if argv:
-            curses.endwin()
-            run_shown(root, argv, shown)
-            curses.flushinp()   # an Enter typed at "press Enter to return" must not run the next item (the review)
-            doctor, model = doctor_lines(root), None
-            stdscr.clear()
+            panel = {"shown": shown, "rc": None, "lines": ["running …"]}
+            lines, sel_line = render(model, width=w - 1, height=h, selected=sel, panel=panel)
+            draw(lines, sel_line)
+            rc, out = run_captured(root, argv)
+            panel = {"shown": shown, "rc": rc, "lines": out}
+            curses.flushinp()   # a key typed while it ran must not run the next item
+            chosen = model["items"][sel]["cmd"] if n else None
+            doctor = doctor_lines(root)
+            model = screen_model(root, doctor)
+            sel = reanchor(model["items"], sel, chosen)   # the item may have left: the cursor follows its command, not its index
 
 
 def cmd_approve(root, args):

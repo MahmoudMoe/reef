@@ -187,7 +187,8 @@ class TheScreen(unittest.TestCase):
         self.assertIn("loop", lines[1]); self.assertIn("runner", lines[2])
         self.assertLessEqual(len(lines), 34, "never more lines than the terminal")
         self.assertTrue(all(len(l) <= 100 for l in lines), "never wider than the terminal")
-        self.assertTrue(lines[-1].startswith("keys: q quit") and "↑↓" in lines[-1] and "Enter" in lines[-1], "quit first: a narrow terminal cuts the end, never the exit (the owner, 2026-10-30)\n" + lines[-1])
+        keys_rows = [l for l in lines[-3:] if l.startswith("keys: ")]
+        self.assertTrue(keys_rows and keys_rows[0].startswith("keys: q quit") and "↑↓" in keys_rows[0] and "Enter" in keys_rows[0], "quit first, whatever the width wraps\n" + "\n".join(lines[-3:]))
         self.assertIn("▶", lines[sel]); self.assertIn("2  answer", lines[sel])
         box = " ".join(l.strip("│ ") for l in lines if l.startswith("│"))
         self.assertIn("python3 scripts/reef-queue.py footnote 'Batch 9' --row 4", box, "the selected item's command, whole, in the box")
@@ -196,7 +197,7 @@ class TheScreen(unittest.TestCase):
         self.assertIn("the class has 31 members and a later row re-takes them' --row 7", box, "a long command wraps inside the box, never cut")
         lines, sel = mod.render(model, width=100, height=16, selected=2)
         self.assertLessEqual(len(lines), 16, "a short terminal: still fits\n" + "\n".join(lines))
-        self.assertTrue(lines[-1].startswith("keys:"), "the keys are last even when short")
+        self.assertTrue(any(l.startswith("keys:") for l in lines[-2:]), "the keys are last even when short (one row or two)")
         self.assertIn("3  answer", lines[sel], "the selected row scrolled into view\n" + "\n".join(lines))
         # the review's probe: a narrow terminal (the keys wrap to two rows), a short one, a long run and the doctor on — never a
         # line past the height, the keys always last, the selection always on screen; a cut command is marked, never silent
@@ -205,7 +206,7 @@ class TheScreen(unittest.TestCase):
             lines, sel = mod.render(full, width=width, height=height, selected=selected)
             self.assertLessEqual(len(lines), height, f"{height}x{width}: {len(lines)} lines\n" + "\n".join(lines))
             self.assertTrue(all(len(l) <= width for l in lines), f"{height}x{width}: a line wider than the terminal")
-            self.assertIn("q quit", " ".join(lines[-3:]), f"{height}x{width}: the keys end the screen (on one row or wrapped)\n" + "\n".join(lines))
+            self.assertIn("q quit", " ".join(lines[-4:]), f"{height}x{width}: the keys end the screen (on one row, or up to four when narrow)\n" + "\n".join(lines))
             if height >= 16:
                 self.assertIsNotNone(sel, f"{height}x{width}: the selection is on screen"); self.assertIn("▶", lines[sel])
         huge = dict(model, items=[dict(model["items"][0], cmd="python3 scripts/reef-queue.py footnote " + " ".join(f"word{i}" for i in range(80)) + " --row 7")])
@@ -239,12 +240,95 @@ class TheScreen(unittest.TestCase):
         self.assertLess(kinds.index("release"), kinds.index("run"), "the leftover first: a restart would wait on it")
         model = mod.screen_model(d)
         lines, _ = mod.render(model, width=100, height=40, selected=0)
-        runner = lines[lines.index("RUNNER  the last steps · w follows live"):]
+        runner = lines[lines.index("RUNNER  the last steps · w for the log"):]
         runner = runner[:next((i for i, l in enumerate(runner) if l.startswith(("DOCTOR", "─"))), len(runner))]
         self.assertLessEqual(len(runner), 8, "an idle runner's log is a tail of a few steps, not the screen\n" + "\n".join(runner))
         self.assertTrue(runner[-1].startswith("  (the run ended"), "and the tail ends by saying so\n" + "\n".join(runner))
         os.unlink(os.path.join(d, ".reef", "inflight", "403"))
         self.assertNotIn("release", [i["kind"] for i in mod.inbox(d)], "released: the item leaves with the marker (one source)")
+
+    def test_the_screen_selects_by_digit_runs_inside_itself_and_edits_an_answer_on_screen(self):
+        """2026-10-31, the owner: "shouldn't 1-9 select? why can't I execute from within — reef closes, runs, then a Return key to
+        come back." The keys are one table: a digit SELECTS, Enter (or the same digit again) runs; a command runs inside the screen
+        and its output sits in a panel until a key; `w` is the log, scrolled on the screen; an answer is typed on the screen with
+        the recommendation prefilled. The screen never leaves curses for a command."""
+        mod = load_entry()
+        src = open(ENTRY, encoding="utf-8").read()
+        self.assertNotIn("run_shown", src, "no leaving the screen to run a command")
+        self.assertNotIn("input(", src.split("def screen_loop", 1)[1].split("def cmd_approve", 1)[0], "no terminal prompt in the screen's loop")
+        on = mod.on_key
+        self.assertEqual(on(ord("3"), 0, 5, "inbox"), ("select", 2), "a digit selects")
+        self.assertEqual(on(ord("3"), 2, 5, "inbox"), ("select", 2), "a digit only selects; Enter runs (two rules, as the keys line says)")
+        self.assertEqual(on(ord("R"), 0, 5, "inbox"), ("verb", "run"), "one case: a caps lock is not silence")
+        self.assertEqual(on(10, 1, 5, "inbox"), ("run", 1), "Enter runs the selected")
+        self.assertEqual(on(ord("9"), 0, 2, "inbox"), None, "a digit past the list is nothing")
+        self.assertEqual(on(ord("q"), 0, 2, "inbox"), ("quit",)); self.assertEqual(on(27, 0, 2, "inbox"), ("quit",))
+        self.assertEqual(on(ord("w"), 0, 2, "inbox"), ("log",)); self.assertEqual(on(ord("w"), 0, 2, "log"), ("inbox",))
+        self.assertEqual(on(ord("q"), 0, 2, "log"), ("inbox",), "q in the log view goes back, not out")
+        self.assertEqual(on(ord("r"), 0, 2, "inbox"), ("verb", "run"))
+        self.assertEqual(on(ord("j"), 0, 2, "inbox"), ("down",)); self.assertEqual(on(ord("k"), 1, 2, "inbox"), ("up",))
+        edit = mod.edit_step
+        self.assertEqual(edit("Batch 9", "!"), ("Batch 9!", None)); self.assertEqual(edit("Batch ", "é"), ("Batch é", None), "a whole character, not its bytes")
+        self.assertEqual(edit("Batch 9", "\x7f"), ("Batch ", None)); self.assertEqual(edit("Batch 9", 263), ("Batch ", None))
+        self.assertEqual(edit("Batch 9", "\n"), ("Batch 9", "done")); self.assertEqual(edit("x", "\x1b"), ("x", "cancel"))
+        self.assertEqual(edit("a", 0x1b5b), ("a", None), "a special key the line does not know changes nothing")
+        d = project(**{".reef/questions.md": "- row 7: Keep it? — recommended: yes\n",
+                       ".reef/run/live.log": "".join(f"21:{i:02d} s1 → step {i}\n" for i in range(60))})
+        model = mod.screen_model(d)
+        panel = {"shown": "python3 scripts/reef-queue.py footnote yes --row 7", "rc": 0, "lines": [f"line {i}" for i in range(30)]}
+        lines, sel = mod.render(model, width=100, height=36, selected=0, panel=panel)
+        self.assertLessEqual(len(lines), 36)
+        head = [l for l in lines if l.startswith("OUTPUT")]
+        self.assertEqual(len(head), 1, "the command's output is a section on the screen\n" + "\n".join(lines))
+        self.assertIn("footnote yes --row 7", head[0]); self.assertIn("exit 0", head[0])
+        self.assertIn("  line 29", lines, "the last lines of the output, not the first")
+        self.assertTrue(any(l.startswith("keys: q quit") for l in lines[-3:]), "the keys end the screen, quit first")
+        log, _ = mod.render_log(model["log"], width=100, height=20, offset=0)
+        self.assertLessEqual(len(log), 20)
+        self.assertTrue(log[0].startswith("LOG"), log[0]); self.assertIn("step 59", "\n".join(log), "the newest lines first on the screen")
+        log2, _ = mod.render_log(model["log"], width=100, height=20, offset=10)
+        self.assertIn("step 49", log2[-2], "↑ scrolls back ten lines: the window ends ten earlier"); self.assertNotIn("step 59", "\n".join(log2))
+        self.assertIn("1-9 select", mod.KEYS); self.assertIn("Enter runs", mod.KEYS); self.assertIn("w log", mod.KEYS); self.assertIn("a autopilot", mod.KEYS)
+        # the panel is shed before the steps on a short terminal, and never silently
+        lines, _ = mod.render(dict(model, steps=[f"s{i}" for i in range(30)]), width=100, height=18, selected=0, panel=panel)
+        self.assertLessEqual(len(lines), 18)
+        self.assertTrue(any(l.startswith("OUTPUT") for l in lines), "the panel's header survives a short terminal")
+        self.assertTrue(any("more line(s) above" in l for l in lines), "a cut panel says so")
+
+        # the loop itself, driven with a fake curses and a fake window (the owner's Python has no get_wch: getch only)
+        class FakeCurses:
+            A_REVERSE, A_BOLD, A_NORMAL = 1, 2, 0
+            error = Exception
+            def curs_set(self, *_): pass
+            def flushinp(self): pass
+            def update_lines_cols(self): pass
+        class FakeWin:
+            def __init__(self, keys): self.keys = list(keys); self.rows = []
+            def getmaxyx(self): return (40, 120)
+            def timeout(self, *_): pass
+            def erase(self): pass
+            def refresh(self): pass
+            def clear(self): pass
+            def move(self, *_): pass
+            def clrtoeol(self): pass
+            def addstr(self, y, x, text, *a): self.rows.append(text)
+            def getch(self): return self.keys.pop(0) if self.keys else ord("q")
+        ran = []
+        real_run = mod.run_captured
+        mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["ok"]))[1]
+        mod.doctor_lines = lambda root: []
+        d2 = project(**{".reef/questions.md": "- row 7: Keep it? — recommended: yes\n- row 8: Rename it? — recommended: no\n"})
+        win = FakeWin([ord("2"), 10, 10, ord("x"), 10, 10, ord("q")])   # 2 selects; Enter runs it and opens the answer line; Enter keeps 'no'; x closes the panel; Enter, Enter again; q
+        self.assertEqual(mod.screen_loop(win, d2, FakeCurses()), 0)
+        self.assertEqual(len(ran), 2, "Enter ran the selected item twice (the second Enter, after the close): never the close key itself\n" + str(ran))
+        self.assertIn("no", ran[0], "the recommendation kept with a plain Enter on the answer line")
+        self.assertTrue(any(r.startswith("OUTPUT") for r in win.rows), "the output panel was drawn")
+        # UTF-8 on the answer line through getch bytes: é is two bytes, one character
+        win2 = FakeWin([0xC3, 0xA9, 10])
+        self.assertEqual(mod.edit_line(win2, FakeCurses(), 1, 100, "a: ", "caf"), "café")
+        # the child never sees the screen's keyboard (the security review): stdin is empty, prompts are off
+        rc, out = real_run(d2, [sys.executable, "-c", "import os, sys; print(repr(sys.stdin.read()), os.environ.get('GIT_TERMINAL_PROMPT'))"])
+        self.assertEqual((rc, out), (0, ["'' 0"]))
 
     def test_an_empty_project_has_only_the_doctors_fixes_in_its_inbox(self):
         d = project()

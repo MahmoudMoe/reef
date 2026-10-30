@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The `reef` screen, third design** (2026-10-31, the owner: "shouldn't 1-9 select? why can't I execute from within — reef closes,
+  runs, then a Return key to come back"). The keys are one table: a digit SELECTS its item (the same digit again, or Enter,
+  runs it), ↑↓ move, `w` opens the log, `a` starts the autopilot, `q`/Esc quit. A command runs inside the screen — its last
+  lines and exit code sit in an OUTPUT panel under the box until a key — never a bare terminal and a "press Enter to return".
+  The log is a view on the screen, scrolled with ↑↓; an answer is typed on the screen with the recommendation prefilled. tests/size-budget.json: unchanged (nothing grew).
 - **A decision continues the loop** (docs/design/owner-hands-off.md step 1, 2026-10-31): `reef-run.py resume` starts the runner
   again, detached, in the mode of its last run (the loop or the autopilot; a night is one approval) — unless it is running, a
   Claude session holds the loop (it continues itself), the loop is stopped or parked, or `REEF_NO_RESUME=1`. The screen's Enter
