@@ -8,7 +8,7 @@ Usage: reef-record <feature> <verdict> [--pr <number|url|branch>] [--report FILE
   security (0.7) writes .reef/review/security-<sha12>.json = {kind, head, base, verdict, report_sha256, recorded_at}: the
   release's security pass (reef:security) bound to the head of branches.base; the guard refuses `gh pr create` into
   branches.release without a PASS whose head is the PR's head.
-  plan-review writes .reef/review/plan-<feature>.json = {digest16, verdict, report_sha256, recorded_at} in the MAIN
+  plan-review writes .reef/review/plan-<feature>.json = {digest16, verdict, rounds, decided?, report_sha256, recorded_at} in the MAIN
   checkout; the digest is computed where the plan is (--root, default cwd). `reef-plan-check.py --verify-stamp` requires
   a PASS at the current digest for any feature with a task above `light`, so the guard refuses the first dispatch of a
   plan whose semantic review never passed (first contact, 2026-10-16: the stamp recorded the scripted check only).
@@ -46,6 +46,32 @@ def gh(*args, cwd=None):
     return r.stdout.strip()
 
 
+def review_rounds_cap(main):
+    """review.plan_rounds from the main checkout's config (default 2; 0 = no cap)."""
+    try:
+        with open(os.path.join(main, ".reef", "config.json"), encoding="utf-8") as f:
+            return int(((json.load(f).get("review") or {}).get("plan_rounds", 2)) or 0)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 2
+
+
+def footnote_recorded(root, feature, mark):
+    """The owner's ruling is a queue footnote: a line of the main checkout's queue starting with the mark (`⁶⁸`, or `68`) —
+    the same reading reef-adversarial's `--decided` makes."""
+    main = main_checkout(root)
+    try:
+        with open(os.path.join(main, ".reef", "config.json"), encoding="utf-8") as f:
+            qrel = (json.load(f).get("paths") or {}).get("queue", "docs/queue.md")
+    except (OSError, ValueError, TypeError, AttributeError):
+        qrel = "docs/queue.md"
+    sup = mark.translate(str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹"))
+    try:
+        with open(os.path.join(main, qrel), encoding="utf-8") as f:
+            return any(l.startswith(sup + " ") or l.startswith(mark + " ") for l in f)
+    except OSError:
+        return False
+
+
 def plan_digest(root, feature):
     script = os.path.join(root, "scripts", "reef-plan-check.py")
     if not os.path.isfile(script):
@@ -57,17 +83,19 @@ def plan_digest(root, feature):
 
 def cmd_plan_review(argv):
     import hashlib
-    report, root, pos = None, None, []
+    report, root, decided, pos = None, None, None, []
     i = 0
     while i < len(argv):
         if argv[i] == "--report":
             report = argv[i + 1]; i += 2
         elif argv[i] == "--root":
             root = argv[i + 1]; i += 2
+        elif argv[i] == "--decided":
+            decided = argv[i + 1].strip(); i += 2
         else:
             pos.append(argv[i]); i += 1
     if len(pos) != 2 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", pos[0]) or pos[1].upper() not in ("PASS", "FAIL"):
-        die("usage: reef-record plan-review <feature> <PASS|FAIL> [--report FILE] [--root DIR]")
+        die("usage: reef-record plan-review <feature> <PASS|FAIL> [--report FILE] [--decided <footnote mark>] [--root DIR]")
     feature, verdict = pos[0], pos[1].upper()
     root = os.path.abspath(root or os.getcwd())
     digest = plan_digest(root, feature)
@@ -83,10 +111,28 @@ def cmd_plan_review(argv):
             die(f"cannot read the report {report}: {e}")
     d = os.path.join(main_checkout(root), ".reef", "review")
     os.makedirs(d, exist_ok=True)
-    with open(os.path.join(d, f"plan-{feature}.json"), "w", encoding="utf-8") as f:
+    p_ = os.path.join(d, f"plan-{feature}.json")
+    try:   # 2026-10-30: a review is a round — the record counts them, the guard caps them (review.plan_rounds), like the hunter's pass
+        with open(p_, encoding="utf-8") as f:
+            prev = json.load(f)
+        failed = int(prev.get("rounds") or 0) if str(prev.get("verdict", "")).upper() == "FAIL" else 0   # a PASS closes the series
+    except (OSError, ValueError, TypeError):
+        failed = 0
+    rec["rounds"] = failed + 1
+    cap = review_rounds_cap(main_checkout(root))
+    if verdict == "PASS" and cap and failed >= cap:
+        # past the cap the reviewer runs no more; a PASS is then the OWNER's ruling, bound to his queue footnote like the
+        # hunter's `plan --decided` (the security review: a bare PASS would have dissolved the cap it answers)
+        if not decided:
+            die(f"plan review of {feature!r} is past review.plan_rounds {cap} ({failed} FAILED rounds): a PASS now records the owner's "
+                f"ruling — write it as a queue footnote on the row, then --decided <its mark>")
+        if not footnote_recorded(root, feature, decided):
+            die(f"--decided {decided}: no queue footnote with that mark — the owner's ruling is written on the row first")
+        rec["decided"] = decided
+    with open(p_, "w", encoding="utf-8") as f:
         json.dump(rec, f, indent=1)
         f.write("\n")
-    print(f"recorded plan review {feature}: {verdict} at {digest[:16]} -> .reef/review/plan-{feature}.json")
+    print(f"recorded plan review {feature}: {verdict} at {digest[:16]} (round {rec['rounds']}) -> .reef/review/plan-{feature}.json")
     return 0
 
 

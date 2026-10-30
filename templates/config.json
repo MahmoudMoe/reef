@@ -38,6 +38,7 @@
       "guard_pass": "feature"
   },
   "review": {
+      "plan_rounds": 2,
       "split_lines": 4000,
       "security_per_item": "on"
   },

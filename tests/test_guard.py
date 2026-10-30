@@ -339,6 +339,42 @@ class RoleModel(unittest.TestCase):
         self.assertEqual(dispatch(self.dir, "x", subagent="reef:mechanic").returncode, 0)
 
 
+class PlanReviewRoundCap(unittest.TestCase):
+    """2026-10-30 (row 7 on the current adoption): the plan reviewer and the planner traded blockers for five rounds. The hunter's
+    pass has `hunter.plan_rounds`; the reviewer gets `review.plan_rounds` (default 2: the review, one fix, one re-review) — the
+    guard refuses the dispatch past it and the open findings become the owner's decision."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="reef-guard-rounds.")
+        write_config(self.dir, {"gates": {"test": "true"}, "roles": {"plan_reviewer": "opus"}})
+        make_task(self.dir, extra="tier: critical\ncomplexity: design\n")   # the critical path: the reviewer is dispatched there
+
+    def record(self, verdict, rounds):
+        os.makedirs(os.path.join(self.dir, ".reef", "review"), exist_ok=True)
+        with open(os.path.join(self.dir, ".reef", "review", "plan-demo.json"), "w") as f:
+            json.dump({"digest16": "0123456789abcdef", "verdict": verdict, "rounds": rounds, "recorded_at": "2026-10-30T00:00:00Z"}, f)
+
+    def test_a_review_past_the_cap_is_refused_with_the_owners_line(self):
+        self.record("FAIL", 2)
+        os.makedirs(os.path.join(self.dir, "reef", "features", "demo"), exist_ok=True)
+        with open(os.path.join(self.dir, "reef", "features", "demo", "SPEC.md"), "w") as f:
+            f.write("# demo\nRow: 7\n")
+        r = dispatch(self.dir, "REEF-FEATURE: demo\nreview the plan", subagent="reef:plan-reviewer", model="opus")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("review.plan_rounds 2", r.stderr)
+        self.assertIn("reef-queue.py ask", r.stderr, "the open findings go to the owner, with the command")
+        self.assertIn("--row 7", r.stderr, "the row from the feature's SPEC, never a placeholder")
+        self.assertNotIn("<row>", r.stderr)
+        self.assertIn("--decided", r.stderr, "a PASS past the cap carries the owner's footnote")
+        self.record("FAIL", 1)
+        self.assertEqual(dispatch(self.dir, "REEF-FEATURE: demo\nreview the plan", subagent="reef:plan-reviewer", model="opus").returncode, 0, "round 2 is within the cap")
+        self.record("PASS", 5)
+        self.assertEqual(dispatch(self.dir, "REEF-FEATURE: demo\nreview the plan", subagent="reef:plan-reviewer", model="opus").returncode, 0, "a PASS ends the rounds; a re-review after an edit is a new question")
+        write_config(self.dir, {"gates": {"test": "true"}, "roles": {"plan_reviewer": "opus"}, "review": {"plan_rounds": 0}})
+        self.record("FAIL", 9)
+        self.assertEqual(dispatch(self.dir, "REEF-FEATURE: demo\nreview the plan", subagent="reef:plan-reviewer", model="opus").returncode, 0, "0 = no cap")
+
+
 class DispatchGuard(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="reef-guard-test.")

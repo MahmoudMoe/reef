@@ -942,3 +942,12 @@ class TheScreenIsDocumented(unittest.TestCase):
         self.assertIn("`reef answer <row> \"<text>\"`", readme)
         self.assertIn("reef screen --once", readme)
         self.assertIn("inbox", read("docs", "manual", "ar", "index.html").lower())
+
+
+class PlanReviewRoundsAreCapped(unittest.TestCase):
+    def test_the_template_and_the_skill_name_the_cap(self):
+        import json as _json
+        cfg = _json.loads(read("templates", "config.json"))
+        self.assertEqual(cfg["review"]["plan_rounds"], 2)
+        self.assertIn("review.plan_rounds", read("skills", "reef-plan-review", "SKILL.md"))
+        self.assertLessEqual(len(read("skills", "reef-plan-review", "SKILL.md").splitlines()), 60)

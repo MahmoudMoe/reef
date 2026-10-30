@@ -1233,6 +1233,26 @@ def check_dispatch(tool_input, payload):
         deny(f"guard internal error — failing closed: {e}")
 
 
+def rounds_cap(cfg, section):
+    """<section>.plan_rounds — the hunter's and the reviewer's round caps read the same way (default 2; 0 = no cap)."""
+    try:
+        return int(((cfg.get(section) or {}).get("plan_rounds", 2)) or 0)
+    except (TypeError, ValueError, AttributeError):
+        return 2
+
+
+def feature_row(main, slug):
+    """The queue row a feature folder belongs to: its SPEC.md `Row:` line, or "" (reef-queue.py reads it the same way)."""
+    cfg = read_config(main)
+    spec = os.path.join(main, (cfg.get("paths") or {}).get("features", "reef/features"), slug, "SPEC.md")
+    try:
+        with open(spec, encoding="utf-8") as f:
+            m = re.search(r"^Row:\s*(\d+)", f.read(), re.M)
+        return m.group(1) if m else ""
+    except OSError:
+        return ""
+
+
 def _check_dispatch(tool_input, payload):
     sub = str(tool_input.get("subagent_type") or "")
     cwd = payload.get("cwd") or os.getcwd()
@@ -1244,6 +1264,25 @@ def _check_dispatch(tool_input, payload):
         if fm_ and feature_path(cwd, fm_.group(1)) == "fast":
             deny(f"plan-reviewer is not dispatched for feature {fm_.group(1)!r}: it is on the fast path (every task light or full, no "
                  "auth/pii/money/migration touch) — scripts/reef-plan-check.py is the review; the plan-reviewer runs on the critical path only")
+        if fm_:
+            # 2026-10-30 (row 7 on the current adoption): the reviewer and the planner traded blockers for five rounds. Like the
+            # hunter's `hunter.plan_rounds`: after `review.plan_rounds` FAILED rounds (default 2: the review, one fix, one re-review)
+            # no further reviewer round — the open findings are the owner's decision, filed as his question
+            main = main_checkout(cwd)
+            slug = fm_.group(1)
+            try:
+                with open(os.path.join(main, ".reef", "review", f"plan-{slug}.json"), encoding="utf-8") as f:
+                    rec_ = json.load(f)
+                rounds = int(rec_.get("rounds") or 0) if str(rec_.get("verdict", "")).upper() == "FAIL" else 0
+            except (OSError, ValueError, TypeError):
+                rounds = 0
+            cap_ = rounds_cap(read_config(main), "review")
+            if cap_ and rounds >= cap_:
+                row_ = feature_row(main, slug)
+                deny(f"plan review round {rounds + 1} > review.plan_rounds {cap_}: the plan gets no further reviewer round — the open "
+                     f"findings are the owner's decision: python3 scripts/reef-queue.py ask \"<the finding, one line>\"{' --row ' + row_ if row_ else ''} "
+                     f"--recommended \"<the reviewer's remedy>\"; his ruling is a queue footnote, then "
+                     f"scripts/reef-record plan-review {slug} PASS --report <the review> --decided <the footnote's mark>")
     if "implementer" not in sub:
         if tier and any(t in sub for t in ("verifier", "loophole-hunter")):
             m = re.search(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", prompt, re.M)
@@ -1262,10 +1301,7 @@ def _check_dispatch(tool_input, payload):
                 # the round is the prompt's `pass=plan round=<n>` (the plan skill writes it), the cap the main checkout's
                 rm = re.search(r"\bround[= ](\d+)\b|\(round (\d+)\)", prompt, re.I)
                 rnd = int(rm.group(1) or rm.group(2)) if rm else 1
-                try:
-                    cap = int((read_config(main_checkout(task_root(path, cwd))).get("hunter") or {}).get("plan_rounds", 2) or 0)
-                except (TypeError, ValueError):
-                    cap = 2
+                cap = rounds_cap(read_config(main_checkout(task_root(path, cwd))), "hunter")
                 if cap and rnd > cap:
                     deny(f"hunter plan round {rnd} > hunter.plan_rounds {cap}: the plan gets no further hunter round — an open hole "
                          f"is the owner's decision at the gate (`reef-adversarial <task> plan --decided <mark>` on his footnote), "
