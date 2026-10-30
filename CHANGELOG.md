@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **`reef update`'s last line names the marketplace** (2026-10-30, the owner's update: the step's own line said `mahmoudmoe`,
+  the done line said `<marketplace>` — a placeholder in a command the owner types). The done line is built from the name on
+  disk (`reef-update.marketplace_name`); without one it says the reload alone. tests/size-budget.json: unchanged (nothing grew).
 - **A runner's stop on the owner is never silent** (2026-10-30, the owner, twice: the runner stopped on his approval, printed the
   commands to `runner.out` alone, and `watch` sat on a dead tail under "session ended"). The run's last word — the wait block with
   the exact commands, a stop, a park, no progress — goes to the terminal, to `live.log` (so `watch` and `status` show it) and,

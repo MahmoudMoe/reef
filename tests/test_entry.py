@@ -60,6 +60,24 @@ class UpdatePushes(unittest.TestCase):
         self.assertIn("reef update: pushed", src)
 
 
+class UpdateNamesTheMarketplace(unittest.TestCase):
+    """2026-10-30, the owner's `reef update`: the step's own line printed the marketplace's name, the last line printed
+    `<marketplace>` — a placeholder in a command the owner types. The done line is built from the name on disk, or says
+    there is none to update."""
+
+    def test_the_done_line_carries_the_name_or_says_there_is_none(self):
+        mod = load_entry()
+        line = mod.update_done_line("mahmoudmoe")
+        self.assertIn("/plugin marketplace update mahmoudmoe", line)
+        self.assertIn("/reload-plugins", line)
+        self.assertNotIn("<", line)
+        line = mod.update_done_line(None)
+        self.assertIn("/reload-plugins", line)
+        self.assertNotIn("marketplace update", line, "no marketplace lists the clone: the reload alone")
+        self.assertNotIn("<", line)
+        self.assertNotIn("<marketplace>", open(ENTRY, encoding="utf-8").read(), "no placeholder left in the entry point")
+
+
 def project(**files):
     d = tempfile.mkdtemp(prefix="reef-screen.")
     subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
