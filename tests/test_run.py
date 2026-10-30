@@ -42,23 +42,31 @@ elif kind == "probe-write":
 if kind not in ("probe-deny", "probe-write"):
     json.dump(st, open(lp, "w"))
 def ev(**e): print(json.dumps(e), flush=True)
-ev(type="system", subtype="init", session_id="x")
 if kind == "sleep":   # a session mid-gate: one step after a second, then quiet for a long time
     import signal, time, traceback
     crumb = os.path.join(os.getcwd(), ".fake-died")   # why this fake ended, for the test to show (CI's macOS leg died unseen)
     for s_ in (signal.SIGHUP, signal.SIGPIPE):          # a session outlives its runner: the real `claude` did (2026-10-29)
         signal.signal(s_, signal.SIG_IGN)
-    try:
-        time.sleep(1)
+    def _named(signum, frame):                          # any other signal: say which one ended this fake, then die of it
+        open(crumb, "w").write(f"signal {signum} ({signal.Signals(signum).name}) from the outside\n")
+        signal.signal(signum, signal.SIG_DFL); os.kill(os.getpid(), signum)
+    for s_ in (signal.SIGTERM, signal.SIGINT, signal.SIGQUIT, signal.SIGABRT, signal.SIGALRM, signal.SIGUSR1, signal.SIGUSR2, signal.SIGXCPU):
+        signal.signal(s_, _named)
+    def say(**e):   # every print, the first included: on a slow start the runner is dead before this fake says a word (macOS, PRs 215/219/222)
         try:
-            ev(type="system", subtype="task_started", tool_use_id="t9", description="Gate full", subagent_type="reef:mechanic")
+            ev(**e)
         except OSError:   # the runner is gone and the pipe with it — keep running, as the real one did
             sys.stdout = open(os.devnull, "w")
+    try:
+        say(type="system", subtype="init", session_id="x")
+        time.sleep(1)
+        say(type="system", subtype="task_started", tool_use_id="t9", description="Gate full", subagent_type="reef:mechanic")
         time.sleep(120)
     except BaseException as e:
         open(crumb, "w").write("".join(traceback.format_exception(type(e), e, e.__traceback__)) or repr(e))
         raise
     sys.exit(0)
+ev(type="system", subtype="init", session_id="x")
 ev(type="assistant", message="a plain string where an object was expected")   # 2026-10-23: this shape killed a night
 ev(type="user", message={"content": "plain text content"})
 ev(type="system", subtype="task_started", tool_use_id="t1", description="Hunter 1203 plan round 2", subagent_type="reef:loophole-hunter")
