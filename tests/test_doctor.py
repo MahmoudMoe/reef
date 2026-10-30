@@ -143,6 +143,88 @@ class Update(unittest.TestCase):
         self.assertIn("dry run: no pull", r.stdout)
         self.assertIn("/reload-plugins", r.stdout)
 
+    def _clone(self):
+        import shutil
+        clone = tempfile.mkdtemp(prefix="reef-plugin-main.")
+        subprocess.run(["git", "init", "-q", "-b", "main", clone], check=True)
+        for sub in ("scripts", "templates", ".claude-plugin"):
+            shutil.copytree(os.path.join(ROOT, sub), os.path.join(clone, sub), ignore=shutil.ignore_patterns("__pycache__"))
+        git(clone, "add", "-A"); git(clone, "commit", "-qm", "plugin")
+        return clone
+
+    def test_the_reload_line_names_the_marketplace_and_the_push_hint_rebases_first(self):
+        # 2026-10-29 (the owner's update): the last line read `/plugin marketplace update <marketplace>` — a placeholder in a
+        # command, against the owner's rule — and when his push was rejected (the loop had pushed meanwhile) the hint said
+        # `git push`, which fails the same way. The marketplace is read from ~/.claude/plugins; the hint rebases first.
+        d, clone = project(), self._clone()
+        home = tempfile.mkdtemp(prefix="reef-home.")
+        os.makedirs(os.path.join(home, ".claude", "plugins"))
+        with open(os.path.join(home, ".claude", "plugins", "known_marketplaces.json"), "w") as f:
+            json.dump({"official": {"installLocation": "/elsewhere"}, "mymarket": {"source": {"source": "directory", "path": clone}, "installLocation": clone}}, f)
+        ident = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}   # HOME replaced: no ~/.gitconfig (CI)
+        env = dict(os.environ, HOME=home, **ident)
+        r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--dry-run"], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("/plugin marketplace update mymarket   then   /reload-plugins", r.stdout)
+        self.assertNotIn("<marketplace>", r.stdout)
+        env_none = dict(os.environ, HOME=tempfile.mkdtemp(prefix="reef-home-none."), **ident)
+        r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--dry-run"], capture_output=True, text=True, env=env_none)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("<marketplace>", r.stdout, "no placeholder, ever")
+        self.assertIn("/reload-plugins", r.stdout)
+        home2 = tempfile.mkdtemp(prefix="reef-home-installed.")   # the fallback: installed_plugins.json names reef@<name>
+        os.makedirs(os.path.join(home2, ".claude", "plugins"))
+        with open(os.path.join(home2, ".claude", "plugins", "installed_plugins.json"), "w") as f:
+            json.dump({"version": 2, "plugins": {"reef@foo": [{"scope": "user"}]}}, f)
+        r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--dry-run"], capture_output=True, text=True, env=dict(os.environ, HOME=home2, **ident))
+        self.assertIn("/plugin marketplace update foo   then   /reload-plugins", r.stdout)
+        # the push: origin moved under the owner — the hint is the line that lands it (the plugin clone gets its upstream, as
+        # a real one has: a non-dry update pulls it first)
+        pbare = tempfile.mkdtemp(prefix="reef-plugin-origin.")
+        subprocess.run(["git", "clone", "-q", "--bare", clone, pbare], check=True)
+        git(clone, "remote", "add", "origin", pbare); git(clone, "fetch", "-q", "origin"); git(clone, "branch", "-q", "-u", "origin/main")
+        bare = tempfile.mkdtemp(prefix="reef-origin.")
+        subprocess.run(["git", "clone", "-q", "--bare", d, bare], check=True)
+        git(d, "remote", "add", "origin", bare); git(d, "fetch", "-q", "origin"); git(d, "branch", "-q", "-u", "origin/main")
+        other = tempfile.mkdtemp(prefix="reef-other.")
+        subprocess.run(["git", "clone", "-q", bare, other], check=True)
+        with open(os.path.join(other, "vitest.txt"), "w") as f:
+            f.write("four workers\n")
+        git(other, "add", "-A"); git(other, "commit", "-qm", "the loop's merge"); git(other, "push", "-q", "origin", "main")
+        r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--commit", "--push"], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("git pull --rebase --autostash origin main && git push", r.stdout)
+        self.assertIn("an autostash that does not re-apply stays in `git stash list`", r.stdout)
+        # the security review: a branch name is git's, not the owner's — `fix;x` is a legal ref — and lands in a shell line
+        git(d, "checkout", "-q", "-b", "fix;x"); git(d, "push", "-q", "-u", "origin", "fix;x")
+        git(other, "fetch", "-q"); git(other, "checkout", "-q", "fix;x")
+        with open(os.path.join(other, "more.txt"), "w") as f:
+            f.write("x\n")
+        git(other, "add", "-A"); git(other, "commit", "-qm", "ahead"); git(other, "push", "-q", "origin", "fix;x")
+        os.unlink(os.path.join(d, "scripts", "reef-row.py"))   # a copy to restore (an edited copy would be a proposal, not a change)
+        git(d, "commit", "-qam", "behind again")
+        r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--commit", "--push"], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("origin 'fix;x' && git push", r.stdout, "quoted for the shell")
+        # a push that fails for another reason gets no rebase advice
+        git(d, "remote", "set-url", "origin", "/nonexistent/origin.git")
+        os.unlink(os.path.join(d, "scripts", "reef-evidence.py"))   # another copy to restore: the commit happens, then the push fails for its own reason
+        git(d, "commit", "-qam", "a copy removed")
+        r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--commit", "--push"], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("git pull --rebase", r.stdout, "no rebase hint for a push that failed for another reason")
+        self.assertIn("reef-update FAILED: push:", r.stdout)
+        # a marketplace key is any JSON string: one outside [A-Za-z0-9._-] is not rendered into the Claude Code line
+        with open(os.path.join(home, ".claude", "plugins", "known_marketplaces.json"), "w") as f:
+            json.dump({"my market; rm -rf": {"installLocation": clone}}, f)
+        r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--dry-run"], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("rm -rf", r.stdout); self.assertIn("/reload-plugins", r.stdout)
+        with open(os.path.join(home, ".claude", "plugins", "known_marketplaces.json"), "w") as f:
+            json.dump(["not", "an", "object"], f)
+        r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--dry-run"], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, "a file of another shape is no crash: " + r.stdout + r.stderr)
+
     def test_a_pull_that_changes_reef_update_runs_the_new_copy(self):
         # 2026-10-18: the fix to reef-update's commit filter (#55) ran old on the trial's next pull — the process is
         # the copy loaded before the pull. The pull changed the file → the new copy runs, once.
