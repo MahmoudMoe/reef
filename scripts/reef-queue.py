@@ -77,7 +77,7 @@ import subprocess
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_config as config, repo_root, read  # noqa: E402
+from reef_common import read_config as config, repo_root, read, table_cells  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 TASK_NAME_RE = re.compile(r"R?\d+-.*\.md$")
@@ -140,7 +140,7 @@ def parse_table(text):
         if not line.strip().startswith("|"):
             header = None
             continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        cells = table_cells(line)
         if header is None:
             if "Id" in cells and "Depends" in cells and i + 1 < len(lines) and re.match(r"^\s*\|\s*-", lines[i + 1]):
                 header = cells
@@ -894,7 +894,7 @@ def cmd_check(root):
         for line in read(jpath).splitlines():
             if not line.lstrip().startswith("|"):
                 continue
-            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            cells = table_cells(line)
             if "ACs" in cells:
                 ac_col = cells.index("ACs")
                 continue
@@ -971,7 +971,7 @@ def cmd_import_rows(root, apply):
                  "--milestone", ensure_milestone(root, snap, b.group() if b else (snap["current_batch"] or "1")))
     out, skip = [], False
     for line in read(qpath).splitlines():
-        cells = [c.strip() for c in line.strip().strip("|").split("|")] if line.strip().startswith("|") else []
+        cells = table_cells(line) if line.strip().startswith("|") else []
         skip = ("Id" in cells and "Depends" in cells) or (skip and bool(cells))
         if not skip:
             out.append(line)

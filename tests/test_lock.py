@@ -39,6 +39,25 @@ class OneOrchestrator(unittest.TestCase):
         with open(self.lock, "w") as f:
             json.dump({"session": session, "at": time.time() - minutes_ago * 60, "pid": pid}, f)
 
+    def test_a_malformed_hold_is_a_stale_pre_0_7_2_hold(self):
+        """reef_common.read_hold (consolidation step 3, 2026-10-30): a `pid` or `at` that is not a number reads as 0 — a hold
+        from before 0.7.2, which names no process and no time, so it is stale and holds nothing; the four readers once
+        disagreed (the guard raised on the `at`, the runner and the doctor read "nobody holds it"). A pid no process can
+        have reads as dead, not as a crash in the hook."""
+        os.makedirs(os.path.dirname(self.lock), exist_ok=True)
+        with open(self.lock, "w") as f:
+            json.dump({"session": "aaaa1111", "at": "soon", "pid": "abc"}, f)
+        self.assertEqual(self.guard("bbbb2222").returncode, 0, "a hold with no readable time or process is stale")
+        self.assertEqual(json.load(open(self.lock))["session"], "bbbb2222", "and the new session takes it")
+        with open(self.lock, "w") as f:
+            json.dump({"session": "aaaa1111", "at": time.time(), "pid": 99999999999999999999}, f)
+        self.assertEqual(self.guard("bbbb2222").returncode, 0, "a pid beyond any process is a dead holder, not a crash")
+        with open(self.lock, "w") as f:
+            f.write("[]")
+        r = self.loop("unlock")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("nobody held it", r.stdout, "a record that is not an object holds nothing")
+
     def test_a_second_session_is_refused_while_the_first_holds_the_project(self):
         self.assertEqual(self.guard("aaaa1111").returncode, 0)
         held = json.load(open(self.lock))

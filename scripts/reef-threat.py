@@ -12,7 +12,7 @@ import subprocess
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_replace as read  # noqa: E402
+from reef_common import read_replace as read, table_cells  # noqa: E402
 
 DSL = "reef/architecture/workspace.dsl"
 TM = "reef/architecture/threat-model.md"
@@ -37,7 +37,7 @@ def crossings(dsl):
 def rows(tm):
     out = []
     for line in tm.splitlines():
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        cells = table_cells(line)
         if len(cells) >= 5 and re.match(r"^\w+\s*->\s*\w+$", cells[0]):
             out.append({"crossing": re.sub(r"\s+", " ", cells[0]), "stride": cells[1], "threat": cells[2], "mitigation": cells[3], "proof": cells[4]})
     return out

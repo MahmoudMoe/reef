@@ -28,7 +28,7 @@ import subprocess
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import git as _git, process_alive, lint_state  # noqa: E402
+from reef_common import git as _git, lint_state, read_hold  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LINES = []
@@ -241,15 +241,12 @@ def main(argv):
     else:
         say("OK", f"loop: {state}")
     # 2026-10-28 (the owner, after the first night): what stopped a normal round that day, each with the one command
-    hp = os.path.join(root, ".reef", "run", "orchestrator.json")
-    try:
-        with open(hp, encoding="utf-8") as f:
-            held = json.load(f)
-        hpid = int(held.get("pid") or 0)
-        alive = bool(hpid) and process_alive(hpid)
-        say("OK" if alive else "WARN", f"hold: session {str(held.get('session', '?'))[:8]} holds the loop (process {hpid or '?'} {'alive' if alive else 'dead'}) (a dead session's hold; the runner takes one over by itself)",
+    held = read_hold(root)
+    if held is not None:
+        alive = held["alive"]
+        say("OK" if alive else "WARN", f"hold: session {(held['session'] or '?')[:8]} holds the loop (process {held['pid'] or '?'} {'alive' if alive else 'dead'}) (a dead session's hold; the runner takes one over by itself)",
             "" if alive else "python3 scripts/reef-loop.py unlock")
-    except (OSError, ValueError, TypeError):
+    else:
         say("OK", "hold: nobody holds the loop")
     try:
         with open(os.path.join(root, ".reef", "run", "gate.json"), encoding="utf-8") as f:

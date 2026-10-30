@@ -42,7 +42,7 @@ Rule for the orchestrator: this script is deterministic; never argue with it, ne
 import hashlib, json, os, re, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read  # noqa: E402
+from reef_common import main_checkout, read, table_cells  # noqa: E402
 
 STATUS = {"pending", "in-progress", "blocked", "done"}
 COMPLEXITY = {"mech", "design"}
@@ -66,6 +66,21 @@ DEFAULT_TEST_RE = (
     r"|(?:\bit|\btest|\bdescribe)\((['\"]).+?\1\)"  # Jest/Vitest it('...')/test("...")
 )
 TASK_NAME_RE = re.compile(r"(R?)(\d+)-.*\.md$")     # NNN-slug.md and rollup RNN-slug.md
+
+
+def is_rollup(path):
+    """R<NN>-<slug>.md — a review rollup, written by reef-converge: never planned, stamped, hunted or tiered."""
+    return re.match(r"^R\d+[-.]", os.path.basename(path)) is not None
+
+
+def in_done(path):
+    """The task file lives under tasks/done/."""
+    return os.path.basename(os.path.dirname(path)) == "done"
+
+
+def is_finished(path, fm):
+    """A FINISHED task: under tasks/done/ with `status: done` — it keeps the structural checks only."""
+    return in_done(path) and fm.get("status") == "done"
 # 0.6 feature folders: <paths.features>/<slug>/{SPEC.md, specs/*.md, adr/*.md, tasks/*.md, tasks/done/*.md}
 SLUG_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+){1,4}$")
 GENERIC_SLUGS = {"misc", "fixes", "feature", "update", "stuff", "changes", "work", "tasks", "new", "todo", "wip"}
@@ -337,7 +352,7 @@ def feature_path(task_paths):
     THE one rule: scripts/reef-tier.py path and the guard call this function (the review, 2026-10-25: three readers)."""
     tiers, why = [], []
     for p in sorted(task_paths):
-        if re.match(r"R\d+[-.]", os.path.basename(p)):
+        if is_rollup(p):
             continue
         try:
             txt = read(p)
@@ -461,7 +476,7 @@ def hunter_state(task_paths, tiers=("critical",)):
             continue
         if fm_value(text, "tier") not in tiers or fm_value(text, "status") == "done":
             continue
-        if re.match(r"R\d+[-.]", os.path.basename(p)):
+        if is_rollup(p):
             continue   # a review rollup gets no plan pass (2026-10-24): the feature's guard pass reads its diff
         tid = fm_value(text, "id") or os.path.basename(p)
         got = fm_value(text, "adversarial-plan")
@@ -602,7 +617,7 @@ def main():
     # Rollups (R<NN>) are EXECUTION artifacts written by reef-review mid-run; they get
     # every structural check but must never enter the stamp — creating one would stale
     # the plan and deny the very dispatch it was created for.
-    stamp_tasks = [p for p in task_files if not os.path.basename(p).startswith("R")]
+    stamp_tasks = [p for p in task_files if not is_rollup(p)]
     stamp_task_set = set(stamp_tasks)
 
     def stamp_key(p):
@@ -742,7 +757,7 @@ def main():
             except OSError:
                 pass
         n_draft = sum(1 for k in files if os.path.basename(k).startswith("draft-"))
-        n_fin = sum(1 for p in tasks_here if os.path.basename(os.path.dirname(p)) == "done")
+        n_fin = sum(1 for p in tasks_here if in_done(p))
         parts = [f"{len(tasks_here) - n_fin} task(s)"] + ([f"{n_fin} finished"] if n_fin else []) + [f"{n_ac} criteria", f"{n_draft} draft ADR(s)"]
         try:
             with open(os.path.join(main_checkout(root), ".reef", "approvals", f"{feature_filter}.json"), encoding="utf-8") as f:
@@ -794,7 +809,7 @@ def main():
         # the review (2026-10-28): the digest keys by basename and strips status, so a task moved out of done/ keeps the
         # stamp — the stamp names the tasks that were finished at review time; one of them open again is a plan change
         fin = stamp.get("finished") if isinstance(stamp.get("finished"), dict) else {}
-        open_now = {os.path.basename(p_): p_ for p_ in task_files if os.path.basename(os.path.dirname(p_)) != "done"}
+        open_now = {os.path.basename(p_): p_ for p_ in task_files if not in_done(p_)}
         reopened = [os.path.relpath(open_now[b], root) for f_ in feats for b in (fin.get(f_) or []) if b in open_now]
         if reopened:
             print(f"stamp: STALE — {', '.join(reopened)} finished at the last review and open again ({scope}); a finished task never "
@@ -879,7 +894,7 @@ def main():
         for f in folder_files(fdir):
             if not allowed_in_folder.match(os.path.relpath(f, fdir).replace(os.sep, "/")):
                 fail(f"{frel}: {os.path.relpath(f, fdir)} does not belong in a feature folder (SPEC.md, specs/, adr/, tasks/ only)")
-        n_tasks = sum(1 for p in task_files if folder_of.get(p) == fdir and not os.path.basename(p).startswith("R"))
+        n_tasks = sum(1 for p in task_files if folder_of.get(p) == fdir and not is_rollup(p))
         if n_tasks > max_tasks:
             fail(f"{frel}: {n_tasks} tasks > plan.max_tasks {max_tasks} — split the feature into dependent queue rows, each with its own folder")
         if len(results) == before:
@@ -913,11 +928,11 @@ def main():
         # the folder and the status are one fact with two homes: a file under done/ is `status: done` and a
         # `status: done` file is under done/ (first contact, 2026-10-17: 103 was merged into done/ still `in-progress`,
         # the tick would have kept it building; the orchestrator noticed, a check must)
-        in_done = os.path.basename(os.path.dirname(path)) == "done"
-        if "status" in fm and not os.path.basename(path).startswith("R"):
-            if in_done and fm["status"] != "done":
+        under_done = in_done(path)
+        if "status" in fm and not is_rollup(path):
+            if under_done and fm["status"] != "done":
                 errs.append(f"under tasks/done/ with status={fm['status']!r} — the close-out sets `status: done` in the same commit that moves the file")
-            if not in_done and fm["status"] == "done":
+            if not under_done and fm["status"] == "done":
                 errs.append("status: done but not under tasks/done/ — the close-out `git mv`s the file in the same commit")
         if "attempts" in fm and not re.fullmatch(r"\d+", fm["attempts"]):
             errs.append(f"attempts={fm['attempts']!r} not a non-negative integer (a negative value would multiply the retry cap)")
@@ -1054,11 +1069,11 @@ def main():
         # a rollup (R<n>-<slug>.md) is written by reef-converge, never planned or stamped: it keeps the schema, id and
         # graph checks, not the planner's authoring rules (2026-10-19, qassimha row 68: the rollups converge wrote failed
         # seven of them — Log last, a human Decision, an FR key, the same Proof command in two features)
-        rollup = re.match(r"^R\d+-", os.path.basename(rel)) is not None
+        rollup = is_rollup(rel)
         # 2026-10-28 (the current adoption, rows 3 and 46): a FINISHED task was shipped under the rules of its time, and the v3
         # proof rule on it blocked every new plan. The structural and authoring rules are listed once, in the docstring;
         # a_fail/a_ok/a_print are the authoring rules' voice, silent for a finished task and for another feature under --feature.
-        finished = os.path.basename(os.path.dirname(fm["_path"])) == "done" and fm.get("status") == "done"
+        finished = is_finished(fm["_path"], fm)
         authored = not finished and (feature_filter is None or fm.get("feature") == feature_filter)
         a_fail, a_ok, a_print = (fail, ok, print) if authored else (silent, silent, silent)
         # the stamp ignores everything after ## Log — so nothing but log content may
@@ -1139,7 +1154,7 @@ def main():
         proof_rows = {}
         if proof is not None:
             for line in proof.splitlines():
-                cells = [c.strip() for c in line.strip().strip("|").split("|")]
+                cells = table_cells(line)
                 m = re.match(r"^\**(AC-?\d+)\**$", cells[0]) if len(cells) >= 2 else None
                 if m and not re.match(r"^-+$", cells[1]):
                     proof_rows[re.sub(r"^AC-?", "AC-", m.group(1))] = cells[1]
@@ -1152,6 +1167,7 @@ def main():
                     # shell, a script read as a file name, a build raced for the CPU): a proof is a NAMED TEST the project's
                     # runner runs by name; a long shell line is refused unless it must write files ([mechanic])
                     # measured on the whole row after the AC cell: the row was split on `|`, and a pipe inside the proof is shell too
+                    # not table_cells: the row's REST, inner pipes and their spacing kept — the 120-char rule measures it as written
                     whole = line.strip().strip("|").split("|", 1)[1].strip() if "|" in line.strip().strip("|") else cells[1]
                     shell = re.search(r"&&|\|\||[|;<>]|\$\(|\s--?[a-zA-Z]", whole)
                     if len(whole) > 120 and shell and "[mechanic]" not in whole:
@@ -1398,7 +1414,7 @@ def main():
     written = digests if feature_filter is None else {**kept, **({feature_filter: digests[feature_filter]} if feature_filter in digests else {})}
     fin_now = {}
     for rel, fm in tasks.items():
-        if os.path.basename(os.path.dirname(rel)) == "done" and fm.get("status") == "done":
+        if is_finished(rel, fm):
             fin_now.setdefault(str(fm.get("feature", "")), []).append(os.path.basename(rel))
     kept_fin = old.get("finished") if isinstance(old.get("finished"), dict) else {}
     finished = {f_: sorted(fin_now.get(f_, [])) for f_ in written} if feature_filter is None else \
@@ -1413,7 +1429,7 @@ def main():
     roles = cfg.get("roles", {}) if isinstance(cfg.get("roles", {}), dict) else {}
     tiers_cfg = cfg.get("tiers", {}) if isinstance(cfg.get("tiers", {}), dict) else {}
     present = [fm.get("tier") or ("light" if fm.get("complexity") == "mech" else "full") for rel, fm in tasks.items()
-               if not os.path.basename(rel).startswith("R") and (feature_filter is None or fm.get("feature") == feature_filter)]
+               if not is_rollup(rel) and (feature_filter is None or fm.get("feature") == feature_filter)]
     heaviest = max(present, key=lambda t: TIER_ORDER.index(t) if t in TIER_ORDER else 1, default="full")
     path, _why = feature_path([os.path.join(root, rel) for rel, fm in tasks.items() if feature_filter is None or fm.get("feature") == feature_filter])
     if path == "fast" and present:   # v3 phase 3a: the fast path has no plan-reviewer; the check alone stamps

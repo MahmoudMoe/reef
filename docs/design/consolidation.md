@@ -19,7 +19,9 @@ plan; each step below ships as its own PR, red first where a test can be red, an
 
 **No behaviour changes.** The 722 tests are the proof: no assertion changes, only files move; every PR ends with the same
 green (the Python suite, `tests/test_hooks.sh`, `tests/test_ci_local.sh`, the six CI checks). After each PR the budget is
-set to the new, lower measurement, so the ceiling only ever comes down. A refactor that needs a test changed is not a
+set to the new measurement — lower after a step that removes files or copies; a step that only makes one definition of
+several (step 3) may add the docstring and the normalisation the copies never had, and is scored by §1's helper column,
+not by lines. A refactor that needs a test changed is not a
 refactor and goes back to the plan.
 
 ## 3. The steps, one PR each, in this order

@@ -61,7 +61,7 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout as _main_checkout, read_config, process_alive  # noqa: E402
+from reef_common import main_checkout as _main_checkout, read_config, read_hold, write_hold, HOLD_MINUTES  # noqa: E402
 
 # 0.7: native Windows has no fcntl locks, no SIGALRM deadline and no process groups, and the guard cannot run there.
 # Inside a Reef project it stops with the one sentence that helps; anywhere else it steps aside (the plugin's hook runs
@@ -1381,7 +1381,6 @@ def main_checkout(cwd):
     return found if found is not None else task_root(os.path.join(cwd, "x"), cwd)
 
 
-HOLD_MINUTES = 30
 LOOP_WRITE = re.compile(r"reef-loop\.py\s+tick|gh\s+pr\s+merge|reef-record\b|reef-merge-close\b|reef-queue\.py\s+(add-row|close|admit|set-|drop-row|demote|"
                         r"footnote|journal|note|promote-note)|\bgit\s+(merge|push)\b")
 
@@ -1397,33 +1396,19 @@ def check_one_orchestrator(payload, cwd):
     root = main_checkout(cwd)
     if not os.path.isfile(os.path.join(root, ".reef", "config.json")):
         return
-    p = os.path.join(root, ".reef", "run", "orchestrator.json")
-    try:
-        with open(p, encoding="utf-8") as f:
-            held = json.load(f)
-    except (OSError, ValueError):
-        held = {}
-    age = time.time() - float(held.get("at") or 0)
+    held = read_hold(root)
     # 0.7.2 (first adoption, 2026-10-25): the hold belongs to a PROCESS, not a session id. After /clear the same Claude process carries a
     # new session id and was refused by its own hold for 30 minutes; a session that ended without `reef-loop.py wait` held it as
     # long. The hook's parent is the Claude process: the same pid is the same owner, a dead pid holds nothing. A hold written
     # before this change (no pid) keeps the old 30-minute rule.
     me = os.getppid()
-    try:
-        held_pid = int(held.get("pid") or 0)
-    except (TypeError, ValueError):
-        held_pid = 0
-    other = held.get("session") and held["session"] != sid and age < HOLD_MINUTES * 60
-    if other and (not held_pid or (held_pid != me and process_alive(held_pid))):
-        deny(f"another Claude session ({held['session'][:8]}, its last loop action {int(age // 60)} min ago"
-             + (f", process {held_pid} alive" if held_pid else "") + ") holds this project's loop: one orchestrator at a time. "
+    other = held is not None and held["session"] and held["session"] != sid and held["age_s"] < HOLD_MINUTES * 60
+    if other and (not held["pid"] or (held["pid"] != me and held["alive"])):
+        deny(f"another Claude session ({held['session'][:8]}, its last loop action {int(held['age_s'] // 60)} min ago"
+             + (f", process {held['pid']} alive" if held["pid"] else "") + ") holds this project's loop: one orchestrator at a time. "
              f"Stop that session (`claude agents`), wait until it has been idle {HOLD_MINUTES} min, or take over: "
              "`python3 scripts/reef-loop.py unlock`")
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    tmp = f"{p}.{os.getpid()}"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"session": sid, "at": time.time(), "pid": me}, f)
-    os.replace(tmp, p)
+    write_hold(root, sid, me)
 
 
 def context_for(payload):

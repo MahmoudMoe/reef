@@ -35,6 +35,10 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.dont_write_bytecode = True
+from reef_common import table_cells  # noqa: E402
+
 CLAIM = re.compile(r"^(?P<sentence>.+?)\s+(?:—|--|-)\s*true at\s+(?P<path>[^\s:]+):(?P<a>\d+)(?:-(?P<b>\d+))?\s*$")
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 HEADER = re.compile(r"^diff --git a/(.*) b/(.*)$")
@@ -216,7 +220,7 @@ def cmd_report(repo, path, task_path):
     proof_rows = {}
     if proof:
         for l in proof.group(1).splitlines():
-            cells = [c.strip() for c in l.strip().strip("|").split("|")]
+            cells = table_cells(l)
             m = re.match(r"^\**AC-?(\d+)\**$", cells[0]) if len(cells) >= 2 else None
             if m and not re.match(r"^-+$", cells[1]):
                 proof_rows[m.group(1)] = cells[1].strip("`")
@@ -407,7 +411,7 @@ def cmd_assess(repo, root):
         level, n = m.group(1).lower(), int(m.group(2))
         rows = {}
         for l in dz.splitlines():
-            cells = [c.strip() for c in l.strip().strip("|").split("|")]
+            cells = table_cells(l)
             if len(cells) >= 3 and cells[0].lower() in DIMENSIONS:
                 rows[cells[0].lower()] = cells
         for d in DIMENSIONS:
