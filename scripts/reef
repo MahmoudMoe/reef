@@ -17,7 +17,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, approval_questions  # noqa: E402
+from reef_common import main_checkout, approval_questions, questions, answer_command, drop_question  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
@@ -32,7 +32,7 @@ VERBS = [
      lambda root, a: cmd_screen(root, a)),
     ("approve", "`approve <row>`: the row's plan approval at its current digest — the line you would type, typed for you",
      lambda root, a: cmd_approve(root, a)),
-    ("answer",  "`answer <row> \"<text>\"`: your answer to a filed question, as the footnote the loop reads",
+    ("answer",  "`answer <row> \"<text>\"`: your answer to a filed question — `answered <#>` on an issues queue, the footnote on a file",
      lambda root, a: cmd_answer(root, a)),
     ("status",  "where things stand: the runner, the night, the last session, the loop's wait",
      lambda root, a: run_script("reef-run.py", ["status", "--repo", root], root)),
@@ -175,20 +175,6 @@ def row_state(root, row):
         return {}
 
 
-def questions(root):
-    """[(row, question, recommended)] from .reef/questions.md — the lines reef-queue.py ask writes; a row is digits."""
-    out = []
-    try:
-        with open(os.path.join(root, ".reef", "questions.md"), encoding="utf-8") as f:
-            for line in f:
-                m = re.match(r"^- row (\d+): (.*?)(?: — recommended: (.*))?$", line.rstrip("\n"))
-                if m:
-                    out.append((m.group(1), m.group(2).strip(), (m.group(3) or "").strip()))
-    except OSError:
-        pass
-    return out
-
-
 def handoff_awaiting(root):
     """The tick's `awaiting:` line as HANDOFF.md renders it — since #210 it carries each approval's exact question."""
     try:
@@ -223,9 +209,9 @@ def doctor_lines(root):
         return []
 
 
-def item(kind, text, argv, shown=None, row=None, recommended=""):
+def item(kind, text, argv, shown=None, row=None, recommended="", issue=""):
     """An inbox item: what it is, the argv that runs it (never a shell), and the line the owner would type."""
-    return {"kind": kind, "text": text, "argv": argv, "cmd": shown or shlex.join(argv), "row": row, "recommended": recommended}
+    return {"kind": kind, "text": text, "argv": argv, "cmd": shown or shlex.join(argv), "row": row, "recommended": recommended, "issue": issue}
 
 
 def approve_item(q, text=None, row=None):
@@ -250,10 +236,15 @@ def inbox(root, doctor=None, runner=None):
         qs = approval_questions(str(row_state(root, r).get("detail") or ""))
         if qs:
             add(approve_item(qs[0], text=f"row {r}: {qs[0]}", row=r))
-    for r, q, rec in questions(root):
-        add(item("answer", f"row {r}: {q}" + (f" (recommended: {rec})" if rec else ""),
-                 [PY, script("reef-queue.py") or "scripts/reef-queue.py", "footnote", "<your answer>", "--row", r],
-                 shown=f'python3 scripts/reef-queue.py footnote "<your answer>" --row {r}', row=r, recommended=rec))
+    for r, issue, q, rec in questions(root):
+        a = answer_command(root, r, issue, rec or "<your answer>")   # answered <#> on issues, the footnote on a file queue, the recommendation filled in
+        text = f"row {r}" + (f" (#{issue})" if issue else "") + f": {q}" + (f" (recommended: {rec})" if rec else "")
+        if a:
+            argv, shown = a
+            add(item("answer", text, [PY, script("reef-queue.py") or "scripts/reef-queue.py"] + argv[2:], shown=shown, row=r, recommended=rec, issue=issue))
+        else:   # an issues queue, a line from before 0.7.4, and gh could not name the issue: the look that finds it (never silence)
+            add(item("look", text + " — its reef-question issue is not named here", ["gh", "issue", "list", "--label", "reef-question", "--search", f"row {r}"],
+                     shown=f'gh issue list --label reef-question --search "row {r}"', row=r))
     if st.get("parked"):
         add(item("unpark", f"the loop parked: {str(st['parked'])[:100]}", [PY, script("reef-loop.py") or "scripts/reef-loop.py", "start", "--repo", root],
                  shown="python3 scripts/reef-loop.py start"))
@@ -372,7 +363,8 @@ def screen_loop(stdscr, root, curses):
                         text = input(f"your answer for row {it['row']} [{it['recommended']}]: ").strip() or it["recommended"]
                     except EOFError:
                         text = ""
-                    argv, shown = ([PY, os.path.abspath(__file__), "answer", it["row"], text, "--repo", root], f"reef answer {it['row']} {shlex.quote(text)}") if text else (None, None)
+                    key = f"#{it['issue']}" if it.get("issue") else it["row"]   # a row-less question answers by its issue
+                    argv, shown = ([PY, os.path.abspath(__file__), "answer", key, text, "--repo", root], f"reef answer {shlex.quote(key)} {shlex.quote(text)}") if text else (None, None)
         if argv:
             curses.endwin()
             run_shown(root, argv, shown)
@@ -399,30 +391,43 @@ def cmd_approve(root, args):
 
 
 def cmd_answer(root, args):
-    """Your answer to a filed question: the footnote on its row (what the loop reads), then the question line is cleared."""
+    """Your answer to a filed question — `reef answer <row> "<text>"`, or `reef answer '#<issue>' "<text>"`: on an issues
+    queue `reef-queue.py answered <#>` closes the question's issue (what the loop reads there; a row with two open
+    questions needs the number), on a file queue the footnote on its row; then the question's line is cleared."""
     pos = [a for a in args if not a.startswith("--")]
-    if len(pos) != 2 or not pos[0].isdigit():
-        print('reef answer <row> "<text>"', file=sys.stderr)
+    if len(pos) != 2 or not re.fullmatch(r"#?\d+", pos[0]):
+        print('reef answer <row> "<text>" · reef answer \'#<issue>\' "<text>"', file=sys.stderr)
         return 2
-    row, text = pos
-    argv = [PY, script("reef-queue.py") or "scripts/reef-queue.py", "footnote", text, "--row", row]
-    print(f"reef answer: python3 scripts/reef-queue.py footnote {shlex.quote(text)} --row {row}", flush=True)
+    key, text = pos
+    if not text.strip():
+        print("reef answer: the answer is empty — nothing recorded", file=sys.stderr)
+        return 2
+    filed = questions(root)
+    if key.startswith("#"):
+        mine = [(r, i) for r, i, _, _ in filed if i == key[1:]]
+        row, issue = (mine[0] if mine else ("-", key[1:]))
+    else:
+        row = key
+        numbers = [i for r, i, _, _ in filed if r == row and i]
+        if len(numbers) > 1:
+            print(f"reef answer: row {row} has {len(numbers)} open questions — name one: " + " · ".join(f"reef answer '#{n}' \"<text>\"" for n in numbers), file=sys.stderr)
+            return 2
+        issue = numbers[0] if numbers else ""
+    a = answer_command(root, row, issue, text)
+    if a is None:
+        print(f"reef answer: row {row}'s question lives in a reef-question issue this line does not name — answer it there: gh issue list --label reef-question", file=sys.stderr)
+        return 2
+    argv, shown = a
+    argv = [PY, script("reef-queue.py") or "scripts/reef-queue.py"] + argv[2:]
+    print(f"reef answer: {shown}", flush=True)
     if "--dry-run" in args:
         return 0
     rc = subprocess.run(argv, cwd=root).returncode
     if rc != 0:
         return rc
-    q = os.path.join(root, ".reef", "questions.md")
-    try:
-        with open(q, encoding="utf-8") as f:
-            lines = f.read().splitlines(True)
-        kept = [l for l in lines if not l.startswith(f"- row {row}:")]
-        if len(kept) != len(lines):
-            with open(q, "w", encoding="utf-8") as f:
-                f.writelines(kept)
-            print(f"reef answer: row {row}'s question cleared from .reef/questions.md")
-    except OSError:
-        pass
+    gone = drop_question(root, issue=issue) if issue else drop_question(root, row=row)   # on issues `answered` already did; a file queue clears here
+    if gone:
+        print(f"reef answer: row {row}'s question cleared from .reef/questions.md")
     return 0
 
 

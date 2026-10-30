@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **A filed question on an issues queue is answered by its issue** (2026-10-30, the current adoption: the loop filed #90–#93 as
+  `reef-question` issues; the runner's wait, the `reef` screen and `reef answer` named the file-queue footnote, which closes no
+  issue, so the next session read the same four open questions and ended on the same wait). `reef-queue.py ask` writes the
+  issue's number on its line (`- row 7 #90: …`); the one command for a question is `reef_common.answer_command` —
+  `reef-queue.py answered <#> '<the recommended answer>'` on issues, the footnote on a file queue, the recommendation filled in
+  so no command carries a placeholder; `answered` clears the question's line; `reef answer '#<issue>' "<text>"` picks one of a
+  row's several questions. The question line has one parser (`reef_common.questions`), used by the runner, the screen and the
+  approval's clearing. tests/size-budget.json raised: `prose_words` 22,820 → 22,847, `script_lines` 17,228 → 17,331.
 - **Consolidation step 3 — one definition inside the big four** (docs/design/consolidation.md, 2026-10-30): the loop's
   hold is read by `reef_common.read_hold` and dropped by `drop_hold` — the guard, the runner, the doctor and the loop had
   four readers of `.reef/run/orchestrator.json` and two `HOLD_MINUTES`; the plan check says `in_done`, `is_finished` and

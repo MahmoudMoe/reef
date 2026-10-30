@@ -27,7 +27,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout  # noqa: E402
+from reef_common import main_checkout, drop_question  # noqa: E402
 
 QUESTION = re.compile(r"^Approve plan (?P<feature>[A-Za-z0-9][A-Za-z0-9._-]*) at (?P<digest>[0-9a-f]{16})\?$")
 NIGHT_Q = re.compile(r"^Approve night (?P<date>\d{4}-\d\d-\d\d) at (?P<digest>[0-9a-f]{16})\?$")
@@ -137,23 +137,9 @@ def clear_question(main, feature, co, digest16):
     his terminal and three runner sessions re-read the filed question, believed it, and recorded the same wait). The row's lines
     that ask for an approval go; other rows' questions, and this row's other questions, stay. Returns how many lines went."""
     row = feature_row(co, feature)
-    p = os.path.join(main, ".reef", "questions.md")
-    try:
-        with open(p, encoding="utf-8") as f:
-            lines = f.read().splitlines()
-    except OSError:
-        return 0
-    def mine(line):
-        return bool(row) and re.match(rf"- row {re.escape(row)}:", line) is not None and re.search(r"approv|\bstamp\b|digest", line, re.I) is not None
-    kept = [l for l in lines if not mine(l)]
-    gone = len(lines) - len(kept)
+    gone = drop_question(main, row=row, when=lambda line: re.search(r"approv|\bstamp\b|digest", line, re.I)) if row else 0
     if not gone:
         return 0
-    if any(l.strip() for l in kept):
-        with open(p, "w", encoding="utf-8") as f:
-            f.write("\n".join(kept) + "\n")
-    else:
-        os.unlink(p)
     if shutil.which("gh"):
         try:
             r = subprocess.run(["gh", "issue", "list", "--label", "reef-question", "--state", "open", "--search", f"row {row}", "--json", "number,title"],

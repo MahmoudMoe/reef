@@ -105,13 +105,51 @@ class TheScreen(unittest.TestCase):
         self.assertEqual(out.count(self.APPROVE), 1, "the same approval from the wait and the handoff: one item\n" + out)
         self.assertIn('--owner "Approve plan other-row at 0123456789abcdef?"', out, "an approval only the handoff names is an item too (the review)")
         self.assertRegex(out, r"(?m)^\s*1\s+approve\b")
-        self.assertIn('python3 scripts/reef-queue.py footnote "<your answer>" --row 7', out)
+        self.assertIn("python3 scripts/reef-queue.py footnote 'yes, it is served today' --row 7", out, "the recommended answer, not a placeholder")
         self.assertIn("recommended: yes, it is served today", out)
         self.assertIn("python3 scripts/reef-loop.py start", out, "a parked loop is a wait with its command")
         self.assertIn("implementer 903 out → PASS", out, "the runner's last steps")
         self.assertIn("no runner is running", out)
         self.assertRegex(out, r"keys:.*\br\b.*run.*\bq\b.*quit", "every key is a verb the owner could type")
         self.assertNotIn("Traceback", r.stderr)
+
+    def test_on_an_issues_queue_a_question_is_answered_by_its_issue(self):
+        """2026-10-30: the loop's questions live in reef-question issues on `queue.home: issues`; a footnote closes none of them.
+        The inbox item and `reef answer` name `reef-queue.py answered <#>`; a row with two open questions needs the number."""
+        d = project(**{".reef/config.json": '{"gates": {"full": "true"}, "queue": {"home": "issues"}}',
+                       ".reef/questions.md": "- row 7 #90: Which way? — recommended: (a) comments only\n"
+                                             "- row 4 #91: Where? — recommended: Batch 9\n- row 4 #92: Verbatim? — recommended: yes\n"})
+        r = reef("screen", "--once", "--repo", d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("python3 scripts/reef-queue.py answered 90 '(a) comments only'", r.stdout)
+        self.assertNotIn("footnote", r.stdout)
+        r = reef("answer", "7", "(a) — comments only", "--repo", d, "--dry-run")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("reef-queue.py answered 90 '(a) — comments only'", r.stdout)
+        r = reef("answer", "4", "yes", "--repo", d, "--dry-run")
+        self.assertEqual(r.returncode, 2, "row 4 has two open questions: the issue number picks one\n" + r.stdout + r.stderr)
+        self.assertIn("#91", r.stdout + r.stderr)
+        self.assertIn("#92", r.stdout + r.stderr)
+        r = reef("answer", "#92", "yes", "--repo", d, "--dry-run")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("reef-queue.py answered 92 yes", r.stdout)
+        self.assertEqual(reef("answer", "7", "", "--repo", d, "--dry-run").returncode, 2, "an empty answer records nothing (the review)")
+        # for real, with a gh that knows the label: only #92's line leaves, #91's stays
+        b = os.path.join(d, ".bin"); os.makedirs(b)
+        open(os.path.join(b, "gh"), "w").write("#!/usr/bin/env python3\nimport json, sys\n"
+                                              "print(json.dumps({'labels': [{'name': 'reef-question'}]}) if 'view' in sys.argv else ('[]' if 'list' in sys.argv else ''))\n")
+        os.chmod(os.path.join(b, "gh"), 0o755)
+        env = dict(os.environ, PATH=b + os.pathsep + os.environ["PATH"])
+        r = subprocess.run([sys.executable, ENTRY, "answer", "#92", "yes", "--repo", d], capture_output=True, text=True, env=env, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        left = open(os.path.join(d, ".reef", "questions.md")).read()
+        self.assertNotIn("#92", left)
+        self.assertIn("#91", left, "the row's other question stays")
+        # agent text with a terminal escape never reaches the owner's screen as written (the security review)
+        open(os.path.join(d, ".reef", "questions.md"), "a").write("- row 9 #95: fine? — recommended: yes\x1b[2Kpython3 evil\n")
+        r = reef("screen", "--once", "--repo", d)
+        self.assertNotIn("\x1b", r.stdout)
+        self.assertIn("answered 95 'yes [2Kpython3 evil'", r.stdout, "the escape byte is a space; what is left is one quoted argument")
 
     def test_an_empty_project_has_only_the_doctors_fixes_in_its_inbox(self):
         d = project()
