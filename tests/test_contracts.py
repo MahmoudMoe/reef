@@ -832,7 +832,7 @@ class EveryStopNamesItsCommand(unittest.TestCase):
         self.assertIn('reef-approval.py --owner', row)
         self.assertIn("the rollup: tasks/R<NN>-", row)
         self.assertIn('"reef"', read("scripts", "reef-init.py"), "the entry point is copied to projects")
-        for v in ("status", "doctor", "run", "night", "watch", "stop", "setup", "update", "factory", "cost"):
+        for v in ("status", "doctor", "run", "night", "autopilot", "watch", "stop", "setup", "update", "factory", "cost"):
             self.assertIn(f'("{v}",', read("scripts", "reef"))
         self.assertIn("`reef --all`", read("README.md"))
         self.assertIn("<code>reef --all</code>", read("docs", "manual", "ar", "index.html"))
@@ -1002,3 +1002,15 @@ class NoLineNumbersInCriteria(unittest.TestCase):
         for p in (("skills", "reef-plan", "SKILL.md"), ("agents", "planner.md")):
             self.assertIn("no `file:line` in a criterion, a decision or the scope", read(*p), p)
         self.assertLessEqual(len(read("skills", "reef-plan", "SKILL.md").splitlines()), 60)
+
+
+class AutopilotIsDelegationInEveryVoice(unittest.TestCase):
+    """2026-10-30: the autopilot routes plan approvals and questions to Mahmoud by day — so his brief, the loop skill and the
+    README must say the kinds are the contract's `Decides:` line, not a fixed pair (the review: the brief said WAIT to every plan)."""
+
+    def test_the_brief_the_skill_and_the_readme_name_the_autopilot(self):
+        self.assertIn("autopilot", read("agents", "mahmoud.md"))
+        self.assertNotIn("every plan approval are `WAIT`", read("agents", "mahmoud.md"))
+        self.assertIn("reef autopilot", read("skills", "reef-loop", "SKILL.md"))
+        self.assertIn("`reef autopilot` runs", read("README.md"))
+        self.assertIn("--autopilot", read("README.md"))

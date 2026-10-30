@@ -12,7 +12,7 @@ Usage (the owner's terminal, in the project's main checkout):
   reef-run.py probe [--repo DIR] [--permission-mode auto]   once per machine and mode: one headless session tries a
       forbidden write; GATE OK only when reef-guard denied it and no file exists (fail closed — a headless session the
       guard does not reach would be a way around every rule)
-  reef-run.py [--repo DIR] [--max-iterations 10] [--permission-mode auto] [--night] [--host opencode]
+  reef-run.py [--repo DIR] [--max-iterations 10] [--permission-mode auto] [--night] [--autopilot] [--host opencode]
   --host opencode: each session is `opencode run --command reef-loop --format json` (scripts/reef-opencode.py install
                first); the probe and the gate are per host (`probe --host opencode`)
   reef-run.py watch [--repo DIR]   the live steps of the run in progress, then the runner's last word when it ends (2 = waiting on you)
@@ -32,6 +32,10 @@ Usage (the owner's terminal, in the project's main checkout):
       his decision as a labelled footnote; an edit to either file voids it.
   reef-run.py contract [--from FILE]   (super Reef) install tonight's contract into .reef/night/contract.md and print
       the night digest (contract + reef/owner.md) and the exact question /reef-night asks: `Approve night <date> at <16 hex>?`
+  --autopilot: the runner on its own under the standing contract reef/proxy.md (approved once: `contract --day`): every decision
+      of a kind its `Decides:` line names goes to reef:mahmoud; a session that still ends on an owner wait is not the end —
+      the next one decides it; the same wait twice is the owner's (outside the contract, or a hard limit); `.reef/night/autopilot`
+      marks the run, `.reef/run/autopilot.md` is the report. `reef autopilot` starts it detached.
   --night: a delegated night (/reef-night): refuses without .reef/approvals/night.json at the CURRENT night digest; owner
       decisions inside the contract go to reef:mahmoud (the owner's proxy); `.reef/night/active` exists while it runs
       (the guard then refuses a release PR); `.reef/night/report.md` at exit — every proxy decision and every merge.
@@ -64,6 +68,7 @@ SESSION = {"p": None}                                 # its Popen while it runs 
 # the commands that decide or merge — every other Bash call is noise in the live view
 KEY_BASH = re.compile(r"reef-approval\.py --proxy|reef-queue\.py footnote|reef-record |gh pr (create|merge)|git merge |reef-loop\.py wait")
 NIGHT_DIR = os.path.join(".reef", "night")
+AUTOPILOT = os.path.join(NIGHT_DIR, "autopilot")   # exists while `--autopilot` runs, under the guarded .reef/night/ (the security review): pid, start, the contract's digest
 # `claude -p` waits for background agents and workflows after the last turn only 10 idle minutes by default, then exits
 # and kills them (night 2026-10-21: 1201 and 1202 cut off mid-build, the run record `killed`). Documented knob
 # (code.claude.com/docs/en/headless, Claude Code 2.1.182+); the clock restarts on every background result.
@@ -74,6 +79,13 @@ NIGHT_PROMPT = (" SUPER REEF NIGHT (.reef/night/contract.md, approved by the own
                 "--feature <slug> --report <that file>`. A design look, a product question, a post-round-2 hole, triage: "
                 "`python3 scripts/reef-queue.py footnote \"Mahmoud (proxy, night <date>): <decision> — <why>\" --row <id>`. A WAIT "
                 "(outside the contract, or a hard limit): questions.md, and keep the other rows moving.")
+AUTOPILOT_PROMPT = (" AUTOPILOT (reef/proxy.md, the standing contract the owner approved once): every owner decision of a kind its "
+                    "`Decides:` line names goes to reef:mahmoud (model roles.proxy), never to questions.md and never a wait. A plan "
+                    "approval (kind plan): Mahmoud writes its report, you `cp` it to .reef/ci-local/report-mahmoud-<slug>.md, then "
+                    "`python3 scripts/reef-approval.py --proxy --feature <slug> --report <that file>`. A question, a hole, triage, "
+                    "process, wording: his report to .reef/ci-local/report-mahmoud-day-<row>.md, then `python3 scripts/reef-approval.py "
+                    "--proxy --day --kind <kind> --row <row> --report <that file>`. Only a kind the contract does not name, or its "
+                    "`Never:` line, is the owner's: `reef-queue.py ask`, and keep every other row moving.")
 PROMPT = ("/reef-loop — a reef-run iteration: headless, AskUserQuestion does not exist here. Keep every row moving that "
           "does not need the owner. Do not ask: file each question for the owner with `python3 scripts/reef-queue.py ask "
           "\"<the question>\" --row <id> --recommended \"<your answer>\"` — the next interactive /reef-loop asks them as ONE set. "
@@ -501,7 +513,12 @@ is a queue footnote labelled `Mahmoud (proxy, day <date>, <kind>)` that the owne
 Decides: process, wording
 - process: a task's order or split, a rollup against a new row, a test's shape or name, which gate, a found row that is about process
 - wording: a commit subject, a journal, ADR or handoff line, a phrasing that keeps the meaning
-Never: product, money, data, look, security, the release, a plan approval, a night contract's hard limit, anything the owner kept in a footnote
+Autopilot (`reef autopilot`): add to Decides: what Mahmoud takes so the runner never waits on you —
+- plan: a plan's approval at its gate (his report, `reef-approval.py --proxy --feature`)
+- question: a filed question, answered as its recommendation says unless your profile says otherwise
+- hole: a loophole-hunter finding after round 2 — fix, accept, or a found row
+- triage: a found row's batch and priority
+Never: product, money, data, look, security, the release, a night contract's hard limit, anything the owner kept in a footnote
 """
 
 
@@ -729,11 +746,14 @@ def numbers_table(now, prev):
             *[f"| {k} | {a} | {b} |" for k, a, b in zip(names, cells(now), cells(prev))], ""]
 
 
-def morning_report(root, started, log):
+def morning_report(root, started, log, mode="night"):
     """Every proxy decision and every merge since `started` — the owner reverses a decision by deleting its record or
-    footnote, a merge only by `git revert` on the base branch, so they are listed apart."""
+    footnote, a merge only by `git revert` on the base branch, so they are listed apart. `mode` "autopilot" (2026-10-30)
+    writes the same report to .reef/run/autopilot.md, with the day's footnotes in place of the night's."""
     import glob
-    lines = [f"# Night report — {time.strftime('%Y-%m-%d %H:%M')}", ""]
+    label, path = (("Mahmoud (proxy, night", os.path.join(NIGHT_DIR, "report.md")) if mode == "night"
+                   else ("Mahmoud (proxy, day", os.path.join(RUN_DIR, "autopilot.md")))
+    lines = [f"# {'Night' if mode == 'night' else 'Autopilot'} report — {time.strftime('%Y-%m-%d %H:%M')} (since {started})", ""]
     appr = []
     for p in sorted(glob.glob(os.path.join(root, ".reef", "approvals", "*.json"))):
         try:
@@ -750,7 +770,7 @@ def morning_report(root, started, log):
         cfg = {}
     queue = os.path.join(root, (cfg.get("paths") or {}).get("queue", "docs/queue.md"))
     try:
-        foot = [f"- {l.strip()}" for l in open(queue, encoding="utf-8") if "Mahmoud (proxy, night" in l]   # the day's decisions are not the night's list
+        foot = [f"- {l.strip()}" for l in open(queue, encoding="utf-8") if label in l]   # the night's list or the day's, never mixed
     except OSError:
         pass
     lines += ["## Mahmoud's other decisions (queue footnotes — undo: edit the footnote)", *(foot or ["- none"]), ""]
@@ -791,9 +811,9 @@ def morning_report(root, started, log):
     with open(hist, "a", encoding="utf-8") as f:
         f.write(json.dumps({"started": started, **nums}) + "\n")
     lines += [f"Sessions: {len(tonight)} · cost: ${cost:.2f} · log: {os.path.relpath(log, root)}"]
-    with open(os.path.join(root, NIGHT_DIR, "report.md"), "w", encoding="utf-8") as f:
+    with open(os.path.join(root, path), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
-    line = f"reef-run: the night report — {os.path.join(NIGHT_DIR, 'report.md')}"
+    line = f"reef-run: the {'night' if mode == 'night' else 'autopilot'} report — {path}"
     with open(os.path.join(root, LIVE), "a", encoding="utf-8") as f:   # the owner watching sees where the report is (the review)
         f.write(f"{time.strftime('%H:%M')} -- {line}\n")
     print(line)
@@ -898,6 +918,12 @@ def cmd_status(root):
              else f"not running (session.pid names process {-spid}, not the recorded session — reef-run.py stop clears it)" if spid < 0
              else "not running")
     night = "a night is active" if os.path.isfile(os.path.join(root, NIGHT_DIR, "active")) else "no night active"
+    try:
+        with open(os.path.join(root, AUTOPILOT), encoding="utf-8") as f:
+            ap = json.load(f)
+        night = f"autopilot on (pid {ap.get('pid')} {'alive' if process_alive(ap.get('pid')) else 'DEAD — the marker is stale; the next --autopilot replaces it'})"
+    except (OSError, ValueError, AttributeError):
+        pass
     print(f"reef-run: {state}; {night}")
     try:
         with open(os.path.join(root, LIVE), encoding="utf-8") as f:
@@ -915,11 +941,24 @@ def cmd_status(root):
     return 0
 
 
-def cmd_run(root, mode, cap, night=False, detached=False, row=None):
+def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=False):
     if night:
         ok, why = night_ok(root)
         if not ok:
             die(why)
+    if autopilot:
+        proxy_md = os.path.join(root, DAY_FILES[0])
+        if not os.path.isfile(proxy_md):   # the standing contract starts from Reef's default: the owner edits its Decides: line, then approves once
+            os.makedirs(os.path.dirname(proxy_md), exist_ok=True)
+            with open(proxy_md, "w", encoding="utf-8") as f:
+                f.write(DAY_DEFAULT)
+            print(f"autopilot: seeded {DAY_FILES[0]} from Reef's default — edit its Decides: line, commit it, then approve once", flush=True)
+        ok, why = day_ok(root)
+        if not ok:
+            dg = day_digest(root)[:16]
+            die(f"autopilot needs the standing contract approved — {why}. To approve reef/proxy.md as it is, once: python3 scripts/reef-approval.py "
+                f"--owner \"Approve proxy by day at {dg}?\" — to widen it first, edit its Decides: line (plan, question, hole, triage for the whole day), "
+                "then `python3 scripts/reef-run.py contract --day` prints the fresh question")
     try:
         with open(os.path.join(root, RUN_DIR, "gate.json"), encoding="utf-8") as f:
             gate = json.load(f)
@@ -964,12 +1003,15 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
     if night:
         with open(active, "w", encoding="utf-8") as f:
             f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": night_digest(root)[:16]}))
+    if autopilot:
+        with open(os.path.join(root, AUTOPILOT), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": day_digest(root)[:16]}))
     live = os.path.join(root, LIVE)
     open(live, "w", encoding="utf-8").close()
     stop_req = os.path.join(root, RUN_DIR, "stop-request")
     if os.path.exists(stop_req):
         os.unlink(stop_req)   # a request from before this run is not about this run
-    i, prev_sig = 0, None
+    i, prev_sig, prev_wait, owner_waits = 0, None, None, 0
 
     def record(text):
         """A line the owner sees everywhere — live.log (watch, status, the status page) first, the terminal after: the
@@ -1002,12 +1044,12 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
 
     try:
         for i in range(1, cap + 1):
-            say("session started" + (" (night)" if night else ""))
+            say("session started" + (" (night)" if night else " (autopilot)" if autopilot else ""))
             prompt = (f"/reef-loop {row}" + PROMPT[len("/reef-loop"):]) if row else PROMPT
-            out = session(root, prompt + (NIGHT_PROMPT if night else ""), mode, say)
+            out = session(root, prompt + (NIGHT_PROMPT if night else AUTOPILOT_PROMPT if autopilot else ""), mode, say)
             release_hold(root, out.get("session_id"))
             st = loop_state(root)
-            wait, stop, parked = st.get("wait") or "", st.get("stop") or "", st.get("parked") or ""
+            wait, stop, parked = CONTROL.sub(" ", str(st.get("wait") or "")), st.get("stop") or "", st.get("parked") or ""   # agent text: nothing a terminal reads
             flying = [] if (wait or stop or parked) else in_flight(root)
             with open(log, "a", encoding="utf-8") as f:
                 f.write(json.dumps({"iteration": i, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "session": out.get("session_id"),
@@ -1030,6 +1072,15 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
                     return end(3, f"reef-run: no progress — two sessions ended on the same wait with nothing changed: {wait[:160]} — fix what stops them (HANDOFF.md names it), then start again")
                 prev_sig = sig
                 continue
+            if wait and autopilot:   # a decision the contract covers is Mahmoud's: the next session takes it; the same wait twice is the owner's
+                key = " ".join(wait.split())   # the wait's words (the progress signature changes every session: loop.json's hashes ring)
+                owner_waits += 1
+                if key != prev_wait and owner_waits < 3:   # a new wait: the next session decides it; three in a row, or the same twice, is the owner's
+                    prev_wait = key
+                    say(f"autopilot: the session waited on the owner — {wait[:140]} — the next session decides it through Mahmoud, or files it")
+                    continue
+                return end(2, owner_wait_lines(root, wait, mode) + ("\n  autopilot: the same wait twice — outside reef/proxy.md's Decides:, or a hard limit: yours"
+                                                                    if key == prev_wait else "\n  autopilot: three owner waits in a row — the contract does not cover them: yours"))
             if wait:
                 return end(2, owner_wait_lines(root, wait, mode) + "\n  every wait at once, one key each: python3 scripts/reef")
             if flying:
@@ -1047,11 +1098,17 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None):
         refresh_status(root)
         if night:
             morning_report(root, started, log)
+        if autopilot:
+            try:
+                os.unlink(os.path.join(root, AUTOPILOT))
+            except OSError:
+                pass
+            morning_report(root, started, log, mode="autopilot")
 
 
 VERBS = ("watch", "status", "stop", "probe", "contract")
 VALUE_FLAGS = ("--repo", "--permission-mode", "--host", "--max-iterations", "--row", "--from")
-BARE_FLAGS = ("--night", "--detach", "--day")
+BARE_FLAGS = ("--night", "--detach", "--day", "--autopilot")
 
 
 def unknown_argument(args):
@@ -1108,7 +1165,9 @@ def main(argv):
     row = args[args.index("--row") + 1] if "--row" in args and args.index("--row") + 1 < len(args) else None
     if "--row" in args and not (row or "").isdigit():
         die("--row takes a queue row id")
-    return cmd_run(root, mode, cap, night="--night" in args, detached="--detach" in args, row=row)
+    if "--night" in args and "--autopilot" in args:
+        die("--night and --autopilot are two contracts — one at a time")
+    return cmd_run(root, mode, cap, night="--night" in args, detached="--detach" in args, row=row, autopilot="--autopilot" in args)
 
 
 if __name__ == "__main__":

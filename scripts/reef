@@ -42,6 +42,9 @@ VERBS = [
      lambda root, a: run_script("reef-run.py", ["--repo", root, "--detach", *(["--max-iterations", a[0], *a[1:]] if a and a[0].isdigit() else a)], root)),
     ("night",   "tonight's contract: install it, print the approval question; `night start` runs it detached",
      lambda root, a: run_script("reef-run.py", ["--repo", root, "--night", "--detach"] if a[:1] == ["start"] else ["contract", "--repo", root, *a], root)),
+    ("autopilot", "the runner on its own under reef/proxy.md, approved once: Mahmoud decides inside it, the loop never waits on you; `autopilot off` stops it",
+     lambda root, a: run_script("reef-run.py", ["stop", "--repo", root] if a[:1] == ["off"] else
+                                ["--repo", root, "--autopilot", "--detach", *(["--max-iterations", a[0], *a[1:]] if a and a[0].isdigit() else a)], root)),
     ("watch",   "the runner's live steps, one line each, and its last word when it ends (Ctrl-C leaves, stops nothing)",
      lambda root, a: run_script("reef-run.py", ["watch", "--repo", root], root)),
     ("stop",    "the runner ends after its current session, never mid-merge; a session a dead runner left behind is ended now",

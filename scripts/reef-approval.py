@@ -12,7 +12,7 @@ Usage: cat payload.json | reef-approval.py [--root DIR]
          a comment whose first line is exactly `Approve plan <slug> at <digest16>?` by a collaborator with ADMIN permission, at
          the plan's current digest — becomes the record the hook would have written (`by: owner (issue #n, @login)`); run by
          the factory job before the build, or by the owner in a terminal; another author, a stale digest, no comment: nothing
-       reef-approval.py --proxy --day --kind <process|wording> --row <id> --report .reef/ci-local/report-mahmoud-day-<row>.md
+       reef-approval.py --proxy --day --kind <kind> --row <id> --report .reef/ci-local/report-mahmoud-day-<row>.md
          (v3 phase 6) Mahmoud's decision by day, from his own report (`RUN: agent=mahmoud day=<date> kind=<kind> …`, a
          `DECIDE <question> — <answer> — <why>` line): written as the queue footnote `Mahmoud (proxy, day <date>, <kind>): …`
          on the row and logged in .reef/approvals/day-decisions.jsonl; a `WAIT` line is exit 3 (the owner's: reef-queue.py
@@ -27,7 +27,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, drop_question  # noqa: E402
+from reef_common import main_checkout, drop_question, process_alive, questions, issues_mode, read_config  # noqa: E402
 
 QUESTION = re.compile(r"^Approve plan (?P<feature>[A-Za-z0-9][A-Za-z0-9._-]*) at (?P<digest>[0-9a-f]{16})\?$")
 NIGHT_Q = re.compile(r"^Approve night (?P<date>\d{4}-\d\d-\d\d) at (?P<digest>[0-9a-f]{16})\?$")
@@ -169,8 +169,9 @@ def feature_row(root, feature):
 
 
 def cmd_proxy(argv):
-    """Super Reef: Mahmoud's plan approval, written only while the night runs (.reef/night/active), under the approved
-    contract at its current digest, for a row the contract names, from Mahmoud's own report (a protected evidence path
+    """Super Reef: Mahmoud's plan approval, written only while the night runs (.reef/night/active) under the approved contract
+    at its current digest for a row the contract names — or, since 2026-10-30, while the autopilot runs (.reef/night/autopilot, a live runner at the contract's digest)
+    under the approved reef/proxy.md whose `Decides:` names `plan`, for any row — from Mahmoud's own report (a protected evidence path
     the main session may only copy), at the plan's current digest, with the plan check green."""
     feature = argv[argv.index("--feature") + 1] if "--feature" in argv else ""
     report = argv[argv.index("--report") + 1] if "--report" in argv else ""
@@ -180,10 +181,23 @@ def cmd_proxy(argv):
     cwd = os.getcwd()
     root = main_checkout(cwd)
     refuse = lambda why: (print(f"reef-approval: {feature}: REFUSED — {why}; nothing written"), 1)[1]
-    if not os.path.isfile(os.path.join(root, ".reef", "night", "active")):
-        return refuse("no night is running (.reef/night/active is written by `reef-run.py --night` alone)")
+    night = os.path.isfile(os.path.join(root, ".reef", "night", "active"))
     rr = runner()
-    ok, why = rr.night_ok(root)
+    try:   # the autopilot's marker (.reef/night/autopilot, a guarded path): a LIVE reef-run.py, under the contract at its current digest
+        with open(os.path.join(root, ".reef", "night", "autopilot"), encoding="utf-8") as f:
+            ap = json.load(f)
+        autopilot = process_alive(ap.get("pid")) and str(ap.get("digest16") or "") == rr.day_digest(root)[:16]
+    except (OSError, ValueError, AttributeError):
+        autopilot = False
+    if not night and not autopilot:
+        return refuse("no night is running (.reef/night/active is written by `reef-run.py --night` alone) and no live autopilot "
+                      "(.reef/night/autopilot names a running `reef-run.py --autopilot` and the contract's digest)")
+    if night:
+        ok, why = rr.night_ok(root)
+    else:   # autopilot (2026-10-30): the standing contract, and the owner's word that plans are Mahmoud's by day
+        ok, why = rr.day_ok(root)
+        if ok and "plan" not in rr.day_kinds(root):
+            ok, why = False, "reef/proxy.md's `Decides:` line does not name `plan` — a plan approval by day is the owner's until it does"
     if not ok:
         return refuse(why)
     if not re.search(r"(^|/)\.reef/ci-local/report-mahmoud-" + re.escape(feature) + r"\.md$", report.replace(os.sep, "/")):
@@ -193,8 +207,14 @@ def cmd_proxy(argv):
         return refuse("no checkout holds this plan")
     where, dg = next(iter(digests.items()))
     row = feature_row(where, feature)
-    if not row or row not in rr.night_rows(root):
-        return refuse(f"its row ({row or 'no Row: line in SPEC.md'}) is not in tonight's contract ({', '.join(rr.night_rows(root)) or '-'})")
+    if not row:
+        return refuse("its SPEC.md has no Row: line")
+    if night and row not in rr.night_rows(root):
+        return refuse(f"its row ({row}) is not in tonight's contract ({', '.join(rr.night_rows(root)) or '-'})")
+    if not night:   # autopilot: the work the owner gave is the queue's open rows, nothing beyond it (the security review)
+        open_ids = rr.queue_open_rows(root)
+        if open_ids is not None and row not in open_ids:
+            return refuse(f"its row ({row}) is not an open queue row — the autopilot approves the work it was given")
     try:
         with open(report if os.path.isabs(report) else os.path.join(cwd, report), encoding="utf-8") as f:
             text = f.read()
@@ -210,14 +230,14 @@ def cmd_proxy(argv):
     d = os.path.join(root, ".reef", "approvals")
     os.makedirs(d, exist_ok=True)
     rec = {"digest16": dg[:16], "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-           "by": "mahmoud (proxy)", "night": rr.night_digest(root)[:16]}
+           "by": "mahmoud (proxy)", **({"night": rr.night_digest(root)[:16]} if night else {"day": rr.day_digest(root)[:16]})}
     files = plan_files(where, feature)
     if files:
         rec["files"] = files
     with open(os.path.join(d, f"{feature}.json"), "w", encoding="utf-8") as f:
         json.dump(rec, f, indent=1)
         f.write("\n")
-    print(f"reef-approval: {feature} approved at {dg[:16]} by mahmoud (proxy), night {rec['night']} -> .reef/approvals/{feature}.json")
+    print(f"reef-approval: {feature} approved at {dg[:16]} by mahmoud (proxy), {'night ' + rec['night'] if night else 'day ' + rec['day']} -> .reef/approvals/{feature}.json")
     return 0
 
 
@@ -227,7 +247,7 @@ def cmd_proxy_day(argv):
     opt = lambda k: argv[argv.index(k) + 1] if k in argv and argv.index(k) + 1 < len(argv) else ""
     kind, row, report = opt("--kind").strip().lower(), opt("--row").strip(), opt("--report")
     if not kind or not row or not report:
-        print("usage: reef-approval.py --proxy --day --kind <process|wording> --row <id> --report .reef/ci-local/report-mahmoud-day-<row>.md")
+        print("usage: reef-approval.py --proxy --day --kind <kind> --row <id> --report .reef/ci-local/report-mahmoud-day-<row>.md")
         return 2
     cwd = os.getcwd()
     root = main_checkout(cwd)
@@ -290,6 +310,13 @@ def cmd_proxy_day(argv):
         f.write(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "row": row, "kind": kind, "question": dec.group("q").strip(),
                             "decision": dec.group("a").strip(), "why": dec.group("why").strip(), "footnote": mark, "day": rr.day_digest(root)[:16],
                             "report_sha256": sha}) + "\n")
+    # a decided question leaves the inbox — its line, and on an issues queue its issue (2026-10-30: the autopilot's next session re-read it)
+    if issues_mode(read_config(root)):
+        for r_, issue, _, _ in questions(root):
+            if r_ == row and issue:
+                subprocess.run([sys.executable, os.path.join(here, "reef-queue.py"), "answered", issue, f"Mahmoud (proxy, day): {dec.group('a').strip()}", "--repo", root],
+                               capture_output=True, text=True, cwd=root)
+    drop_question(root, row=row)
     print(f"reef-approval: day, row {row} ({kind}): footnote {mark} — {note[:120]}")
     return 0
 
