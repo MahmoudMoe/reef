@@ -923,9 +923,12 @@ class ThreeOrphansGone(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(ROOT, "scripts", name)), f"scripts/{name} is an orphan of the plan")
         self.assertTrue(os.path.isfile(os.path.join(ROOT, "tests", "eval", "reef-eval")), "reef-eval is a test tool now")
         self.assertFalse(os.path.exists(os.path.join(ROOT, "tests", "test_watch.py")))
-        for p in (("README.md",), ("docs", "index.html"), ("docs", "manual", "ar", "index.html"), ("docs", "design", "site-information-architecture.md"), ("tests", "run.sh")):
-            text = read(*p)
+        pages = [os.path.join(ROOT, *p) for p in (("README.md",), ("docs", "index.html"), ("docs", "manual", "ar", "index.html"), ("docs", "design", "site-information-architecture.md"), ("tests", "run.sh"))]
+        for d in ("skills", "agents", "hooks", "commands", "templates", "scripts"):   # the plan's own definition of an orphan: nothing there names it
+            pages += [f for f in glob.glob(os.path.join(ROOT, d, "**", "*"), recursive=True) if os.path.isfile(f)]
+        for f in pages:
+            text = open(f, encoding="utf-8", errors="replace").read()
             for name in ("scripts/reef-watch", "reef-guard-profile", "scripts/reef-eval", "test_watch"):
-                self.assertNotIn(name, text, f"{'/'.join(p)} still names {name}")
+                self.assertNotIn(name, text, f"{os.path.relpath(f, ROOT)} still names {name}")
         self.assertIn("tests/eval/reef-eval", read("README.md"))
         self.assertIn("reef-run.py status", read("README.md"))

@@ -29,7 +29,7 @@ refactor and goes back to the plan.
    script imports it from its own folder (`sys.path.insert(0, dirname(__file__))`, as the guard's import of the plan check
    already does) and deletes its copy. `reef-init` copies the module with the scripts; `reef-update` stages it; the budget
    counts it (`scripts/reef_common.py` joins the `script_lines` glob explicitly). Expected: −300 to −400 lines.
-2. **The three orphans.** `reef-watch` goes (`reef run watch` / `reef-run.py watch` replaced it); `reef-guard-profile.py`
+2. **The three orphans.** `reef-watch` goes (`reef-run.py status` and `.reef/status.html`, rendered at every tick, replaced it); `reef-guard-profile.py`
    goes (its one measurement is `docs/perf/guard-profile-2026-10-16.md`); `reef-eval` moves under `tests/` as a test tool,
    since only `tests/run.sh` runs it. Each with its tests. Expected: −600 to −900 lines.
 3. **One definition inside the big four.** `reef-plan-check.py` computes "open task" and "rollup" twice; the guard, the

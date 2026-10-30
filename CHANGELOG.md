@@ -5,7 +5,9 @@
   (`reef-run.py status` and `.reef/status.html`, rendered at every tick, replaced it), `scripts/reef-guard-profile.py` is
   gone (its one measurement, `docs/perf/guard-profile-2026-10-16.md`, stays and the hook timeouts still rest on it),
   `scripts/reef-eval` lives at `tests/eval/reef-eval` beside its corpus — a test tool, run by tests only. With their tests;
-  the README, the site, the manual and the site plan say so; history (CHANGELOG, docs/perf) keeps its words. tests/size-budget.json SET to the measurement: `script_lines` 17,501 → 16,945, `prose_words` 22,721 → 22,721.
+  the README, the site, the manual and the site plan say so; history (CHANGELOG, docs/perf) keeps its words. The reviews: the
+  ledger row claims what the two surfaces show (growth and the journal's rows are `reef-cost.py rows`), the contract test
+  reads skills, agents, hooks, commands, templates and scripts too, the plan names the replacement the commit chose. tests/size-budget.json SET to the measurement: `script_lines` 17,501 → 16,945, `prose_words` 22,721 → 22,721.
 - **`reef-run.py` refuses an unknown argument** (2026-10-29, the owner: `python3 scripts/reef-run.py --status`, a typo for the
   verb `status`, fell through to a run and started a loop session on the project without a word). Every argument is checked
   first: a verb (`watch`, `status`, `stop`, `probe`, `contract`, first position only), a flag with its value (`--repo`,
