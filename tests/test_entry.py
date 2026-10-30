@@ -425,7 +425,7 @@ class TheScreen(unittest.TestCase):
         os.utime(os.path.join(d, ".reef", "run", "run.log"), (time.time() - 1500, time.time() - 1500))
         open(os.path.join(d, ".reef", "run", "live.log"), "w").write("01:54 s1 last\n"); os.utime(os.path.join(d, ".reef", "run", "live.log"), (time.time() - 1500, time.time() - 1500))
         line = mod.runner_line(d, 70417, 70418, "01:06", tree)
-        self.assertIn("pid 70417", line); self.assertIn("last word 25 min ago", line); self.assertIn("running: ", line)
+        self.assertIn("pid 70417", line); self.assertIn("quiet 25 min", line); self.assertIn("running: ", line)
         self.assertIn("thinking", mod.runner_line(d, 70417, 70418, "01:06", [(70418, 70417, "1:00", "claude -p")]))
         self.assertEqual(mod.runner_line(d, 0, 0, ""), "no runner is running"); self.assertIn("gone", mod.runner_line(d, 0, 70418, "01:06", tree))
         # the loop on the board (a fake curses, as the inbox test below): Enter opens the selected row through the row machine, never an inbox item;

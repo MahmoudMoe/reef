@@ -391,7 +391,7 @@ def runner_line(root, pid, spid, since, tree=None):
     line = f"running · pid {pid}" + (f" · session {spid} since {since}" if spid > 0 else "")
     age = last_word_age(root)
     if age is not None and age >= 2:
-        line += f" · last word {age} min ago"
+        line += f" · quiet {age} min"
     doing = session_doing(spid, tree) if spid > 0 else ""
     return line + (f" · {doing}" if doing else (" · thinking" if spid > 0 and age is not None and age >= 2 else ""))
 
@@ -580,7 +580,7 @@ def render_work(wm, items, width=120, height=None, selected=None, panel=None):
     head = [(row + "   " + fact)[:w] for row, fact in zip(BLOCK, facts)] + ["─" * w, tabs_line("work", len(items or []), w, (time.time() - wm["at"]) if wm and wm.get("at") else None)]
     styles = {i: "banner" for i in range(len(BLOCK))}
     styles[len(head) - 1] = "tabs"
-    col = f"      row  tasks  {'lane':<16} {'what':<24} {'forge':<14} state"[:w]
+    col = f"      row  tasks  {'lane':<16} {'what':<24} {'forge':<14} item"[:w]
     table = []
     for r in rows:
         t = f"{r['tasks'][0]}/{r['tasks'][1]}" if r["tasks"][1] else "-"
