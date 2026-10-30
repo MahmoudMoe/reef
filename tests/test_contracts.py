@@ -594,7 +594,7 @@ class LedgerClasses(unittest.TestCase):
     def test_hook_timeouts_match_the_profile(self):
         import glob
         profiles = sorted(glob.glob(os.path.join(ROOT, "docs", "perf", "guard-profile-*.md")))
-        self.assertTrue(profiles, "docs/perf/guard-profile-<date>.md is missing — run scripts/reef-guard-profile.py")
+        self.assertTrue(profiles, "docs/perf/guard-profile-<date>.md is missing — the 2026-10-16 measurement the hook timeouts rest on")
         table = {}
         for l in read("docs", "perf", os.path.basename(profiles[-1])).splitlines():
             m = re.match(r"\| `([^`]+)` \| \d+ \| \d+ \| \d+ \| (\d+) \|", l)
@@ -911,3 +911,21 @@ class OneHomePerHelper(unittest.TestCase):
         self.assertIn("scripts/reef-*|scripts/reef_*", read(".github", "workflows", "ci.yml"))
         self.assertIn('"scripts/reef_*"', read("templates", "config.json"))
         self.assertEqual(open(common, encoding="utf-8").readline().strip(), "# CLASS: code", "a change to the shared module needs a test, like every script")
+
+
+class ThreeOrphansGone(unittest.TestCase):
+    """docs/design/consolidation.md step 2 (2026-10-30): `reef-watch` is gone (`reef-run.py status` and `.reef/status.html`
+    replaced it), `reef-guard-profile.py` is gone (its one measurement is docs/perf/guard-profile-2026-10-16.md), `reef-eval`
+    lives under tests/eval/ beside its corpus — a test tool, run by tests only. The current pages say so; history keeps its words."""
+
+    def test_the_scripts_are_gone_and_the_pages_do_not_name_them(self):
+        for name in ("reef-watch", "reef-guard-profile.py", "reef-eval"):
+            self.assertFalse(os.path.exists(os.path.join(ROOT, "scripts", name)), f"scripts/{name} is an orphan of the plan")
+        self.assertTrue(os.path.isfile(os.path.join(ROOT, "tests", "eval", "reef-eval")), "reef-eval is a test tool now")
+        self.assertFalse(os.path.exists(os.path.join(ROOT, "tests", "test_watch.py")))
+        for p in (("README.md",), ("docs", "index.html"), ("docs", "manual", "ar", "index.html"), ("docs", "design", "site-information-architecture.md"), ("tests", "run.sh")):
+            text = read(*p)
+            for name in ("scripts/reef-watch", "reef-guard-profile", "scripts/reef-eval", "test_watch"):
+                self.assertNotIn(name, text, f"{'/'.join(p)} still names {name}")
+        self.assertIn("tests/eval/reef-eval", read("README.md"))
+        self.assertIn("reef-run.py status", read("README.md"))

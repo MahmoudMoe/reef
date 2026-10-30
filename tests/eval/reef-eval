@@ -4,6 +4,7 @@
 
   reef-eval run <agent> [--k N] [--entry ID] [--model M] [--budget USD] [--out DIR] [--plugin DIR]   live, never in CI
   reef-eval score <agent> <dir> [--json]        VERDICT / BLOCKER / AC<n> FAIL lines vs tests/eval/corpus/<agent>.json
+  (a test tool: lives in tests/eval/ beside its corpus since consolidation step 2, 2026-10-30; run as python3 tests/eval/reef-eval …)
   reef-eval compare <baseline.json> <cand.json>  exit 0 iff catch-rate and approve-precision did not drop
 """
 import glob
@@ -15,7 +16,7 @@ import subprocess
 import sys
 import tempfile
 
-PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PLUGIN = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/eval/ → the plugin root
 AGENTS = {"verifier": "verifier", "hunter": "loophole-hunter", "plan-reviewer": "plan-reviewer"}
 VERDICT = re.compile(r"^[\s`*#_>-]*VERDICT[`*_]*:[\s`*_]*(PASS|FAIL)\b", re.M | re.I)
 SECTION = re.compile(r"^[\s`*#_]*(BLOCKING|ADVISORY|NEW-ROW|NOTED|NONE|VERDICT)\b", re.I)

@@ -241,7 +241,7 @@ guard pass and the security agent once per feature, all reading the same test re
 | The guard denied a dispatch | Outside the ready set, over the retry cap, the wrong model for the tier, no approval or review record, or a hand-back or report the orchestrator wrote itself. The message names which. | Fix the named cause. Nothing was dispatched and no marker was written. |
 | The guard denied a command | A gate bypass (`--no-verify`, `hooksPath`, a stash, a gate piped into `tail`), a hand-written approval or record, or a protected file outside a critical task. | Do it the gated way. If the rule itself is wrong, that is a `critical` task, not an edit. |
 | A gate exited `124` | It ran past `gates.timeout_s` and was killed with its process group; a leaked dev server is the usual cause. | Find what held the port, or raise the timeout for that gate. |
-| The loop parked | Identical ticks with nothing in flight, or a feature or batch token budget reached. | `scripts/reef-watch` shows what happened while nobody was in the room. Change the queue, the cap, or the budget. |
+| The loop parked | Identical ticks with nothing in flight, or a feature or batch token budget reached. | `python3 scripts/reef-run.py status` (the last session's steps) and `.reef/status.html` show what happened while nobody was in the room. Change the queue, the cap, or the budget. |
 | The tick names untriaged `found` rows | On issues, a found row with no priority label that waited more than 7 days; in a file queue, one filed two batches ago. | `python3 scripts/reef-queue.py triage`: one question per module; keep it with `set-priority`, merge it, drop it with a reason, or `demote` it to a note. |
 | A check warns instead of failing | Content planned under 0.5 meets a rule new in 0.6. | Nothing. The rule fails only for content planned under 0.6. |
 | `Not verified in a browser:` in a verifier report | The judge could not open the app; it says so instead of claiming. | Check that part yourself, or give the task a browser proof row. |
@@ -357,7 +357,7 @@ mahmoud) · `scripts/` (`reef-init.py`, `reef-update.py`, `reef-doctor.py`, `ree
 [--rules|--digest|--needs-agent|--verify-stamp], `reef-converge`, `reef-adversarial`, `reef-claims.py`
 [check|--handback|report|claims-only], `reef-tier.py`, `reef-queue.py` [status|ready|check|adr-number|index|footnote|add-row|set-depends|triage|set-batch|drop-row|close|admit|set-priority|demote|journal|migrate-to-issues],
 `reef-structure`, `reef-recalibrate`, `reef-repo`, `reef-c4.py`, `reef-threat.py`, `reef-ci-local.sh` [--ci|--release],
-`reef-snapshot.sh`, `reef-cost.py` [rows|growth|--live], `reef-watch`, `reef-eval`, `reef-guard-profile.py`) · `hooks/hooks.json` (PreToolUse Bash ·
+`reef-snapshot.sh`, `reef-cost.py` [rows|growth|--live]; `tests/eval/reef-eval` is a test tool) · `hooks/hooks.json` (PreToolUse Bash ·
 Task|Agent · Edit|Write|MultiEdit; PostToolUse AskUserQuestion; Stop; SessionStart) · `migrations/` ·
 `schemas/task.schema.json` · `templates/` (config, task, spec, adr, glossary, runlog, pre-commit, stacks/, project/) ·
 `tests/eval/` (the corpus) · `tests/fixtures/payloads/` · `docs/perf/`
@@ -396,7 +396,7 @@ adapter (`scripts/reef-opencode.py`) · **Claude Code** when it needs a hook eve
 | The factory builds only for an admin labeler and an admin author, on a protected base, after the guard is proved in the sandbox; the plan approval is read only from an unedited admin comment at the current digest | `scripts/reef-factory.py row`; `scripts/reef-approval.py --from-issue` | portable | **code** |
 | Review verdicts are RECORDS bound to the forge head; `gh pr merge` only against a GREEN record (clean base merge or claims-only commits are the only carry-overs; rebase, code push, slow or failed gh deny) — `merge.by: loop` only | `scripts/reef-record` (`gh pr view`, `gh api …/git/commits`); `reef-guard.py` on `gh pr merge` / `gh api …/merge` under its own gh deadline | portable | **code** (presence) |
 | Judges are read-only: verifier, loophole-hunter, plan-reviewer, Explore get no mutating git, no Bash write, no CI wait; a typeless sub-agent is locked while `.reef/verifying/<id>` exists; no sub-agent waits on CI or sleeps a minute | `reef-guard.py` reads `agent_type`/`agent_id` from the payload (verified live, 0.0); the snapshot hash is the backstop | portable | **code** + **tripwire** (the write detection is a token match) |
-| A hung guard denies; no python3 denies a dispatch | `signal.alarm` deadline inside the guard; `timeout` + `onFailure: block` on every PreToolUse matcher (`scripts/reef-guard-profile.py` sets them at ≥ 5 × p95) | portable | **code** |
+| A hung guard denies; no python3 denies a dispatch | `signal.alarm` deadline inside the guard; `timeout` + `onFailure: block` on every PreToolUse matcher (set at ≥ 5 × p95 of `docs/perf/guard-profile-2026-10-16.md`) | portable | **code** |
 | The guard's own files and the `roles\|caps\|gates\|tiers` keys change only under a `critical` task in flight or inside Reef's own repository | `reef-guard.py` Edit/Write/MultiEdit matcher (JSON diff of the protected keys) and Bash write detection; `reef-init --accept` stays allowed | portable | **code** for the keys, **tripwire** for the Bash shapes |
 | Plan edited after approval → re-review; the stamp covers the WHOLE feature folder (spec, child specs, ADRs, tasks) | `reef-plan-check.py --verify-stamp`, per feature, re-checked by the guard at every dispatch against the task file's own worktree | portable | **code** |
 | A feature folder is well-formed: a descriptive slug, `SPEC.md` with `Row:` and layered `FR-n` keys, child specs with `Parent:`, ACs citing keys of their own folder, ≤ `plan.max_tasks` tasks, nothing else inside | `reef-plan-check.py` (`--rules` prints every rule with the project's numbers); `reef-queue.py check` (structure, slug); `reef-structure --check` | portable | **code** |
@@ -413,7 +413,7 @@ adapter (`scripts/reef-opencode.py`) · **Claude Code** when it needs a hook eve
 | Queue status has one home (the task files, a folder's `SPEC.md Row:` links slug to row); `reef/features/README.md` is generated | `reef-queue.py status\|ready\|check\|index` | portable | **code** |
 | The queue on the project's issues (`queue.home: issues`): a row is an issue titled `[<id>]`, a batch a milestone; every read syncs a snapshot, every write fails closed; a dropped row is not done | `reef-queue.py` · `tests/test_queue_issues.py` | portable | **code** |
 | Context ceiling: a dispatch over `caps.context_tokens` is denied and the guard itself renders `HANDOFF.md` from measured state first ("/clear now"); from `caps.context_warn` the hook warns the model | `reef-guard.py` on Task/Agent via `scripts/reef-cost.py --live` on the payload's `transcript_path` (tail only), then `scripts/reef-handoff --write` | Claude Code | **code** (defaults set from the measured rows; 0 = off on a migrated project) |
-| What happened while nobody was in the room: the tick, tasks by status and attempts, journal rows since a date, found rows, stops, sessions with per-feature growth, rejected judge reports — one screen, no model | `scripts/reef-watch [--since] [--json]` | Claude Code | **code** (a report, not a gate) |
+| What happened while nobody was in the room: the tick, tasks by status and attempts, journal rows since a date, found rows, stops, sessions with per-feature growth, rejected judge reports — one screen, no model | `scripts/reef-run.py status` (the runner's last steps, the night, the last session) and `.reef/status.html`, rendered at every tick | Claude Code | **code** (a report, not a gate) |
 | `/reef-assess` writes data, not an essay: the observed sections present, every claim `Observed — path:line` or `Inferred`, the harnessability table's five dimensions summing to its heading | `scripts/reef-claims.py assess` (fixture: the real ledger report) | portable | **code** |
 | The queue has one home — `paths.queue` on `branches.base` in the main checkout; a feature branch whose queue differs from its fork point fails the plan check | `reef-plan-check.py` queue-home check; `tests/test_feature_spec.py::QueueHasOneHome` | portable | **code** |
 | One orchestrator at a time: the first session that dispatches or writes the loop's state holds the project, a second is refused while the holder acted in the last 30 minutes; `wait`/`stop` hand it over, `reef-loop.py unlock` takes it over | `reef-guard.py` · `tests/test_lock.py` | portable | **code** |
@@ -428,7 +428,7 @@ adapter (`scripts/reef-opencode.py`) · **Claude Code** when it needs a hook eve
 | `git stash`; a gate piped into `tail`/`grep`; bypass spellings (`--no-verify`, `-n`, hooksPath, env smuggling, `rm .githooks`) | `reef-guard.py` (tokenizing) | portable | **tripwire** — CI is the wall |
 | Push gate | none by design — a worktree gate at push time only false-rejects | portable | **CI is the wall** |
 | Verifier didn't touch the tree | `reef-snapshot.sh` before/after (nested worktrees excluded) | portable | code hash, **prose trigger** |
-| Verifier writes its pass/fail rule per AC before reading the diff; attacks the last round's fix first; the four kinds that fail (regression, bypass, correctness, failed AC — all else NIT); browser evidence or `Not verified in a browser:`; "cannot verify here" needs the probe; the hunter lets the Scope draw the BLOCKER/NEW-ROW line | reef-verify / verifier / loophole-hunter text, under the eval (`scripts/reef-eval`) | portable | **prose** (measured: `docs/perf/eval-baseline-2026-10-16.md`) |
+| Verifier writes its pass/fail rule per AC before reading the diff; attacks the last round's fix first; the four kinds that fail (regression, bypass, correctness, failed AC — all else NIT); browser evidence or `Not verified in a browser:`; "cannot verify here" needs the probe; the hunter lets the Scope draw the BLOCKER/NEW-ROW line | reef-verify / verifier / loophole-hunter text, under the eval (`tests/eval/reef-eval`) | portable | **prose** (measured: `docs/perf/eval-baseline-2026-10-16.md`) |
 | Explore agents label every claim Observed (with a proving path) or Inferred | reef-explore / reef-assess text; the lock above is the mechanism | portable | **prose** |
 | `/reef-init` never overwrites, idempotent, one home per fact, release-only CI | `scripts/reef-init.py` (`test_init.py`) | portable | **code** |
 
@@ -462,7 +462,7 @@ Every claim above has a number behind it, and the numbers live in `docs/perf/`:
   shown red first. `scripts/reef-cost.py` reports per-feature growth (`rows`), a feature Reef built on itself.
 - **`baseline-2026-10-16.md`** — the 0.5 session the 0.6 targets were set against: first turn 91k tokens, 43% of
   context attachments, 31% raw Bash output.
-- **`eval-baseline-2026-10-16.md`** — `scripts/reef-eval` on the frozen corpus, k=3: every true blocker caught by every
+- **`eval-baseline-2026-10-16.md`** — `tests/eval/reef-eval` on the frozen corpus, k=3: every true blocker caught by every
   agent; the verifier's false-FAIL 0.33 → 0.00 (0.6), the hunter's 0.33 → 0.17 (0.7), nothing dropped; the corpus's own
   PASS fixtures were wrong three times and the agents were right each time.
 - **`payloads-2026-10-16.md`** — the hook payloads Reef relies on, captured from live Claude Code sessions, with what
@@ -476,7 +476,7 @@ Every claim above has a number behind it, and the numbers live in `docs/perf/`:
 `sh tests/run.sh` — 558 sabotage and contract tests (453 Python + 105 shell, as the suite runs them). Every mechanism in
 this plugin has a test here that shows it going RED on the defect it exists to catch (each suite is listed in
 `tests/run.sh`); CI runs them on ubuntu (dash — the honest POSIX check) and macos, and a change to a `CLASS: code`
-script without a `tests/` change fails the PR. The live eval (`scripts/reef-eval run`) needs the CLI and credentials
+script without a `tests/` change fails the PR. The live eval (`tests/eval/reef-eval run`) needs the CLI and credentials
 and never runs in CI; its fixture replay does.
 
 ### Status and what is next

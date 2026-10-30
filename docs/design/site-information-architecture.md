@@ -25,7 +25,7 @@ are **interactive on purpose**: a stage is read by clicking it, a settings table
 agent file paths, test counts, eval scores, dogfood runs and the code/tripwire/prose accounting are the maintainer's
 concern and live in the README and under `docs/`. The page says what Reef does, what it needs, what it never does,
 what each stop means, and what the user can change. The one exception is a script a user will actually type, such as
-`scripts/reef-watch` or `scripts/reef-init.py --accept`.
+`scripts/reef-run.py status` or `scripts/reef-init.py --accept`.
 
 ## 2. The surface map: who owns what
 

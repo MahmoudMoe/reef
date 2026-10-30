@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **Consolidation step 2 — the three orphans** (docs/design/consolidation.md, 2026-10-30): `scripts/reef-watch` is gone
+  (`reef-run.py status` and `.reef/status.html`, rendered at every tick, replaced it), `scripts/reef-guard-profile.py` is
+  gone (its one measurement, `docs/perf/guard-profile-2026-10-16.md`, stays and the hook timeouts still rest on it),
+  `scripts/reef-eval` lives at `tests/eval/reef-eval` beside its corpus — a test tool, run by tests only. With their tests;
+  the README, the site, the manual and the site plan say so; history (CHANGELOG, docs/perf) keeps its words. tests/size-budget.json: unchanged (nothing grew).
 - **`reef-run.py` refuses an unknown argument** (2026-10-29, the owner: `python3 scripts/reef-run.py --status`, a typo for the
   verb `status`, fell through to a run and started a loop session on the project without a word). Every argument is checked
   first: a verb (`watch`, `status`, `stop`, `probe`, `contract`, first position only), a flag with its value (`--repo`,
