@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **Autopilot** (2026-10-30, the owner: "I need the runner autopilot to really work on its own — I give it work for the next 5–6
+  hours and it finishes bulk work; I don't want to babysit it"). `reef-run.py --autopilot` (`reef autopilot`) is the night's
+  machinery as a standing mode: `reef/proxy.md` is the contract, approved once (`Approve proxy by day at <digest16>?`); its
+  `Decides:` line may now name `plan`, `question`, `hole` and `triage` beside `process` and `wording`; every decision of a named
+  kind goes to Mahmoud — a plan approval through `reef-approval.py --proxy --feature`, now allowed by day while `.reef/run/autopilot`
+  marks the run and the contract names `plan` — and a session that still ends on an owner wait is not the end: the next one
+  decides it; the same wait twice is the owner's (outside the contract, or a hard limit), with the desk told. The report is
+  `.reef/run/autopilot.md`: his plan approvals since the start, his other decisions on record, the waits, the sessions and
+  their cost; each decision is undone by deleting its record. `reef autopilot off` stops it. tests/size-budget.json raised: `prose_words` 22,847 → 22,900, `script_lines` 17,390 → 17,476.
 - **The `reef` screen, second design** (2026-10-30, the owner's first look: "no reef written word, no proper selector, empty huge
   space then a few sections"): the block-letter banner with the project, the loop, the runner and the base beside it; **the inbox**
   as a list — ↑↓ (or j/k) move, Enter runs the selected item, a digit runs by number — with the chosen item's whole command in a box

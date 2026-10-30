@@ -17,6 +17,7 @@ RUN = os.path.join(ROOT, "scripts", "reef-run.py")
 FAKE = r"""#!/usr/bin/env python3
 import json, os, sys
 plan = os.path.join(os.getcwd(), ".fake-plan")
+open(os.path.join(os.getcwd(), ".fake-prompt"), "a").write((sys.argv[sys.argv.index("-p") + 1] if "-p" in sys.argv else "") + "\n")
 lines = open(plan).read().splitlines()
 step, rest = (lines[0] if lines else "none"), lines[1:]
 open(plan, "w").write("\n".join(rest))
@@ -85,6 +86,7 @@ FAKE_OC = r"""#!/usr/bin/env python3
 import json, os, sys
 open(os.path.join(os.getcwd(), ".fake-argv"), "a").write(json.dumps(sys.argv[1:]) + "\n")
 plan = os.path.join(os.getcwd(), ".fake-plan")
+open(os.path.join(os.getcwd(), ".fake-prompt"), "a").write((sys.argv[sys.argv.index("-p") + 1] if "-p" in sys.argv else "") + "\n")
 lines = open(plan).read().splitlines()
 step = lines[0] if lines else "none"
 open(plan, "w").write("\n".join(lines[1:]))

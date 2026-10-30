@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -335,3 +336,120 @@ class AnApprovalClearsItsQuestion(unittest.TestCase):
         self.assertNotIn("row 12", left, "the approval's own question is gone: " + left)
         self.assertIn("row 3: share links", left, "another row's question stays")
         self.assertIn("question", r.stdout.lower())
+
+
+PROXY_MD = """# The proxy by day
+The owner's proxy decides these in the day loop, inside this contract.
+Decides: plan, question, process, wording
+Never: product, money, data, look, security, the release
+"""
+
+
+def approve_day(tc, d):
+    r = subprocess.run([sys.executable, RUN, "contract", "--day", "--repo", d], capture_output=True, text=True)
+    tc.assertEqual(r.returncode, 0, r.stderr)
+    q = [l for l in r.stdout.splitlines() if l.startswith("question: ")][0][len("question: "):]
+    tc.assertRegex(q, r"^Approve proxy by day at [0-9a-f]{16}\?$")
+    r = hook(d, q)
+    tc.assertIn("approved at", r.stdout)
+    return q
+
+
+class Autopilot(unittest.TestCase):
+    """2026-10-30, the owner: "I need the runner autopilot to really work on its own — I give it work for the next 5–6 hours and it
+    finishes bulk work." The night's machinery as a standing mode: reef/proxy.md approved ONCE; `reef-run.py --autopilot` refuses
+    without that approval and names the one question; while it runs `.reef/run/autopilot` marks it and the session is told that
+    every decision of a kind `Decides:` names goes to Mahmoud; a session that still ends on an owner wait is not a stop — the next
+    session decides it — the same wait twice is (outside the contract, or a hard limit); Mahmoud approves a plan by day when
+    `Decides:` names `plan`; the report in .reef/run/autopilot.md lists what he did."""
+
+    def setUp(self):
+        self.d = project()
+        b = os.path.join(self.d, ".bin")   # the scripted fake claude — never the real one (a real headless session costs money and acts)
+        os.makedirs(b)
+        open(os.path.join(b, "claude"), "w").write(R.FAKE)
+        os.chmod(os.path.join(b, "claude"), 0o755)
+        self.assertEqual(R.run(self.d, ["probe-deny"], "probe").returncode, 0)
+        open(os.path.join(self.d, ".fake-calls"), "w").write("")   # the probe's call is not a session
+
+    def test_without_the_approved_contract_the_one_question_is_named(self):
+        r = R.run(self.d, ["stop:x"], "--autopilot")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertRegex(r.stderr + r.stdout, r"Approve proxy by day at [0-9a-f]{16}\?")
+        self.assertIn("contract --day", r.stderr + r.stdout, "after an edit the digest moves: the step that prints the fresh question is named")
+        self.assertEqual(R.calls(self.d), [], "no session without the contract")
+        r = R.run(self.d, ["stop:x"], "--autopilot", "--night")
+        self.assertEqual(r.returncode, 1); self.assertIn("one at a time", r.stderr)
+
+    def test_a_decision_the_contract_covers_never_stops_the_runner(self):
+        L.write(self.d, "reef/proxy.md", PROXY_MD)
+        approve_day(self, self.d)
+        r = R.run(self.d, ["wait:owner: the gate: Approve plan share-links at 0123456789abcdef?", "stop:done"], "--autopilot")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(len(R.calls(self.d)), 2, "the wait was not the end: a second session decided it")
+        self.assertIn("AUTOPILOT", open(os.path.join(self.d, ".fake-prompt")).read(), "the session is told the standing contract governs")
+        live = open(os.path.join(self.d, ".reef", "run", "live.log")).read()
+        self.assertIn("the next session decides it through Mahmoud", live)
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "night", "autopilot")), "the marker goes with the run")
+        rep = open(os.path.join(self.d, ".reef", "run", "autopilot.md")).read()
+        self.assertIn("Sessions: 2", rep)
+        self.assertIn("## Mahmoud's plan approvals\n- none", rep, "the night's report body, for the day")
+        self.assertIn("## Merges into develop", rep, "what the owner reads: what landed")
+
+    def test_the_same_wait_twice_is_the_owners(self):
+        L.write(self.d, "reef/proxy.md", PROXY_MD)
+        approve_day(self, self.d)
+        r = R.run(self.d, ["wait:owner: a hard limit: the release", "wait:owner: a hard limit: the release"], "--autopilot")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("the same wait twice", r.stdout)
+        self.assertEqual(len(R.calls(self.d)), 2)
+        open(os.path.join(self.d, ".fake-calls"), "w").write("")
+        r = R.run(self.d, ["wait:owner: one", "wait:owner: two", "wait:owner: three", "stop:x"], "--autopilot")
+        self.assertEqual(r.returncode, 2, "three different owner waits in a row: the contract does not cover them\n" + r.stdout)
+        self.assertIn("three owner waits in a row", r.stdout)
+        self.assertEqual(len(R.calls(self.d)), 3)
+
+    def test_mahmoud_approves_a_plan_by_day_when_the_contract_names_plan(self):
+        rep = os.path.join(self.d, ".reef", "ci-local", "report-mahmoud-share-links.md")
+        os.makedirs(os.path.dirname(rep), exist_ok=True)
+        with open(rep, "w") as f:
+            f.write(f"RUN: agent=mahmoud day=2026-10-30 question=approve\nAPPROVE plan share-links at {digest(self.d, 'share-links')} — slices are vertical\nVERDICT: DONE\n")
+        r = proxy(self.d, "share-links", rep)
+        self.assertEqual(r.returncode, 1); self.assertIn("no night is running", r.stdout)
+        L.write(self.d, ".reef/night/autopilot", "{}")        # a forged marker names no live runner: refused (the security review)
+        q = approve_day(self, self.d)                         # the default contract: process and wording only
+        self.assertIn("no live autopilot", proxy(self.d, "share-links", rep).stdout)
+        dg = q.split(" at ")[1].rstrip("?")
+        L.write(self.d, ".reef/night/autopilot", json.dumps({"pid": 1, "started": "x", "digest16": "0" * 16}))   # alive, wrong digest
+        self.assertIn("no live autopilot", proxy(self.d, "share-links", rep).stdout)
+        L.write(self.d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": dg}))   # what reef-run --autopilot writes
+        r = proxy(self.d, "share-links", rep)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("does not name `plan`", r.stdout, "a plan approval by day needs the owner's word in Decides:")
+        L.write(self.d, "reef/proxy.md", PROXY_MD)
+        q = approve_day(self, self.d)
+        L.write(self.d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": q.split(" at ")[1].rstrip("?")}))
+        r = proxy(self.d, "share-links", rep)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("approved at", r.stdout); self.assertNotIn("internal error", r.stdout, "the success line names the day, not a night key")
+        got = json.load(open(os.path.join(self.d, ".reef", "approvals", "share-links.json")))
+        self.assertEqual(got["by"], "mahmoud (proxy)")
+        self.assertIn("day", got, "the record names the day contract it was taken under")
+        r = subprocess.run([sys.executable, GUARD], input=json.dumps({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": "gh pr create --base main --head develop"}}),
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2, "the release waits while the autopilot runs, as it does for a night")
+        self.assertIn("autopilot", r.stderr)
+
+    def test_a_decided_question_leaves_the_inbox(self):
+        L.write(self.d, "reef/proxy.md", PROXY_MD)
+        approve_day(self, self.d)
+        L.write(self.d, ".reef/questions.md", "- row 12: split 1201 in two? — recommended: no\n- row 3: rename it? — recommended: no\n")
+        rep = os.path.join(self.d, ".reef", "ci-local", "report-mahmoud-day-12.md")
+        os.makedirs(os.path.dirname(rep), exist_ok=True)
+        with open(rep, "w") as f:
+            f.write(f"RUN: agent=mahmoud day={time.strftime('%Y-%m-%d')} kind=question row=12\nDECIDE split 1201 in two? — no, keep one task — the slice is small\nVERDICT: DONE\n")
+        r = subprocess.run([sys.executable, APPROVAL, "--proxy", "--day", "--kind", "question", "--row", "12", "--report", rep], capture_output=True, text=True, cwd=self.d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        left = open(os.path.join(self.d, ".reef", "questions.md")).read()
+        self.assertNotIn("row 12", left, "the decided question is gone")
+        self.assertIn("row 3", left, "the other row's stays")

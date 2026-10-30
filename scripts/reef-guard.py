@@ -616,9 +616,9 @@ def check_release_pr(seg, ctx):
     if release == base or (pr_base is not None and pr_base != release):
         return
     cwd = ctx.get("cwd") or os.getcwd()
-    if pr_base == release and any(os.path.isfile(os.path.join(r, ".reef", "night", "active")) for r in roots):
-        deny(f"a super Reef night is running (.reef/night/active): the release to {release} is the owner's, in the morning — "
-             "Mahmoud never opens it")
+    if pr_base == release and any(os.path.isfile(os.path.join(r, ".reef", "night", f_)) for r in roots for f_ in ("active", "autopilot")):
+        deny(f"a super Reef night is running, or the autopilot (.reef/night/active, .reef/night/autopilot): the release to {release} is the "
+             "owner's, when they are back — Mahmoud never opens it")
     head_ref = _flag(rest, ("--head",), ("-H",))
     ref = f"refs/heads/{head_ref.split(':')[-1]}" if head_ref else "HEAD"
     r = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], cwd=cwd, capture_output=True, text=True)
