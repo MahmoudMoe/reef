@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **`reef update`'s two owner lines carry real values** (2026-10-29, the owner's update after the night's PRs: the last line
+  read `/plugin marketplace update <marketplace>` — a placeholder in a command the owner types — and when his push was
+  rejected because the loop had pushed meanwhile, the hint said `git push`, which fails the same way). The marketplace's
+  name is read from `~/.claude/plugins` (the entry whose location is the plugin clone, else `reef@<name>` among the
+  installed plugins; none → `/reload-plugins` alone, said so); a rejected push prints
+  `git pull --rebase --autostash origin <branch> && git push` with the branch filled in — autostash because the tick's
+  `HANDOFF.md` rendering is always unstaged. tests/size-budget.json raised: `script_lines` 17,501 → 17,540.
 - **`reef-run.py` refuses an unknown argument** (2026-10-29, the owner: `python3 scripts/reef-run.py --status`, a typo for the
   verb `status`, fell through to a run and started a loop session on the project without a word). Every argument is checked
   first: a verb (`watch`, `status`, `stop`, `probe`, `contract`, first position only), a flag with its value (`--repo`,

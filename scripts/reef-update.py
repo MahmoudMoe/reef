@@ -10,7 +10,9 @@ Usage: reef-update.py [--repo DIR] [--plugin DIR] [--commit] [--push] [--dry-run
    files); its summary line is printed. Proposals (files you edited) are listed with their accept/keep commands,
    never applied.
 3. --commit stages ONLY Reef's own paths (scripts/reef-*, .reef/init-manifest.json, .reef/version, .githooks/*, .gitignore, the
-   rendered map) and commits `reef: scripts <version> (<plugin sha>)`; --push pushes the current branch.
+   rendered map) and commits `reef: scripts <version> (<plugin sha>)`; --push pushes the current branch — a rejected push
+   prints the line that lands it (`git pull --rebase --autostash origin <branch> && git push`, the branch filled in).
+   The last line names the marketplace to update (read from ~/.claude/plugins), never a placeholder.
 4. Prints the two Claude Code commands that reload the plugin.
 Exit 0 ok · 1 a step failed (its line says which) · 2 usage.
 
@@ -37,6 +39,32 @@ def plugin_root(arg):
     for cand in (arg, os.environ.get("CLAUDE_PLUGIN_ROOT"), os.path.dirname(HERE)):
         if cand and os.path.isfile(os.path.join(cand, ".claude-plugin", "plugin.json")):
             return os.path.abspath(cand)
+    return None
+
+
+def marketplace_name(plugin):
+    """The marketplace that installed this plugin clone — the known_marketplaces entry whose installLocation (or source
+    path) is the clone, else the installed_plugins key `reef@<name>` — or None. 2026-10-29: the reload line printed
+    `<marketplace>`, a placeholder in a command the owner types; the name is on disk."""
+    base = os.path.join(os.path.expanduser("~"), ".claude", "plugins")
+    want = os.path.realpath(plugin)
+    try:
+        with open(os.path.join(base, "known_marketplaces.json"), encoding="utf-8") as f:
+            for name, v in json.load(f).items():
+                if isinstance(v, dict):
+                    src = v.get("source") if isinstance(v.get("source"), dict) else {}
+                    for c in (v.get("installLocation"), src.get("path")):
+                        if c and os.path.realpath(c) == want:
+                            return name
+    except (OSError, ValueError):
+        pass
+    try:
+        with open(os.path.join(base, "installed_plugins.json"), encoding="utf-8") as f:
+            for key in (json.load(f).get("plugins") or {}):
+                if key.startswith("reef@"):
+                    return key.split("@", 1)[1]
+    except (OSError, ValueError):
+        pass
     return None
 
 
@@ -180,12 +208,23 @@ def main(argv):
         print(f"project: committed {len(changed_files)} file(s) as 'reef: scripts {version} ({sha})'")
         if "--push" in argv:
             rc, out = run(["git", "push", "-q"], root, timeout=600)
-            print("project: pushed" if rc == 0 else f"reef-update FAILED: push: {out.splitlines()[-1] if out else rc}")
             if rc != 0:
+                # 2026-10-29: the owner's loop had pushed meanwhile; "push yourself: git push" fails the same way. The line that
+                # lands it, with the branch filled in; --autostash because the tick's HANDOFF.md rendering is always unstaged
+                rc_b, branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root)
+                branch = branch.strip() if rc_b == 0 and branch.strip() else "HEAD"
+                print(f"reef-update FAILED: push: {out.splitlines()[-1] if out else rc}")
+                print(f"reef-update: the remote moved under you (a loop merge, most likely) — land the commit with:  "
+                      f"git pull --rebase --autostash origin {branch} && git push")
                 return 1
+            print("project: pushed")
     else:
         print(f"project: {len(changed_files)} Reef file(s) changed — commit them: git add -- {' '.join(changed_files[:6])}{' …' if len(changed_files) > 6 else ''} && git commit -m 'reef: scripts {version} ({sha})'   (or re-run with --commit)")
-    print("now, in Claude Code:  /plugin marketplace update <marketplace>   then   /reload-plugins")
+    market = marketplace_name(plugin)
+    if market:
+        print(f"now, in Claude Code:  /plugin marketplace update {market}   then   /reload-plugins")
+    else:
+        print("now, in Claude Code:  /reload-plugins   (no marketplace lists this plugin clone — it is loaded from its directory)")
     return 0
 
 
