@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **`reef update`'s last line names the marketplace** (2026-10-30, the owner's update: the step's own line said `mahmoudmoe`,
+  the done line said `<marketplace>` — a placeholder in a command the owner types). The done line is built from the name on
+  disk (`reef-update.marketplace_name`); without one it says the reload alone. tests/size-budget.json: unchanged (nothing grew).
 - **A filed question on an issues queue is answered by its issue** (2026-10-30, the current adoption: the loop filed #90–#93 as
   `reef-question` issues; the runner's wait, the `reef` screen and `reef answer` named the file-queue footnote, which closes no
   issue, so the next session read the same four open questions and ended on the same wait). `reef-queue.py ask` writes the

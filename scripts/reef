@@ -451,8 +451,16 @@ def cmd_update(root, args):
         print("reef update: the setup digest changed — proving it (a scratch worktree, the setup, the full gate once)", flush=True)
         if subprocess.run([PY, setup, "prove", "--repo", root], cwd=root).returncode != 0:
             return 1
-    print("reef update: done — in Claude Code: /plugin marketplace update <marketplace>, then /reload-plugins; `reef doctor` confirms")
+    upd = load_sibling("reef-update.py", "reef_update_for_entry")
+    print(update_done_line(upd.marketplace_name(plugin) if upd else None))
     return 0
+
+
+def update_done_line(market):
+    """The update's last word, with the marketplace's name as it is on disk (reef-update.marketplace_name) — never a
+    placeholder in a line the owner types (2026-10-30); without a marketplace, the reload alone."""
+    step = f"/plugin marketplace update {market}, then /reload-plugins" if market else "/reload-plugins (no marketplace lists this plugin clone)"
+    return f"reef update: done — in Claude Code: {step}; `reef doctor` confirms"
 
 
 def cmd_factory(root, args):
