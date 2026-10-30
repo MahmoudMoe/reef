@@ -4,6 +4,12 @@
 - **`reef update`'s last line names the marketplace** (2026-10-30, the owner's update: the step's own line said `mahmoudmoe`,
   the done line said `<marketplace>` — a placeholder in a command the owner types). The done line is built from the name on
   disk (`reef-update.marketplace_name`); without one it says the reload alone. tests/size-budget.json: unchanged (nothing grew).
+- **A runner's stop on the owner is never silent** (2026-10-30, the owner, twice: the runner stopped on his approval, printed the
+  commands to `runner.out` alone, and `watch` sat on a dead tail under "session ended"). The run's last word — the wait block with
+  the exact commands, a stop, a park, no progress — goes to the terminal, to `live.log` (so `watch` and `status` show it) and,
+  when it waits on the owner, to the desk (macOS's notification center through osascript, notify-send elsewhere; `REEF_NOTIFY=0`
+  keeps a suite quiet); the block names `python3 scripts/reef`, the screen with every wait. `watch` follows while a runner runs
+  and returns when it ends — 2 when the loop waits on the owner. tests/size-budget.json raised: `script_lines` 17,331 → 17,390.
 - **A filed question on an issues queue is answered by its issue** (2026-10-30, the current adoption: the loop filed #90–#93 as
   `reef-question` issues; the runner's wait, the `reef` screen and `reef answer` named the file-queue footnote, which closes no
   issue, so the next session read the same four open questions and ended on the same wait). `reef-queue.py ask` writes the
