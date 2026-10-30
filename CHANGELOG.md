@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The orphan test's fake session survives a runner that dies before its first word** (2026-10-30, CI's macOS leg a
+  third time, after #216 and #219): the fake printed its first event before it ignored the dead pipe, so on a slow
+  start, with the runner already killed, that print ended it — no handler yet, no breadcrumb. Every print is
+  guarded now, the first included; the fake also names any other signal that ends it in `.fake-died`.
 - **A line number in a criterion or a decision fails the plan check** (2026-10-30, row 7 on the current adoption: rounds 4 and
   5 of the plan review were one criterion citing `AGENTS.md:74` where the sentence had moved to `:75` — every plan that touches
   a file another row edits paid a round). `reef-plan-check.py` refuses a `path:line` citation inside `## Acceptance Criteria`
