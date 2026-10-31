@@ -1206,6 +1206,16 @@ def reanchor(items, sel, chosen):
     return next((i for i, it in enumerate(items) if it["cmd"] == chosen), min(sel, max(len(items) - 1, 0)))
 
 
+def restart_screen(curses):
+    """The same command in a fresh process (2026-10-31 18:50: `u` applied a new Reef and the screen, still running the old code, crashed
+    loading a new sibling against the old module in memory). curses is ended first; the new process draws from what is on disk."""
+    try:
+        curses.endwin()
+    except Exception:
+        pass
+    os.execv(sys.executable, [sys.executable, os.path.abspath(__file__), *sys.argv[1:]])
+
+
 def run_captured(root, argv, timeout=900):
     """A command run for the screen: its last lines and exit code, never a shell, never the terminal."""
     try:
@@ -1447,6 +1457,9 @@ def screen_loop(stdscr, root, curses):
             doctor, model_at = None, 0.0   # a command may have changed everything: every reading again, in the background
             if act[0] != "open":
                 wm_at = 0.0   # opening a row changed nothing on the board
+            if len(argv) > 2 and argv[2] == "update" and rc == 0:
+                restart_screen(curses)   # the files on disk are new and this process is old: the same command, fresh (2026-10-31)
+                return 0
 
 
 def cmd_approve(root, args):

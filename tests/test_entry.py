@@ -707,14 +707,21 @@ class TheUpdateIsReefs(unittest.TestCase):
         mod.work_model = lambda root, runner=None, states=True: {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()}
         ran = []
         mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["reef update: done"]))[1]
+        restarted = []
+        mod.restart_screen = lambda curses: restarted.append(1)   # a successful update restarts the screen (os.execv) — not inside a test
         def age_out():
             mod.UPDATE_SECONDS = 0.1   # fifteen minutes pass
-        win = self.FW([-1, -1, -1, ord("i"), 10, ord("x"), -1, -1, ord("u"), ord("x"), -1, age_out, -1, -1, ord("q")])   # i: the inbox; Enter runs the one item; x closes; u runs the verb; x; the reading ages; q
+        mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["python3 scripts/reef-row.py state 7"]))[1]
+        win = self.FW([-1, -1, -1, ord("g"), -1, -1, age_out, -1, -1, ord("i"), ord("q")])   # ticks; g (a command's re-read, no fetch); the reading ages; i the inbox; q
         self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
-        self.assertEqual(reads[:3], [True, False, False], f"the first reading fetches; the readings after a command do not (the forge is asked minutes apart, not after every key): {reads}")
-        self.assertIn(True, reads[3:], f"once the reading is UPDATE_SECONDS old, the doctor fetches again: {reads}")
+        self.assertEqual(reads[:2], [True, False], f"the first reading fetches; a re-read after g does not (the forge is asked minutes apart, not after every key): {reads}")
+        self.assertIn(True, reads[2:], f"once the reading is UPDATE_SECONDS old, the doctor fetches again: {reads}")
         self.assertTrue(any("update" in r and "2 commit(s)" in r for r in win.rows), "the item is on the inbox\n" + "\n".join(win.rows[-30:]))
-        self.assertEqual(ran, [[sys.executable, "scripts/reef", "update"], [sys.executable, ENTRY, "update", "--repo", d]], "Enter on the item, then u: the same verb\n" + str(ran))
+        mod.UPDATE_SECONDS = 900; ran.clear()
+        mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["reef update: done"]))[1]
+        self.assertEqual(mod.screen_loop(self.FW([-1, -1, -1, ord("i"), 10, ord("q")]), d, self.FC()), 0)   # ticks: the doctor lands, then the inbox with its item
+        self.assertEqual(ran, [[sys.executable, "scripts/reef", "update"]], "Enter on the item runs the one verb\n" + str(ran))
+        self.assertEqual(restarted, [1], "and a successful update restarts the screen; nothing after it runs in the old process")
         self.assertEqual(mod.on_key(ord("u"), 0, 0, "work"), ("verb", "update"))
         self.assertGreaterEqual(load_script("reef", "reef_entry_under_test").UPDATE_SECONDS, 300, "a fetch is a network call: minutes apart, not every tick")
         # a doctor that does not answer is a failed reading on the screen, not "nothing wrong" kept for fifteen minutes
@@ -975,3 +982,51 @@ class TheScreenAnswersAtOnce(unittest.TestCase):
         self.assertTrue(any("reading failed" in r and "RuntimeError" in r for r in win.rows), "the board that raised is on the screen")
         self.assertGreaterEqual(calls["board"], 3, f"g read the failed board again ({calls})")
         self.assertGreaterEqual(calls["model"], 3, f"once INBOX_SECONDS passed the inbox was read again ({calls})")
+
+
+class TheScreenRestartsAfterAnUpdate(unittest.TestCase):
+    """2026-10-31 18:50, the owner: `u` inside the screen applied a new Reef, then the screen crashed — `ImportError: cannot import name
+    'die' from 'reef_common'`. The process kept the OLD code in memory while the files on disk were new; the next lazy load of a
+    sibling (reef-run.py, for the autopilot panel) imported the new file against the old module. After a successful update the screen
+    restarts itself — the same command, a fresh process — so what runs is what is on disk. A failed update restarts nothing."""
+
+    class FC:
+        A_REVERSE, A_BOLD, A_NORMAL = 1, 2, 0
+        error = Exception
+        def curs_set(self, *_): pass
+        def flushinp(self): pass
+        def update_lines_cols(self): pass
+        def has_colors(self): return False
+        def endwin(self): self.ended = True
+
+    class FW:
+        def __init__(self, keys): self.keys = list(keys); self.rows = []
+        def getmaxyx(self): return (40, 120)
+        def timeout(self, *_): pass
+        def erase(self): pass
+        def refresh(self): pass
+        def addstr(self, y, x, text, *a): self.rows.append(text)
+        def getch(self):
+            k = self.keys.pop(0) if self.keys else ord("q")
+            if k == -1:
+                settle()
+            return k
+
+    def test_u_that_succeeds_restarts_the_screen_and_a_failure_does_not(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        d = project()
+        mod.doctor_lines = lambda root, fetch=False: []
+        mod.work_model = lambda root, runner=None, states=True: {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()}
+        restarted = []
+        mod.restart_screen = lambda curses: restarted.append(curses)
+        mod.run_captured = lambda root, argv, timeout=900: (0, ["reef update: done"]) if argv[2:3] == ["update"] else (0, ["ok"])
+        fc = self.FC()
+        self.assertEqual(mod.screen_loop(self.FW([-1, ord("u")]), d, fc), 0)
+        self.assertEqual(len(restarted), 1, "a successful update restarts the screen — the files on disk are new, the process is old")
+        restarted.clear()
+        mod.run_captured = lambda root, argv, timeout=900: (1, ["reef update: stopped at that step"])
+        self.assertEqual(mod.screen_loop(self.FW([-1, ord("u"), ord("x"), ord("q")]), d, fc), 0)
+        self.assertEqual(restarted, [], "a failed update: the output stays on the screen, nothing restarts")
+        src = open(ENTRY, encoding="utf-8").read()
+        self.assertIn("def restart_screen", src)
+        self.assertIn("os.execv(", src.split("def restart_screen", 1)[1].split("\ndef ", 1)[0], "the restart is the same command in a fresh process")
