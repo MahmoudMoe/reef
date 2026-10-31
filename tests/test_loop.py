@@ -12,6 +12,8 @@ import sys
 import tempfile
 import time
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import write, git_repo  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOOP = os.path.join(ROOT, "scripts", "reef-loop.py")
@@ -24,14 +26,6 @@ def read_file(p):
         return f.read()
 
 
-def write(root, rel, text):
-    p = os.path.join(root, rel)
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        f.write(text)
-    return p
-
-
 def task(tid, feature, status="pending", blocked="[]"):
     return (f"---\nid: {tid}\nfeature: {feature}\nstatus: {status}\ncomplexity: mech\neffort: medium\nblocked-by: {blocked}\n"
             f"resources: []\ntier: light\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# {tid}\n\n## Scope\nx\n\n"
@@ -39,8 +33,7 @@ def task(tid, feature, status="pending", blocked="[]"):
 
 
 def project(cfg=None):
-    d = tempfile.mkdtemp(prefix="reef-loop.")
-    subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+    d = git_repo(prefix="reef-loop.", branch="main")
     os.makedirs(os.path.join(d, "scripts"))
     for n in ("reef-queue.py", "reef-graph.py", "reef-cost.py", "reef-loop.py", "reef-handoff", "reef-plan-check.py", "reef_common.py"):
         shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(d, "scripts", n))
@@ -386,7 +379,6 @@ class HunterStampBeforeTheGate(unittest.TestCase):
         self.assertEqual(st["dispatch_now"], ["101"], "the owner's ruling re-stamps without a re-approval")
 
 
-
 class InFlightAcrossWorktrees(unittest.TestCase):
     def test_a_marker_in_a_feature_worktree_is_in_flight(self):
         # 2026-10-17: "in flight: -" while 1101 was building — reef-attempt ran in the feature worktree, its marker lived there
@@ -723,7 +715,6 @@ class HandoffAndSessionStart(unittest.TestCase):
         r = loop(d, "tick", "--session-start")
         self.assertLessEqual(len(r.stdout) // 4, 50 + 20)
         self.assertIn("[truncated: writing.session_start_tokens 50]", r.stdout)
-
 
 
 class StopWithAReason(unittest.TestCase):

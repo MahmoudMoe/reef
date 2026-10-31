@@ -10,6 +10,8 @@ import sys
 import tempfile
 import time
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the suites' shared fixtures live beside this file
+from _fixtures import load_script, git_repo  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENTRY = os.path.join(ROOT, "scripts", "reef")
@@ -38,8 +40,7 @@ class EntryPoint(unittest.TestCase):
         self.assertNotIn("Usage:", r.stdout.split("reef-plan-check.py")[1].splitlines()[0], "the line is the script's purpose, not its usage")
 
     def test_a_verb_runs_its_script_and_an_unknown_verb_is_refused(self):
-        d = tempfile.mkdtemp(prefix="reef-entry.")
-        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        d = git_repo(prefix="reef-entry.", branch="main")
         os.makedirs(os.path.join(d, ".reef"))
         open(os.path.join(d, ".reef", "config.json"), "w").write('{"gates": {"full": "true"}}')
         r = reef("status", "--repo", d)
@@ -69,7 +70,7 @@ class UpdateNamesTheMarketplace(unittest.TestCase):
     there is none to update."""
 
     def test_the_done_line_carries_the_name_or_says_there_is_none(self):
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         line = mod.update_done_line("mahmoudmoe")
         self.assertIn("/plugin marketplace update mahmoudmoe", line)
         self.assertIn("/reload-plugins", line)
@@ -85,8 +86,7 @@ class UpdateNamesTheMarketplace(unittest.TestCase):
 
 
 def project(**files):
-    d = tempfile.mkdtemp(prefix="reef-screen.")
-    subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+    d = git_repo(prefix="reef-screen.", branch="main")
     os.makedirs(os.path.join(d, ".reef", "run"))
     open(os.path.join(d, ".reef", "config.json"), "w").write('{"gates": {"full": "true"}}')
     open(os.path.join(d, ".reef", "version"), "w").write("0.7.3\n")
@@ -106,15 +106,6 @@ def settle(limit=15.0):
         time.sleep(0.05)
     stuck = [t.name for t in threading.enumerate() if t.name.startswith("reef-") and t.is_alive()]
     assert not stuck, f"a reading did not land in {limit} s: {stuck}"
-
-
-def load_entry():
-    import importlib.machinery, importlib.util
-    loader = importlib.machinery.SourceFileLoader("reef_entry_under_test", ENTRY)
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    mod = importlib.util.module_from_spec(spec)
-    loader.exec_module(mod)
-    return mod
 
 
 class TheScreen(unittest.TestCase):
@@ -191,7 +182,7 @@ class TheScreen(unittest.TestCase):
         sections". The screen is a model rendered for a width and a height: the block banner with the facts beside it, the inbox
         as a list with a selected row and its WHOLE command boxed under the list, the runner's steps filling what is left, the
         doctor's top warnings, the keys last — never more lines than the terminal has, the selection always on screen."""
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         long_q = "Which way for the stale served records: count 027 as one more known stale record and file a found row, or re-take it now?"
         d = project(**{".reef/loop.json": '{"active": true, "wait": "owner: row 7", "stop": null, "parked": null, "hashes": []}',
                        ".reef/questions.md": f"- row 7: {long_q} — recommended: (a) count it as stale; the class has 31 members and a later row re-takes them\n"
@@ -243,7 +234,7 @@ class TheScreen(unittest.TestCase):
         inbox that missed what actually waited on him — the loop active with no runner, and task 403 left in flight."""
         src = open(ENTRY, encoding="utf-8").read()
         self.assertNotIn("addnstr", src, "addnstr counts bytes: a three-byte glyph line is cut at a third of the width")
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         d = project(**{".reef/loop.json": '{"active": true, "wait": null, "stop": null, "parked": null, "hashes": []}',
                        ".reef/inflight/403": '{"id": "403", "agent": "implementer"}',   # what the guard wrote at the dispatch, left by the dead session
                        ".reef/run/live.log": "".join(f"21:{i:02d} s1 → step {i}\n" for i in range(40)) + "21:51 s1 session ended: in flight ['403'] · 1863.1 s · $6.11\n"})
@@ -269,7 +260,7 @@ class TheScreen(unittest.TestCase):
         come back." The keys are one table: a digit SELECTS, Enter (or the same digit again) runs; a command runs inside the screen
         and its output sits in a panel until a key; `w` is the log, scrolled on the screen; an answer is typed on the screen with
         the recommendation prefilled. The screen never leaves curses for a command."""
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         src = open(ENTRY, encoding="utf-8").read()
         self.assertNotIn("run_shown", src, "no leaving the screen to run a command")
         self.assertNotIn("input(", src.split("def screen_loop", 1)[1].split("def cmd_approve", 1)[0], "no terminal prompt in the screen's loop")
@@ -358,7 +349,7 @@ class TheScreen(unittest.TestCase):
         state mark (✓ done, ▶ building, ○ ready, ⏸ blocked by whom, ⧖ yours), tasks n/m, depends, a lane (rows that share a module
         go one at a time; different modules run beside each other), the forge (its issue, its PR); the header carries the batch's
         progress and today's cost. PLAN is the progress view; `a` is the autopilot's start panel; `?` lists every key."""
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         d = project(**{
             "docs/queue.md": "# Queue\nCurrent batch: 2\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n"
                              "| 4 | legacy queue to issues (scripts/legacy-queue-issues.ts) | | planned | 2 | |\n"
@@ -510,12 +501,12 @@ class TheScreen(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         items = [l for l in r.stdout.splitlines() if re.match(r"^\s*\d+\s+\w+", l)]
         self.assertTrue(all(re.match(r"^\s*\d+\s+fix\b", l) for l in items), "no approval, question or park: only the doctor's fixes, if any\n" + r.stdout)
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         self.assertEqual(mod.inbox(d), [], "without the doctor's lines the inbox is empty")
         self.assertIn("nothing waits on you", mod.screen_text(d))
 
     def test_the_model_asks_the_row_machine_for_a_rows_command(self):
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         d = project(**{".reef/loop.json": '{"active": true, "wait": "owner: row 9 needs you", "stop": null, "parked": null, "hashes": []}'})
         mod.row_state = lambda root, row: {"row": row, "state": "approval", "detail": "the gate: … — in the terminal: " + self.APPROVE}
         items = mod.inbox(d)
@@ -534,7 +525,7 @@ class TheScreen(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("reef-queue.py footnote 'yes, keep it' --row 7", r.stdout)
         self.assertIn("row 7", open(os.path.join(d, ".reef", "questions.md")).read(), "a dry run clears nothing")
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         mod.row_state = lambda root, row: {"row": row, "state": "approval", "detail": "… — in the terminal: " + TheScreen.APPROVE}
         ran, orig = [], subprocess.run
         try:
@@ -547,7 +538,7 @@ class TheScreen(unittest.TestCase):
     def test_no_shell_between_the_screen_and_a_command(self):
         # the reviews of #221: every item is an argv list — never a string a shell parses — and agent-written text (a row
         # in questions.md, a feature slug in the row machine's detail, a doctor line with prose) never becomes a command
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         d = project(**{
             ".reef/loop.json": '{"active": true, "wait": "owner: row 9 and row 7;rm needs you (Approve plan demo at 0123456789abcdef?)", "stop": null, "parked": "x", "hashes": []}',
             ".reef/questions.md": "- row 7;echo pwned: Keep it? — recommended: yes\n- row 8: Rename it? — recommended: no\n",
@@ -570,7 +561,7 @@ class TheScreen(unittest.TestCase):
         self.assertEqual(q["cmd"], 'python3 scripts/reef-approval.py --owner "Approve plan demo at 0123456789abcdef?"', "shown as the line the owner would type")
 
     def test_the_inbox_reads_a_doctors_fix_as_its_last_part_and_never_shows_a_placeholder(self):
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         d = project()
         doctor = ["WARN gate probe: none — the runner refuses to start — python3 scripts/reef-run.py probe",
                   "WARN setup: scripts/reef-setup.py is missing — python3 <plugin>/scripts/reef-update.py --commit",
@@ -600,7 +591,7 @@ class TheScreenNeverFreezes(unittest.TestCase):
 
     def test_the_rows_are_read_in_parallel_and_the_keys_work_while_the_board_loads(self):
         import time as _t
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         d = project(**{"docs/queue.md": "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n"
                                         + "".join(f"| {i} | row {i} (src/m{i}) | | planned | 1 | |\n" for i in range(1, 9))})
         mod.row_state = lambda root, row: (_t.sleep(0.25), {"row": str(row), "state": "plan", "next": "", "detail": ""})[1]
@@ -649,7 +640,6 @@ class TheScreenNeverFreezes(unittest.TestCase):
         self.assertTrue(any("reading failed" in r and "RuntimeError" in r for r in win.rows), "the error is on the screen\n" + "\n".join(win.rows[-12:]))
 
 
-
 class TheUpdateIsReefs(unittest.TestCase):
     """docs/design/owner-hands-off.md step 6 (2026-10-31): after a merge in Reef a person told the owner to run `reef update`, then two
     Claude Code commands. Now the screen's doctor reading fetches the plugin clone itself, every UPDATE_SECONDS in its thread; the
@@ -682,7 +672,7 @@ class TheUpdateIsReefs(unittest.TestCase):
     def test_the_real_doctors_lines_are_one_item_on_the_inbox_and_the_headers_say_so(self):
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import test_doctor as D
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         d = project(**{"scripts/reef": "# a stale copy of the entry point\n", "docs/queue.md": "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n"})
         clone, bare, g = D.plugin_with_upstream()
         D.upstream_moves(bare, g, "The board counts tasks where the folder is")
@@ -710,7 +700,7 @@ class TheUpdateIsReefs(unittest.TestCase):
         self.assertNotIn("a new Reef", mod.screen_model(d, [])["facts"][0])
 
     def test_the_screen_asks_the_forge_itself_minutes_apart_and_enter_or_u_applies_it(self):
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         d = project()
         reads = []
         mod.doctor_lines = lambda root, fetch=False: (reads.append(fetch), ["WARN plugin: a new Reef, 2 commit(s) since your copy: Two fixes — python3 scripts/reef update"])[1]
@@ -726,7 +716,7 @@ class TheUpdateIsReefs(unittest.TestCase):
         self.assertTrue(any("update" in r and "2 commit(s)" in r for r in win.rows), "the item is on the inbox\n" + "\n".join(win.rows[-30:]))
         self.assertEqual(ran, [[sys.executable, "scripts/reef", "update"], [sys.executable, ENTRY, "update", "--repo", d]], "Enter on the item, then u: the same verb\n" + str(ran))
         self.assertEqual(mod.on_key(ord("u"), 0, 0, "work"), ("verb", "update"))
-        self.assertGreaterEqual(load_entry().UPDATE_SECONDS, 300, "a fetch is a network call: minutes apart, not every tick")
+        self.assertGreaterEqual(load_script("reef", "reef_entry_under_test").UPDATE_SECONDS, 300, "a fetch is a network call: minutes apart, not every tick")
         # a doctor that does not answer is a failed reading on the screen, not "nothing wrong" kept for fifteen minutes
         mod.doctor_lines = lambda root, fetch=False: None
         win = self.FW([-1, -1, ord("i"), -1, ord("q")])
@@ -789,7 +779,7 @@ class TheLogIsOnTheScreen(unittest.TestCase):
            else f"21:{i:02d} s1 ← Gate {1200 + i}: FAIL" for i in range(40)] + ["21:40 s1 WAIT owner: row 7 needs you"]
 
     def test_the_board_carries_the_runners_last_lines_colored_and_sheds_them_first(self):
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         wm = {"rows": [{"id": "7", "mark": "▶", "tasks": (1, 3), "lane": "src/a", "state": "build", "detail": "1 open task", "next": "tick", "depends": [], "forge": "PR #9", "item": "row seven"}],
               "facts": ["demo · Reef 0.7.4", "", "", "", ""], "progress": {"rows": (0, 1), "tasks": (1, 3)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()}
         lines, st, sel = mod.render_work(wm, [], width=120, height=40, selected=0, log=self.LOG)
@@ -823,7 +813,7 @@ class TheLogIsOnTheScreen(unittest.TestCase):
         self.assertTrue(any(l.startswith("LOG") and "no live log yet" in l for l in empty), "\n".join(empty))
 
     def test_the_log_page_scrolls_by_page_jumps_to_the_ends_and_finds_a_line(self):
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         on = mod.on_key
         self.assertEqual(on(mod.KEY_PPAGE, 0, 0, "log"), ("page_up",)); self.assertEqual(on(mod.KEY_NPAGE, 0, 0, "log"), ("page_down",))
         self.assertEqual(on(mod.KEY_HOME, 0, 0, "log"), ("top",)); self.assertEqual(on(mod.KEY_END, 0, 0, "log"), ("bottom",))
@@ -924,7 +914,7 @@ class TheScreenAnswersAtOnce(unittest.TestCase):
             return k
 
     def test_a_key_never_waits_for_a_reading(self):
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         d = project()
         mod.work_model = lambda root, runner=None, states=True: (time.sleep(2), {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()})[1]
         mod.doctor_lines = lambda root, fetch=False: (time.sleep(2), [])[1]
@@ -936,7 +926,7 @@ class TheScreenAnswersAtOnce(unittest.TestCase):
         self.assertTrue(any(r.startswith("LOG") for r in win.rows), "the log too")
 
     def test_the_rows_show_at_once_and_their_states_fill_in(self):
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         d = project(**{"docs/queue.md": "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n"
                                         + "".join(f"| {i} | row {i} (src/m{i}) | | planned | 1 | |\n" for i in range(1, 7))})
         mod.row_state = lambda root, row: (time.sleep(0.6), {"row": str(row), "state": "build", "next": "tick", "detail": f"1 open task(s) (PR #{row})"})[1]
@@ -962,7 +952,7 @@ class TheScreenAnswersAtOnce(unittest.TestCase):
         self.assertLess(mod.MARK_ORDER["…"], mod.MARK_ORDER["✓"], "in start order an unknown row sorts before a done one")
 
     def test_the_readings_are_minutes_apart_and_g_reads_a_failed_one_again(self):
-        mod = load_entry()
+        mod = load_script("reef", "reef_entry_under_test")
         d = project()
         calls = {"model": 0, "board": 0}
         def board(root, runner=None, states=True):

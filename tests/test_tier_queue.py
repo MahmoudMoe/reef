@@ -7,29 +7,16 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import write, git, git_repo  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TIER = os.path.join(ROOT, "scripts", "reef-tier.py")
 QUEUE = os.path.join(ROOT, "scripts", "reef-queue.py")
 
 
-def write(root, rel, text):
-    p = os.path.join(root, rel)
-    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        f.write(text)
-    return p
-
-
-def git(root, *a):
-    return subprocess.run(["git", "-C", root, *a], capture_output=True, text=True)
-
-
 def repo(cfg=None):
-    d = tempfile.mkdtemp(prefix="reef-tq.")
-    git(d, "init", "-q", "-b", "main")
-    git(d, "config", "user.email", "t@t")
-    git(d, "config", "user.name", "t")
+    d = git_repo(prefix="reef-tq.", branch="main", identity=True)
     write(d, ".reef/config.json", json.dumps(cfg or {}))
     write(d, "src/app.py", "print(1)\n")
     write(d, "docs/notes.md", "n\n")

@@ -8,6 +8,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import write  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
@@ -25,13 +27,6 @@ def task(d, tier="critical", complexity="design", extra=""):   # 0.7: the plan p
                 f"blocked-by: []\nresources: []\ntier: {tier}\nverify: judge\nattempts: 0\ndispatches: 0\n"
                 f"last_failure_sig: \"\"\n{extra}---\n# 1\n\n## Scope\nthe defect\n\n## Decision\nhuman wrote this\n\n"
                 f"## Acceptance Criteria\n- test_x goes red first\n\n## Log\n")
-    return p
-
-
-def write(d, name, text):
-    p = os.path.join(d, name)
-    with open(p, "w") as f:
-        f.write(text)
     return p
 
 
@@ -288,7 +283,6 @@ def legacy_hash(path):
     m = re.match(r"\A---\r?\n(.*?\r?\n)---\r?\n", t, re.S)
     fm = re.sub(r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-plan|adversarial-guard|adversarial-decided):.*(?:\r?\n|\Z)", "", m.group(1), flags=re.M)
     return hashlib.sha1((fm + t[m.end(1):]).encode("utf-8")).hexdigest()[:12]
-
 
 
 class FeatureGuardPass(unittest.TestCase):

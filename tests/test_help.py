@@ -7,14 +7,15 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import git_repo  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 S = os.path.join(ROOT, "scripts")
 
 
 def project():
-    d = tempfile.mkdtemp(prefix="reef-help.")
-    subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+    d = git_repo(prefix="reef-help.", branch="main")
     os.makedirs(os.path.join(d, ".reef"))
     os.makedirs(os.path.join(d, "reef"))
     with open(os.path.join(d, ".reef", "config.json"), "w") as f:

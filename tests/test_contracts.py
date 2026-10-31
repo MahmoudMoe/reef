@@ -6,6 +6,7 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
 import unittest
 
@@ -1199,3 +1200,51 @@ class TheSameNameInTwoScripts(unittest.TestCase):
         self.assertEqual(c.config_homes({"paths": {"adr": "docs/adr/", "queue": "reef/queue.md", "other": "x"}}), ["docs/adr", "reef/queue.md"])
         m = c.load_sibling("reef-tier.py")
         self.assertTrue(hasattr(m, "main"), "a sibling script loaded as a module")
+
+
+class OneFixtureModule(unittest.TestCase):
+    """docs/design/lightening.md step 3 (2026-10-31): `write(root, rel, text)` was defined in fifteen test files, a `git(d, *a)` helper
+    in fifteen (four shapes: the CompletedProcess, checked or not; its stdout; its stdout stripped), the temp-repo opening of every
+    `project()` in ten. tests/_fixtures.py holds each once — and test_entry's script loader, the one that moved (the other ad-hoc
+    SourceFileLoader bodies are a follow-up); a file imports the shape it used, under the name it used, so its tests read as before.
+    A test file's own `project()` stays — it is that suite's world — and opens its repository through `git_repo()`."""
+
+    NAMES = re.compile(r"^def (write|git|git_checked|git_out|git_text|git_repo|load_script|load_entry)\(", re.M)   # a fixture's name in a test file is the finding, whatever its parameters
+
+    def test_the_fixtures_have_one_home(self):
+        fx = os.path.join(ROOT, "tests", "_fixtures.py")
+        self.assertTrue(os.path.isfile(fx), "tests/_fixtures.py is the fixtures' one home")
+        src = open(fx, encoding="utf-8").read()
+        for name in ("write", "git", "git_out", "git_text", "git_repo", "load_script"):
+            self.assertRegex(src, rf"(?m)^def {name}\(", f"_fixtures defines {name}")
+        copies, importers = {}, 0
+        for f in sorted(glob.glob(os.path.join(ROOT, "tests", "test_*.py"))):
+            text = open(f, encoding="utf-8").read()
+            for m in self.NAMES.finditer(text):
+                copies.setdefault(m.group(1), []).append(os.path.basename(f))
+            if "from _fixtures import" in text:
+                importers += 1
+                self.assertLess(text.index("sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))"), text.index("from _fixtures import"),
+                                f"{os.path.basename(f)}: the tests folder goes on sys.path before the import (python3 -m unittest tests.<suite> runs from the repository root)")
+        self.assertEqual(copies, {}, f"a test file still carries its own copy of a fixture: {copies}")
+        self.assertGreaterEqual(importers, 20, "the files that carried a copy import the module now")
+        self.assertGreaterEqual(sum(open(f, encoding="utf-8").read().count("git_repo(prefix=") for f in glob.glob(os.path.join(ROOT, "tests", "test_*.py"))), 8, "the suites' project()s open their repository through repo()")
+
+    def test_the_shapes_say_what_the_copies_said(self):
+        import importlib.machinery, importlib.util, tempfile
+        loader = importlib.machinery.SourceFileLoader("reef_fixtures_under_test", os.path.join(ROOT, "tests", "_fixtures.py"))
+        spec = importlib.util.spec_from_loader(loader.name, loader); fx = importlib.util.module_from_spec(spec); loader.exec_module(fx)
+        with tempfile.TemporaryDirectory(prefix="reef-fx.") as tmp:
+            p = fx.write(tmp, "a/b/c.md", "x\n")
+            self.assertEqual((p, open(p).read()), (os.path.join(tmp, "a/b/c.md"), "x\n"), "write makes the folders and returns the path")
+            d = fx.git_repo(prefix="reef-fx-repo.", branch="develop", config={"gates": {"full": "true"}})
+            self.assertEqual(fx.git_text(d, "symbolic-ref", "--short", "HEAD"), "develop")
+            self.assertEqual(json.load(open(os.path.join(d, ".reef", "config.json"))), {"gates": {"full": "true"}})
+            fx.write(d, "f.txt", "1\n"); fx.git(d, "add", "-A"); fx.git(d, "commit", "-qm", "one")
+            self.assertEqual(fx.git_out(d, "log", "--format=%s"), "one\n", "git_out: stdout as git printed it")
+            self.assertEqual(fx.git(d, "status", "--porcelain").returncode, 0, "git: the CompletedProcess")
+            self.assertEqual(fx.git(d, "no-such-verb").returncode, 1, "not checked by default")
+            with self.assertRaises(subprocess.CalledProcessError):
+                fx.git(d, "no-such-verb", check=True)
+            m = fx.load_script("reef-tier.py")
+            self.assertTrue(hasattr(m, "main"))

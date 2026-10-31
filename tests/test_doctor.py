@@ -7,19 +7,16 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import git, git_repo  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCTOR = os.path.join(ROOT, "scripts", "reef-doctor.py")
 UPDATE = os.path.join(ROOT, "scripts", "reef-update.py")
 
 
-def git(d, *a):
-    return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], capture_output=True, text=True)
-
-
 def project():
-    d = tempfile.mkdtemp(prefix="reef-doctor.")
-    subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+    d = git_repo(prefix="reef-doctor.", branch="main")
     os.makedirs(os.path.join(d, ".reef"))
     os.makedirs(os.path.join(d, "scripts"))
     os.makedirs(os.path.join(d, "reef"))
@@ -96,7 +93,6 @@ def legacy_stamped_task(d):
     with open(p, "w") as f:
         f.write(body.replace("adversarial-plan: STAMP", f"adversarial-plan: {stamp}"))
     return p
-
 
 
 class Doctor(unittest.TestCase):

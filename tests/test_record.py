@@ -10,6 +10,8 @@ import sys
 import tempfile
 import time
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import git_text as git  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
@@ -46,10 +48,6 @@ elif a[:1] == ["api"]:
 else:
     sys.exit(1)
 '''
-
-
-def git(d, *a):
-    return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True, text=True).stdout.strip()
 
 
 class _Repo:
@@ -98,7 +96,6 @@ class _Repo:
     def merge(self, cmd="gh pr merge 7 --squash --delete-branch", **kw):
         payload = {"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": cmd}}
         return subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True, env=self.env(**kw))
-
 
 
 class ForgeMerge(_Repo, unittest.TestCase):
@@ -348,8 +345,6 @@ class ForgeMerge(_Repo, unittest.TestCase):
         self.record("FAIL")
         r = self.merge()
         self.assertEqual(r.returncode, 2)
-
-
 
 
 class SecurityPass(_Repo, unittest.TestCase):

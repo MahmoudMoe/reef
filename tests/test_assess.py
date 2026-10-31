@@ -9,6 +9,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import write  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLAIMS = os.path.join(ROOT, "scripts", "reef-claims.py")
@@ -29,13 +31,6 @@ def assess(d):
 
 
 RECAL = os.path.join(ROOT, "scripts", "reef-recalibrate")
-
-
-def write(d, rel, text):
-    p = os.path.join(d, rel)
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        f.write(text)
 
 
 class Measure(unittest.TestCase):

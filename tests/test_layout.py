@@ -9,6 +9,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import write, git_out as git, git_repo  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GRAPH = os.path.join(ROOT, "scripts", "reef-graph.py")
@@ -17,18 +19,6 @@ CHECK = os.path.join(ROOT, "scripts", "reef-plan-check.py")
 MIGRATE = os.path.join(ROOT, "scripts", "reef-migrate")
 STRUCT = os.path.join(ROOT, "scripts", "reef-structure")
 GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
-
-
-def write(root, rel, text):
-    p = os.path.join(root, rel)
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        f.write(text)
-    return p
-
-
-def git(d, *a):
-    return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True, text=True).stdout
 
 
 def task(tid, feature, status="pending", resources="[]", blocked="[]"):
@@ -66,8 +56,7 @@ class OneGraph(unittest.TestCase):
         self.assertIn("csv-export\tbuilding", out.replace("1\tbuilding", "csv-export\tbuilding")) if "csv-export" in out else self.assertIn("1\tbuilding", out)
 
     def test_05_flat_project_untouched_passes_every_check_with_its_old_paths(self):
-        d = tempfile.mkdtemp(prefix="reef-flat05.")
-        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        d = git_repo(prefix="reef-flat05.", branch="main")
         write(d, ".reef/config.json", json.dumps({"gates": {"test": "true"}, "paths": {"tasks": "tasks", "adr": "docs/adr", "queue": "docs/queue.md", "runlog": "docs/journal.md"}}))
         write(d, "CLAUDE.md", "# brief\n")
         write(d, "docs/queue.md", "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 1 | first | | planned | 1 | |\n")
@@ -86,8 +75,7 @@ class OneGraph(unittest.TestCase):
 
 class LayoutMove(unittest.TestCase):
     def fixture(self):
-        d = tempfile.mkdtemp(prefix="reef-layout.")
-        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        d = git_repo(prefix="reef-layout.", branch="main")
         write(d, ".reef/config.json", json.dumps({"gates": {"test": "true"}, "paths": {"tasks": "tasks", "adr": "docs/adr", "queue": "docs/queue.md", "runlog": "docs/journal.md", "glossary": "docs/glossary.md"}}))
         write(d, "AGENTS.md", "# AGENTS\nSee [the queue](docs/queue.md) and [ADR 1](docs/adr/0001-x.md).\n")
         write(d, "docs/queue.md", "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 12 | csv export | | planned | 1 | |\n\nSee [journal](journal.md).\n")

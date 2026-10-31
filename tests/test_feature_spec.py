@@ -8,6 +8,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import write, git_repo  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHECK = os.path.join(ROOT, "scripts", "reef-plan-check.py")
@@ -87,17 +89,8 @@ The exporter writes the file. Short sentences only.
 """
 
 
-def write(root, rel, text):
-    p = os.path.join(root, rel)
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        f.write(text)
-    return p
-
-
 def project(flat_tasks=None, version="0.6.0", cfg=None):
-    d = tempfile.mkdtemp(prefix="reef-p2.")
-    subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+    d = git_repo(prefix="reef-p2.", branch="main")
     write(d, ".reef/config.json", json.dumps(cfg or {"gates": {"test": "true"}, "paths": {"features": "reef/features"}}))
     if version:
         write(d, ".reef/version", version + "\n")

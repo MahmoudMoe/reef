@@ -7,6 +7,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import write  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INIT = os.path.join(ROOT, "scripts", "reef-init.py")
@@ -44,13 +46,6 @@ class QuietByDefault(unittest.TestCase):
 def read(root, rel):
     with open(os.path.join(root, rel), encoding="utf-8") as f:
         return f.read()
-
-
-def write(root, rel, text):
-    p = os.path.join(root, rel)
-    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        f.write(text)
 
 
 def node_project(root):

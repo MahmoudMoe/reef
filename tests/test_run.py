@@ -9,6 +9,8 @@ import sys
 import tempfile
 import time
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import git_repo  # noqa: E402  (the suites' shared fixtures, once)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -117,8 +119,7 @@ ev("step_finish", reason="stop", cost=0.02, tokens={"input": 5, "output": 1})
 
 
 def project():
-    d = tempfile.mkdtemp(prefix="reef-run.")
-    subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+    d = git_repo(prefix="reef-run.", branch="main")
     os.makedirs(os.path.join(d, ".reef"))
     open(os.path.join(d, ".reef", "config.json"), "w").write('{"gates": {"full": "true"}}')
     b = os.path.join(d, ".bin")

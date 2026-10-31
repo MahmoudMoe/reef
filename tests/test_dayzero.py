@@ -11,6 +11,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import write, git_out as git, git_repo  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO = os.path.join(ROOT, "scripts", "reef-repo")
@@ -43,18 +45,6 @@ if a[:1] == ["api"] and "-X" in a and a[a.index("-X") + 1] == "PATCH":
     state["push_protection"] = "enabled"; json.dump(state, open(os.environ["GH_STATE"], "w")); sys.exit(0)
 sys.exit(1)
 '''
-
-
-def git(d, *a):
-    return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True, text=True).stdout
-
-
-def write(root, rel, text):
-    p = os.path.join(root, rel)
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        f.write(text)
-    return p
 
 
 class RepoProtection(unittest.TestCase):
@@ -136,8 +126,7 @@ class ExploreLock(unittest.TestCase):
 def fixture_repo():
     """An existing project: another ADR format, a specs/ directory, an rfcs/ directory, a runbook, a glossary,
     stray Markdown, a docs build (mkdocs) and a file referenced from code; develop and main branches."""
-    d = tempfile.mkdtemp(prefix="reef-recal.")
-    subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+    d = git_repo(prefix="reef-recal.", branch="main")
     write(d, "README.md", "# proj\nSee [the runbook](ops/runbook.md) and [ADR 1](decisions/0001-use-postgres.md).\n")
     write(d, "LICENSE", "MIT\n")
     write(d, "decisions/0001-use-postgres.md", "# 1. Use Postgres\n\nDate: 2025-01-01\n\n## Status\nAccepted\n\n## Context\nWe need a store.\n\n## Decision\nPostgres.\n\n## Consequences\nOperate a database.\n")
@@ -365,8 +354,7 @@ class RawSqlCheck(unittest.TestCase):
     `assess.raw_sql_allow` (the measured baseline); an allowed file and a comment line are green."""
 
     def project(self, files):
-        d = tempfile.mkdtemp(prefix="reef-rawsql.")
-        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        d = git_repo(prefix="reef-rawsql.", branch="main")
         write(d, ".reef/config.json", json.dumps({"assess": {"raw_sql_allow": ["src/legacy.ts"]}}))
         write(d, "package.json", json.dumps({"name": "x", "dependencies": {"@prisma/client": "6"}}))   # 0.7.3: the node profile's switch
         for rel, text in files.items():
@@ -388,8 +376,7 @@ class SizeRatchet(unittest.TestCase):
     over structure.new_file_lines, shrinking lowers the baseline in the same run; tests and i18n are ignored."""
 
     def project(self):
-        d = tempfile.mkdtemp(prefix="reef-sizes.")
-        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        d = git_repo(prefix="reef-sizes.", branch="main")
         write(d, ".reef/config.json", json.dumps({"structure": {"new_file_lines": 400}}))
         write(d, "src/a.ts", "a\n" * 10)
         write(d, "reef/size-baseline.json", json.dumps({"generated": "2026-10-24", "large_file": 800, "files": {"src/a.ts": 10}}))
@@ -491,8 +478,7 @@ class StructureBaselineIsThePlan(unittest.TestCase):
     so the gate could not be switched on. A document the plan kept for a reader is the baseline; a new stray document still fails."""
 
     def project(self):
-        d = tempfile.mkdtemp(prefix="reef-struct-base.")
-        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        d = git_repo(prefix="reef-struct-base.", branch="main")
         write(d, ".reef/version", "0.7.2\n")
         write(d, ".reef/config.json", json.dumps({"paths": {"queue": "reef/queue.md"}}))
         write(d, "specs/export/spec.md", "# Export\n\n## Requirements\n- a month\n")
@@ -530,8 +516,7 @@ class StructureHonoursConfigPaths(unittest.TestCase):
     version — init adopted docs/adr as the ADR home and the check then flagged every ADR in it."""
 
     def project(self, adr_home):
-        d = tempfile.mkdtemp(prefix="reef-struct-paths.")
-        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        d = git_repo(prefix="reef-struct-paths.", branch="main")
         write(d, ".reef/version", "0.7.1\n")
         write(d, ".reef/config.json", json.dumps({"paths": {"adr": adr_home, "queue": "docs/queue.md", "runlog": "docs/journal.md"}}))
         write(d, "docs/adr/0001-x.md", "# ADR 0001 — x\n\n## Status\nAccepted\n\n## Context\nc\n\n## Decision\nd\n")
@@ -750,8 +735,7 @@ class ExistingAdrNumbersAreKept(unittest.TestCase):
     A document under any configured `paths.*` home is in the layout and stays."""
 
     def project(self, clash=False):
-        d = tempfile.mkdtemp(prefix="reef-adrnum.")
-        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        d = git_repo(prefix="reef-adrnum.", branch="main")
         write(d, ".reef/config.json", json.dumps({"gates": {"full": "true"}, "paths": {"adr": "docs/adr", "queue": "reef/queue.md", "glossary": "docs/glossary.md"}}))
         write(d, ".reef/version", "0.7.1\n")
         write(d, "reef/queue.md", "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n")

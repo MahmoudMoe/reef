@@ -10,6 +10,8 @@ import sys
 import tempfile
 import time
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import git_checked as git  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
@@ -37,10 +39,6 @@ def task_text(tid, feature, tier, complexity, extra=""):
             f"blocked-by: []\nresources: []\ntier: {tier}\nverify: {'judge' if complexity == 'design' else 'gate-only'}\n"
             f"attempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n{extra}---\n# {tid}\n\n## Scope\nx\n\n"
             f"## Decision\nhuman words\n\n## Acceptance Criteria\n- test_{feature}_{tid}_works goes red first\n\n## Log\n")
-
-
-def git(d, *a):
-    return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True, text=True)
 
 
 def project(cfg, tasks, version="0.6.0"):
@@ -210,7 +208,6 @@ class ApprovalSurvivesTheHunterStamp(unittest.TestCase):
         self.assertEqual(plan_check(d, "--verify-stamp", "--feature", "demo").returncode, 0)
         r = dispatch(d, "reef:implementer", "REEF-TASK: tasks/002-crit.md\nimplement", model="opus")
         self.assertEqual(r.returncode, 0, r.stderr)
-
 
 
 class HumanOnlyApproval(unittest.TestCase):
@@ -663,7 +660,6 @@ class GuardGuardsItself(unittest.TestCase):
         self.assertEqual(self.edit(".reef/config.json", content="{not json").returncode, 2)
         self.inflight("critical")
         self.assertEqual(self.edit(".reef/config.json", content=json.dumps(bad)).returncode, 0)
-
 
 
 class PlanReviewRounds(unittest.TestCase):

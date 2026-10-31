@@ -46,9 +46,11 @@ path), named in the test, which also checks that each named helper is still the 
    reef-factory's and reef-graph-run's `script` → `own_script`/`project_script`, reef-record's `gh` → `gh_text`, reef-repo's `gh` →
    `gh_rc3`, the screen's loader → `sibling_module`). The pin's definition narrowed by one rule, stated: a script's own `cmd_<verb>`
    handlers — one per CLI, by convention; the six pairs had six different bodies — are not counted.
-3. **One fixture module for the tests** (consolidation step 4). `tests/_fixtures.py` holds `project`, `git`, `run`, `load_entry`,
-   `plugin_with_upstream` once; the files import them. Not in the budget; the maintenance half of the same debt. Expected: −1,500 test
-   lines.
+3. **One fixture module for the tests** (consolidation step 4; shipped 2026-10-31: `tests/_fixtures.py` holds `write`, `git` in its
+   four shapes (`git`, `git_checked`, `git_out`, `git_text`), `git_repo` and `load_script` once — 63 lines; fifteen `write`s and fifteen
+   `git`s left the test files, and every suite's `project()` opens its repository through `git_repo()`. The test files went 17,590 →
+   17,469 lines; with the module, 17,590 → 17,532: the plan's guess of −1,500 was wrong — the copies were four lines each; what is
+   gone is the drift between them, not weight. test_entry's script loader moved too; the other ad-hoc loaders are a follow-up.)
 4. **Orphans and aliases.** Whatever `orphan_scripts` names goes, or gains the one caller it was written for. `commands/`: fifteen
    three-line files that each invoke a skill, so every verb shows twice in Claude Code's menu (`/reef:plan` and `/reef:reef-plan`);
    every document, prompt and the runner name `/reef-plan`, which is the skill. Recommended: delete `commands/`; the owner types
