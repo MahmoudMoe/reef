@@ -37,6 +37,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 const GUARD = __GUARD__;
 const TIMEOUT_MS = Number(process.env.REEF_GUARD_TIMEOUT_MS || 10000);
+const DISPATCH_TIMEOUT_MS = 30000;   // above the guard's 25 s dispatch limit, as hooks.json's Task|Agent timeout
 const TOOL = { bash: "shell", write: "write", edit: "edit", task: "dispatch" };
 const READ_ONLY = new Set(["read", "glob", "grep", "list", "webfetch", "websearch", "codesearch", "todoread", "todowrite",
   "skill", "question", "invalid", "lsp"]);
@@ -60,7 +61,7 @@ export const ReefGuard = async ({ directory }) => {
         agent_id: input.sessionID, cwd: a.workdir || directory, command: a.command, path: a.filePath, content: a.content,
         old: a.oldString, new: a.newString, subagent: a.subagent_type, prompt: a.prompt,
         model: tool === "dispatch" ? agentModel(directory, a.subagent_type) : undefined };
-      const r = spawnSync("python3", [GUARD], { input: JSON.stringify(payload), encoding: "utf8", timeout: TIMEOUT_MS });
+      const r = spawnSync("python3", [GUARD], { input: JSON.stringify(payload), encoding: "utf8", timeout: tool === "dispatch" ? DISPATCH_TIMEOUT_MS : TIMEOUT_MS });
       if (r.status !== 0) {
         throw new Error("reef-guard: " + ((r.stderr || "").trim() || `denied (exit ${r.status}, ${r.signal || r.error || "no signal"})`));
       }

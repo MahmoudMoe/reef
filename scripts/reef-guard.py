@@ -49,8 +49,9 @@ Reads the hook JSON on stdin. Two duties:
    writes): scripts/reef-*, .githooks/*, hooks/hooks.json and the roles/caps/gates/tiers keys
    of .reef/config.json change only under a critical task in flight or inside the plugin's
    own repository; .reef/approvals/ and .reef/review/ are written by hooks and scripts
-   only. A DEADLINE (signal alarm, REEF_GUARD_DEADLINE seconds) denies before the host's
-   hook timeout: a hung guard is a denial, never an allow.
+   only. A DEADLINE (signal alarm: 8 s, 25 s for a dispatch, or REEF_GUARD_DEADLINE for
+   both) denies before the host's hook timeout: a hung guard is a denial, never an allow,
+   and the denial names the step that overran.
 
 Exit 0 = allow. Exit 2 = deny (reason on stderr). Anything unparseable that
 smells like a bypass is denied; anything unparseable and innocent is allowed.
@@ -95,7 +96,13 @@ import sys
 import tempfile
 import time
 
-DEADLINE = float(os.environ.get("REEF_GUARD_DEADLINE", "8"))
+# a dispatch runs the plan stamp, the ready set and the context measure: 8 s was outrun on a large repository (the
+# owner's project, 2026-10-31, row 188 denied four times); its limit sits under the Task|Agent hook's 30 s timeout
+# REEF_GUARD_DEADLINE only lowers a limit: above it the host's timeout would decide, not the guard
+DEADLINE = min(8.0, float(os.environ.get("REEF_GUARD_DEADLINE") or "8"))
+DISPATCH_DEADLINE = min(25.0, float(os.environ.get("REEF_GUARD_DEADLINE") or "25"))
+STARTED = time.monotonic()
+STEP = ["start", STARTED]   # the check in progress, named in a deadline denial
 TIER_ORDER = ["light", "full", "design", "critical"]
 LOCKED_TYPES = ("verifier", "loophole-hunter", "plan-reviewer", "Explore", "security", "mahmoud", "acceptance")
 AGENT_TYPES = LOCKED_TYPES + ("implementer", "mechanic")
@@ -1346,7 +1353,9 @@ def _check_dispatch(tool_input, payload):
         pre_fm, _ = read_frontmatter(path)
     except Exception:
         pre_fm = None   # re-read under the lock below, which fails closed
+    step("the plan stamp")
     check_stamp(root, (pre_fm or {}).get("feature", ""))
+    step("the dispatch checks")
     graph = load_graph_module()
     lock_dir = graph.lock_key(root, graph.read_config(root))   # 0.6: one graph across every feature folder
     # ONE lock over the whole task set: the ready decision reads every task file, so
@@ -1602,7 +1611,7 @@ def check_stop(payload):
         except (OSError, ValueError):
             pass
     try:
-        r = subprocess.run([sys.executable, loop, "tick", "--assert-no-idle", "--repo", root], capture_output=True, text=True, timeout=DEADLINE - 1)
+        r = subprocess.run([sys.executable, loop, "tick", "--assert-no-idle", "--repo", root], capture_output=True, text=True, timeout=max(0.1, DEADLINE - (time.monotonic() - STARTED) - 1))
     except subprocess.TimeoutExpired:
         return   # a slow tick never blocks the turn's end
     if r.returncode == 2:
@@ -1688,12 +1697,17 @@ def check_context_ceiling(payload, tool_input=None):
                                                  "additionalContext": f"reef: context at {n} tokens (> caps.context_warn {warn}, ceiling {ceiling or 'unset'}): {max(0, (ceiling or 0) - n)} tokens of room. Finish the step in hand, then stop and /clear BEFORE the ceiling; sub-agent dispatches are refused at it, Bash is not — do not spend the room on reading."}}))
 
 
-def arm_deadline():
-    """A hung guard must deny, not time out into an allow (onFailure: block is the host's belt)."""
+def step(name):
+    STEP[:] = [name, time.monotonic()]
+
+
+def arm_deadline(seconds):
+    """A hung guard must deny, not time out into an allow (onFailure: block is the host's belt). Re-arming counts from
+    the guard's start, never from now: the limit is the whole run's."""
     def on_alarm(signum, frame):
-        deny(f"guard deadline of {DEADLINE:g}s exceeded — failing closed")
+        deny(f"guard deadline of {seconds:g}s exceeded in {STEP[0]} after {time.monotonic() - STEP[1]:.1f}s — failing closed")
     signal.signal(signal.SIGALRM, on_alarm)
-    signal.setitimer(signal.ITIMER_REAL, DEADLINE)
+    signal.setitimer(signal.ITIMER_REAL, max(0.01, seconds - (time.monotonic() - STARTED)))
 
 
 HOST_TOOLS = {"shell": ("Bash", {"command": "command"}),
@@ -1721,9 +1735,8 @@ def from_host(p):
 
 
 def main():
-    arm_deadline()
-    if os.environ.get("REEF_GUARD_TEST_HANG"):
-        time.sleep(60)   # the red test for the deadline: the alarm must deny before this returns
+    arm_deadline(DEADLINE)
+    step("reading the payload")
     try:
         payload = json.load(sys.stdin)
     except Exception:
@@ -1732,7 +1745,13 @@ def main():
         payload = from_host(payload)
     tool = payload.get("tool_name", "")
     tool_input = payload.get("tool_input") or {}
+    if tool in ("Task", "Agent"):
+        arm_deadline(DISPATCH_DEADLINE)
+    if os.environ.get("REEF_GUARD_TEST_HANG"):
+        step("test-hang")
+        time.sleep(float(os.environ["REEF_GUARD_TEST_HANG"]))   # the deadline's red tests: a slow check, by event
     if payload.get("hook_event_name") == "Stop":
+        step("the stop checks")
         try:
             check_stop(payload)
         except SystemExit:
@@ -1741,6 +1760,7 @@ def main():
             print(f"reef-guard: stop check error ignored (the turn may end): {e}", file=sys.stderr)
         sys.exit(0)
     if tool == "Bash":
+        step("the Bash checks")
         try:
             CTX.update(context_for(payload))
         except Exception as e:
@@ -1749,16 +1769,20 @@ def main():
             check_one_orchestrator(payload, payload.get("cwd") or os.getcwd())
         check_bash(str(tool_input.get("command") or ""))
     elif tool in ("Task", "Agent"):
+        step("the loop's hold")
         check_one_orchestrator(payload, payload.get("cwd") or os.getcwd())
         # the ceiling first: a dispatch denied for room must not have written its inflight/verifying marker
+        step("the context ceiling")
         try:
             check_context_ceiling(payload, tool_input)
         except SystemExit:
             raise
         except Exception as e:
             print(f"reef-guard: context ceiling check error ignored: {e}", file=sys.stderr)
+        step("the dispatch checks")
         check_dispatch(tool_input, payload)
     elif tool in ("Edit", "Write", "MultiEdit"):
+        step("the edit checks")
         try:
             check_edit(tool_input, payload, context_for(payload))
         except SystemExit:
