@@ -40,8 +40,12 @@ key on the `reef` screen, or made by the proxy under the contract below.
    needs a retry loop around Reef.
 5. **One screen, nothing else to watch.** The `reef` screen (second design) is where every decision is made; `watch` ends
    with the runner's last word; the desk is told when a decision is needed. The owner opens one thing.
-6. **The update is Reef's too.** After a merge in Reef, the project's screen shows one item — `u` applies it, re-proves the
-   setup and reloads; no reminder from anyone to run `reef update`.
+6. **The update is Reef's too** (shipped 2026-10-31: the screen fetches the plugin clone every fifteen minutes in its thread and
+   shows ONE item when Reef moved or the project's copies are behind the plugin; `u` or Enter runs `reef update` inside the screen,
+   which pulls, refreshes the copies, commits and pushes, re-proves the setup when its digest changed and runs
+   `claude plugin marketplace update <market>` itself; the doctor's three new-Reef lines name that one verb; a Claude Code window
+   already open is told once about `/reload-plugins`, the runner's fresh sessions need nothing). After a merge in Reef, the project's
+   screen shows one item — `u` applies it, re-proves the setup and reloads; no reminder from anyone to run `reef update`.
 
 ## 4. What the owner does after this lands
 

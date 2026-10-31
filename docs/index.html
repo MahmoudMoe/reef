@@ -185,7 +185,7 @@ python3 scripts/reef-init.py --accept .github/workflows/reef-factory.yml
 /reef-factory
 /reef-pentest &lt;url&gt;
 /reef-graph
-python3 &lt;plugin&gt;/scripts/reef-update.py --commit
+u   (on the screen; reef update from a terminal)
 make setup</code></pre>
       </div>
       <div class="what">
@@ -197,7 +197,7 @@ make setup</code></pre>
         <p><strong>A row built without your machine (the factory):</strong> <code>/reef-init</code> offers <code>.github/workflows/reef-factory.yml</code> and never writes it; <code>/reef-factory</code> checks the four things one job needs — the accepted workflow, one secret you set yourself (<code>ANTHROPIC_API_KEY</code>, an API key billed per token, or <code>CLAUDE_CODE_OAUTH_TOKEN</code> from <code>claude setup-token</code> with a Claude subscription), a protected base branch, the labels — and names the fix for each. <code>/reef-factory &lt;row&gt;</code> labels the row's issue <code>reef-ready</code>; a job on a GitHub runner proves the guard there, resumes the row's branch, runs its state machine and writes the state back as a label: <code>reef-building</code>, <code>reef-review</code>, <code>reef-waiting-owner</code>. Your plan approval is a comment on the issue, exactly <code>Approve plan &lt;slug&gt; at &lt;digest16&gt;?</code>, unedited, then <code>reef-ready</code> again. Pushes made with <code>GITHUB_TOKEN</code> start no CI: keep <code>ci.feature_gate: local</code> or add a fine-grained <code>REEF_TOKEN</code>. Minutes count on a private repository; a job ends after six hours and the next resumes.</p>
         <p><strong>The running app attacked:</strong> <code>/reef-pentest &lt;url&gt;</code> sends one adversary against every row of the threat model on a live copy of the app, the way a user or a logged-in attacker could; each hole becomes a found row in your queue. On demand, at any point; needs <code>/reef-threat</code> first; only a target you own.</p>
         <p><strong>Build without the loop, or check a new machine:</strong> <code>/reef-graph</code> is the build step <code>/reef-loop</code> already uses (graph mode, chosen automatically): a whole row as one background workflow, its tasks in order, then the evidence, the PR and the one reviewer, and one bare merge command back. Run it yourself only without the loop, or once on a new machine to run its probe. Never next to a running loop.</p>
-        <p><strong>A new Reef:</strong> <code>reef-update.py --commit</code> pulls the plugin, refreshes your project's copies, commits Reef's own files and prints the two reload commands.</p>
+        <p><strong>A new Reef:</strong> the screen fetches the plugin clone itself and shows one inbox item — <code>a new Reef: 3 commit(s) since your copy</code>; <code>u</code> applies it: the plugin pulled, your project's copies refreshed, Reef's own files committed and pushed, the worktree setup re-proved when its digest changed, the Claude Code marketplace refreshed. The runner's next session runs the new Reef. Nobody tells you to update.</p>
         <p><strong>A fresh clone:</strong> <code>make setup</code>. Hooks are local git config and do not survive a clone.</p>
       </div>
     </div>

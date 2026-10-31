@@ -38,6 +38,29 @@ def project():
     return d
 
 
+def plugin_with_upstream():
+    """A plugin clone (this repo's scripts, templates, manifest) tracking a bare origin — (clone, bare, g): g(cwd, *git args) commits as t."""
+    clone = tempfile.mkdtemp(prefix="reef-plugin-main.")
+    subprocess.run(["git", "init", "-q", "-b", "main", clone], check=True)
+    for sub in ("scripts", "templates", ".claude-plugin"):
+        shutil.copytree(os.path.join(ROOT, sub), os.path.join(clone, sub), ignore=shutil.ignore_patterns("__pycache__"))
+    g = lambda cwd, *a: subprocess.run(["git", "-C", cwd, "-c", "user.email=t@t", "-c", "user.name=t", *a], capture_output=True, text=True, check=True)
+    g(clone, "add", "-A"); g(clone, "commit", "-qm", "plugin")
+    bare = tempfile.mkdtemp(prefix="reef-plugin-origin.")
+    subprocess.run(["git", "clone", "-q", "--bare", clone, bare], check=True)
+    g(clone, "remote", "add", "origin", bare); g(clone, "fetch", "-q", "origin"); g(clone, "branch", "-q", "-u", "origin/main")
+    return clone, bare, g
+
+
+def upstream_moves(bare, g, subject, rel="scripts/reef-row.py"):
+    """A merge lands in Reef: a commit with `subject` touching `rel` reaches the bare origin."""
+    work = tempfile.mkdtemp(prefix="reef-plugin-work.")
+    subprocess.run(["git", "clone", "-q", bare, work], check=True)
+    with open(os.path.join(work, rel), "a") as f:
+        f.write("# a fix\n")
+    g(work, "commit", "-qam", subject); g(work, "push", "-q", "origin", "main")
+
+
 def doctor(d, *a):
     env = dict(os.environ, PATH="/nonexistent-gh:" + os.environ["PATH"])
     return subprocess.run([sys.executable, DOCTOR, "--repo", d, "--plugin", ROOT, *a], capture_output=True, text=True, env=env)
@@ -419,3 +442,53 @@ class NormalRoundChecks(unittest.TestCase):
         self.assertIn("setup: unproven", out)
         self.assertIn("reef-setup.py prove", out)
         self.assertIn("plugin enabled:", out, "the plugin's on/off state is a doctor line (it flipped to disabled after a marketplace update)")
+
+
+class TheUpdateIsOneVerb(unittest.TestCase):
+    """docs/design/owner-hands-off.md step 6 (2026-10-31): the doctor's three lines about a new Reef — the clone behind its upstream,
+    the version, the scripts — named `reef-update.py --commit` and `reef-init.py --root`, two commands for one thing, and the owner's
+    screen listed both. Where the project has `scripts/reef`, each names the one verb (`python3 scripts/reef update`); the clone's
+    line says a new Reef, the commits and the newest subject; a project without the entry point keeps the plugin's script."""
+
+    def test_a_new_reef_is_named_with_its_subject_and_the_one_verb(self):
+        d = project()
+        shutil.copy(os.path.join(ROOT, "scripts", "reef"), os.path.join(d, "scripts", "reef"))
+        with open(os.path.join(d, "scripts", "reef"), "a") as f:
+            f.write("# behind\n")   # the entry point itself is a copy the doctor compares (it was not)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "the entry point")
+        clone, bare, g = plugin_with_upstream()
+        run = lambda *a: subprocess.run([sys.executable, DOCTOR, "--repo", d, "--plugin", clone, *a], capture_output=True, text=True, env=dict(os.environ, PATH="/nonexistent-gh:" + os.environ["PATH"]))
+        r = run("--fetch")
+        self.assertNotIn("a new Reef", r.stdout, "nothing moved yet")
+        upstream_moves(bare, g, "The board counts tasks where the folder is")
+        r = run()
+        self.assertNotIn("a new Reef", r.stdout, "without --fetch the local view: the move is not known yet")
+        r = run("--fetch")
+        lines = {l.split(":")[0].split()[-1]: l for l in r.stdout.splitlines() if l.startswith("WARN")}
+        self.assertEqual(lines.get("plugin"), "WARN plugin: a new Reef, 1 commit(s) since your copy: The board counts tasks where the folder is — python3 scripts/reef update", r.stdout)
+        for key in ("version", "scripts"):
+            self.assertIn(key, lines, r.stdout)
+            self.assertTrue(lines[key].endswith(" — python3 scripts/reef update"), lines[key])
+        self.assertIn("(reef, reef-queue.py)", lines["scripts"], "scripts/reef is compared too")
+        self.assertNotIn("reef-update.py --repo", r.stdout)
+        # the forge's subject on the owner's screen: printable only (an escape, a tab, a carriage return are dropped)
+        upstream_moves(bare, g, "red\x1b[31m\ttext\rback", rel="scripts/reef-queue.py")
+        r = run("--fetch")
+        line = [l for l in r.stdout.splitlines() if l.startswith("WARN plugin:")][0]
+        self.assertIn("2 commit(s) since your copy: red[31mtextback — python3 scripts/reef update", line, "the escape, the tab and the return are gone; what is printable stays")
+        for c in ("\x1b", "\t", "\r"):
+            self.assertNotIn(c, line)
+        # no scripts/reef: the plugin's script, with the paths filled in
+        d2 = project()
+        r = subprocess.run([sys.executable, DOCTOR, "--repo", d2, "--plugin", clone], capture_output=True, text=True)
+        self.assertIn(f"scripts: 1 project script(s) differ from the plugin's (reef-queue.py) — python3 {clone}/scripts/reef-update.py --repo {d2} --commit", r.stdout.replace("/private" + d2, d2))
+
+    def test_reef_update_can_leave_the_reload_line_to_its_caller(self):
+        d = project()
+        clone, _, _ = plugin_with_upstream()
+        r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--dry-run", "--no-reload-line"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("now, in Claude Code", r.stdout, "the caller (reef update) refreshes the marketplace itself and says the last word")
+        self.assertNotIn("/reload-plugins", r.stdout)
+        r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--dry-run"], capture_output=True, text=True)
+        self.assertIn("/reload-plugins", r.stdout, "alone, the script still says the step")
