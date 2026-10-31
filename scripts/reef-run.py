@@ -898,7 +898,7 @@ def owner_wait_lines(root, wait, mode):
     return "\n".join(lines)
 
 
-def release_hold(root, sid):
+def drop_session_hold(root, sid):
     """The runner's session is over, so its hold on the loop goes with it (0.7.1): a crashed session that never
     called `wait` must not block the next one for 30 minutes. Another session's hold is not the runner's to drop."""
     if sid:
@@ -1332,7 +1332,7 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
                 say("jobs done: " + ", ".join(f"{j['name']} rc={j.get('rc')}" for j in done_jobs) + " — this session continues their rows")
             prompt = (f"/reef-loop {row}" + PROMPT[len("/reef-loop"):]) if row else PROMPT
             out = session(root, prompt + (NIGHT_PROMPT if night else AUTOPILOT_PROMPT if autopilot else "") + note, mode, say)
-            release_hold(root, out.get("session_id"))
+            drop_session_hold(root, out.get("session_id"))
             mark_reported(root, done_jobs)   # the session read the note: now the job is reported
             st = loop_state(root)
             wait, stop, parked = CONTROL.sub(" ", str(st.get("wait") or "")), st.get("stop") or "", st.get("parked") or ""   # agent text: nothing a terminal reads

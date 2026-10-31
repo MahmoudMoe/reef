@@ -32,9 +32,10 @@ import subprocess
 import sys
 import tempfile
 import time
+from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read_config, repo_root  # noqa: E402
+from reef_common import main_checkout, read_config, repo_root, load_sibling  # noqa: E402
 
 DEFAULT_PARALLEL = 10
 DEFAULT_CAP = 3
@@ -276,17 +277,7 @@ def fast_row(t):
     return _ROW_MODE[feat]
 
 
-def plan_check_module():
-    """scripts/reef-plan-check.py beside this script: the one home of the path rule."""
-    import importlib.machinery
-    import importlib.util
-    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
-    loader = importlib.machinery.SourceFileLoader("reef_plan_check", p)
-    spec = importlib.util.spec_from_loader("reef_plan_check", loader)
-    mod = importlib.util.module_from_spec(spec)
-    sys.dont_write_bytecode = True
-    loader.exec_module(mod)
-    return mod
+plan_check_module = partial(load_sibling, "reef-plan-check.py", "reef_plan_check")   # scripts/reef-plan-check.py beside this script: the one home of the path rule
 
 
 def not_ready_reason(tasks, t, cfg):

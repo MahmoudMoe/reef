@@ -29,22 +29,11 @@ import sys
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_replace as read, table_cells, git_text, die as _die  # noqa: E402
+from reef_common import read_replace as read, table_cells, git_text, die as _die, reef_dir, served_dirs, config_homes  # noqa: E402
 
 KEEP = {"README.md", "LICENSE", "LICENSE.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md", "CODEOWNERS", "CODE_OF_CONDUCT.md", "AGENTS.md", "CLAUDE.md", "HANDOFF.md"}
 # 0.7.2 (first adoption, 2026-10-24, item 16): a licence anywhere, under any name (a font's OFL.md, LICENSE-fonts.md, NOTICE.md), is kept;
 # so is every document in a directory that holds an asset (font, image, binary) beside its licence
-
-
-def reef_dir(root):
-    """0.7.3 (first adoption, 2026-10-25): Reef's proposals live under the git dir — every tool, test and linter skips .git; under
-    .reef/proposed/ a project test that walks the disk counted .dependency-cruiser.cjs and a .claude/ folder as its own.
-    The common dir, so a linked worktree sees the same proposals. Outside a git repository: .reef/ as before."""
-    r = subprocess.run(["git", "-C", root, "rev-parse", "--git-common-dir"], capture_output=True, text=True)
-    g = r.stdout.strip()
-    if r.returncode != 0 or not g:
-        return os.path.join(root, ".reef")
-    return os.path.join(g if os.path.isabs(g) else os.path.join(root, g), "reef")
 
 
 def proposed_dir(root):
@@ -63,21 +52,6 @@ die = partial(_die, prefix="reef-recalibrate")
 
 
 git = partial(git_text, prefix="reef-recalibrate")
-
-
-def served_dirs(root):
-    out = set()
-    if os.path.isfile(os.path.join(root, "mkdocs.yml")):
-        m = re.search(r"^docs_dir:\s*(\S+)", read(os.path.join(root, "mkdocs.yml")), re.M)
-        out.add((m.group(1) if m else "docs").strip("/"))
-    for cand in ("docusaurus.config.js", "docusaurus.config.ts", "docusaurus.config.mjs", "docs/package.json"):
-        if os.path.isfile(os.path.join(root, cand)):
-            out.add("docs")
-    for dp, dn, fn in os.walk(root):
-        dn[:] = [d for d in dn if d not in (".git", "node_modules", ".reef", ".venv")]
-        if "conf.py" in fn and any(x.endswith((".rst", ".md")) for x in fn):
-            out.add(os.path.relpath(dp, root).strip("./"))
-    return {d for d in out if d}
 
 
 def referenced_by(root, rel):
@@ -467,11 +441,6 @@ def propose_rewrites(root, layer):
 # 0.7.3 (first adoption, 2026-10-25): the folders .reef/config.json `paths.*` names are the layout (reef-structure has said so since
 # 0.7.2): a document there stays, and converted ADRs land in `paths.adr` — the apply had moved docs/adr/ to
 # reef/architecture/adr/ and would have split the ADRs across two homes once the owner moved docs/adr/ back
-HOME_KEYS = ("adr", "queue", "runlog", "glossary", "tasks", "features", "day_zero")
-
-
-def config_homes(cfg):
-    return [str(v).strip().strip("/") for k, v in (cfg.get("paths") or {}).items() if v and k in HOME_KEYS]
 
 
 def adr_home(cfg):
@@ -626,7 +595,7 @@ def build_plan(root, move=False):
                                                                      "reef/architecture/", "reef/features/README.md", f"reef/archive/{date}/", "reef/archive/README.md"]}
 
 
-def render_plan(plan):
+def render_moves(plan):
     lines = [f"# Recalibration — {plan['date']}", "",
              "The full plan of what `scripts/reef-recalibrate --apply` will create, convert, move and keep — one line each, with its reason. "
              "Nothing moves before the owner approves this list (edit a line's action to change it; `keep` lines move only when you change them). "
@@ -717,7 +686,7 @@ def cmd_plan(root, measure=False, move=False):
         json.dump(plan, f, indent=1)
     with open(os.path.join(root, "reef", "instruction-layer.md"), "w", encoding="utf-8") as f:
         f.write(render_layer(plan["instruction_layer"], plan["rewrites"]))
-    text = render_plan(plan)
+    text = render_moves(plan)
     if measure:
         block, worst = measure_plan(root, plan_json)
         text += block

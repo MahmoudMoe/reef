@@ -58,7 +58,7 @@ import time
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import run_rc3, die as _die  # noqa: E402
+from reef_common import run_rc3, die as _die, load_sibling, git_root  # noqa: E402
 
 GRAPH_DIR = os.path.join(".reef", "graph")
 
@@ -66,15 +66,10 @@ GRAPH_DIR = os.path.join(".reef", "graph")
 die = partial(_die, prefix="reef-graph-run")
 
 
-def root_of(repo):
-    r = subprocess.run(["git", "-C", repo, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
-    return r.stdout.strip() if r.returncode == 0 else os.path.abspath(repo)
-
-
 run = lambda args, cwd, timeout=120: run_rc3(args, cwd, timeout)
 
 
-def script(root, name):
+def project_script(root, name):
     p = os.path.join(root, "scripts", name)
     return p if os.path.isfile(p) else os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
 
@@ -100,6 +95,9 @@ def js_str(s):
 # ---------------------------------------------------------------- probe
 
 PROBE_SCHEMA = {"type": "object", "properties": {"denied": {"type": "boolean"}, "output": {"type": "string"}}, "required": ["denied", "output"]}
+
+
+plan_home = lambda path: load_sibling("reef-graph.py").plan_home(path)   # reef-graph.py's plan_home, as this script's own name (its tests and callers know it)
 
 
 def cmd_probe(root):
@@ -182,7 +180,7 @@ MODELS = {"opus", "sonnet", "haiku"}
 
 
 def ready_tasks(root, only):
-    rc, out, err = run([sys.executable, script(root, "reef-loop.py"), "tick", "--json", "--repo", root], root)
+    rc, out, err = run([sys.executable, project_script(root, "reef-loop.py"), "tick", "--json", "--repo", root], root)
     if rc != 0:
         die(f"tick failed: {err.strip() or out.strip()}", 1)
     state = json.loads(out)
@@ -203,7 +201,7 @@ def ready_tasks(root, only):
         ids = [i for i in ids if i in only]
     ids = [i for i in ids if i not in chat_ids]
     paths = {}
-    rc, out, _ = run([sys.executable, script(root, "reef-graph.py"), "ready", "--json", "--root", root], root)
+    rc, out, _ = run([sys.executable, project_script(root, "reef-graph.py"), "ready", "--json", "--root", root], root)
     for t in (json.loads(out) if rc == 0 and out.strip() else []):
         paths[str(t["id"])] = t["path"]
     # feature worktrees hold their own ready tasks (the tick saw them the same way)
@@ -211,7 +209,7 @@ def ready_tasks(root, only):
     for l in wt.splitlines():
         if l.startswith("worktree ") and os.path.realpath(l[9:].strip()) != os.path.realpath(root):
             w = l[9:].strip()
-            rc, out, _ = run([sys.executable, script(root, "reef-graph.py"), "ready", "--json", "--root", w], w)
+            rc, out, _ = run([sys.executable, project_script(root, "reef-graph.py"), "ready", "--json", "--root", w], w)
             for t in (json.loads(out) if rc == 0 and out.strip() else []):
                 paths.setdefault(str(t["id"]), t["path"])
     verify = set(str(x) for x in state.get("verify_now", []))
@@ -229,28 +227,11 @@ def last_failure(task_path):
     return fails[-1].strip() if fails else ""
 
 
-def load_script(name):
-    """A sibling script (reef-graph.py, reef-row.py) as a module, from this script's own directory — one loader shape."""
-    import importlib.machinery
-    import importlib.util
-    loader = importlib.machinery.SourceFileLoader(re.sub(r"\W", "_", name), os.path.join(os.path.dirname(os.path.abspath(__file__)), name))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    mod = importlib.util.module_from_spec(spec)
-    sys.dont_write_bytecode = True   # no scripts/__pycache__ written into the tree
-    loader.exec_module(mod)
-    return mod
-
-
-def plan_home(path):
-    """reef-graph.py's plan_home: the feature worktree's copy of a task file."""
-    return load_script("reef-graph.py").plan_home(path)
-
-
 def mark_dispatched(root, task_path, tid, implementer=True):
     """What the guard does on an allowed Task dispatch (reef-guard check_dispatch): the task becomes in-progress, its
     dispatch odometer moves, and .reef/inflight/<id> is written in the main checkout — so the tick, the Stop hook
     and the reviewer lock see a graph-mode task exactly as a chat-mode one. The status goes to the plan's home copy."""
-    task_path = plan_home(task_path)
+    task_path = load_sibling("reef-graph.py").plan_home(task_path)
     with open(task_path, encoding="utf-8", newline="") as f:
         text = f.read()
     m = re.match(r"\A---\r?\n(.*?\r?\n)---\r?\n", text, re.S)
@@ -273,7 +254,7 @@ def mark_dispatched(root, task_path, tid, implementer=True):
 
 
 def attempt_lines(root, task_path):
-    rc, out, err = run([sys.executable, script(root, "reef-attempt"), task_path], os.path.dirname(task_path), timeout=120)
+    rc, out, err = run([sys.executable, project_script(root, "reef-attempt"), task_path], os.path.dirname(task_path), timeout=120)
     return rc, out, err
 
 
@@ -306,8 +287,8 @@ def task_item(root, tid, path, verify_only, report_dir):
     if not path or not os.path.isfile(path):
         return f"{tid}: task file not found"
     tdir = os.path.dirname(os.path.dirname(os.path.abspath(path))) if os.path.basename(os.path.dirname(path)) == "tasks" else os.path.dirname(os.path.abspath(path))
-    checkout = root_of(tdir)
-    rc, wout, werr = run([sys.executable, script(root, "reef-graph.py"), "worktree", path], checkout, timeout=600)
+    checkout = git_root(tdir)
+    rc, wout, werr = run([sys.executable, project_script(root, "reef-graph.py"), "worktree", path], checkout, timeout=600)
     m = re.search(r"^worktree:\s*(\S+)", wout, re.M)
     if rc != 0 or not m:
         return f"{tid}: worktree: {(werr or wout).strip().splitlines()[-1] if (werr or wout).strip() else rc}"
@@ -501,13 +482,13 @@ def settle_task(root, r, extra_why=(), row=False):
                 with open(rp, "rb") as a, open(dest, "wb") as b:
                     b.write(a.read())   # a copy: the agent's words unchanged
                 if role == "verifier":
-                    rc, out, err = run([sys.executable, script(root, "reef-claims.py"), "report", dest, "--task", task_file], root)
+                    rc, out, err = run([sys.executable, project_script(root, "reef-claims.py"), "report", dest, "--task", task_file], root)
                     if rc != 0:
                         why.append(f"verifier report rejected: {rejection(out or err) or rc}")
                 if j.get("verdict") != "PASS":
                     why.append(f"{role}: {j.get('verdict')} — {str(j.get('summary', ''))[:140]}")
                 elif role == "hunter":
-                    rc, out, err = run([sys.executable, script(root, "reef-adversarial"), task_file, "guard", dest], root)
+                    rc, out, err = run([sys.executable, project_script(root, "reef-adversarial"), task_file, "guard", dest], root)
                     if rc != 0:
                         why.append(f"guard-pass record refused: {err.strip().splitlines()[-1][:140] if err.strip() else rc}")
         for j in (r.get("judges") or []):
@@ -517,7 +498,7 @@ def settle_task(root, r, extra_why=(), row=False):
             reason = "; ".join(why)
             print(f"FAIL {tid}: {reason}")
             if os.path.isfile(task_file) and not any(w.startswith(("no verifier", "no hunter")) for w in why):
-                rc_a, out_a, err_a = run([sys.executable, script(root, "reef-attempt"), task_file, reason[:300]], os.path.dirname(task_file))
+                rc_a, out_a, err_a = run([sys.executable, project_script(root, "reef-attempt"), task_file, reason[:300]], os.path.dirname(task_file))
                 att = re.search(r"attempt=(\d+)/(\d+)", out_a or "")
                 print(f"  attempt counted: {att.group(0) if att else (err_a or out_a).strip().splitlines()[-1][:120] if (err_a or out_a).strip() else rc_a}")
             return 1, found
@@ -559,7 +540,7 @@ def cmd_row(root, key):
     refused: a row not in build (the owner's and the scripts' steps), a blocked task, a task in flight, graph mode off."""
     if not gate_ok(root):
         graph_off()
-    rm = load_script("reef-row.py")
+    rm = load_sibling("reef-row.py")
     st, rc = rm.state_of(root, key)
     if rc != 0:
         die(f"row {key}: {st.get('detail') or 'unknown'}", 2)
@@ -585,7 +566,7 @@ def cmd_row(root, key):
     if flying:
         print(f"row {rid}: in flight: {', '.join(flying)} — a workflow may be running; the tick frees a stale marker after loop.inflight_stale_minutes")
         return 1
-    rc, pout, _ = run([sys.executable, script(root, "reef-tier.py"), "path"] + [p for _, p in tasks], co)
+    rc, pout, _ = run([sys.executable, project_script(root, "reef-tier.py"), "path"] + [p for _, p in tasks], co)
     if pout.strip().startswith("path: critical"):
         print(f"row {rid}: {pout.strip()[:140]} — the driver takes the fast path only; the critical path runs a worktree per task with its judges "
               f"(/reef-graph generate, settle) and then /reef-review {slug}")
@@ -685,7 +666,7 @@ def settle_row(root, res):
     re-read, converge re-checked, the review report from the run's own scratch dir and its VERDICT line, recorded by
     reef-record; then the row script's own next command — the one bare merge the orchestrator runs where the guard sees
     it (settle never merges) — or ROW WAITS <state>: <why>."""
-    rm = load_script("reef-row.py")
+    rm = load_sibling("reef-row.py")
     main = rm.main_checkout(root)
     cfg = rm.config(main)
     rid = str(res.get("row") or "")
@@ -743,14 +724,14 @@ def settle_row(root, res):
         return 1
     rc, head, _ = run(["git", "rev-parse", "HEAD"], co)
     head = head.strip()
-    rc, ev, _ = run([sys.executable, script(root, "reef-evidence.py"), "--repo", co], co)
+    rc, ev, _ = run([sys.executable, project_script(root, "reef-evidence.py"), "--repo", co], co)
     if rc == 3:
         print(f"ROW {rid} WAITS evidence: CI is running on {head[:12]} — `python3 scripts/reef-row.py next {rid}` when it is green")
         return 1
     if rc != 0:
         print(f"ROW {rid} WAITS evidence: {(ev.strip().splitlines() or ['no evidence'])[0]} — sh scripts/reef-gate.sh full in {co}")
         return 1
-    rc, cout, cerr = run([sys.executable, script(root, "reef-converge"), slug, "--repo", co, "--dry-run"], co, timeout=1200)
+    rc, cout, cerr = run([sys.executable, project_script(root, "reef-converge"), slug, "--repo", co, "--dry-run"], co, timeout=1200)
     if rc == 3:
         print(f"ROW {rid} WAITS evidence: a gates.resources slot was busy — run settle again")
         return 1
@@ -776,7 +757,7 @@ def settle_row(root, res):
     if not n:
         print(f"ROW {rid} REVIEWED {verdict} at {head[:12]}, no PR ({str(pr.get('output') or '')[:160] or 'no remote'}) — nothing recorded; the owner merges")
         return 0 if verdict == "GREEN" else 1
-    rc, out, err = run([sys.executable, script(root, "reef-record"), slug, verdict, "--pr", str(n), "--report", dest, "--root", main], co, timeout=120)
+    rc, out, err = run([sys.executable, project_script(root, "reef-record"), slug, verdict, "--pr", str(n), "--report", dest, "--root", main], co, timeout=120)
     if rc != 0:
         print(f"ROW {rid} WAITS review: the record was refused — {(err or out).strip().splitlines()[-1][:200] if (err or out).strip() else rc}")
         return 1
@@ -795,7 +776,7 @@ def main(argv):
     if "--repo" in argv:
         i = argv.index("--repo")
         argv = argv[:i] + argv[i + 2:]
-    root = root_of(repo)
+    root = git_root(repo)
     if not argv:
         die("usage: reef-graph-run.py probe | probe-check <results.json> | generate [--tasks a,b] | row <row-id|slug> | settle <results.json>  [--repo DIR]")
     cmd = argv[0]

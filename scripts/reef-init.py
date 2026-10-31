@@ -45,10 +45,9 @@ import shutil
 import stat
 import subprocess
 import sys
-from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import lint_gaps, die as _die  # noqa: E402
+from reef_common import lint_gaps, die as _die, reef_dir  # noqa: E402
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = ["reef", "reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.py", "reef-graph.py",
@@ -124,7 +123,7 @@ die = lambda msg, code=1: _die(msg, code, prefix="reef-init")   # the signature 
 
 # ---------------------------------------------------------------- stack
 
-def detect(root):
+def detect_stack(root):
     """Stack facts the templates need. Only what the files say; nothing guessed is a gate."""
     has = lambda *p: os.path.isfile(os.path.join(root, *p))
     facts = {"name": os.path.basename(os.path.abspath(root)), "stack": "unknown", "test": "", "fast": "",
@@ -285,7 +284,7 @@ def grill_facts(answers, facts):
     return facts
 
 
-def render(template_text, facts):
+def render_template(template_text, facts):
     out = template_text
     for _ in range(2):   # a fact may itself carry placeholders (the Dependabot stack entry names {{base}})
         for k, v in facts.items():
@@ -408,17 +407,6 @@ def plugin_origin():
     url = r.stdout.strip() if r.returncode == 0 else ""
     m = re.match(r"^(?:git@github\.com:|https://github\.com/)([^/\s]+/[^/\s]+?)(?:\.git)?/?$", url)
     return ref, f"https://github.com/{m.group(1)}" if m else "https://github.com/MahmoudMoe/reef"
-
-
-def reef_dir(root):
-    """0.7.3 (first adoption, 2026-10-25): Reef's proposals live under the git dir — every tool, test and linter skips .git; under
-    .reef/proposed/ a project test that walks the disk counted .dependency-cruiser.cjs and a .claude/ folder as its own.
-    The common dir, so a linked worktree sees the same proposals. Outside a git repository: .reef/ as before."""
-    r = subprocess.run(["git", "-C", root, "rev-parse", "--git-common-dir"], capture_output=True, text=True)
-    g = r.stdout.strip()
-    if r.returncode != 0 or not g:
-        return os.path.join(root, ".reef")
-    return os.path.join(g if os.path.isabs(g) else os.path.join(root, g), "reef")
 
 
 def carry_old_proposals(root):
@@ -631,13 +619,13 @@ def render_tree(root, facts, dry):
         targets[rel] = tpl
     for rel, tpl in targets.items():
         with open(os.path.join(PLUGIN, "templates", tpl), encoding="utf-8") as f:
-            w.place(rel, render(f.read(), facts), executable=rel.startswith(".githooks/"))
+            w.place(rel, render_template(f.read(), facts), executable=rel.startswith(".githooks/"))
     for rel, tpl in OFFERED.items():
         if not re.fullmatch(r"[0-9a-f]{40}", str(facts.get("reef_ref") or "")):
             w.skipped.append(rel + " (not offered: the plugin here is not a git clone at a commit, and the factory installs the Reef this project's scripts came from)")
             continue
         with open(os.path.join(PLUGIN, "templates", tpl), encoding="utf-8") as f:
-            w.offer(rel, render(f.read(), facts))
+            w.offer(rel, render_template(f.read(), facts))
     for name_, text in (facts.get("draft_adrs") or {}).items():
         w.write_once.add(f"{lay['adr']}/{name_}")   # a decision record is written at birth, never re-rendered
         w.place(f"{lay['adr']}/{name_}", text)
@@ -743,7 +731,7 @@ def main(argv):
     if to_keep:
         keep(root, to_keep)
         return 0
-    facts = detect(root)
+    facts = detect_stack(root)
     if name:
         facts["name"] = name
     # a refresh keeps the project's day zero and its name: the first init records both in the manifest (first contact,

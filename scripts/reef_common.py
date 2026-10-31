@@ -421,6 +421,83 @@ def die(msg, code=2, *, prefix):
     sys.exit(code)
 
 
+def load_sibling(name, modname=None):
+    """A sibling script (reef-plan-check.py, reef-graph.py, reef-row.py) as a module, from this module's own directory — one loader
+    shape (lightening step 2: four scripts carried it). No bytecode is written beside a project's scripts."""
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader(modname or re.sub(r"\W", "_", name), os.path.join(os.path.dirname(os.path.abspath(__file__)), name))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    sys.dont_write_bytecode = True
+    loader.exec_module(mod)
+    return mod
+
+
+def git_root(repo):
+    """The repository's top level from inside it (`git rev-parse --show-toplevel`), else the directory itself."""
+    r = git(repo, "rev-parse", "--show-toplevel")
+    top = r.stdout.strip() if r.returncode == 0 else ""
+    return top or os.path.abspath(repo)
+
+
+def reef_dir(root):
+    """0.7.3 (first adoption, 2026-10-25): Reef's proposals live under the git dir — every tool, test and linter skips .git; under
+    .reef/proposed/ a project test that walks the disk counted .dependency-cruiser.cjs and a .claude/ folder as its own.
+    The common dir, so a linked worktree sees the same proposals. Outside a git repository: .reef/ as before."""
+    r = git(root, "rev-parse", "--git-common-dir")
+    g = r.stdout.strip()
+    if r.returncode != 0 or not g:
+        return os.path.join(root, ".reef")
+    return os.path.join(g if os.path.isabs(g) else os.path.join(root, g), "reef")
+
+
+def section(text, heading):
+    """Body of '## <heading>' up to the next '## ' or EOF; None if absent."""
+    m = re.search(rf"^##\s+{re.escape(heading)}\s*$(.*?)(?=^##\s|\Z)", text, re.M | re.S)
+    return m.group(1) if m else None
+
+
+SLUG_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+){1,4}$")
+GENERIC_SLUGS = {"misc", "fixes", "feature", "update", "stuff", "changes", "work", "tasks", "new", "todo", "wip"}
+
+
+def slug_error(slug):
+    """2 to 5 kebab-case words, descriptive: no bare numbers, no generic word."""
+    if not SLUG_RE.match(slug):
+        return f"feature slug {slug!r} is not 2-5 kebab-case words (e.g. csv-export-for-orders)"
+    words = slug.split("-")
+    if all(w.isdigit() for w in words) or any(w in GENERIC_SLUGS for w in words):
+        return f"feature slug {slug!r} is a number or a generic word — name the feature"
+    return None
+
+
+HOME_KEYS = ("adr", "queue", "runlog", "glossary", "tasks", "features", "day_zero")
+
+
+def config_homes(cfg):
+    """The places .reef/config.json `paths.*` names (0.7.2, first adoption 2026-10-24, item 17): init chose them, so a check accepts
+    them whatever the version — `docs/adr` was flagged on a project whose config said `paths.adr: docs/adr`."""
+    return [str(v).strip().strip("/") for k, v in (cfg.get("paths") or {}).items() if v and k in HOME_KEYS]
+
+
+def served_dirs(root):
+    """Directories a docs build serves — the docs are the product's, not Reef's."""
+    out = set()
+    if os.path.isfile(os.path.join(root, "mkdocs.yml")):
+        with open(os.path.join(root, "mkdocs.yml"), encoding="utf-8", errors="replace") as f:
+            m = re.search(r"^docs_dir:\s*(\S+)", f.read(), re.M)
+        out.add((m.group(1) if m else "docs").strip("/"))
+    for cand in ("docusaurus.config.js", "docusaurus.config.ts", "docusaurus.config.mjs", "docs/package.json"):
+        if os.path.isfile(os.path.join(root, cand)):
+            out.add("docs")
+    for dp, dn, fn in os.walk(root):
+        dn[:] = [d for d in dn if d not in (".git", "node_modules", ".reef", ".venv")]
+        if "conf.py" in fn and any(x.endswith((".rst", ".md")) for x in fn):
+            out.add(os.path.relpath(dp, root).strip("./"))
+    return {d for d in out if d}   # a Sphinx conf.py at the root names "" — not a directory
+
+
 def plugin_root(arg=None):
     """The plugin clone: the argument, $CLAUDE_PLUGIN_ROOT, else this module's own repository — the first that holds a plugin manifest."""
     for cand in (arg, os.environ.get("CLAUDE_PLUGIN_ROOT"), os.path.dirname(os.path.dirname(os.path.abspath(__file__)))):

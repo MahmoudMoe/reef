@@ -36,9 +36,16 @@ path), named in the test, which also checks that each named helper is still the 
    reef-opencode's `frontmatter` → `split_frontmatter`, reef-factory's `say` → `note`; reef-merge-close's `fail` is `die` with its
    prefix. `duplicate_defs` 64 → 30; `script_lines` +6 — one home for ten shapes costs a few lines more than the thirty adapters it
    replaced. `gh` ×3 and `read_frontmatter` ×1 wait for step 2: three contracts under one name, and the guard's own copy.)
-2. **The same name in two scripts.** The remaining pairs: a true duplicate merges (`queue_rows`, `cmd_status`, `plan_check_module`,
-   `release_hold`, `reef_dir`, `served_dirs`, `config_homes`); a false one — two different things under one name — is renamed so the
-   pin stops counting it and a reader stops confusing them. Expected: `duplicate_defs` → under 10.
+2. **The same name in two scripts** (shipped 2026-10-31: `duplicate_defs` 30 → 0; `script_lines` 17,995 →
+   17,927). A true duplicate merged into `reef_common` — `load_sibling` (three `plan_check_module` loaders and reef-graph-run's
+   `load_script`), `git_root` (two `root_of`), `reef_dir`, `section`, `slug_error` with `SLUG_RE`/`GENERIC_SLUGS`, `served_dirs`,
+   `config_homes` with `HOME_KEYS`; a false one — two things under one name — renamed so a reader stops confusing them (reef-row's
+   `queue_rows` → `queue_status`, reef-run's `release_hold` → `drop_session_hold`, reef-loop's `render` → `render_status_page`,
+   reef-init's `render`/`detect` → `render_template`/`detect_stack`, reef-handoff's `render` → `render_handoff`, reef-recalibrate's
+   `render_plan` → `render_moves`, reef-plan-check's `parse_args` → `parse_check_args`, reef-threat's `lint` → `lint_threat`,
+   reef-factory's and reef-graph-run's `script` → `own_script`/`project_script`, reef-record's `gh` → `gh_text`, reef-repo's `gh` →
+   `gh_rc3`, the screen's loader → `sibling_module`). The pin's definition narrowed by one rule, stated: a script's own `cmd_<verb>`
+   handlers — one per CLI, by convention; the six pairs had six different bodies — are not counted.
 3. **One fixture module for the tests** (consolidation step 4). `tests/_fixtures.py` holds `project`, `git`, `run`, `load_entry`,
    `plugin_with_upstream` once; the files import them. Not in the budget; the maintenance half of the same debt. Expected: −1,500 test
    lines.

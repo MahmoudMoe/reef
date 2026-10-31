@@ -19,7 +19,7 @@ MAX_LINES = 60
 run = lambda cmd, cwd, timeout=20: run_out(cmd, cwd, timeout)
 
 
-def render(root, questions):
+def render_handoff(root, questions):
     cfg = {}
     try:
         cfg = json.loads(read(os.path.join(root, ".reef", "config.json")))
@@ -67,7 +67,7 @@ def main(argv):
     root = run(["git", "rev-parse", "--show-toplevel"], repo) or os.path.abspath(repo)
     qfile = qfile or (os.path.join(root, ".reef", "questions.md") if os.path.isfile(os.path.join(root, ".reef", "questions.md")) else None)
     questions = [l.strip("- ").strip() for l in read(qfile).splitlines() if l.strip()] if qfile and os.path.isfile(qfile) else []
-    text = render(root, questions)
+    text = render_handoff(root, questions)
     if write:
         with open(os.path.join(root, "HANDOFF.md"), "w", encoding="utf-8") as f:
             f.write(text)

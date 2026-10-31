@@ -35,7 +35,7 @@ def note(line):
     print(f"reef-factory: {line}", flush=True)
 
 
-def script(name):
+def own_script(name):
     return os.path.join(HERE, name)
 
 
@@ -56,7 +56,7 @@ def cmd_row(root, cfg, issue, row, actor, cap, mode):
     wt_dir = str((cfg.get("worktree") or {}).get("dir", ".reef/worktrees") or ".reef/worktrees")
     # 1. the row
     if issue:
-        rc, out, err = run([sys.executable, script("reef-queue.py"), "issue-row", issue, "--repo", root], root, timeout=120)
+        rc, out, err = run([sys.executable, own_script("reef-queue.py"), "issue-row", issue, "--repo", root], root, timeout=120)
         if rc != 0:
             note(f"issue #{issue} is not a row — {(err or out).strip().splitlines()[-1][:160] if (err or out).strip() else rc}; nothing built")
             return 1
@@ -64,7 +64,7 @@ def cmd_row(root, cfg, issue, row, actor, cap, mode):
     if not row or not row.isdigit():
         note("a row id is digits")
         return 2
-    rc, out, _ = run([sys.executable, script("reef-queue.py"), "row-issue", row, "--repo", root], root, timeout=120)
+    rc, out, _ = run([sys.executable, own_script("reef-queue.py"), "row-issue", row, "--repo", root], root, timeout=120)
     issue = out.strip().splitlines()[-1].strip() if rc == 0 and out.strip() else ""
     # 2. who asked
     rc, out, _ = run(["gh", "issue", "view", issue, "--json", "author"], root, timeout=60) if issue else (1, "", "")
@@ -99,15 +99,15 @@ def cmd_row(root, cfg, issue, row, actor, cap, mode):
         rc, _, err = run(["git", "worktree", "add", "-q", "--track", "-b", branch, wt, ref], root, timeout=120)
         note(f"resumed {branch} in {os.path.relpath(wt, root)}" if rc == 0 else f"could not resume {branch}: {err.strip()[:160]}")
     # 5. the probe
-    rc, out, err = run([sys.executable, script("reef-run.py"), "probe", "--permission-mode", mode, "--repo", root], root, timeout=1800)
+    rc, out, err = run([sys.executable, own_script("reef-run.py"), "probe", "--permission-mode", mode, "--repo", root], root, timeout=1800)
     if rc != 0 or "GATE OK" not in out:
         note(f"the guard does not reach a headless session here — nothing runs: {(out or err).strip().splitlines()[-1][:200] if (out or err).strip() else rc}")
         return 1
     # 6. the approval from the issue
-    rc, out, err = run([sys.executable, script("reef-approval.py"), "--from-issue", row], root, timeout=120)
+    rc, out, err = run([sys.executable, own_script("reef-approval.py"), "--from-issue", row], root, timeout=120)
     note((out or err).strip().splitlines()[-1][:200] if (out or err).strip() else f"approval step exit {rc}")
     # 7. the build
-    rc, out, err = run([sys.executable, script("reef-run.py"), "--row", row, "--max-iterations", str(cap), "--permission-mode", mode, "--repo", root],
+    rc, out, err = run([sys.executable, own_script("reef-run.py"), "--row", row, "--max-iterations", str(cap), "--permission-mode", mode, "--repo", root],
                        root, timeout=6 * 3600)
     for line in (out or "").strip().splitlines()[-6:]:
         print(line)
@@ -120,7 +120,7 @@ def cmd_row(root, cfg, issue, row, actor, cap, mode):
         rc3, _, err = run(["git", "push", "-q", "origin", branch], root, timeout=600)
         note(f"pushed {branch}" if rc3 == 0 else f"push {branch} failed: {err.strip()[:160]}")
     # 9. the label
-    rc4, out, err = run([sys.executable, script("reef-queue.py"), "label-state", row, "--repo", root], root, timeout=120)
+    rc4, out, err = run([sys.executable, own_script("reef-queue.py"), "label-state", row, "--repo", root], root, timeout=120)
     note((out or err).strip().splitlines()[-1][:200] if (out or err).strip() else f"label-state exit {rc4}")
     return 0 if built else 1
 

@@ -148,7 +148,7 @@ def status_line(root):
 SHELL_SYNTAX = re.compile(r"[();|&<>$`]")
 
 
-def load_sibling(name, modname):
+def sibling_module(name, modname):
     """A sibling script as a module (reef-run.py: the runner's own view of its lock and session), or None."""
     path = script(name)
     if not path:
@@ -195,7 +195,7 @@ def handoff_awaiting(root):
 
 def runner_view(root):
     """(runner pid or 0, session pid or 0, since) through the runner's own functions — never a second reading of its files."""
-    mod = load_sibling("reef-run.py", "reef_run_for_screen")
+    mod = sibling_module("reef-run.py", "reef_run_for_screen")
     if mod is None:
         return 0, 0, ""
     try:
@@ -266,7 +266,7 @@ def inbox(root, doctor=None, runner=None):
     # the runner's own waits (2026-10-30, the owner's first screen: the loop active with no runner, task 403 left in flight — neither was an item)
     pid_, spid_, _ = runner if runner is not None else runner_view(root)
     if not pid_ and spid_ <= 0:
-        mod = load_sibling("reef-run.py", "reef_run_for_screen")   # the runner's own reading of what is in flight — one source; the item leaves with the marker
+        mod = sibling_module("reef-run.py", "reef_run_for_screen")   # the runner's own reading of what is in flight — one source; the item leaves with the marker
         try:
             flying = list(mod.in_flight(root)) if mod is not None else []
         except Exception:
@@ -421,7 +421,7 @@ def session_doing(spid, tree=None):
 
 def jobs_running(root):
     """[(name, minutes, command)] of the runner's jobs still running — through the runner's own `jobs`/`job_alive` (one record contract)."""
-    mod = load_sibling("reef-run.py", "reef_run_for_screen")
+    mod = sibling_module("reef-run.py", "reef_run_for_screen")
     if mod is None:
         return []
     try:
@@ -462,7 +462,7 @@ def runner_line(root, pid, spid, since, tree=None):
 def queue_rows(root, cfg):
     """(current batch, the queue's rows as dicts, archived ids) through reef-queue.py's own parser — the file, or on an issues queue
     the synced snapshot `.reef/queue.json` (no network on the screen)."""
-    q = load_sibling("reef-queue.py", "reef_queue_for_screen")
+    q = sibling_module("reef-queue.py", "reef_queue_for_screen")
     if q is None:
         return "", [], set()
     if (cfg.get("queue") or {}).get("home") == "issues":
@@ -540,7 +540,7 @@ def contract_view(root):
     """The standing contract as the start panel shows it: its approved digest, the kinds Mahmoud decides, the Never line."""
     rec = read_json(os.path.join(root, ".reef", "approvals", "day.json"))
     digest = str(rec.get("digest16") or str(rec.get("digest") or "")[:16] or "")
-    rr = load_sibling("reef-run.py", "reef_run_for_screen")
+    rr = sibling_module("reef-run.py", "reef_run_for_screen")
     try:
         decides = [plain(k) for k in rr.day_kinds(root)] if rr is not None else []   # the runner's own reading of Decides: (one vocabulary)
     except Exception:
@@ -617,7 +617,7 @@ def work_model(root, runner=None, states=True):
     publishes each row's state (2026-10-31 12:30: the board stayed "reading the rows … 3/8" until the last row landed)."""
     cfg = read_json(os.path.join(root, ".reef", "config.json"))
     batch, rows, archived = queue_rows(root, cfg)
-    q = load_sibling("reef-queue.py", "reef_queue_for_screen")
+    q = sibling_module("reef-queue.py", "reef_queue_for_screen")
     try:
         tstates = q.task_states(root, cfg) if q is not None else {}   # the queue's own rule for done (reef-queue.py load): no third counting here
     except Exception:
@@ -1528,7 +1528,7 @@ def cmd_update(root, args):
         print("reef update: the setup digest changed — proving it (a scratch worktree, the setup, the full gate once)", flush=True)
         if subprocess.run([PY, setup, "prove", "--repo", root], cwd=root).returncode != 0:
             return 1
-    upd = load_sibling("reef-update.py", "reef_update_for_entry")
+    upd = sibling_module("reef-update.py", "reef_update_for_entry")
     market = upd.marketplace_name(plugin) if upd else None
     reloaded = refresh_marketplace(market)
     if reloaded:
@@ -1556,7 +1556,7 @@ def refresh_marketplace(market):
 def plugin_still_enabled():
     """After the marketplace refresh: is the plugin still enabled? (2026-10-28: a marketplace update left it disabled and nothing
     said so — no guard in any session.) The doctor's own check; a FAIL is enabled again here, never handed to the owner."""
-    doc = load_sibling("reef-doctor.py", "reef_doctor_for_entry")
+    doc = sibling_module("reef-doctor.py", "reef_doctor_for_entry")
     if doc is None:
         return True
     level, what, fix = doc.plugin_enabled()

@@ -33,7 +33,7 @@ GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "20"))
 die = partial(_die, prefix="reef-record")
 
 
-def gh(*args, cwd=None):
+def gh_text(*args, cwd=None):
     try:
         r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=GH_TIMEOUT, cwd=cwd)
     except FileNotFoundError:
@@ -257,12 +257,12 @@ def main(argv):
             die(f"{feature}: hunter.guard_pass is `feature` and the guard pass is not recorded on task(s) {', '.join(missing)} — dispatch the "
                 f"loophole-hunter ONCE on the feature's diff (`git diff <base>...HEAD`, pass=guard) and record it with "
                 f"`scripts/reef-adversarial --feature {feature} guard <report>` before a GREEN record")
-    view = json.loads(gh("pr", "view", *([pr] if pr else []), "--json", "headRefOid,baseRefName,url,number", cwd=cwd))
+    view = json.loads(gh_text("pr", "view", *([pr] if pr else []), "--json", "headRefOid,baseRefName,url,number", cwd=cwd))
     sha, base, url = view.get("headRefOid", ""), view.get("baseRefName", ""), view.get("url", "")
     m = re.search(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)", url)
     if not re.fullmatch(r"[0-9a-f]{40}", sha) or not m:
         die(f"gh pr view returned no usable head/url: {view}")
-    tree = gh("api", f"repos/{m.group(1)}/{m.group(2)}/git/commits/{sha}", "--jq", ".tree.sha", cwd=cwd)
+    tree = gh_text("api", f"repos/{m.group(1)}/{m.group(2)}/git/commits/{sha}", "--jq", ".tree.sha", cwd=cwd)
     if not re.fullmatch(r"[0-9a-f]{40}", tree):
         die(f"gh api returned no tree sha for {sha}: {tree!r}")
     rec = {"sha": sha, "tree": tree, "verdict": verdict.upper(), "base": base, "pr": int(m.group(3)),
