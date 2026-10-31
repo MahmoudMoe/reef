@@ -8,6 +8,11 @@
   command stubs from the skills now (one per `SKILL.md`, plus the overview); the doctor's stop line and the project README template
   say `/reef-<verb>`; the budget test pins it: the folder holds the overview alone and no Reef text names a `/reef:<verb>` alias.
   `orphan_scripts` was already 0 — nothing else to remove. tests/size-budget.json: unchanged (nothing grew).
+- **The screen restarts itself after an update** (the owner, 2026-10-31 18:50: `u` inside the screen applied a new Reef, then the
+  screen crashed — `ImportError: cannot import name 'die' from 'reef_common'`). The process kept the old code in memory while the
+  files on disk were new; the next lazy load of a sibling script (reef-run.py, for the autopilot panel) imported the new file against
+  the old module. After a successful `reef update` run inside the screen, the screen ends curses and runs the same command again in a
+  fresh process (`restart_screen`); a failed update leaves its output on the screen and restarts nothing. tests/size-budget.json: unchanged (nothing grew).
 - **Lightening step 3 — one fixture module for the tests** (`docs/design/lightening.md`; consolidation step 4). `write(root, rel,
   text)` was defined in twelve test files and a `git(d, *a)` helper in fifteen, in four shapes; `tests/_fixtures.py` holds each once —
   `write`, `git` (the CompletedProcess, `check` on request), `git_out` (stdout), `git_text` (stripped), `git_repo` (a temporary repository
