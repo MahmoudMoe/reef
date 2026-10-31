@@ -106,6 +106,17 @@ class FastRowClose(unittest.TestCase):
         r = self.close()
         self.assertEqual((r.returncode, "already closed" in r.stdout), (0, True), "a second run changes nothing")
 
+    def test_run_from_the_main_checkout_it_closes_in_the_worktree_holding_the_task(self):
+        # 2026-10-31, the owner's project: four close jobs ran from the main checkout (on develop) with the task's path into
+        # the feature worktree and were refused "not a feature branch" — each a wasted runner session and a re-run
+        r = subprocess.run([sys.executable, CLOSE, ".reef/worktrees/demo/reef/features/demo/tasks/101-slice.md", "--subject",
+                            "feat: the slice", "--journal", self.journal], capture_output=True, text=True, cwd=self.main)
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        self.assertIn("closed in place on feat/demo", r.stdout)
+        self.assertIn("Closes-task: 101-slice", git(self.feat, "log", "-1", "--format=%B", "HEAD").stdout)
+        self.assertEqual(git(self.main, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip(), "main")
+        self.assertEqual(git(self.main, "status", "--porcelain").stdout, "", "the main checkout is untouched")
+
     def test_a_destination_already_taken_changes_nothing(self):
         write(self.feat, "reef/features/demo/tasks/done/101-slice.md", "stale\n")
         before = git(self.feat, "status", "--porcelain").stdout

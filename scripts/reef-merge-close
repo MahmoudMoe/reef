@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # CLASS: code
 """Reef merge-close — a passed task's merge and close-out as ONE command (0.7.2, the owner's go 2026-10-24, item 4).
-Usage: reef-merge-close <task-file> --subject "<commit subject>" --journal <file> [--repo DIR]   (run in the FEATURE worktree)
+Usage: reef-merge-close <task-file> --subject "<commit subject>" --journal <file> [--repo DIR]   (root: --repo, else the worktree holding the task file)
+It runs in the FEATURE worktree: a job started from the main checkout with the task's path into it closes there too.
 In order, each step skipped when already done: (1) in the task's worktree stage every change (printed; a `.env*`, `.pem`
 or `.key` file refused) and commit `<subject>` with the trailer `Closes-task: <id>-<slug>` — the gate tests the index;
 (2) here, `git merge --no-ff --no-commit task/<id>-<slug>`; a lockfile among the merged files runs `worktree.setup` here
@@ -36,6 +37,12 @@ plan_check_module = partial(load_sibling, "reef-plan-check.py", "reef_plan_check
 git = partial(git_checked, prefix="merge-close", where=True, limit=400)
 
 
+def task_home(path):
+    """The worktree holding the task file (2026-10-31: four closes run from the main checkout were refused on develop)."""
+    r = subprocess.run(["git", "-C", os.path.dirname(os.path.abspath(path)), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else "."
+
+
 def main(argv):
     def opt(name):
         return argv[argv.index(name) + 1] if name in argv and argv.index(name) + 1 < len(argv) else None
@@ -43,7 +50,7 @@ def main(argv):
     subject, journal = opt("--subject"), opt("--journal")
     if len(pos) != 1 or not subject or not journal:
         fail(__doc__.splitlines()[1], 1)
-    root = os.path.abspath(opt("--repo") or ".")
+    root = os.path.abspath(opt("--repo") or task_home(pos[0]))
     try:
         with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
             cfg = json.load(f)
@@ -54,7 +61,7 @@ def main(argv):
     prefix = str((cfg.get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
     branch = git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     if not branch.startswith(prefix):
-        fail(f"{branch!r} is not a feature branch ({prefix}…) — run in the feature worktree", 1)
+        fail(f"{root} is on {branch!r}, not a feature branch ({prefix}…) — pass the task's path inside the feature worktree, or --repo", 1)
     task = os.path.abspath(pos[0])
     name = os.path.basename(task)
     if not os.path.isfile(task):
