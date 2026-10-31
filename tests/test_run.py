@@ -10,7 +10,7 @@ import tempfile
 import time
 import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _fixtures import git_repo  # noqa: E402  (the suites' shared fixtures, once)
+from _fixtures import git_repo, git  # noqa: E402  (the suites' shared fixtures, once)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -135,7 +135,7 @@ def project():
 
 def run(d, plan, *args):
     open(os.path.join(d, ".fake-plan"), "w").write("\n".join(plan))
-    env = dict(os.environ, PATH=os.path.join(d, ".bin") + os.pathsep + os.environ["PATH"], REEF_NOTIFY="0")
+    env = dict(os.environ, PATH=os.path.join(d, ".bin") + os.pathsep + os.environ["PATH"], REEF_NOTIFY="0", CLAUDE_PLUGIN_ROOT=ROOT)
     env.pop("REEF_CLAUDE", None)
     return subprocess.run([sys.executable, RUN, *args, "--repo", d], capture_output=True, text=True, env=env)
 
@@ -743,6 +743,64 @@ q = 'Approve plan kit-redesign at 0123456789abcdef?'
 print(json.dumps({'row': row, 'state': 'approval', 'next': '/reef-plan ' + row,
                   'detail': 'the gate: ' + q + ' — in the terminal: python3 scripts/reef-approval.py --owner "' + q + '"'}))
 """
+
+
+class TheRunnerSyncsTheScripts(unittest.TestCase):
+    """2026-10-31, the owner's autopilot: the plugin clone moved on, the project's copies stayed behind, and an approval was
+    refused on a stale reef-approval.py until the owner ran `reef update` by hand. Before each session the runner brings
+    the copies Reef wrote to the plugin's, commits them alone, and restarts itself on its own new code; a copy edited in the
+    project is the owner's question, never synced (the security review)."""
+
+    def test_reefs_own_copies_are_synced_alone_an_edited_one_is_asked_and_the_runner_restarts_on_its_new_self(self):
+        import shutil
+        clone = tempfile.mkdtemp(prefix="reef-plugin-main.")
+        subprocess.run(["git", "init", "-q", "-b", "main", clone], check=True)
+        for sub_ in ("scripts", "templates", ".claude-plugin"):
+            shutil.copytree(os.path.join(ROOT, sub_), os.path.join(clone, sub_), ignore=shutil.ignore_patterns("__pycache__"))
+        git(clone, "add", "-A"); git(clone, "commit", "-qm", "plugin")
+        d = project()
+        git(d, "config", "user.email", "t@t"); git(d, "config", "user.name", "t")   # the runner's own commit reads it (CI has none)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "project")
+        upd = subprocess.run([sys.executable, os.path.join(clone, "scripts", "reef-update.py"), "--repo", d, "--plugin", clone, "--dry-run"],
+                             capture_output=True, text=True)
+        init = subprocess.run([sys.executable, os.path.join(clone, "scripts", "reef-init.py"), "--root", d, "--plugin", clone], capture_output=True, text=True)
+        self.assertEqual(init.returncode, 0, upd.stdout + init.stdout + init.stderr)
+        git(d, "add", "-A"); git(d, "commit", "-qm", "reef installed")   # the project as `reef update` leaves it
+        git(d, "checkout", "-q", "-b", "develop")   # the base reef-init configured: the sync commits there and nowhere else
+        with open(os.path.join(d, "scripts", "reef-queue.py"), "a") as f:
+            f.write("# the owner's own line\n")   # a copy edited in the project
+        git(d, "commit", "-qam", "owner edit")
+        write_ = lambda rel, text: open(os.path.join(d, rel), "w").write(text)
+        write_("notes.txt", "staged, not Reef's\n"); git(d, "add", "notes.txt")
+        for name in ("reef-run.py", "reef-approval.py", "reef-queue.py"):   # then the plugin moves on
+            with open(os.path.join(clone, "scripts", name), "a") as f:
+                f.write("# the plugin's next release\n")
+        git(clone, "commit", "-qam", "next release")
+        self.assertEqual(run(d, ["probe-deny"], "probe").returncode, 0)
+        open(os.path.join(d, ".fake-calls"), "w").write("")
+        open(os.path.join(d, ".fake-plan"), "w").write("wait:owner: approve row 12")
+        os.makedirs(os.path.join(d, ".reef", "run", "jobs"), exist_ok=True)   # a restart state another process wrote: never honoured
+        open(os.path.join(d, ".reef", "run", "jobs", ".restart"), "w").write(json.dumps({"pid": 999999, "started": "x", "i": 7, "owner_waits": 0, "tried": [], "plugin": "/tmp"}))
+        env = dict(os.environ, PATH=os.path.join(d, ".bin") + os.pathsep + os.environ["PATH"], REEF_NOTIFY="0", CLAUDE_PLUGIN_ROOT=clone, REEF_RUN_RESTARTED='{"i": 7}')
+        env.pop("REEF_CLAUDE", None)
+        r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-run.py"), "--repo", d], capture_output=True, text=True, env=env, timeout=600)
+        live = open(os.path.join(d, ".reef", "run", "live.log")).read()
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr + live)
+        for name in ("reef-run.py", "reef-approval.py"):
+            self.assertEqual(open(os.path.join(d, "scripts", name), "rb").read(), open(os.path.join(clone, "scripts", name), "rb").read(), name + "\n" + live[-1500:])
+        self.assertIn("# the owner's own line", open(os.path.join(d, "scripts", "reef-queue.py")).read(), "an edited copy is never overwritten")
+        self.assertNotIn("the plugin's next release", open(os.path.join(d, "scripts", "reef-queue.py")).read())
+        shown = git(d, "show", "--name-only", "--format=%s", "HEAD").stdout.split("\n")
+        self.assertTrue(shown[0].startswith("reef: scripts"), shown)
+        self.assertEqual(sorted(x for x in shown[1:] if x), [".reef/init-manifest.json", "scripts/reef-approval.py", "scripts/reef-run.py"],
+                         "Reef's synced copies and the manifest, nothing else")
+        self.assertIn("A  notes.txt", git(d, "status", "--porcelain").stdout, "what else was staged stays staged, uncommitted")
+        self.assertIn("scripts edited in this project, not synced (reef-queue.py)", live)
+        self.assertIn("reef-queue.py", open(os.path.join(d, ".reef", "questions.md")).read(), "the edited copy is the owner's question")
+        self.assertEqual(live.count("session started"), 2, "the runner said it twice: once before the sync, once as its new self\n" + live)
+        self.assertEqual(calls(d), ["wait:owner: approve row 12"], "one session, after the sync — never one on the stale copies")
+        self.assertFalse(os.path.exists(os.path.join(d, ".reef", "run", "lock")), "the restarted runner released its own lock")
+        self.assertIn('"iteration": 1', open(os.path.join(d, ".reef", "run", "run.log")).read(), "the restart is the same run, not a new count")
 
 
 class TheWaitAsksTheRow(unittest.TestCase):
