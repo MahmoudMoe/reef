@@ -13,6 +13,9 @@ import threading
 import time
 import unittest
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import stamped  # noqa: E402
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
 GRAPH = os.path.join(ROOT, "scripts", "reef-graph.py")
@@ -36,7 +39,9 @@ def config(dirpath, **cfg):
         json.dump(cfg, f)
 
 
-def dispatch(cwd, path):
+def dispatch(cwd, path, layout=True):
+    if layout:
+        stamped(cwd)   # the subject here is the graph, not the stamp
     return subprocess.run([sys.executable, GUARD], input=json.dumps(
         {"tool_name": "Task", "cwd": cwd,
          "tool_input": {"subagent_type": "reef:implementer", "prompt": f"REEF-TASK: {path}\nimplement"}}),
@@ -56,6 +61,21 @@ class GuardGraph(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp(prefix="reef-graph-test.")
         config(self.d, gates={"test": "true"})
+
+    def assert_stopped_by_the_plan_check(self, r, word):
+        """A broken graph gets no stamp in a reef-init'd layout: the stamp gate denies first, and the plan check names the defect."""
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("stamp", r.stderr)
+        out = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-plan-check.py"), self.d], capture_output=True, text=True).stdout
+        self.assertIn(word, out)
+
+    def assert_the_graph_check_denies(self, p, word):
+        """Behind the stamp, the guard's own graph check: reached where no layout is (no config, no plan check's copy)."""
+        for rel in (".reef/config.json", "scripts/reef-plan-check.py"):
+            os.remove(os.path.join(self.d, rel))
+        r = dispatch(self.d, p, layout=False)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn(word, r.stderr)
 
     # --- the defect this change exists to catch
     def test_undone_dependency_denied(self):
@@ -82,22 +102,22 @@ class GuardGraph(unittest.TestCase):
     def test_missing_dependency_denied(self):
         p = task(self.d, 2, deps=[9])
         r = dispatch(self.d, p)
-        self.assertEqual(r.returncode, 2)
-        self.assertIn("missing task id", r.stderr)
+        self.assert_stopped_by_the_plan_check(r, "missing task id")
+        self.assert_the_graph_check_denies(p, "missing task id")
 
     def test_cycle_denied(self):
         task(self.d, 1, deps=[2])
         p = task(self.d, 2, deps=[1])
         r = dispatch(self.d, p)
-        self.assertEqual(r.returncode, 2)
-        self.assertIn("cycle", r.stderr)
+        self.assert_stopped_by_the_plan_check(r, "cycle")
+        self.assert_the_graph_check_denies(p, "cycle")
 
     def test_duplicate_id_denied(self):
         task(self.d, 1, slug="a")
         p = task(self.d, 1, slug="b")
         r = dispatch(self.d, p)
-        self.assertEqual(r.returncode, 2)
-        self.assertIn("duplicate", r.stderr)
+        self.assert_stopped_by_the_plan_check(r, "duplicate")
+        self.assert_the_graph_check_denies(p, "duplicate")
 
     def test_done_task_denied(self):
         p = task(self.d, 1, status="done", done=True)
