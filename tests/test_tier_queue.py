@@ -199,6 +199,29 @@ class JournalNotesInParentheses(unittest.TestCase):
         self.assertIn("AC status 'maybe'", r.stdout)
 
 
+class JournalProseInTheACsCell(unittest.TestCase):
+    def test_a_status_stands_alone_and_a_sentence_about_a_criterion_is_prose(self):
+        # 2026-10-31, the owner's project: five commits only reworded honest journal rows the check had read as statuses —
+        # "AC-4 not re-run by the verifier" ("not"), "AC-4 and AC-8 are [mechanic] rows" ("and"), "AC-1 test reads the
+        # index" ("test"), "proven by the AC-5 mutation instead" ("mutation"). A status is the word right after the
+        # criterion, ending the entry (`;`, `,` or the cell's end), as the journal's own legend writes it.
+        d = qrepo()
+        write(d, ".reef/version", "0.7.0\n")
+        write(d, "tasks/101-a.md", "---\nid: 101\nfeature: 1\nstatus: done\n---\n")
+        head = "# Journal\n\n| Task | Implementer | Verifier | Attempts | Result | ACs | Escaped defects |\n|---|---|---|---|---|---|---|\n"
+        for prose in ("AC-1 achieved; AC-4 not re-run by the verifier, AC-4 and AC-8 are [mechanic] rows",
+                      "AC-1 achieved; the AC-1 test reads the index, not HEAD; the failure is proven by the AC-5 mutation instead"):
+            write(d, "docs/journal.md", head + f"| 101 | opus | opus | 0 | PASS | {prose} | none |\n")
+            r = queue(d, "check")
+            self.assertEqual(r.returncode, 0, prose + "\n" + r.stdout)
+        for wrong, said in (("AC-1 achieved; AC-2 verified", "'verified'"), ("AC-1 passed, AC-2 achieved", "'passed'"),
+                            ("AC-1 achieved; AC-2 not verified", "not-verified")):
+            write(d, "docs/journal.md", head + f"| 101 | opus | opus | 0 | PASS | {wrong} | none |\n")
+            r = queue(d, "check")
+            self.assertEqual(r.returncode, 1, wrong + " is a status outside the closed set\n" + r.stdout)
+            self.assertIn(said, r.stdout)
+
+
 class BatchLineWithFootnote(unittest.TestCase):
     def test_a_footnote_marker_on_the_batch_line_is_not_part_of_the_number(self):
         # first contact (2026-10-17): the owner's decision to skip the release was footnoted on the line — "Current batch: 2²⁶" read as batch "2²⁶"

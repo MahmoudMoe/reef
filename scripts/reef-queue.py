@@ -902,9 +902,15 @@ def cmd_check(root):
                 continue
             # a note in parentheses is not a status (2026-10-24, the trial, twice: "(AC3, AC4 rendered on the server …)"
             # read "rendered" as one, and the agent rewrote an honest caveat as "achieved")
-            for m in re.finditer(r"\bAC-?\d+\s+([a-z-]+)", re.sub(r"\([^()]*\)", " ", cells[ac_col])):
+            # a status is the word that ends a criterion's entry (`;`, `,` or the cell's end), as the legend writes it; "AC-4
+            # not re-run by the verifier" is a sentence (2026-10-31, the owner's project: five commits only reworded such rows)
+            cell = re.sub(r"\([^()]*\)", " ", cells[ac_col])
+            for m in re.finditer(r"\bAC-?\d+\s+((?:not|partially)\s+verified|[a-z-]+)\s*(?=[;,]|$)", cell):
                 st = m.group(1)
-                if st not in ("not-verified", "partially-verified", "achieved", "contradicted"):
+                if " " in st:
+                    msg = f"journal: AC status {st!r} is written {st.split()[0]}-verified"
+                    (bad.append if is06 else lambda x: print(f"warning: {x}"))(msg)
+                elif st not in ("not-verified", "partially-verified", "achieved", "contradicted"):
                     msg = f"journal: AC status {st!r} is not one of not-verified | partially-verified | achieved | contradicted"
                     (bad.append if is06 else lambda x: print(f"warning: {x}"))(msg)
                 elif st != "achieved" and not ("Missing:" in line and "Next:" in line):
