@@ -677,6 +677,30 @@ def ordered(wm):
     return sorted(rows, key=lambda r: MARK_ORDER.get(r["mark"], 9)) if wm.get("order") == "start" else rows
 
 
+def mine(r, items):
+    """The inbox item that is this row's — by the row id the item carries, or the approval question the row's detail holds — as its
+    index, else None (the CLI review: the box said `next: /reef-plan 9`, the orchestrator's step; the owner's is the inbox item)."""
+    for i, it in enumerate(items or []):
+        if str(it.get("row") or "") == str(r["id"]) or (it["kind"] == "approve" and it["argv"][-1] in (r.get("detail") or "")):
+            return i
+    return None
+
+
+def row_lines(r, items):
+    """The row's facts as the box and the panel show them: the item, the state and detail, whose the next step is, what it waits on, the counts."""
+    i = mine(r, items)
+    step = f"yours: {items[i]['cmd']}" if i is not None else (f"the runner's next: {r['next']}" if r["next"] else "")
+    return [x for x in (r["item"], f"{r['state']}" + (f" · {r['detail']}" if r["detail"] else ""), step,
+                        f"depends: {', '.join(r['depends'])}" if r["depends"] else "",
+                        f"tasks {r['tasks'][0]}/{r['tasks'][1]} · lane {r['lane']}" + (f" · {r['forge']}" if r["forge"] else "")) if x]
+
+
+def row_panel(r, items):
+    """Enter on a row that is not yours: the row from what the board holds — no subprocess (the CLI review: `reef-row.py state` ran
+    on the UI thread to show what the box already showed, and the next key was eaten)."""
+    return {"shown": f"row {r['id']}", "rc": 0, "lines": row_lines(r, items), "after": "any key closes"}
+
+
 def row_what(r):
     """One phrase per row: why it waits, that it can start, that it is yours, what it is doing."""
     if r["mark"] == "✓":
@@ -785,13 +809,10 @@ def render_work(wm, items, width=120, height=None, selected=None, panel=None, no
                       MARK_STYLE.get(r["mark"], "ready")))
     box = []
     if sel is not None:
-        r = rows[sel]
-        inner = [r["item"], f"{r['state']}" + (f" · {r['detail']}" if r["detail"] else ""), f"next: {r['next']}" if r["next"] else "",
-                 f"depends: {', '.join(r['depends'])}" if r["depends"] else "", f"tasks {r['tasks'][0]}/{r['tasks'][1]} · lane {r['lane']}" + (f" · {r['forge']}" if r["forge"] else "")]
-        for text in (x for x in inner if x):
+        for text in row_lines(rows[sel], items):
             box += wrap(text, w - 4)[:2]
     panel_lines = list((panel or {}).get("lines") or ["(no output)"])[-12:] if panel else []
-    panel_head = (f"OUTPUT  $ {panel.get('shown', '')} · " + ("running …" if panel.get("rc") is None else f"exit {panel['rc']} · any key closes"))[:w] if panel else ""
+    panel_head = (f"OUTPUT  $ {panel.get('shown', '')} · " + ("running …" if panel.get("rc") is None else f"exit {panel['rc']} · {panel.get('after') or 'any key closes'}"))[:w] if panel else ""
     keys = wrap(KEYS, w)
     log_lines = list(log or [])[-BOARD_LOG_LINES:]
 
@@ -1005,7 +1026,7 @@ def render(model, width=120, height=None, selected=None, panel=None):
     warn_rows = warns[:3]
     keys = wrap(KEYS, w)   # measured, never assumed: two rows under 96 columns, three under 50
     panel_lines = list((panel or {}).get("lines") or ["(no output)"])[-12:] if panel else []
-    panel_head = (f"OUTPUT  $ {panel.get('shown', '')} · " + ("running … (Ctrl-C leaves the screen)" if panel.get("rc") is None else f"exit {panel['rc']} · any key closes"))[:w] if panel else ""
+    panel_head = (f"OUTPUT  $ {panel.get('shown', '')} · " + ("running … (Ctrl-C leaves the screen)" if panel.get("rc") is None else f"exit {panel['rc']} · {panel.get('after') or 'any key closes'}"))[:w] if panel else ""
 
     def frame(box, steps, warn_rows, lo, hi, panel_lines=None):
         panel_lines = panel_lines if panel_lines is not None else []
@@ -1234,17 +1255,34 @@ def restart_screen(curses):
     os.execv(sys.executable, [sys.executable, os.path.abspath(__file__), *sys.argv[1:]])
 
 
-def run_captured(root, argv, timeout=900):
-    """A command run for the screen: its last lines and exit code, never a shell, never the terminal."""
+def run_captured(root, argv, timeout=900, sink=None):
+    """A command run for the screen: its lines and exit code, never a shell, never the terminal. stderr is merged in order; each line
+    lands in `sink` (the panel's list) as it comes, so the screen shows a long command's progress (the CLI review, 2026-10-31: the
+    update ran blind for minutes). `timeout` None: no cap — an update killed mid-push is worse than a slow one."""
+    lines = sink if sink is not None else []
     try:
-        r = subprocess.run(argv, cwd=root, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
-                           env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1", "GIT_PAGER": "cat", "GH_PAGER": "cat", "PAGER": "cat"})   # no prompt, no pager
-        lines = [l for l in (r.stdout + ("\n" + r.stderr if r.stderr.strip() else "")).splitlines() if l.strip()]
-        return r.returncode, lines
-    except subprocess.TimeoutExpired:
-        return 124, [f"timed out after {timeout} s"]
+        p = subprocess.Popen(argv, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, stdin=subprocess.DEVNULL,
+                             env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1", "GIT_PAGER": "cat", "GH_PAGER": "cat", "PAGER": "cat"})   # no prompt, no pager
     except OSError as e:
-        return 1, [str(e)]
+        lines.append(str(e))
+        return 1, list(lines)
+    timed_out = threading.Event()
+
+    def kill():
+        timed_out.set(); p.kill()
+    killer = threading.Timer(timeout, kill) if timeout else None
+    if killer:
+        killer.daemon = True; killer.start()
+    for line in p.stdout:
+        if line.strip():
+            lines.append(line.rstrip("\n"))
+    rc = p.wait()
+    if killer:
+        killer.cancel()
+        if timed_out.is_set():   # the event, not the timer's liveness: a child that ended at the deadline is not a timeout
+            lines.append(f"timed out after {timeout} s")
+            return 124, list(lines)
+    return rc, list(lines)
 
 
 def screen_loop(stdscr, root, curses):
@@ -1274,6 +1312,7 @@ def screen_loop(stdscr, root, curses):
 
     QUIT.clear()
     jobs, results, failed = {}, {}, {}   # readings run off the UI thread (2026-10-31: the first board froze the screen for minutes on an issues queue)
+    command, frozen, doctor_due = None, False, False   # the command in its thread (the panel it fills); frozen: a new Reef is on disk — no reading, the next key restarts; doctor_due: a re-read without a fetch
 
     def spawn(name, fn):
         t = jobs.get(name)
@@ -1325,10 +1364,21 @@ def screen_loop(stdscr, root, curses):
 
     while True:
         h, w = stdscr.getmaxyx()
+        if command is not None and panel is not None and panel.get("rc") is not None:   # the command ended: every reading again, in the background
+            is_update, command = command["update"], None
+            curses.flushinp()   # a key typed while it ran must not run the next item
+            if is_update and panel["rc"] == 0:
+                frozen = True   # the files on disk are new and this process is old: no sibling is loaded again; the panel keeps the update's last word
+                view = "work"   # a page that draws from a sibling (the autopilot panel) would load the new file against the old module
+                panel["after"] = "any key restarts the screen (a new Reef is on disk)"
+            else:
+                doctor_due, model_at, wm_at = True, 0.0, 0.0   # the doctor again, its lines kept until the new reading lands (the CLI review: they vanished for seconds after every command)
         # readings: the inbox model every INBOX_SECONDS, the board every BOARD_SECONDS (the queue first, at once), the doctor every UPDATE_SECONDS and on g — each in its thread
-        if model is None or time.time() - model_at > INBOX_SECONDS:
+        if frozen:
+            pass
+        elif model is None or time.time() - model_at > INBOX_SECONDS:
             spawn("model", lambda: screen_model(root, doctor))
-        if view in ("work", "plan", "autopilot") and (wm is None or time.time() - wm_at > BOARD_SECONDS):   # spawn() skips while the board is still being read
+        if not frozen and view in ("work", "plan", "autopilot") and (wm is None or time.time() - wm_at > BOARD_SECONDS):   # spawn() skips while the board is still being read; frozen: the board loads siblings too
             if wm is None:
                 spawn("queue", lambda: work_model(root, states=False))   # the rows at once, every open one `…`
             spawn("board", lambda: work_model(root))
@@ -1338,9 +1388,11 @@ def screen_loop(stdscr, root, curses):
             chosen = ordered(wm)[wsel]["id"] if wm.get("rows") and wsel < len(wm["rows"]) else None
             if fill_in(wm, landed):   # each row as the row machine answers; the selection follows its row
                 wsel = reanchor_rows(wm, wsel, chosen)
-        if doctor is None or time.time() - doctor_at > UPDATE_SECONDS:   # at open, after a command, on g — and when the reading is UPDATE_SECONDS old
+        if not frozen and (doctor is None or doctor_due or time.time() - doctor_at > UPDATE_SECONDS):   # at open, after a command, on g — and when the reading is UPDATE_SECONDS old
             spawn("doctor", lambda: doctor_lines(root, fetch=time.time() - doctor_at > UPDATE_SECONDS))   # the forge is asked minutes apart, not after every key
-        take()
+            doctor_due = False
+        if not frozen:
+            take()
         cur = model or empty
         note = ("reading failed · g retries · " + " · ".join(failed.values()))[:200] if failed else ""
         if note and model is not None:   # on the banner's fifth line, whatever the view (the placeholder frame has its own line)
@@ -1371,13 +1423,18 @@ def screen_loop(stdscr, root, curses):
             lines, sel_line = render(cur, width=w - 1, height=h, selected=sel, panel=panel)
             styles = {i: "banner" for i in range(len(BLOCK))}
         draw(lines, sel_line, styles)
-        loading = any(t.is_alive() for t in jobs.values())
-        stdscr.timeout(400 if loading or results else 3000)   # while a reading runs, redraw often: the count moves, a result lands
+        loading = any(t.is_alive() for t in jobs.values()) or command is not None
+        stdscr.timeout(400 if loading or results else 3000)   # while a reading or a command runs, redraw often: the count moves, a line lands
         k = stdscr.getch()
         if k == -1:   # the tick: the next pass spawns the readings that are due
             continue
         if k == KEY_RESIZE:   # the owner widened the window: the next pass measures again
             curses.update_lines_cols()
+            continue
+        if frozen:   # after a successful update: the same command, a fresh process (2026-10-31 18:50: the old process crashed loading the new files)
+            restart_screen(curses)
+            return 0
+        if command is not None:   # a command runs: keys wait (Ctrl-C leaves the screen; the command goes on)
             continue
         if panel is not None and panel.get("rc") is not None:   # any key closes the output panel — and does nothing else (the review:
             panel = None                                          # the item just acted on has left, so Enter would have run the NEXT one)
@@ -1431,7 +1488,7 @@ def screen_loop(stdscr, root, curses):
                 sel = min(max(n - 1, 0), sel + 1)
             continue
         if act[0] == "refresh":   # g: every reading again (a reading that failed too), the last good ones stay on the screen until the new ones land
-            failed.clear(); doctor, model_at, wm_at = None, 0.0, 0.0; continue
+            failed.clear(); doctor_due, model_at, wm_at = True, 0.0, 0.0; continue
         if act[0] == "select":
             if view in ("work", "plan"):
                 wsel = act[1]
@@ -1441,11 +1498,16 @@ def screen_loop(stdscr, root, curses):
         argv, shown = None, None
         if act[0] == "start":   # the autopilot panel's Enter: the verb, then back to the work board
             argv, shown, view = [PY, os.path.abspath(__file__), "autopilot", "--repo", root], "reef autopilot", "work"
-        elif act[0] == "open":   # a row: its state and its one next step, from the row machine, in the panel
-            rid = ordered(wm)[act[1]]["id"] if wm and act[1] < nrows else None
-            if rid is None:
+        elif act[0] == "open":   # a row: yours → INBOX on its item; else its facts from the board, in the panel — no subprocess
+            r = ordered(wm)[act[1]] if wm and act[1] < nrows else None
+            if r is None:
                 continue
-            argv, shown = [PY, script("reef-row.py") or "scripts/reef-row.py", "state", rid, "--repo", root], f"python3 scripts/reef-row.py state {rid}"
+            i = mine(r, cur["items"])
+            if i is not None:
+                view, sel = "inbox", i
+            else:
+                panel = row_panel(r, cur["items"])
+            continue
         elif act[0] == "verb":
             argv, shown = [PY, os.path.abspath(__file__), act[1], "--repo", root], f"reef {act[1]}"
         elif act[0] == "run":
@@ -1461,23 +1523,17 @@ def screen_loop(stdscr, root, curses):
         if argv and [os.path.basename(str(argv[0]))] + list(argv[1:3]) == ["gh", "auth", "login"]:   # interactive by nature: the screen cannot carry it
             panel = {"shown": shown, "rc": 1, "lines": ["this command needs your terminal — run it there, then g refreshes"]}
             continue
-        if argv:
-            panel = {"shown": shown, "rc": None, "lines": ["running …"]}
-            if view == "work":
-                lines, styles, sel_line = render_work(wm, cur["items"], width=w - 1, height=h, selected=wsel, panel=panel)
-                draw(lines, sel_line, styles)
-            else:
-                lines, sel_line = render(cur, width=w - 1, height=h, selected=sel, panel=panel)
-                draw(lines, sel_line)
-            rc, out = run_captured(root, argv)
-            panel = {"shown": shown, "rc": rc, "lines": out}
-            curses.flushinp()   # a key typed while it ran must not run the next item
-            doctor, model_at = None, 0.0   # a command may have changed everything: every reading again, in the background
-            if act[0] != "open":
-                wm_at = 0.0   # opening a row changed nothing on the board
-            if len(argv) > 2 and argv[2] == "update" and rc == 0:
-                restart_screen(curses)   # the files on disk are new and this process is old: the same command, fresh (2026-10-31)
-                return 0
+        if argv:   # the command in its thread: its lines stream into the panel, the screen keeps drawing; its end is handled at the top of a pass
+            panel = {"shown": shown, "rc": None, "lines": []}
+            is_update = len(argv) > 2 and argv[2] == "update"
+            command = {"argv": argv, "update": is_update}
+
+            def run_command(panel=panel, argv=argv, timeout=None if is_update else 900):
+                rc, out = run_captured(root, argv, timeout, sink=panel["lines"])
+                panel["lines"][:] = out
+                panel["rc"] = rc   # last: the loop reads rc as the end
+
+            threading.Thread(target=run_command, daemon=True, name="reef-command").start()
 
 
 def cmd_approve(root, args):

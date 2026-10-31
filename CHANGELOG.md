@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The screen stays smooth** (the CLI review, 2026-10-31, its top findings): a command runs in its own thread and its lines stream into the panel as they come (`u` used to freeze the screen for minutes and was killed mid-step past 900 s); after a successful update the panel keeps the update's last word, no reading is spawned, and the next key restarts the screen; Enter on a row that is yours opens INBOX on its item, on any other row shows the row from the board — no subprocess; the box says `yours: <the command>` or `the runner's next: …`; after a command the doctor's lines stay until the new reading lands. tests/size-budget.json: unchanged (nothing grew).
 - **The screen after the owner's walk** (2026-10-31 19:00): an approval the owner already gave (its record in `.reef/approvals/` at the question's digest) no longer sits in the inbox until the runner wakes; Tab, i, p and w work from every page (LOG and help included — Tab from LOG starts the cycle again at WORK); the log page answers t (oldest), b (newest, following), [ and ] (a page) beside Home/End/PgUp/PgDn a Mac keyboard lacks; every sub-page's first line says `q back`, and the help says where q quits and where it goes back. tests/size-budget.json: unchanged (nothing grew).
 - **Lightening step 4 — orphans and aliases** (`docs/design/lightening.md`; the owner, 2026-10-31: "/reef-plan and /reef:plan — that
   is duplication too", his call: delete). `commands/` held fifteen three-line files that each invoked a skill, so every verb showed
