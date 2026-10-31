@@ -107,7 +107,7 @@ STATUS_LINE = re.compile(r"in flight:.*?/\s*waiting on:.*?/\s*next:\s*\S", re.S)
 # night (0.7, super Reef): the contract and the `active` marker; evidence (v3): the gate's one result per tree. Case-insensitive
 # (a macOS disk opens .reef/Evidence/ as the same folder) and after `=` (dd's of=); a whole folder copied, synced, unpacked or
 # removed is caught in check_record_dirs (the security review of v3 phase 2, 2026-10-25)
-RECORD_DIRS = re.compile(r"(^|[/=])\.reef/(approvals|review|night|evidence)(/|$)", re.I)
+RECORD_DIRS = re.compile(r"(^|[/=])\.reef/(approvals|review|night|evidence|run/jobs)(/|$)", re.I)   # run/jobs: the runner's job records (step 3) — a planted record would be a command the guard never saw
 RECORD_NAMES = {"approvals", "review", "night", "evidence"}
 HANDOFF_DENIAL = ("HANDOFF.md is rendered whole from measured state by scripts/reef-handoff --write (python3 scripts/reef-loop.py wait "
                   "\"<reason>\" runs it) — never written by hand: a handoff from memory is a map that lies (v3 phase 5)")
@@ -338,8 +338,9 @@ def check_record_dirs(seg):
     hits = lambda t: RECORD_DIRS.search(t) or RECORD_DIRS.search(resolved(t))
     targets = write_targets(seg)
     if any(hits(t) for t in targets):
-        deny("writing under .reef/approvals/, .reef/review/, .reef/night/ or .reef/evidence/ by hand — these records are written by the "
-             "AskUserQuestion hook, scripts/reef-record, scripts/reef-run.py and scripts/reef-gate.sh, bound to a digest, a forge SHA or a tree snapshot")
+        deny("writing under .reef/approvals/, .reef/review/, .reef/night/, .reef/evidence/ or .reef/run/jobs/ by hand — these records are written by the "
+             "AskUserQuestion hook, scripts/reef-record, scripts/reef-run.py and scripts/reef-gate.sh, bound to a digest, a forge SHA or a tree snapshot "
+             "(a job: `python3 scripts/reef-run.py job <name> -- <command>`)")
     # the folder as a whole: copied, synced or unpacked INTO .reef/, or removed with .reef/ (the security review, 2026-10-25)
     is_reef = lambda t: os.path.basename(os.path.normpath(resolved(t))).lower() == ".reef"
     head = next((os.path.basename(x) for x in seg if os.path.basename(x) in WRITE_HEADS or os.path.basename(x) in ("find", "git")), None)
@@ -527,6 +528,7 @@ def check_segment(seg, depth=0, next_op=";", pipefail=False):
         if ENV_ASSIGN.match(t) and HOOKSPATH.search(t):
             deny(f"environment assignment smuggles hooksPath: {t!r}")
     check_record_dirs(seg)
+    check_job_runner(seg, depth, next_op, pipefail)
     check_evidence_authoring(seg, CTX)
     check_guard_files(seg, CTX)
     check_plan_files(seg, CTX)
@@ -663,6 +665,20 @@ def check_day_footnote(seg):
         deny("a `Mahmoud (proxy, day …)` footnote is written by `python3 scripts/reef-approval.py --proxy --day --kind <kind> --row <id> "
              "--report .reef/ci-local/report-mahmoud-day-<row>.md` from his report, under the approved reef/proxy.md — never typed, "
              "into no footnote, note, row or issue")
+
+
+def check_job_runner(seg, depth=0, next_op=";", pipefail=False):
+    """Step 3 (2026-10-31), on tokens like every other verb check (the reviews: a raw regex let `--repo=.`, quotes and other flags through):
+    `reef-run.py _job-run` is the runner's own wrapper — a session never types it; and a job's command, the tokens after `--` in a
+    `reef-run.py … job …` segment, is judged exactly as if the session typed it — a job is not a way around the gate."""
+    if not any(os.path.basename(t) == "reef-run.py" for t in seg):
+        return
+    if any(t == "_job-run" for t in seg):
+        deny("the job runner is the runner's own process — start a job with `python3 scripts/reef-run.py job <name> -- <command>`")
+    if "job" in seg and "--" in seg and seg.index("job") < seg.index("--"):
+        inner = seg[seg.index("--") + 1:]
+        if inner:   # the same segment judge, with the segment's own pipe context: a gate piped inside a job is a gate piped
+            check_segment(inner, depth + 1, next_op=next_op, pipefail=pipefail)
 
 
 def check_runner_cli(seg):

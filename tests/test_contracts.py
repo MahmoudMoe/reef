@@ -1039,3 +1039,16 @@ class MahmoudIsACTO(unittest.TestCase):
         run = read("scripts", "reef-run.py")
         self.assertIn("--proxy --challenge", run, "the headless prompts know the record"); self.assertIn("RESEARCH", run); self.assertIn("second CHALLENGE", run)
         self.assertIn("Web research", run, "the day seed names it, so the owner's digest binds it")
+
+
+class LongWorkIsTheRunners(unittest.TestCase):
+    """Step 3 of docs/design/owner-hands-off.md: the headless prompt and the three skills name the runner job for long commands."""
+
+    def test_the_prompt_and_the_skills_name_the_job(self):
+        self.assertIn("reef-run.py job <name> -- <command", read("scripts", "reef-run.py"))
+        self.assertIn("never a background shell here", read("scripts", "reef-run.py"))
+        for parts in (("skills", "reef-loop", "SKILL.md"), ("skills", "reef-task", "SKILL.md"), ("skills", "reef-review", "SKILL.md")):
+            self.assertIn("reef-run.py job", read(*parts), parts)
+        self.assertIn("Never a background shell in a headless session", read("skills", "reef-loop", "SKILL.md"))
+        self.assertIn("shipped 2026-10-31", read("docs", "design", "owner-hands-off.md"))
+
