@@ -544,7 +544,7 @@ class ThePathSizesTheBuild(unittest.TestCase):
         self.assertIn("## The path", text)
         self.assertIn("verifier: none", text)
         self.assertRegex(text, r"(?i)one task at a time")
-        self.assertIn("sh scripts/reef-gate.sh full", text)
+        self.assertIn("once per row, in `/reef-review`", text)   # the fast path's full run moved to the review (#270)
         self.assertLessEqual(len(text.splitlines()), 60)
 
 
@@ -569,7 +569,7 @@ class EvidenceIsReadNotMade(unittest.TestCase):
             text = read(*path)
             self.assertIn("scripts/reef-evidence.py", text, "/".join(path))
             self.assertNotIn("REEF_GATE_NO_CACHE", text, "/".join(path) + ": the forced fresh run is retired")
-            self.assertRegex(text, r"(?i)none.{0,40}run `sh scripts/reef-gate.sh full` once", "/".join(path))
+            self.assertRegex(text, r"(?i)none.{0,40}run `sh scripts/reef-gate.sh fast` once", "/".join(path))   # the full suite is the row's, once (#270)
             self.assertLessEqual(len(text.splitlines()), 60, "/".join(path))
 
 
@@ -1103,6 +1103,25 @@ class AutopilotIsDelegationInEveryVoice(unittest.TestCase):
         self.assertIn("reef autopilot", read("skills", "reef-loop", "SKILL.md"))
         self.assertIn("`reef autopilot` runs", read("README.md"))
         self.assertIn("--autopilot", read("README.md"))
+
+
+class OneFullRunPerRow(unittest.TestCase):
+    """2026-11-01, the owner's project (MahmoudMoe/reef#270): a row ran the full suite about nine times — the implementer, the
+    verifier, the fast path's last task, converge, the merged head — each on a tree the last stage had changed, so the cache
+    by tree never hit (31 full runs, 30 trees). Tasks run the fast gate; the full suite runs once per row, in /reef-review, on
+    the head that merges (the base's tip brought in first), and the local feature gate reads that same tree's result."""
+
+    def test_tasks_run_the_fast_gate_and_the_review_runs_the_full_suite_once_on_the_head_that_merges(self):
+        impl, verifier = read("agents", "implementer.md"), read("agents", "verifier.md")
+        task, verify, review = read("skills", "reef-task", "SKILL.md"), read("skills", "reef-verify", "SKILL.md"), read("skills", "reef-review", "SKILL.md")
+        for name, text in (("implementer", impl), ("verifier", verifier), ("reef-task", task), ("reef-verify", verify)):
+            self.assertNotIn("reef-gate.sh full", text, f"{name}: a task stage never runs the full suite")
+            self.assertIn("reef-gate.sh fast", text, name)
+            self.assertIn("once per row", text, f"{name} says where the full suite runs")
+        self.assertIn("GATE: fast exit", verifier)
+        two = review[review.index("## 2."):]
+        self.assertLess(two.index("scripts/reef-merge-base"), two.index("scripts/reef-converge"), "the base's tip first: the one full run is on the head that merges")
+        self.assertIn("the tree converge ran", review, "the local feature gate is that run's cached answer, not a second run")
 
 
 class MahmoudIsACTO(unittest.TestCase):
