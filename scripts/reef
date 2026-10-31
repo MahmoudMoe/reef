@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import queue
@@ -53,7 +54,7 @@ VERBS = [
      lambda root, a: run_script("reef-run.py", ["stop", "--repo", root], root)),
     ("setup",   "the worktree setup, proven once per change: `setup` says the state, `setup prove` proves it",
      lambda root, a: run_script("reef-setup.py", [*(a or ["state"]), "--repo", root], root)),
-    ("update",  "pull the plugin, update the project's scripts (one commit), re-prove the setup, say the reload step",
+    ("update",  "a new Reef: pull the plugin, the project's copies (one commit, pushed), the setup re-proved, the marketplace refreshed",
      lambda root, a: cmd_update(root, a)),
     ("factory", "the row on GitHub Actions: `factory` shows the last runs, `factory <row>` labels its issue reef-ready",
      lambda root, a: cmd_factory(root, a)),
@@ -204,14 +205,26 @@ def runner_view(root):
         return 0, 0, ""
 
 
-def doctor_lines(root):
+UPDATE_SECONDS = 900   # the screen asks the forge whether Reef moved — the doctor with --fetch, minutes apart, in its thread (hands-off step 6)
+UPDATE_SHOWN = "python3 scripts/reef update"   # the doctor's new-Reef fixes print this one line: the inbox keeps one item per command
+
+
+def doctor_lines(root, fetch=False):
+    """The doctor's lines; `fetch` asks the forge whether the plugin clone is behind (the live screen does, once its last reading is
+    UPDATE_SECONDS old; `reef screen --once --fetch` too). None when the doctor did not answer (the screen shows that as a failed
+    reading, never as "nothing wrong"). 2026-10-31 (step 6): after a merge in Reef a person told the owner to run `reef update`."""
     path = script("reef-doctor.py")
     if not path:
         return []
     try:
-        return subprocess.run([PY, path, "--repo", root], capture_output=True, text=True, timeout=120).stdout.splitlines()
+        return subprocess.run([PY, path, "--repo", root] + (["--fetch"] if fetch else []), capture_output=True, text=True, timeout=180).stdout.splitlines()
     except (OSError, subprocess.TimeoutExpired):
-        return []
+        return None
+
+
+def new_reef_waits(items):
+    """The one predicate behind the headers' `a new Reef waits (u)`: the inbox holds the update item."""
+    return any(it.get("kind") == "update" for it in (items or []))
 
 
 def item(kind, text, argv, shown=None, row=None, recommended="", issue=""):
@@ -279,7 +292,7 @@ def inbox(root, doctor=None, runner=None):
             continue
         argv = shlex.split(fix)
         argv[0] = PY if argv[0] == "python3" else argv[0]
-        add(item("fix", what, argv, shown=fix))
+        add(item("update" if fix == UPDATE_SHOWN else "fix", what, argv, shown=fix))   # a new Reef is one item, whatever the doctor's three lines say
     return items
 
 
@@ -340,7 +353,8 @@ def screen_model(root, doctor=None, runner=None):
         flying = sorted(os.listdir(os.path.join(root, ".reef", "inflight")))
     except OSError:
         flying = []
-    facts = [f"{os.path.basename(root)} · Reef {ver} · {time.strftime('%H:%M:%S')}", f"loop    {loop}", f"runner  {runner_s}",
+    items = inbox(root, doctor, runner)
+    facts = [f"{os.path.basename(root)} · Reef {ver}{' · a new Reef waits (u)' if new_reef_waits(items) else ''} · {time.strftime('%H:%M:%S')}", f"loop    {loop}", f"runner  {runner_s}",
              f"base    {base}" + (f" · {len(flying)} in flight ({', '.join(flying)[:40]})" if flying else ""), ""]
     try:
         with open(os.path.join(root, ".reef", "run", "live.log"), encoding="utf-8") as f:
@@ -351,7 +365,7 @@ def screen_model(root, doctor=None, runner=None):
     log = list(steps)   # the whole live log, for the log view (w)
     if not pid and spid <= 0 and steps:   # no run of ours is alive: a tail of the log and that it ended, not the screen (2026-10-30)
         steps = steps[-5:] + ["(the run ended · w for the whole log)"]
-    return {"facts": facts, "items": inbox(root, doctor, runner), "steps": steps, "log": log, "warns": warns, "doctor": doctor is not None}
+    return {"facts": facts, "items": items, "steps": steps, "log": log, "warns": warns, "doctor": doctor is not None}
 
 
 _TREE = {"at": 0.0, "tree": []}
@@ -634,8 +648,10 @@ def render_work(wm, items, width=120, height=None, selected=None, panel=None, no
     rows = ordered(wm) if wm else []
     n = len(rows)
     sel = None if selected is None or not n else min(max(int(selected), 0), n - 1)
-    facts = (wm or {}).get("facts") or ["", f"reading the rows … {min(BOARD['done'], BOARD['total'])}/{BOARD['total']} (the row machine, four at a time)" if BOARD["total"] else "reading the queue …",
-                                        note or "the keys work meanwhile · q quits", "", ""]   # `note`: a reading that failed, while no board is up
+    facts = list((wm or {}).get("facts") or ["", f"reading the rows … {min(BOARD['done'], BOARD['total'])}/{BOARD['total']} (the row machine, four at a time)" if BOARD["total"] else "reading the queue …",
+                                             note or "the keys work meanwhile · q quits", "", ""])   # `note`: a reading that failed, while no board is up
+    if new_reef_waits(items) and facts[0] and "a new Reef" not in facts[0]:
+        facts[0] += " · a new Reef waits (u)"   # the board is the first view: said here as on the inbox (hands-off step 6)
     head = [(row + "   " + fact)[:w] for row, fact in zip(BLOCK, facts)] + ["─" * w, tabs_line("work", len(items or []), w, (time.time() - wm["at"]) if wm and wm.get("at") else None)]
     styles = {i: "banner" for i in range(len(BLOCK))}
     styles[len(head) - 1] = "tabs"
@@ -918,7 +934,7 @@ def screen_text(root, doctor=None, width=120):
 
 def cmd_screen(root, args):
     if "--once" in args or not (sys.stdout.isatty() and sys.stdin.isatty()):
-        print(screen_text(root, doctor_lines(root)), end="")
+        print(screen_text(root, doctor_lines(root, fetch="--fetch" in args)), end="")   # --fetch asks the forge, as the doctor's flag does
         return 0
     try:
         import curses
@@ -1084,6 +1100,7 @@ def screen_loop(stdscr, root, curses):
     stdscr.timeout(3000)
     utf = bool(sys.stdout.encoding and "utf" in sys.stdout.encoding.lower())
     doctor, sel, model, view, offset, panel = None, 0, None, "work", 0, None   # the first frame is drawn before any reading returns
+    doctor_at = 0.0   # the doctor fetches the plugin clone: read again every UPDATE_SECONDS, so a merge in Reef becomes an item by itself
     wm, wm_at, wsel, back, order = None, 0.0, 0, "work", "queue"   # the work board, refreshed every 30 s (a row's state is a subprocess each)
     attrs = style_attrs(curses, colors=os.environ.get("REEF_COLOR", "1") != "0")
 
@@ -1123,7 +1140,7 @@ def screen_loop(stdscr, root, curses):
     def take():
         """The readings that landed, swapped in: the inbox (the selection follows its item), the board (the order kept), the doctor.
         A reading that raised is shown on the screen (never a silent "reading …" forever — the review) and not retried until g."""
-        nonlocal model, model_at, wm, wm_at, doctor, sel
+        nonlocal model, model_at, wm, wm_at, doctor, doctor_at, sel
         for name in ("model", "board", "doctor"):
             if name in results and isinstance(results[name], Exception):
                 e = results.pop(name)
@@ -1137,8 +1154,12 @@ def screen_loop(stdscr, root, curses):
             wm, wm_at = results.pop("board"), time.time()
             wm["order"] = order
         if "doctor" in results:
-            doctor = results.pop("doctor")
-            model_at = 0.0   # the inbox gains the doctor's fixes on the next reading
+            got = results.pop("doctor")
+            if got is None:   # the doctor did not answer (180 s): a failed reading, shown and retried on g — not "nothing wrong" for fifteen minutes
+                failed["doctor"] = "doctor: no answer"
+            else:
+                doctor, doctor_at = got, time.time()
+                model_at = 0.0   # the inbox gains the doctor's fixes on the next reading
         if failed:
             empty["facts"][2] = ("reading failed · g retries · " + " · ".join(failed.values()))[:200]
 
@@ -1149,10 +1170,15 @@ def screen_loop(stdscr, root, curses):
             spawn("model", lambda: screen_model(root, doctor))
         if view in ("work", "plan", "autopilot") and (wm is None or time.time() - wm_at > BOARD_SECONDS):
             spawn("board", lambda: work_model(root))
-        if doctor is None:
-            spawn("doctor", lambda: doctor_lines(root))
+        if doctor is None or time.time() - doctor_at > UPDATE_SECONDS:   # at open, after a command, on g — and when the reading is UPDATE_SECONDS old
+            spawn("doctor", lambda: doctor_lines(root, fetch=time.time() - doctor_at > UPDATE_SECONDS))   # the forge is asked minutes apart, not after every key
         take()
         cur = model or empty
+        note = ("reading failed · g retries · " + " · ".join(failed.values()))[:200] if failed else ""
+        if note and model is not None:   # on the banner's fifth line, whatever the view (the placeholder frame has its own line)
+            cur = dict(cur, facts=list(cur["facts"][:4]) + [note])
+        if note and wm is not None:
+            wm = dict(wm, facts=list(wm["facts"][:4]) + [note])
         n = len(cur["items"])
         sel = min(sel, max(n - 1, 0))
         nrows = len(wm["rows"]) if wm else 0
@@ -1162,8 +1188,7 @@ def screen_loop(stdscr, root, curses):
             lines, most = render_log(cur.get("log") or cur["steps"], width=w - 1, height=h, offset=offset)
             offset = min(offset, most)
         elif view == "work" or (view in ("plan", "autopilot") and wm is None):
-            lines, styles, sel_line = render_work(wm, cur["items"], width=w - 1, height=h, selected=wsel, panel=panel,
-                                                  note=("reading failed · g retries · " + " · ".join(failed.values()))[:200] if failed else "")
+            lines, styles, sel_line = render_work(wm, cur["items"], width=w - 1, height=h, selected=wsel, panel=panel, note=note)
         elif view == "plan":
             lines, styles = render_plan(wm, cur["items"], width=w - 1, height=h)
         elif view == "autopilot":
@@ -1351,7 +1376,7 @@ def cmd_update(root, args):
         return 1
     print(f"reef update: the plugin clone is {plugin}", flush=True)
     steps = [["git", "-C", plugin, "pull", "--ff-only"],
-             [PY, os.path.join(plugin, "scripts", "reef-update.py"), "--repo", root, "--commit"]]
+             [PY, os.path.join(plugin, "scripts", "reef-update.py"), "--repo", root, "--commit", "--no-reload-line"]]   # the last word is this verb's
     for cmd in steps:
         print("reef update: " + " ".join(cmd[-3:]), flush=True)
         if subprocess.run(cmd, cwd=root).returncode != 0:
@@ -1365,15 +1390,59 @@ def cmd_update(root, args):
         if subprocess.run([PY, setup, "prove", "--repo", root], cwd=root).returncode != 0:
             return 1
     upd = load_sibling("reef-update.py", "reef_update_for_entry")
-    print(update_done_line(upd.marketplace_name(plugin) if upd else None))
+    market = upd.marketplace_name(plugin) if upd else None
+    reloaded = refresh_marketplace(market)
+    if reloaded:
+        plugin_still_enabled()
+    print(update_done_line(market, reloaded))
     return 0
 
 
-def update_done_line(market):
-    """The update's last word, with the marketplace's name as it is on disk (reef-update.marketplace_name) — never a
-    placeholder in a line the owner types (2026-10-30); without a marketplace, the reload alone."""
+def refresh_marketplace(market):
+    """`claude plugin marketplace update <market>`, run by Reef from the terminal — the step a person used to hand the owner after
+    every update (hands-off step 6). True when it ran and succeeded; False without `claude` on the PATH or a marketplace, or on a
+    failure (the done line then names the step, with the real name)."""
+    if not market or not shutil.which("claude"):
+        return False
+    try:
+        r = subprocess.run(["claude", "plugin", "marketplace", "update", market], capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"reef update: claude plugin marketplace update {market} did not run ({type(e).__name__})", flush=True)
+        return False
+    if r.returncode != 0:
+        print(f"reef update: claude plugin marketplace update {market} exited {r.returncode}: {(r.stderr or r.stdout).strip()[-200:]}", flush=True)
+    return r.returncode == 0
+
+
+def plugin_still_enabled():
+    """After the marketplace refresh: is the plugin still enabled? (2026-10-28: a marketplace update left it disabled and nothing
+    said so — no guard in any session.) The doctor's own check; a FAIL is enabled again here, never handed to the owner."""
+    doc = load_sibling("reef-doctor.py", "reef_doctor_for_entry")
+    if doc is None:
+        return True
+    level, what, fix = doc.plugin_enabled()
+    if level != "FAIL":
+        return True
+    try:
+        argv = shlex.split(fix)
+    except ValueError:
+        argv = []
+    if argv[:3] != ["claude", "plugin", "enable"] or len(argv) != 4:
+        print(f"reef update: {what} — {fix}", flush=True)
+        return False
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+    print(f"reef update: the marketplace refresh left {argv[3]} disabled — " + ("enabled it again" if r.returncode == 0 else f"`{fix}` exited {r.returncode}: {(r.stderr or r.stdout).strip()[-160:]}"), flush=True)
+    return r.returncode == 0
+
+
+def update_done_line(market, reloaded=False):
+    """The update's last word, with the marketplace's name as it is on disk (reef-update.marketplace_name) — never a placeholder
+    in a line the owner types (2026-10-30). `reloaded`: Reef refreshed the marketplace itself, so the runner's next session runs
+    the new Reef and only a Claude Code window open now has a step (/reload-plugins); otherwise the step is named."""
+    if reloaded:
+        return f"reef update: done — marketplace {market} refreshed; the runner's next session runs the new Reef; a Claude Code window open now: /reload-plugins"
     step = f"/plugin marketplace update {market}, then /reload-plugins" if market else "/reload-plugins (no marketplace lists this plugin clone)"
-    return f"reef update: done — in Claude Code: {step}; `reef doctor` confirms"
+    return f"reef update: done — in Claude Code: {step}"
 
 
 def cmd_factory(root, args):

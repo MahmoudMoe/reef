@@ -6,7 +6,8 @@ Usage: reef-doctor.py [--repo DIR] [--plugin DIR] [--fetch]
 
 Checks, each OK / WARN / FAIL with the fix on the same line:
   plugin   the plugin clone (--plugin, else $CLAUDE_PLUGIN_ROOT, else this script's own repo): on `main`, clean,
-           not behind its upstream (--fetch asks the remote; without it the local view is reported as such)
+           not behind its upstream (--fetch asks the remote; without it the local view is reported as such); behind, the
+           line says `a new Reef`, the commits and the newest subject, and the one fix (the owner's screen shows it as one item)
   version  the project's .reef/version against the plugin's
   scripts  scripts/reef-* in the project (and in every feature worktree) identical to the plugin's
   queue    the queue has one home: no feature worktree carries queue edits the base lacks
@@ -79,12 +80,33 @@ def plugin_version(plugin):
         return "?"
 
 
+def update_fix(root, plugin):
+    """The fix for a new Reef — the clone behind its upstream, the version, the scripts, a missing script: ONE command. The project's
+    own verb where it has scripts/reef (`reef update`: pull, copies, one commit pushed, the setup re-proved, the marketplace refreshed;
+    the screen lists one item for it — hands-off step 6); the plugin's script on a project without the entry point."""
+    if os.path.isfile(os.path.join(root, "scripts", "reef")):
+        return "python3 scripts/reef update"
+    return f"python3 {plugin}/scripts/reef-update.py --repo {root} --commit"
+
+
+def fetch_plugin(plugin):
+    """The clone's upstream asked, unattended (the owner's screen runs this every fifteen minutes): no prompt from git or ssh, a
+    forge that does not answer leaves the local view."""
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    if not env.get("GIT_SSH_COMMAND") and not git(plugin, "config", "core.sshCommand")[1]:   # a configured ssh command wins (the env var would override it)
+        env["GIT_SSH_COMMAND"] = "ssh -oBatchMode=yes"
+    try:
+        subprocess.run(["git", "-C", plugin, "fetch", "-q"], capture_output=True, text=True, timeout=60, env=env, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
 def behind_scripts(tree, plugin):
-    """Project copies of scripts/reef-* that differ from the plugin's."""
+    """Project copies of scripts/reef, scripts/reef-* and scripts/reef_* that differ from the plugin's."""
     out = []
     sdir, pdir = os.path.join(tree, "scripts"), os.path.join(plugin, "scripts")
     for name in sorted(os.listdir(pdir) if os.path.isdir(pdir) else []):
-        if not name.startswith(("reef-", "reef_")):
+        if name != "reef" and not name.startswith(("reef-", "reef_")):
             continue
         mine = os.path.join(sdir, name)
         if not os.path.isfile(mine):
@@ -166,14 +188,16 @@ def main(argv):
         _, br = git(plugin, "rev-parse", "--abbrev-ref", "HEAD")
         _, dirty = git(plugin, "status", "--porcelain")
         if "--fetch" in argv:
-            git(plugin, "fetch", "-q", timeout=60)
+            fetch_plugin(plugin)
         rc_b, behind = git(plugin, "rev-list", "--count", "HEAD..@{u}")
         if br != "main":
             say("WARN", f"plugin: {plugin} is on `{br}`", f"the plugin runs whatever is checked out: git -C {plugin} checkout main && git -C {plugin} pull")
         elif dirty:
             say("WARN", f"plugin: {plugin} has local changes", "the plugin clone is not a working tree: commit elsewhere or git -C … stash")
         elif rc_b == 0 and behind.isdigit() and int(behind) > 0:
-            say("WARN", f"plugin: {behind} commit(s) behind its upstream", f"python3 {plugin}/scripts/reef-update.py --repo {root} --commit")
+            _, subject = git(plugin, "log", "-1", "--format=%s", "HEAD..@{u}")   # the forge's text on the owner's screen: printable only
+            subject = "".join(c for c in subject if c.isprintable())[:80]
+            say("WARN", f"plugin: a new Reef, {behind} commit(s) since your copy" + (f": {subject}" if subject else ""), update_fix(root, plugin))
         else:
             say("OK", f"plugin: {plugin} on main, clean" + ("" if "--fetch" in argv else " (local view; --fetch asks the remote)"))
         # version
@@ -183,12 +207,12 @@ def main(argv):
                 mv = f.read().strip()
         except OSError:
             mv = "none (a 0.5 project)"
-        say("OK" if mv == pv else "WARN", f"version: project {mv}, plugin {pv}", "" if mv == pv else f"python3 {plugin}/scripts/reef-init.py --root {root} brings the project's copy up")
+        say("OK" if mv == pv else "WARN", f"version: project {mv}, plugin {pv}", "" if mv == pv else update_fix(root, plugin))
         # scripts, main checkout and every worktree
         b = behind_scripts(root, plugin)
         if b:
             say("WARN", f"scripts: {len(b)} project script(s) differ from the plugin's ({', '.join(b[:3])}{'…' if len(b) > 3 else ''})",
-                f"python3 {plugin}/scripts/reef-update.py --repo {root} --commit")
+                update_fix(root, plugin))
         else:
             say("OK", "scripts: scripts/reef-* match the plugin")
     # the project's linters and Reef's copied scripts (2026-10-29: ruff on an adoption flagged 1,725 errors, CI red)
@@ -265,7 +289,7 @@ def main(argv):
         except (OSError, subprocess.TimeoutExpired):
             say("WARN", "setup: reef-setup.py state did not run", "")
     else:
-        say("WARN", "setup: scripts/reef-setup.py is missing (the proof that a fresh worktree passes the gate)", f"python3 {plugin}/scripts/reef-update.py --repo {root} --commit")
+        say("WARN", "setup: scripts/reef-setup.py is missing (the proof that a fresh worktree passes the gate)", update_fix(root, plugin))
     say(*plugin_enabled())
     page = os.path.join(root, ".reef", "status.html")
     say("OK" if os.path.isfile(page) else "WARN", f"status page: {page}" if os.path.isfile(page) else "status page: not written yet",

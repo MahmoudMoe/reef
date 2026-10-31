@@ -4,6 +4,7 @@ the sibling script it names."""
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -73,6 +74,9 @@ class UpdateNamesTheMarketplace(unittest.TestCase):
         self.assertIn("/plugin marketplace update mahmoudmoe", line)
         self.assertIn("/reload-plugins", line)
         self.assertNotIn("<", line)
+        line = mod.update_done_line("mahmoudmoe", reloaded=True)   # step 6: Reef refreshed the marketplace itself
+        self.assertIn("marketplace mahmoudmoe refreshed", line); self.assertNotIn("marketplace update", line); self.assertNotIn("<", line)
+        self.assertNotIn("reef doctor", line, "no step handed to the owner: Reef checked the plugin itself")
         line = mod.update_done_line(None)
         self.assertIn("/reload-plugins", line)
         self.assertNotIn("marketplace update", line, "no marketplace lists the clone: the reload alone")
@@ -318,7 +322,7 @@ class TheScreen(unittest.TestCase):
         ran = []
         real_run = mod.run_captured
         mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["ok"]))[1]
-        mod.doctor_lines = lambda root: []
+        mod.doctor_lines = lambda root, fetch=False: []
         d2 = project(**{".reef/questions.md": "- row 7: Keep it? — recommended: yes\n- row 8: Rename it? — recommended: no\n"})
         win = FakeWin([ord("i"), ord("2"), 10, 10, ord("x"), 10, 10, ord("q")])   # i: the inbox (the screen opens on WORK since the fourth design); 2 selects; Enter runs it and opens the answer line; Enter keeps 'no'; x closes the panel; Enter, Enter again; q
         self.assertEqual(mod.screen_loop(win, d2, FakeCurses()), 0)
@@ -474,7 +478,7 @@ class TheScreen(unittest.TestCase):
             def getch(self): return self.keys.pop(0) if self.keys else ord("q")
         ran = []
         mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["state: build"]))[1]
-        mod.doctor_lines = lambda root: []
+        mod.doctor_lines = lambda root, fetch=False: []
         mod.inbox = lambda root, doctor=None, runner=None: [{"kind": "approve", "text": "x", "argv": [sys.executable, "-c", "pass"], "cmd": "approve x", "row": "7", "recommended": "", "issue": ""}]
         win = FW([ord("2"), 10, ord("x"), 9, 9, 10, ord("x"), ord("q")])   # 2 selects row 7, Enter opens it; x closes; Tab Tab → PLAN; Enter there opens the row too; q
         self.assertEqual(mod.screen_loop(win, d, FC()), 0)
@@ -601,7 +605,7 @@ class TheScreenNeverFreezes(unittest.TestCase):
             def addstr(self, y, x, text, *a): self.rows.append(text)
             def getch(self): return self.keys.pop(0) if self.keys else ord("q")
         mod.work_model = lambda root, runner=None: (_t.sleep(3), {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": _t.time()})[1]
-        mod.doctor_lines = lambda root: (_t.sleep(3), [])[1]
+        mod.doctor_lines = lambda root, fetch=False: (_t.sleep(3), [])[1]
         win = FW([-1, -1, ord("q")])
         t0 = _t.time(); self.assertEqual(mod.screen_loop(win, d, FC()), 0); dt = _t.time() - t0
         self.assertLess(dt, 1.5, f"q took {dt:.2f} s while the board loaded: the UI thread ran a reading")
@@ -620,8 +624,137 @@ class TheScreenNeverFreezes(unittest.TestCase):
         mod.QUIT.clear()
         # a reading that raises is shown, not swallowed into "reading …" forever
         mod.work_model = lambda root, runner=None: (_ for _ in ()).throw(RuntimeError("the queue file is not a table"))
-        mod.doctor_lines = lambda root: []
+        mod.doctor_lines = lambda root, fetch=False: []
         win = FW([-1, -1, -1, ord("q")])
         self.assertEqual(mod.screen_loop(win, d, FC()), 0)
         self.assertTrue(any("reading failed" in r and "RuntimeError" in r for r in win.rows), "the error is on the screen\n" + "\n".join(win.rows[-12:]))
 
+
+
+class TheUpdateIsReefs(unittest.TestCase):
+    """docs/design/owner-hands-off.md step 6 (2026-10-31): after a merge in Reef a person told the owner to run `reef update`, then two
+    Claude Code commands. Now the screen's doctor reading fetches the plugin clone itself, every UPDATE_SECONDS in its thread; the
+    doctor's lines about a new Reef name one verb, so the inbox holds ONE item (`update`) and the headers say a new Reef waits; `u` or
+    Enter on it runs `reef update` inside the screen, and the update refreshes the marketplace itself."""
+
+    class FC:
+        A_REVERSE, A_BOLD, A_NORMAL = 1, 2, 0
+        error = Exception
+        def curs_set(self, *_): pass
+        def flushinp(self): pass
+        def update_lines_cols(self): pass
+        def has_colors(self): return False
+
+    class FW:
+        def __init__(self, keys): self.keys = list(keys); self.rows = []
+        def getmaxyx(self): return (40, 120)
+        def timeout(self, *_): pass
+        def erase(self): pass
+        def refresh(self): pass
+        def addstr(self, y, x, text, *a): self.rows.append(text)
+        def getch(self):
+            k = self.keys.pop(0) if self.keys else ord("q")
+            if callable(k):   # a step of the test between two ticks (the clock moves on)
+                k(); k = -1
+            if k == -1:
+                time.sleep(0.3)   # a tick takes the time a real one takes: the readings land meanwhile
+            return k
+
+    def test_the_real_doctors_lines_are_one_item_on_the_inbox_and_the_headers_say_so(self):
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import test_doctor as D
+        mod = load_entry()
+        d = project(**{"scripts/reef": "# a stale copy of the entry point\n", "docs/queue.md": "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n"})
+        clone, bare, g = D.plugin_with_upstream()
+        D.upstream_moves(bare, g, "The board counts tasks where the folder is")
+        old = os.environ.get("CLAUDE_PLUGIN_ROOT")
+        os.environ["CLAUDE_PLUGIN_ROOT"] = clone
+        try:
+            lines = mod.doctor_lines(d, fetch=True)   # the screen's reading: the real doctor, the real fetch
+        finally:
+            os.environ.pop("CLAUDE_PLUGIN_ROOT", None) if old is None else os.environ.__setitem__("CLAUDE_PLUGIN_ROOT", old)
+        self.assertGreaterEqual(sum(1 for l in lines if l.endswith(" — python3 scripts/reef update")), 2, "the doctor said it more than once:\n" + "\n".join(lines))
+        items = mod.inbox(d, lines)
+        ups = [i for i in items if i["cmd"] == mod.UPDATE_SHOWN]
+        self.assertEqual(len(ups), 1, "one item for a new Reef, not one per doctor line\n" + str(items))
+        self.assertEqual([i["kind"] for i in items if i["kind"] == "update"], ["update"], str(items))
+        self.assertTrue(all(i["kind"] == "fix" for i in items if i is not ups[0]), "the doctor's other fixes (the probe) stay fixes: " + str(items))
+        self.assertIn("a new Reef, 1 commit(s) since your copy: The board counts tasks", ups[0]["text"])
+        self.assertEqual(ups[0]["argv"], [sys.executable, "scripts/reef", "update"], "the project's own entry point, run from the project")
+        model = mod.screen_model(d, lines)
+        self.assertIn("a new Reef waits (u)", model["facts"][0], "the inbox header says it beside the version")
+        wm = {"rows": [], "facts": ["demo · Reef 0.7.3", "", "", "", ""], "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()}
+        work, _, _ = mod.render_work(wm, model["items"], width=120, height=30)
+        self.assertIn("a new Reef waits (u)", work[0], "the board — the first view — says it too")
+        work, _, _ = mod.render_work(wm, [], width=120, height=30)
+        self.assertNotIn("a new Reef", work[0])
+        self.assertNotIn("a new Reef", mod.screen_model(d, [])["facts"][0])
+
+    def test_the_screen_asks_the_forge_itself_minutes_apart_and_enter_or_u_applies_it(self):
+        mod = load_entry()
+        d = project()
+        reads = []
+        mod.doctor_lines = lambda root, fetch=False: (reads.append(fetch), ["WARN plugin: a new Reef, 2 commit(s) since your copy: Two fixes — python3 scripts/reef update"])[1]
+        mod.work_model = lambda root, runner=None: {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()}
+        ran = []
+        mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["reef update: done"]))[1]
+        def age_out():
+            mod.UPDATE_SECONDS = 0.1   # fifteen minutes pass
+        win = self.FW([-1, -1, -1, ord("i"), 10, ord("x"), -1, -1, ord("u"), ord("x"), -1, age_out, -1, -1, ord("q")])   # i: the inbox; Enter runs the one item; x closes; u runs the verb; x; the reading ages; q
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        self.assertEqual(reads[:3], [True, False, False], f"the first reading fetches; the readings after a command do not (the forge is asked minutes apart, not after every key): {reads}")
+        self.assertIn(True, reads[3:], f"once the reading is UPDATE_SECONDS old, the doctor fetches again: {reads}")
+        self.assertTrue(any("update" in r and "2 commit(s)" in r for r in win.rows), "the item is on the inbox\n" + "\n".join(win.rows[-30:]))
+        self.assertEqual(ran, [[sys.executable, "scripts/reef", "update"], [sys.executable, ENTRY, "update", "--repo", d]], "Enter on the item, then u: the same verb\n" + str(ran))
+        self.assertEqual(mod.on_key(ord("u"), 0, 0, "work"), ("verb", "update"))
+        self.assertGreaterEqual(load_entry().UPDATE_SECONDS, 300, "a fetch is a network call: minutes apart, not every tick")
+        # a doctor that does not answer is a failed reading on the screen, not "nothing wrong" kept for fifteen minutes
+        mod.doctor_lines = lambda root, fetch=False: None
+        win = self.FW([-1, -1, ord("i"), -1, ord("q")])
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        self.assertTrue(any("reading failed" in r and "doctor: no answer" in r for r in win.rows), "\n".join(win.rows[-20:]))
+        self.assertFalse(any("DOCTOR  nothing wrong" in r for r in win.rows))
+
+    def test_reef_update_refreshes_the_marketplace_itself_re_enables_the_plugin_and_hands_the_owner_no_step(self):
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import test_doctor as D
+        clone, bare, g = D.plugin_with_upstream()
+        d = project()
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump({"branches": {"base": "main", "feature_prefix": "feat/"}, "paths": {"queue": "reef/queue.md"}, "gates": {"full": "true"}}, f)
+        os.makedirs(os.path.join(d, "reef"), exist_ok=True)
+        open(os.path.join(d, "reef", "queue.md"), "w").write("# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 1 | a | | planned | 1 | |\n")
+        g(d, "add", "-A"); g(d, "commit", "-qm", "init")
+        pbare = tempfile.mkdtemp(prefix="reef-origin.")
+        subprocess.run(["git", "clone", "-q", "--bare", d, pbare], check=True)
+        g(d, "remote", "add", "origin", pbare); g(d, "fetch", "-q", "origin"); g(d, "branch", "-q", "-u", "origin/main")
+        home = tempfile.mkdtemp(prefix="reef-home.")
+        os.makedirs(os.path.join(home, ".claude", "plugins"))
+        with open(os.path.join(home, ".claude", "plugins", "known_marketplaces.json"), "w") as f:
+            json.dump({"mymarket": {"source": {"source": "directory", "path": clone}, "installLocation": clone}}, f)
+        fake_bin = tempfile.mkdtemp(prefix="reef-bin.")
+        calls = os.path.join(fake_bin, "claude-calls.txt")
+        with open(os.path.join(fake_bin, "claude"), "w") as f:   # a `claude` that records its argv; its `plugin list` says the plugin is DISABLED (the 2026-10-28 incident)
+            f.write("#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + shlex.quote(calls) + "\n"
+                    "case \"$*\" in\n  'plugin list'*) printf 'Installed plugins:\\n\\n  \u276f reef@mymarket\\n    Version: 0.7.3\\n    Status: \u2718 disabled\\n' ;;\n"
+                    "  *) printf '%s\\n' '{\"outcome\":\"ok\"}' ;;\nesac\n")
+        os.chmod(os.path.join(fake_bin, "claude"), 0o755)
+        ident = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+        env = dict(os.environ, HOME=home, CLAUDE_PLUGIN_ROOT=clone, PATH=fake_bin + os.pathsep + "/usr/bin:/bin", **ident)
+        r = subprocess.run([sys.executable, ENTRY, "update", "--repo", d], capture_output=True, text=True, env=env, timeout=600)
+        out = r.stdout + r.stderr
+        self.assertEqual(r.returncode, 0, out)
+        self.assertTrue(os.path.exists(calls), "the update refreshed the marketplace itself (claude plugin marketplace update)\n" + out)
+        called = open(calls, encoding="utf-8").read().splitlines()
+        self.assertIn("plugin marketplace update mymarket", called)
+        self.assertIn("plugin enable reef@mymarket", called, "the refresh left the plugin disabled: Reef enabled it again, the owner was not told to\n" + out)
+        self.assertIn("left reef@mymarket disabled — enabled it again", r.stdout)
+        self.assertIn("marketplace mymarket refreshed", r.stdout)
+        self.assertNotIn("/plugin marketplace update", out, "no step handed to the owner — not by reef update, not by reef-update.py under it\n" + out)
+        self.assertNotIn("now, in Claude Code", out); self.assertNotIn("reef doctor", r.stdout.split("reef update: done")[1])
+        self.assertIn("/reload-plugins", r.stdout, "a window open now is told, once, what reloads it")
+        # no `claude` on this PATH: the step cannot run here, so the line names it — with the real name, never a placeholder
+        r = subprocess.run([sys.executable, ENTRY, "update", "--repo", d], capture_output=True, text=True, env=dict(env, PATH="/usr/bin:/bin"), timeout=600)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("/plugin marketplace update mymarket, then /reload-plugins", r.stdout)
+        self.assertNotIn("<", r.stdout.split("reef update: done")[1])

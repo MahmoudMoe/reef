@@ -2,7 +2,7 @@
 # CLASS: code
 """Reef update — pull a new Reef into a project in ONE command.
 
-Usage: reef-update.py [--repo DIR] [--plugin DIR] [--commit] [--push] [--dry-run]
+Usage: reef-update.py [--repo DIR] [--plugin DIR] [--commit] [--push] [--dry-run] [--no-reload-line]
 
 1. The plugin clone (--plugin, else $CLAUDE_PLUGIN_ROOT, else this script's own repo) must be on `main` and clean;
    `git pull --ff-only` brings it up and the old..new range is printed.
@@ -13,7 +13,8 @@ Usage: reef-update.py [--repo DIR] [--plugin DIR] [--commit] [--push] [--dry-run
    rendered map) and commits `reef: scripts <version> (<plugin sha>)`; --push pushes the current branch — a rejected push
    prints the line that lands it (`git pull --rebase --autostash origin <branch> && git push`, the branch filled in).
    The last line names the marketplace to update (read from ~/.claude/plugins), never a placeholder.
-4. Prints the two Claude Code commands that reload the plugin.
+4. Prints the two Claude Code commands that reload the plugin — unless --no-reload-line: the caller (`reef update`, hands-off
+   step 6) refreshes the marketplace itself and says the last word.
 Exit 0 ok · 1 a step failed (its line says which) · 2 usage.
 
 Usability plan A1 (2026-10-17): the pull dance was five commands across two tools, and one of them (`--accept`)
@@ -234,6 +235,8 @@ def main(argv):
             print("project: pushed")
     else:
         print(f"project: {len(changed_files)} Reef file(s) changed — commit them: git add -- {' '.join(changed_files[:6])}{' …' if len(changed_files) > 6 else ''} && git commit -m 'reef: scripts {version} ({sha})'   (or re-run with --commit)")
+    if "--no-reload-line" in argv:   # reef update refreshes the marketplace itself and says the last word (hands-off step 6)
+        return 0
     market = marketplace_name(plugin)
     if market:
         print(f"now, in Claude Code:  /plugin marketplace update {market}   then   /reload-plugins")

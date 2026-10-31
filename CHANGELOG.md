@@ -1,6 +1,16 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The update is Reef's too** (`docs/design/owner-hands-off.md` step 6; the owner, 2026-10-31: after every merge in Reef a person told
+  him to run `reef update`, then two Claude Code commands). The screen's doctor reading now fetches the plugin clone itself (`--fetch`),
+  every fifteen minutes in its thread; the doctor's lines about a new Reef — the clone behind its upstream (`plugin: a new Reef, 3
+  commit(s) since your copy: <the newest subject>`), the version, the scripts (`scripts/reef` compared too) — name ONE verb where the
+  project has `scripts/reef` (`python3 scripts/reef update`), so the inbox holds one item of kind `update` and both headers say `a new
+  Reef waits (u)`. `u`, or Enter on the item, runs `reef update` inside the screen: the plugin pulled, the copies refreshed, one commit
+  pushed, the setup re-proved when its digest changed — and now the Claude Code marketplace refreshed by Reef (`claude plugin
+  marketplace update <market>`), the plugin enabled again if that left it disabled (the 2026-10-28 incident), and a done line that hands
+  the owner no step (the runner's next session runs the new Reef; `/reload-plugins` is named once for a window already open).
+  `reef-update.py --no-reload-line` leaves the last word to its caller; `reef screen --once --fetch` asks the forge too. tests/size-budget.json raised: `prose_words` 24,020 → 24,060, `script_lines` 17,901 → 17,928.
 - **Long work is the runner's** (`docs/design/owner-hands-off.md` step 3; the owner, 2026-10-31 04:30, "I really want autopilot on":
   twice that night a headless session ended its turn while a background converge of its own ran on, the process waited for it and
   the runner for the process — forty idle minutes). `python3 scripts/reef-run.py job <name> -- <command…>` starts the command
