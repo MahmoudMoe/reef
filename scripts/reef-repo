@@ -13,7 +13,7 @@ import sys
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "30"))
 
 
-def gh(args, cwd, check=True):
+def gh_rc3(args, cwd, check=True):
     try:
         r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=GH_TIMEOUT, cwd=cwd)
     except FileNotFoundError:
@@ -55,11 +55,11 @@ def main(argv):
         if dry:
             did.append(f"(dry) {label}: gh {' '.join(args)}")
             return 0, ""
-        rc, out, err = gh(args, repo)
+        rc, out, err = gh_rc3(args, repo)
         (did if rc == 0 else could_not).append(f"{label}" + ("" if rc == 0 else f" — gh exited {rc}: {err[:160]}"))
         return rc, err
 
-    rc, out, err = gh(["repo", "view", "--json", "nameWithOwner,visibility,owner"], repo)
+    rc, out, err = gh_rc3(["repo", "view", "--json", "nameWithOwner,visibility,owner"], repo)
     if rc != 0:
         if not create:
             print("reef-repo: no repository on the forge for this checkout (pass --create to make one, private by default)")
@@ -71,7 +71,7 @@ def main(argv):
                 return 1
         name = os.path.basename(os.path.abspath(repo))
         act("create repository", ["repo", "create", name, "--public" if public else "--private", "--source", repo, "--push"])
-        rc, out, err = gh(["repo", "view", "--json", "nameWithOwner,visibility,owner"], repo)
+        rc, out, err = gh_rc3(["repo", "view", "--json", "nameWithOwner,visibility,owner"], repo)
     view = json.loads(out) if rc == 0 and out else {}
     nwo = view.get("nameWithOwner", "")
     owner = (view.get("owner") or {}).get("login") or nwo.split("/")[0]
@@ -79,7 +79,7 @@ def main(argv):
         could_not.append("read the repository (gh repo view failed) — the protection steps need it")
     else:
         # 2. branch protection: query, then write only the parts that differ
-        rc, out, _ = gh(["api", f"repos/{nwo}/branches/{release}/protection"], repo)
+        rc, out, _ = gh_rc3(["api", f"repos/{nwo}/branches/{release}/protection"], repo)
         prot = json.loads(out) if rc == 0 and out else {}
         want_checks = [check_name]
         have_checks = [c.get("context") for c in (prot.get("required_status_checks") or {}).get("checks", []) or []]
@@ -101,7 +101,7 @@ def main(argv):
                 rc, err = act(f"protect branch {release}", ["api", "-X", "PUT", f"repos/{nwo}/branches/{release}/protection",
                                                             "-H", "Accept: application/vnd.github+json", "--input", tmp])
                 # 0.7.2 (first adoption, 2026-10-24): on a private repository the PUT is a 403 by plan, not by permission
-                if rc != 0 and "403" in err and gh(["api", f"repos/{nwo}", "--jq", ".private"], repo)[1] == "true":
+                if rc != 0 and "403" in err and gh_rc3(["api", f"repos/{nwo}", "--jq", ".private"], repo)[1] == "true":
                     could_not.append("branch protection on a private repository needs GitHub Pro/Team — until then CI and the "
                                      "local gate are the only wall")
             finally:
@@ -110,7 +110,7 @@ def main(argv):
                 except OSError:
                     pass
         # 3. secret scanning push protection
-        rc, out, _ = gh(["api", f"repos/{nwo}", "--jq", ".security_and_analysis.secret_scanning_push_protection.status"], repo)
+        rc, out, _ = gh_rc3(["api", f"repos/{nwo}", "--jq", ".security_and_analysis.secret_scanning_push_protection.status"], repo)
         if rc == 0 and out == "enabled":
             did.append("secret-scanning push protection: already enabled")
         else:

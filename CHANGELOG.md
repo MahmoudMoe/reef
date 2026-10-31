@@ -1,6 +1,16 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **Lightening step 2 — the same name in two scripts** (`docs/design/lightening.md`). After step 1, thirty definitions still
+  shared a name across scripts. A true duplicate merged into `reef_common` — `load_sibling` (the three `plan_check_module` loaders
+  and reef-graph-run's `load_script`), `git_root` (the two `root_of`), `reef_dir`, `section`, `slug_error` with `SLUG_RE` and
+  `GENERIC_SLUGS`, `served_dirs`, `config_homes` with `HOME_KEYS`; a false one — two things under one name — renamed so a reader
+  stops confusing them (reef-row's `queue_rows` → `queue_status`, reef-run's `release_hold` → `drop_session_hold`, reef-loop's
+  `render` → `render_status_page`, reef-init's `render`/`detect` → `render_template`/`detect_stack`, reef-handoff's `render` →
+  `render_handoff`, reef-recalibrate's `render_plan` → `render_moves`, reef-plan-check's `parse_args` → `parse_check_args`,
+  reef-threat's `lint` → `lint_threat`, reef-factory's and reef-graph-run's `script` → `own_script`/`project_script`, reef-record's
+  `gh` → `gh_text`, reef-repo's `gh` → `gh_rc3`, the screen's loader → `sibling_module`). A script's own `cmd_<verb>` handlers —
+  one per CLI, by convention — the pin no longer counts. `duplicate_defs` 30 → 0. tests/size-budget.json: unchanged (nothing grew).
 - **Lightening step 1 — the shared helpers, finished** (`docs/design/lightening.md`). Every local `run` (eight scripts), `git`
   (seven), `die` (thirteen), `plugin_root` and `plugin_version` (two each) was a two-to-four-line adapter over `reef_common`'s
   `run()`/`git()` or a copy; each is one shared shape now — `run_rc`, `run_rc3`, `run_out`, `run_all`, `git_rc`, `git_out`,

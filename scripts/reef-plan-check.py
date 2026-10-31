@@ -42,7 +42,7 @@ Rule for the orchestrator: this script is deterministic; never argue with it, ne
 import hashlib, json, os, re, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read, table_cells  # noqa: E402
+from reef_common import main_checkout, read, table_cells, section, slug_error, SLUG_RE, GENERIC_SLUGS  # noqa: E402
 
 STATUS = {"pending", "in-progress", "blocked", "done"}
 COMPLEXITY = {"mech", "design"}
@@ -82,23 +82,11 @@ def is_finished(path, fm):
     """A FINISHED task: under tasks/done/ with `status: done` — it keeps the structural checks only."""
     return in_done(path) and fm.get("status") == "done"
 # 0.6 feature folders: <paths.features>/<slug>/{SPEC.md, specs/*.md, adr/*.md, tasks/*.md, tasks/done/*.md}
-SLUG_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+){1,4}$")
-GENERIC_SLUGS = {"misc", "fixes", "feature", "update", "stuff", "changes", "work", "tasks", "new", "todo", "wip"}
 KEY_RE = re.compile(r"\b(FR|SC)-(\d+)\b")
 KEY_DEF_RE = re.compile(r"^\s*(?:[-*]\s*|\|\s*)?\**(FR|SC)-(\d+)\**\s*(?:\[[a-z]+\]\s*)?[:|]", re.M)
 LAYERS = ("infra", "data", "backend", "frontend")
 TOUCHES = {"pii": "critical", "money": "critical", "auth": "critical", "migration": "design"}
 TIER_RANK = {"light": 0, "full": 1, "design": 2, "critical": 3}
-
-
-def slug_error(slug):
-    """2 to 5 kebab-case words, descriptive: no bare numbers, no generic word."""
-    if not SLUG_RE.match(slug):
-        return f"feature slug {slug!r} is not 2-5 kebab-case words (e.g. csv-export-for-orders)"
-    words = slug.split("-")
-    if all(w.isdigit() for w in words) or any(w in GENERIC_SLUGS for w in words):
-        return f"feature slug {slug!r} is a number or a generic word — name the feature"
-    return None
 
 
 def sentences(text):
@@ -159,12 +147,6 @@ def parse_blocked_by(raw):
         raise ValueError(f"blocked-by not a list: {raw!r}")
     inner = raw[1:-1].strip()
     return [int(x) for x in inner.split(",")] if inner else []
-
-
-def section(text, heading):
-    """Body of '## <heading>' up to the next '## ' or EOF; None if absent."""
-    m = re.search(rf"^##\s+{re.escape(heading)}\s*$(.*?)(?=^##\s|\Z)", text, re.M | re.S)
-    return m.group(1) if m else None
 
 
 READ_FIRST = re.compile(r"`([^`:]+):(\d+)-(\d+)`\s+\(([^)]+)\)\s+[—-]+\s+\S")
@@ -244,7 +226,7 @@ MERGE_BY = ("human", "loop")
 FEATURE_GATE = ("ci", "local")
 
 
-def parse_args(argv):
+def parse_check_args(argv):
     verify, feature, args = False, None, []
     flags = {"digest": False, "needs_agent": False, "rules": False, "quiet": False,
              "summary": False, "plan_files": False}
@@ -504,7 +486,7 @@ def fm_value(text, key):
 
 
 def main():
-    verify_stamp, feature_filter, args, flags = parse_args(sys.argv[1:])
+    verify_stamp, feature_filter, args, flags = parse_check_args(sys.argv[1:])
     if args:
         root = args[0]
     else:

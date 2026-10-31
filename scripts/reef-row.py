@@ -71,7 +71,7 @@ def find_folder(main, cfg, key):
     return found[0]
 
 
-def queue_rows(main):
+def queue_status(main):
     rc, out = run([sys.executable, os.path.join(main, "scripts", "reef-queue.py"), "status", "--repo", main], main)
     rows = {}
     for l in out.splitlines() if rc == 0 else []:
@@ -126,7 +126,7 @@ def setup_next(main, state_rc, line, co=None, dg=""):
 def state_of(repo, key):
     main = main_checkout(git(repo, "rev-parse", "--show-toplevel") or os.path.abspath(repo))
     cfg = config(main)
-    rows, ready = queue_rows(main)
+    rows, ready = queue_status(main)
     out = {"row": key, "slug": None, "state": None, "next": None, "detail": "", "merge_by": merge_by(cfg)}
     if key in archived(main, cfg) and key not in rows:
         out.update(state="closed", next="-", detail="archived")

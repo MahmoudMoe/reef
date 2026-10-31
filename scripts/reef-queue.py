@@ -78,21 +78,11 @@ import sys
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_config as config, repo_root, read, table_cells, issues_mode, question_line, QUESTION_LINE, drop_question, questions, die as _die  # noqa: E402
+from reef_common import read_config as config, repo_root, read, table_cells, issues_mode, question_line, QUESTION_LINE, drop_question, questions, die as _die, slug_error  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 TASK_NAME_RE = re.compile(r"R?\d+-.*\.md$")
-SLUG_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+){1,4}$")
-GENERIC_SLUGS = {"misc", "fixes", "feature", "update", "stuff", "changes", "work", "tasks", "new", "todo", "wip"}
 FOLDER_FILE = re.compile(r"^(SPEC\.md|specs/[^/]+\.md|adr/[^/]+\.md|tasks/[^/]+\.md|tasks/done/[^/]+\.md)$")
-
-
-def slug_error(slug):
-    if not SLUG_RE.match(slug):
-        return f"feature slug {slug!r} is not 2-5 kebab-case words"
-    if all(w.isdigit() for w in slug.split("-")) or any(w in GENERIC_SLUGS for w in slug.split("-")):
-        return f"feature slug {slug!r} is a number or a generic word"
-    return None
 
 
 def features_dir(root, cfg):

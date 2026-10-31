@@ -19,7 +19,7 @@ import sys
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, git_checked, die as _die  # noqa: E402
+from reef_common import main_checkout, git_checked, die as _die, load_sibling  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 LOCKFILES = {"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "prisma/schema.prisma", "requirements.txt",
@@ -30,17 +30,7 @@ SECRET = re.compile(r"(^|/)(\.env[^/]*|[^/]+\.(pem|key))$")
 fail = partial(_die, prefix="merge-close")
 
 
-def plan_check_module():
-    """scripts/reef-plan-check.py beside this script: the one home of the path rule (workflow v3)."""
-    import importlib.machinery
-    import importlib.util
-    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
-    loader = importlib.machinery.SourceFileLoader("reef_plan_check", p)
-    spec = importlib.util.spec_from_loader("reef_plan_check", loader)
-    mod = importlib.util.module_from_spec(spec)
-    sys.dont_write_bytecode = True
-    loader.exec_module(mod)
-    return mod
+plan_check_module = partial(load_sibling, "reef-plan-check.py", "reef_plan_check")   # scripts/reef-plan-check.py beside this script: the one home of the path rule
 
 
 git = partial(git_checked, prefix="merge-close", where=True, limit=400)

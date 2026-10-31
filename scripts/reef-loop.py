@@ -21,16 +21,11 @@ import calendar
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_config as config, read_replace as read, main_checkout, drop_hold, process_alive, run_rc  # noqa: E402
+from reef_common import read_config as config, read_replace as read, main_checkout, drop_hold, process_alive, run_rc, git_root  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 MAX_LINES = 30
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "5"))
-
-
-def root_of(repo):
-    r = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=repo, capture_output=True, text=True)
-    return r.stdout.strip() or os.path.abspath(repo)
 
 
 def release_hold(root):
@@ -425,7 +420,7 @@ def next_command(state):
     return "/reef-loop" if busy else "/reef-plan <row> or /reef-assess"
 
 
-def render(state):
+def render_status_page(state):
     dm = state.get("dispatch_mode") or {}
     g_ids = [i for i in state["dispatch_now"] if dm.get(i) == "graph"]
     c_ids = [i for i in state["dispatch_now"] if dm.get(i) != "graph"]
@@ -545,7 +540,7 @@ def session_start(root, state, cfg):
     files = state.get("files") or {}
     flines = "".join(f"  {tid}: {r['task']}" + (f" · worktree {r['worktree']}" if r.get("worktree") else "") +
                      (f" · evidence {', '.join(r['evidence'])}" if r.get("evidence") else "") + "\n" for tid, r in sorted(files.items()))
-    text = (head + "\n\n" if head else "") + note + render(state) + (f"files (read these, search for nothing):\n{flines}" if flines else "") + f"\nnext command: {next_command(state)}\n"
+    text = (head + "\n\n" if head else "") + note + render_status_page(state) + (f"files (read these, search for nothing):\n{flines}" if flines else "") + f"\nnext command: {next_command(state)}\n"
     if len(text) // 4 > cap:
         text = text[: cap * 4] + f"\n[truncated: writing.session_start_tokens {cap}]\n"
     return text
@@ -560,7 +555,7 @@ def main(argv):
         i = argv.index("--repo")
         repo = argv[i + 1]
         argv = argv[:i] + argv[i + 2:]
-    root = root_of(repo)
+    root = git_root(repo)
     if not argv:
         print("usage: reef-loop.py tick [--json|--assert-no-idle|--session-start|--hash] | start | stop [<reason>] | wait <reason> | clear-wait", file=sys.stderr)
         return 1
@@ -618,7 +613,7 @@ def main(argv):
         print(state["hash"])
         return 0
     try:
-        write_status_page(root, state, render(state))
+        write_status_page(root, state, render_status_page(state))
     except Exception:
         pass   # the page is a convenience; the tick never fails for it
     if "--json" in argv:
@@ -631,7 +626,7 @@ def main(argv):
         else:
             sys.stdout.write(text)
         return 0
-    sys.stdout.write(render(state))
+    sys.stdout.write(render_status_page(state))
     if "--assert-no-idle" in argv:
         idle = (state["active"] and not state["wait"] and (state["dispatch_now"] or state.get("verify_now")) and not state["in_flight"]
                 and not state["stop"] and not st.get("parked") and not state["broken"])

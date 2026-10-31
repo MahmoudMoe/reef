@@ -111,9 +111,9 @@ class OneOrchestrator(unittest.TestCase):
         run = importlib.util.module_from_spec(spec)
         loader.exec_module(run)
         self.guard("aaaa1111")
-        run.release_hold(self.d, "zzzz9999")
+        run.drop_session_hold(self.d, "zzzz9999")
         self.assertTrue(os.path.exists(self.lock), "another session's hold is not the runner's to drop")
-        run.release_hold(self.d, "aaaa1111")
+        run.drop_session_hold(self.d, "aaaa1111")
         self.assertFalse(os.path.exists(self.lock))
 
 

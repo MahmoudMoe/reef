@@ -16,27 +16,13 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import served_dirs, config_homes  # noqa: E402
 
 KEEP = {"README.md", "LICENSE", "LICENSE.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md", "CODEOWNERS", "CODE_OF_CONDUCT.md", "AGENTS.md", "CLAUDE.md", "HANDOFF.md"}
 PROCESS = re.compile(r"(^|/)(adr|adrs|decisions?|rfcs?|specs?|plans?|runbooks?|design|proposals?)(/|$)|(adr|rfc|spec|plan|runbook|decision|proposal|design)[-_.]", re.I)
 HEADINGS = re.compile(r"^#+\s*(Status|Context|Decision|Consequences|Acceptance Criteria|Requirements|Runbook|Proposal)\b", re.M | re.I)
-
-
-def served_dirs(root):
-    """Directories a docs build serves — the docs are the product's, not Reef's."""
-    out = set()
-    if os.path.isfile(os.path.join(root, "mkdocs.yml")):
-        with open(os.path.join(root, "mkdocs.yml"), encoding="utf-8", errors="replace") as f:
-            m = re.search(r"^docs_dir:\s*(\S+)", f.read(), re.M)
-        out.add((m.group(1) if m else "docs").strip("/"))
-    for cand in ("docusaurus.config.js", "docusaurus.config.ts", "docusaurus.config.mjs", "docs/package.json"):
-        if os.path.isfile(os.path.join(root, cand)):
-            out.add("docs")
-    for dp, dn, fn in os.walk(root):
-        dn[:] = [d for d in dn if d not in (".git", "node_modules", ".reef", ".venv")]
-        if "conf.py" in fn and any(x.endswith((".rst", ".md")) for x in fn):
-            out.add(os.path.relpath(dp, root).strip("./"))
-    return out
 
 
 def referenced(root, rel):
@@ -58,15 +44,13 @@ def is_process_doc(root, rel):
     return bool(HEADINGS.search(head))
 
 
-def config_homes(root):
-    """The places .reef/config.json `paths.*` names (0.7.2, first adoption 2026-10-24, item 17): init chose them, so the check accepts
-    them whatever the version — `docs/adr` was flagged on a project whose config said `paths.adr: docs/adr`."""
+def config_homes_of(root):
+    """config_homes (reef_common) for a project root — None when .reef/config.json cannot be read."""
     try:
         with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
-            paths = json.load(f).get("paths") or {}
+            return config_homes(json.load(f))
     except (OSError, ValueError):
         return None
-    return [str(v).strip().strip("/") for k, v in paths.items() if v and k in ("adr", "queue", "runlog", "glossary", "tasks", "features", "day_zero")]
 
 
 PLAN_KEEP = re.compile(r"^(directory .+ read by|referenced by|waits: |the instruction layer|edited on unmerged branch|in place \()")   # 0.7.3: adopted in place
@@ -89,7 +73,7 @@ def plan_keeps(root):
 
 def violations(root):
     is06 = os.path.isfile(os.path.join(root, ".reef", "version"))
-    homes = config_homes(root)
+    homes = config_homes_of(root)
     kept = plan_keeps(root)
     kept_seen = 0
     legacy_ok = ("docs/adr/", "docs/queue", "docs/journal", "docs/day-zero", "docs/glossary", "docs/runlog", "tasks/", ".specify/")

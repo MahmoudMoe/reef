@@ -43,7 +43,7 @@ def rows(tm):
     return out
 
 
-def lint(root):
+def lint_threat(root):
     bad = []
     dsl_p, tm_p = os.path.join(root, DSL), os.path.join(root, TM)
     if not os.path.isfile(dsl_p):
@@ -92,7 +92,7 @@ def main(argv):
     root = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=repo, capture_output=True, text=True).stdout.strip() or os.path.abspath(repo)
     cmd = argv[0] if argv and not argv[0].startswith("-") else "lint"
     if cmd == "lint":
-        bad = lint(root)
+        bad = lint_threat(root)
         for b in bad:
             print(f"FAIL: {b}")
         print("ok: every boundary crossing has a mitigated or accepted STRIDE row" if not bad else f"{len(bad)} threat lint failure(s)")

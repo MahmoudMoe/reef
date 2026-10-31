@@ -358,8 +358,8 @@ class SizeBudget(unittest.TestCase):
     edits that file in the same diff, with its reason in the CHANGELOG — the raise is a reviewed line, never silent.
     docs/design/lightening.md step 0 (2026-10-31, the owner: "a plan to wipe duplication and keep it from coming back"): two more
     numbers ratchet the same way — `duplicate_defs`, a function name defined in more than one script (each definition past the
-    first; the guard's own copies of helpers other scripts own are the one exception, by design — it must run when any other script
-    is broken), and `orphan_scripts`, a script that no
+    first; two exemptions, both named here: the guard's own copies of helpers other scripts own — it must run when any other
+    script is broken — and a script's `cmd_<verb>` subcommand handlers, one per CLI by convention, step 2), and `orphan_scripts`, a script that no
     skill, agent, hook, command, template or other script names. A new duplicate or orphan is a raise someone has to write down."""
 
     SCRIPT_FILES = staticmethod(lambda root: sorted(glob.glob(os.path.join(root, "scripts", "reef-*")) + glob.glob(os.path.join(root, "scripts", "reef_common.py")) + [os.path.join(root, "scripts", "reef")]))
@@ -372,8 +372,8 @@ class SizeBudget(unittest.TestCase):
         for f in cls.SCRIPT_FILES(root or ROOT):
             name = os.path.basename(f)
             for m in re.finditer(r"^def ([A-Za-z_]\w*)\(", open(f, encoding="utf-8", errors="ignore").read(), re.M):
-                if m.group(1) == "main" or (name == "reef-guard.py" and m.group(1) in cls.GUARD_OWN):
-                    continue
+                if m.group(1) == "main" or m.group(1).startswith("cmd_") or (name == "reef-guard.py" and m.group(1) in cls.GUARD_OWN):
+                    continue   # cmd_<verb>: a script's own subcommand handlers, one per CLI by convention (lightening step 2)
                 defs.setdefault(m.group(1), []).append(name)
         dup = {k: v for k, v in defs.items() if len(v) > 1}
         return dup, sum(len(v) - 1 for v in dup.values())
@@ -1155,3 +1155,47 @@ class SharedHelpersHaveOneHome(unittest.TestCase):
         self.assertEqual((cm.exception.code, err.getvalue()), (3, "reef-y: no\n"))
         self.assertEqual(c.plugin_root(ROOT), ROOT); self.assertIsNone(c.plugin_root(os.path.join(ROOT, "docs")) if not os.environ.get("CLAUDE_PLUGIN_ROOT") and not os.path.isfile(os.path.join(ROOT, ".claude-plugin", "plugin.json")) else None)
         self.assertEqual(c.plugin_version(ROOT), json.loads(read(".claude-plugin", "plugin.json"))["version"]); self.assertEqual(c.plugin_version("/nowhere"), "?")
+
+
+class TheSameNameInTwoScripts(unittest.TestCase):
+    """docs/design/lightening.md step 2 (2026-10-31): after step 1, thirty definitions still shared a name across scripts. A true
+    duplicate merged into reef_common (`load_sibling` for the three `plan_check_module` loaders and reef-graph-run's `load_script`,
+    `git_root` for the two `root_of`, `reef_dir`, `section`, `slug_error` with its SLUG_RE and GENERIC_SLUGS, `served_dirs`,
+    `config_homes`); a false one — two things under one name — was renamed so a reader stops confusing them (reef-row's
+    `queue_rows` → queue_status, reef-run's `release_hold` → drop_session_hold, reef-loop's `render` → render_status_page,
+    reef-init's `render`/`detect` → render_template/detect_stack, reef-handoff's `render` → render_handoff, reef-recalibrate's
+    `render_plan` → render_moves, reef-plan-check's `parse_args` → parse_check_args, reef-threat's `lint` → lint_threat,
+    reef-factory's and reef-graph-run's `script` → own_script/project_script, reef-record's `gh` → gh_text, reef-repo's `gh` →
+    gh_rc3). A script's own `cmd_<verb>` handlers are one per CLI by convention and the pin does not count them."""
+
+    def test_no_name_is_defined_in_two_scripts(self):
+        dup, count = SizeBudget.duplicate_defs()
+        self.assertEqual(dup, {}, f"{count} definition(s) past the first: {dup}")
+        common = read("scripts", "reef_common.py")
+        for name in ("load_sibling", "git_root", "reef_dir", "section", "slug_error", "served_dirs", "config_homes"):
+            self.assertRegex(common, rf"(?m)^def {name}\(", f"reef_common defines {name}")
+        self.assertRegex(common, r"(?m)^SLUG_RE = "); self.assertRegex(common, r"(?m)^GENERIC_SLUGS = ")
+
+    def test_the_merged_helpers_say_what_the_copies_said(self):
+        import importlib.machinery, importlib.util, tempfile
+        loader = importlib.machinery.SourceFileLoader("reef_common_for_step2", os.path.join(ROOT, "scripts", "reef_common.py"))
+        spec = importlib.util.spec_from_loader(loader.name, loader); c = importlib.util.module_from_spec(spec); loader.exec_module(c)
+        self.assertEqual(c.git_root(os.path.join(ROOT, "docs")), ROOT, "the repository's top level from inside it")
+        with tempfile.TemporaryDirectory(prefix="reef-step2.") as tmp:
+            self.assertEqual(c.git_root(tmp), os.path.abspath(tmp), "outside a repository: the directory itself")
+            self.assertEqual(c.reef_dir(tmp), os.path.join(tmp, ".reef"))
+            self.assertEqual(c.served_dirs(tmp), set())
+            with open(os.path.join(tmp, "mkdocs.yml"), "w") as f:
+                f.write("docs_dir: site\n")
+            self.assertIn("site", c.served_dirs(tmp))
+            with open(os.path.join(tmp, "conf.py"), "w") as f:
+                f.write("project = 'x'\n")
+            self.assertNotIn("", c.served_dirs(tmp), "a Sphinx conf.py at the root names no directory")
+        self.assertTrue(c.reef_dir(ROOT).endswith("reef") and ".git" in c.reef_dir(ROOT), "inside: under the git common dir")
+        self.assertEqual(c.section("# t\n\n## A\nalpha\n\n## B\nbeta\n", "A"), "\nalpha\n\n"); self.assertIsNone(c.section("## A\nx\n", "Z"))
+        self.assertIsNone(c.slug_error("csv-export-for-orders"))
+        self.assertIn("is not 2-5 kebab-case words", c.slug_error("Csv"))
+        self.assertIn("is a number or a generic word", c.slug_error("misc-stuff"))
+        self.assertEqual(c.config_homes({"paths": {"adr": "docs/adr/", "queue": "reef/queue.md", "other": "x"}}), ["docs/adr", "reef/queue.md"])
+        m = c.load_sibling("reef-tier.py")
+        self.assertTrue(hasattr(m, "main"), "a sibling script loaded as a module")
