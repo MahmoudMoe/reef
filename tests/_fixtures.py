@@ -21,6 +21,22 @@ def write(root, rel, text):
     return p
 
 
+def stamped(root):
+    """`root` as a reef-init'd layout whose plan stamp is fresh now, for a suite whose subject is not the stamp: the plan check's
+    copy (it only marks the layout, and a Reef project without it denies every dispatch since the review after #261), a brief,
+    and the stamp the plugin's own check writes — called right before the dispatch the test is about. A plan the check fails
+    (a cycle, a duplicate id) gets no stamp; the guard then names the check's failure."""
+    import shutil
+    import sys
+    for n in ("reef-plan-check.py", "reef_common.py"):
+        if not os.path.isfile(os.path.join(root, "scripts", n)):
+            os.makedirs(os.path.join(root, "scripts"), exist_ok=True)
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(root, "scripts", n))
+    if not any(os.path.isfile(os.path.join(root, b)) for b in ("CLAUDE.md", "AGENTS.md")):
+        write(root, "CLAUDE.md", "# brief\n")
+    subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-plan-check.py"), root], capture_output=True, text=True)
+
+
 def git(d, *a, check=False):
     """`git -C d …` with the test identity: the CompletedProcess (text, captured); `check` raises on a non-zero exit."""
     return subprocess.run(["git", "-C", d, *IDENTITY, *a], check=check, capture_output=True, text=True)

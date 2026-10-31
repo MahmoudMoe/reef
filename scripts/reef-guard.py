@@ -85,6 +85,7 @@ if _os.name == "nt" or _os.environ.get("REEF_TEST_NATIVE_WINDOWS"):
         _d = _up
 
 import fcntl
+import fnmatch
 import hashlib
 import json
 import os
@@ -401,14 +402,201 @@ def check_evidence_authoring(seg, ctx):
     deny(EVIDENCE_DENIAL.format(path=hits[0]))
 
 
+SOURCE_IS_HEAD = {"HEAD", "@"}   # a restore or checkout from HEAD brings back what is committed — no removal
+GIT_PATH_FORMS = ("rm", "mv", "restore", "checkout", "reset")   # the git verbs that take paths
+GIT_BUILTINS = set("status log diff show add commit push pull fetch branch switch merge rebase stash worktree config rev-parse "
+                   "ls-files ls-tree grep blame tag remote init clone cherry-pick revert apply am clean describe reflog submodule "
+                   "notes bisect range-diff merge-base symbolic-ref for-each-ref cat-file hash-object update-index read-tree "
+                   "sparse-checkout shortlog format-patch archive gc fsck help version rev-list mergetool difftool".split())
+OPAQUE_GIT_ENV = re.compile(r"^GIT_(DIR|WORK_TREE|INDEX_FILE|(ICASE|GLOB|NOGLOB|LITERAL)_PATHSPECS)=")
+OPAQUE_GIT_OPT = re.compile(r"^(--(work-tree|git-dir|(icase|glob|noglob|literal)-pathspecs)(=|$)|(-c)?(core\.worktree|alias\.))", re.I)
+
+
+def git_command(seg):
+    """(subcommand, its arguments, the folder git runs in, why its paths are unreadable or "") for the first `git` in the
+    segment, wherever it stands — as check_segment finds it, so no wrapper (`timeout 9`, `sudo -u me`) hides it. Global
+    options are skipped by GIT_GLOBAL_VALUE_OPTS and `-C` applied to the folder (the `cd` hint, else the cwd). Unreadable:
+    paths fed by xargs or find -exec, or a variable or option that moves the tree, the index or the pathspec rules
+    (`GIT_DIR`, `--work-tree`, `--icase-pathspecs`, `-c alias.…`)."""
+    here = os.path.join(CTX.get("cwd") or os.getcwd(), CTX.get("cd_hint") or "")
+    i = next((j for j, t in enumerate(seg) if os.path.basename(t) == "git"), None)
+    if i is None:
+        return None, [], here, ""
+    why = "paths fed by xargs or find" if any(os.path.basename(t) == "xargs" or t in ("-exec", "-execdir", "-ok", "-okdir") for t in seg[:i]) \
+        else "a GIT_* variable" if any(OPAQUE_GIT_ENV.match(t) for t in seg[:i]) else ""
+    args, k = seg[i + 1:], 0
+    while k < len(args) and args[k].startswith("-"):
+        if OPAQUE_GIT_OPT.match(args[k]) or args[k] == "-c" and k + 1 < len(args) and OPAQUE_GIT_OPT.match(args[k + 1]):
+            why = why or ("an alias" if "alias." in (args[k] + " " + " ".join(args[k + 1:k + 2])).lower() else "a git option that moves the tree")
+        if args[k] == "-C" and k + 1 < len(args):
+            here = os.path.join(here, os.path.expanduser(args[k + 1]))
+        k += 2 if args[k] in GIT_GLOBAL_VALUE_OPTS or args[k] == "-c" else 1
+    return (args[k], args[k + 1:], here, why) if k < len(args) else (None, [], here, why)
+
+
+def guard_files_in(top):
+    """The guard files that exist in a checkout — the concrete list a pathspec is matched against."""
+    found = [os.path.join(top, ".reef", "config.json"), os.path.join(top, "hooks", "hooks.json")]
+    for d in ("scripts", ".githooks"):
+        folder = os.path.join(top, d)
+        found += [os.path.join(folder, f) for f in (os.listdir(folder) if os.path.isdir(folder) else [])]
+    return [f for f in found if os.path.isfile(f) and GUARD_FILES.search(os.path.relpath(f, top).replace(os.sep, "/"))]
+
+
+def covers_guard_file(spec, here):
+    """A pathspec that reaches a guard file of its checkout: the file, a folder above one, a glob matching either, the
+    whole tree — resolved to an absolute path first (`..`, `-C`, `:/`). Long magic (`:(top)`, `:(icase)` …) and the
+    exclusions (`:!`, `:^`), and a word the shell expands or git unescapes, are read as reaching one."""
+    if spec.startswith(":") and not spec.startswith(":/") or re.search(r"[${}\\`]", spec):
+        return True   # magic, or a word the shell or git rewrites ($…, {a,b}, a backslash escape)
+    base = task_root(os.path.join(here, "x"), here) if spec.startswith(":/") else here
+    spec = os.path.expanduser(spec[2:] if spec.startswith(":/") else spec)
+    wild = re.search(r"[*?\[]", spec)
+    path = os.path.normpath(os.path.join(base, spec))
+    if not wild and GUARD_FILES.search(path):
+        return True
+    stem = os.path.normpath(os.path.join(base, spec[:wild.start()])) if wild else path
+    top = task_root(os.path.join(stem, "x"), stem)
+    for f in guard_files_in(top):
+        while True:   # the file and every folder above it, up to the checkout
+            if (fnmatch.fnmatchcase(f, path) if wild else f == path):
+                return True
+            if f == top or os.path.dirname(f) == f:
+                break
+            f = os.path.dirname(f)
+    return False
+
+
+def guard_names(here, paths, *diff):
+    """The guard files git names as differing under the command's own pathspecs (`git diff --name-only <diff…> -- <paths>`),
+    a file only the revision holds included; None when git cannot answer (a bad revision, no commit yet) — a change."""
+    try:
+        r = subprocess.run(["git", "-C", here, "diff", "--name-only", *diff, "--", *paths], capture_output=True, text=True, timeout=5)
+    except Exception:
+        return None
+    return {n for n in r.stdout.splitlines() if GUARD_FILES.search(n)} if r.returncode == 0 else None
+
+
+def stored_alias(here, sub):
+    """The words a stored `alias.<sub>` stands for (`git config alias.zap rm`), or None."""
+    try:
+        r = subprocess.run(["git", "-C", here, "config", "--get", f"alias.{sub}"], capture_output=True, text=True, timeout=5)
+    except Exception:
+        return None
+    return r.stdout.split() if r.returncode == 0 and r.stdout.strip() else None
+
+
+def git_guard_targets(seg):
+    """The git route to removing or replacing a guard file (the security reviews after #261), judged by asking git whether a
+    guard file would change: `git rm` of one (`--cached`: one named exactly), `git mv` of one or onto one, `git restore
+    --source`, `git checkout <rev> --` and `git reset <rev> --` where git names a guard file under the pathspecs as differing
+    at <rev>, `--theirs` over a conflicted one, and a restore from the index that would give the tree a guard file HEAD does
+    not hold. A revision that starts with `-` is never passed to git. A stored alias is read as what
+    it stands for (a shell alias, `!…`, is unreadable). Not judged (a known gap): a branch switch, `reset --hard`, `read-tree
+    -u`, `sparse-checkout`, `apply`/`am`, a commit of a rewritten index, and a merge, revert or cherry-pick that deletes one.
+    Returns (the subcommand, the pathspecs that reach one, why the paths are unreadable or "")."""
+    sub, rest, here, why = git_command(seg)
+    if sub and sub not in GIT_PATH_FORMS and sub not in GIT_BUILTINS:   # git never lets an alias shadow a builtin
+        alias = stored_alias(here, sub)
+        if alias and (alias[0].startswith("!") or alias[0] in GIT_PATH_FORMS):
+            if alias[0].startswith("!"):
+                return sub, [], "a shell alias"
+            sub, rest = alias[0], alias[1:] + rest
+    if sub not in GIT_PATH_FORMS:
+        return sub, [], why if why == "an alias" else ""
+    if why or any(a.startswith("--pathspec-from-file") for a in rest):
+        return sub, [], why or "--pathspec-from-file"
+    if any(re.search(r"[${}\\`]", a) for a in rest if not a.startswith("-")):
+        return sub, [], "a word the shell expands or git unescapes ($…, {a,b}, a backslash) — name the paths as they are"
+    return sub, guard_pathspecs(sub, rest, here), ""
+
+
+def guard_pathspecs(sub, rest, here):
+    """The pathspecs of one git path verb (GIT_PATH_FORMS) that would remove or replace a guard file — git_guard_targets' rules."""
+    named = [a for a in rest if not a.startswith("-")]
+    covered = lambda paths: [a for a in paths if covers_guard_file(a, here)]
+    if sub == "rm":
+        if "--cached" in rest:   # the index only: the file stays on disk
+            return [a for a in named if GUARD_FILES.search(os.path.normpath(os.path.join(here, a)))]
+        return covered(named)
+    if sub == "mv":
+        if len(named) < 2:
+            return []
+        dest = os.path.normpath(os.path.join(here, os.path.expanduser(named[-1])))
+        landed = [os.path.join(dest, os.path.basename(os.path.normpath(x))) for x in named[:-1]] if os.path.isdir(dest) else [dest]
+        gone = covered(named[:-1])
+        if any(GUARD_FILES.search(x) for x in landed):   # onto one: a replacement
+            gone.append(named[-1])
+        return gone
+
+    def changed(paths, *diff):   # git's own answer; a revision that reads as an option is no revision
+        names = guard_names(here, paths, *diff)   # no answer over paths that reach no guard file (a typo'd revision) denies nothing
+        return paths or ["."] if names or names is None and (not paths or covered(paths)) else []
+
+    def from_index(paths):   # the reset-then-checkout route: the index holds a guard file HEAD does not, and the tree will take it
+        staged, unstaged = guard_names(here, paths, "--cached", "HEAD"), guard_names(here, paths)
+        return paths or ["."] if staged is None or unstaged is None or staged & unstaged else []
+
+    def from_rev(rev, paths):
+        if rev in SOURCE_IS_HEAD:
+            return []
+        return paths or ["."] if rev.startswith("-") else changed(paths, "--end-of-options", rev)
+
+    if sub == "restore":   # short options bundle (`-SWs <rev>`, `-sHEAD~1`); --staged alone touches the index only
+        paths, source, value, staged, worktree = [], None, False, False, False
+        for a in rest:
+            if value:
+                source, value = a, False
+            elif a.startswith("--"):
+                source = a.split("=", 1)[1] if a.startswith("--source=") else source
+                value, staged, worktree = a == "--source", staged or a == "--staged", worktree or a == "--worktree"
+            elif a.startswith("-") and len(a) > 1:
+                flags, _, tail = a[1:].partition("s")
+                if "s" in a[1:]:
+                    source, value = tail or None, not tail
+                staged, worktree = staged or "S" in flags, worktree or "W" in flags
+            else:
+                paths.append(a)
+        if staged and not worktree or "--ours" in rest:
+            return []   # the index only, or our side: HEAD's
+        if "--theirs" in rest:
+            return changed(paths, "--diff-filter=U")
+        return from_index(paths) if source is None else from_rev(source, paths)
+    sides = sub == "checkout" and ("--ours" in rest or "--theirs" in rest)
+    if any(a in ("--hard", "--soft", "--mixed", "--keep", "--merge") for a in rest) or (sub == "checkout" and any(
+            a in ("-b", "-B", "--orphan") or a.startswith("--orphan=") for a in rest)) or (sub == "checkout" and "--" not in rest
+            and len(named) == 1 and not sides and not os.path.exists(os.path.join(here, named[0]))):
+        return []   # a whole-tree reset or a branch switch: the named gap
+    if "--" in rest:
+        revs, paths = [a for a in rest[:rest.index("--")] if not a.startswith("-")], rest[rest.index("--") + 1:]
+    elif sides or sub == "checkout" and len(named) == 1:
+        revs, paths = [], named   # a side of a conflict, or one existing path from the index
+    else:
+        revs, paths = named[:1], named[1:]
+    if sides:   # our side is HEAD's; their side of a conflicted guard file is a replacement
+        return changed(paths, "--diff-filter=U") if "--theirs" in rest else []
+    if not revs:
+        return [] if sub == "reset" else from_index(paths)   # `git reset -- <path>` unstages: the index takes HEAD's
+    if sub == "reset":   # the index takes <rev>'s: what it holds against the index now
+        return [] if revs[0] in SOURCE_IS_HEAD else paths or ["."] if revs[0].startswith("-") else changed(paths, "--cached", "--end-of-options", revs[0])
+    return from_rev(revs[0], paths)
+
+
 def check_guard_files(seg, ctx):
-    """scripts/reef-*, .githooks/*, hooks/hooks.json, .reef/config.json: a Bash write (redirect, cp, mv, sed -i …)
-    is allowed only inside the plugin's own repository or under a critical task in flight. rm/mv/chmod on the
-    hook files keep their 0.5 denial regardless."""
-    if not is_write(seg) or any(os.path.basename(t) == "chmod" for t in seg):
-        return   # chmod on the hook files is check_chmod's business (pure +x is reef-init's install)
-    hits = [t for t in write_targets(seg) if GUARD_FILES.search(t)]
-    if hits and not ctx.get("plugin_root") and not ctx.get("critical_inflight"):
+    """scripts/reef-*, .githooks/*, hooks/hooks.json, .reef/config.json: a Bash write (redirect, cp, mv, sed -i …) or a git
+    removal or replacement (git_guard_targets) is allowed only inside the plugin's own repository or under a critical task
+    in flight. rm/mv/chmod on the hook files keep their 0.5 denial regardless."""
+    if ctx.get("plugin_root") or ctx.get("critical_inflight"):
+        return
+    sub, gone, why = git_guard_targets(seg)
+    if gone or why:
+        deny(f"git {sub} {f'over {gone[0]!r}' if gone else f'with {why}'}: it "
+             f"{'removes or replaces' if gone else 'may remove or replace, and the guard cannot read which of'} the guard's own files "
+             "(scripts/reef*, .githooks/, hooks/hooks.json, .reef/config.json) — only under a tier: critical task or inside Reef's own "
+             "repository; a restore from HEAD, or from an index that matches HEAD (`git checkout -- <path>`), stays allowed")
+    hits = [t for t in write_targets(seg) if GUARD_FILES.search(t)] \
+        if is_write(seg) and not any(os.path.basename(t) == "chmod" for t in seg) else []   # chmod is check_chmod's business
+    if hits:
         deny(f"Bash write to {hits[0]!r}: the guard's own files and the roles/caps/gates/tiers keys change only under "
              "a tier: critical task (none is in flight) or inside Reef's own repository — plan it as a critical task "
              "(python3 scripts/reef-init.py --accept <path> is the allowed way to take a proposed script)")
@@ -1073,13 +1261,31 @@ def task_root(path, fallback):
         probe = parent
 
 
-def check_stamp(root, feature):
+def in_reef_project(path):
+    """A .reef/config.json in the folder or any folder above it — a stray .git marker below the project's root (a gitfile git
+    rejects, written into a feature folder) does not make a folder outside the project."""
+    p = os.path.abspath(path)
+    while True:
+        if os.path.isfile(os.path.join(p, ".reef", "config.json")):
+            return True
+        if os.path.dirname(p) == p:
+            return False
+        p = os.path.dirname(p)
+
+
+def check_stamp(root, feature, cwd):
     """Mechanical plan-freshness: an edited plan never dispatches unnoticed.
     Read-only; runs BEFORE the odometer bump so a stale-plan denial costs nothing.
     Scoped to the task's own feature, so another feature's tasks arriving with a merge
     of the integration branch do not force a re-review of this one. The copy marks a reef-init'd layout;
-    the PLUGIN's plan check decides, never the copy — a copy can print a green check."""
+    the PLUGIN's plan check decides, never the copy — a copy can print a green check. In a Reef project (a
+    .reef/config.json in or above the task's or the session's checkout) a missing copy is no layout to skip: it denies,
+    so deleting the copy, or a task file in a fresh folder with a .git marker, does not open the gate."""
     if not os.path.isfile(os.path.join(root, "scripts", "reef-plan-check.py")):
+        if any(in_reef_project(h) for h in {root, main_checkout(root), main_checkout(cwd), cwd}):
+            deny(f"{os.path.join(root, 'scripts', 'reef-plan-check.py')} is missing — the task's checkout is not a reef-init'd "
+                 "layout of this Reef project, so its plan cannot be checked: run /reef-init (or `git checkout -- "
+                 "scripts/reef-plan-check.py` while the deletion is uncommitted), or dispatch the task from the project's own worktree")
         return  # not a reef-init'd layout; nothing to verify against
     script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
     cmd = [sys.executable, script, root, "--verify-stamp"]
@@ -1354,7 +1560,7 @@ def _check_dispatch(tool_input, payload):
     except Exception:
         pre_fm = None   # re-read under the lock below, which fails closed
     step("the plan stamp")
-    check_stamp(root, (pre_fm or {}).get("feature", ""))
+    check_stamp(root, (pre_fm or {}).get("feature", ""), cwd)
     step("the dispatch checks")
     graph = load_graph_module()
     lock_dir = graph.lock_key(root, graph.read_config(root))   # 0.6: one graph across every feature folder
@@ -1493,8 +1699,9 @@ def check_plan_files(seg, ctx):
     if "implementer" not in str(ctx.get("agent_type") or ""):
         return
     targets = list(write_targets(seg)) if is_write(seg) else []
-    if seg and os.path.basename(seg[0]) == "git" and seg[1:2] and seg[1] in ("mv", "rm", "restore", "checkout"):
-        targets += [a for a in seg[2:] if not a.startswith("-")]
+    sub, rest, here, _ = git_command(seg)
+    if sub in GIT_PATH_FORMS:
+        targets += [os.path.join(here, a) for a in rest if not a.startswith("-")]
     for t in targets:
         if is_plan_file(t, ctx):
             deny(PLAN_DENIAL.format(rel=t))
