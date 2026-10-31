@@ -882,3 +882,57 @@ class RunnerJobs(unittest.TestCase):
         self.assertEqual([(j["name"], j["rc"]) for j in done], [("endless", 124)]); self.assertTrue(any("killed" in t for t in said)); self.assertIn("killed", mod.jobs_note(done))
         time.sleep(0.3); self.assertFalse(alive(rec["pid"]), "the job's process group was ended")
 
+
+
+class WatchInsideASession(unittest.TestCase):
+    """2026-10-31, the owner: "add reef-watch so I can see the log from inside Claude Code". A session's tool holds until a command
+    returns, so `watch` gains two bounds: `--tail N` (how many of the last lines) and `--for S` (follow S seconds, then return and
+    say the runner still runs; 0 returns at once). The terminal's `reef watch` stays unbounded. The skill names the bounded forms only."""
+
+    def setUp(self):
+        self.d = project()
+        os.makedirs(os.path.join(self.d, ".reef", "run"), exist_ok=True)
+        self.log = os.path.join(self.d, ".reef", "run", "live.log")
+        open(self.log, "w").write("".join(f"21:{i:02d} s1 → step {i}\n" for i in range(30)))
+        open(os.path.join(self.d, ".reef", "run", "lock"), "w").write(str(os.getpid()))   # a live runner
+
+    def test_tail_and_for_bound_the_watch(self):
+        t0 = time.time()
+        r = subprocess.run([sys.executable, RUN, "watch", "--tail", "3", "--for", "0", "--repo", self.d], capture_output=True, text=True, timeout=20)
+        self.assertLess(time.time() - t0, 5, "--for 0 returns at once, runner or not")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        body = [l for l in r.stdout.splitlines() if l.startswith("21:")]
+        self.assertEqual(body, ["21:27 s1 → step 27", "21:28 s1 → step 28", "21:29 s1 → step 29"], "the last three lines only\n" + r.stdout)
+        self.assertIn("the runner still runs", r.stdout); self.assertIn("watch --for", r.stdout, "the line that follows on is named")
+        w = subprocess.Popen([sys.executable, RUN, "watch", "--tail", "1", "--for", "2", "--repo", self.d], stdout=subprocess.PIPE, text=True)
+        time.sleep(0.5)
+        with open(self.log, "a") as f:
+            f.write("21:30 s1 ← step 30: GREEN\n")
+        time.sleep(1.2)   # the last second of the window: its line is read on the way out (the review)
+        with open(self.log, "a") as f:
+            f.write("21:31 s1 ← step 31: GREEN\n")
+        t0 = time.time()
+        out, _ = w.communicate(timeout=20)
+        self.assertLess(time.time() - t0, 4, "--for 2 returned when its seconds were up, with the runner alive")
+        self.assertEqual(w.returncode, 0, out)
+        self.assertIn("21:30 s1 ← step 30: GREEN", out, "a line written meanwhile was followed")
+        self.assertIn("21:31 s1 ← step 31: GREEN", out, "a line written in the last second too")
+        self.assertIn("the runner still runs", out)
+        # a bad bound exits 1 (2 is the owner's wait, which a session reads); the bounds are watch's alone — a flag-only argv starts no run
+        for bad in (["watch", "--for", "x"], ["watch", "--for", "inf"], ["watch", "--tail", "many"]):
+            r = subprocess.run([sys.executable, RUN, *bad, "--repo", self.d], capture_output=True, text=True, timeout=20)
+            self.assertEqual(r.returncode, 1, bad)
+        r = subprocess.run([sys.executable, RUN, "--for", "100", "--repo", self.d], capture_output=True, text=True, timeout=20)
+        self.assertEqual(r.returncode, 1, "without the verb the flag is unknown: nothing runs\n" + r.stdout + r.stderr)
+        self.assertIn("unknown argument", r.stdout + r.stderr); self.assertEqual(calls(self.d), [], "no session started")
+
+    def test_the_skill_and_the_descriptions(self):
+        skill = open(os.path.join(ROOT, "skills", "reef-watch", "SKILL.md"), encoding="utf-8").read()
+        self.assertIn("name: reef-watch", skill)
+        self.assertIn("watch --tail", skill); self.assertIn("--for", skill)
+        self.assertRegex(skill, r"(?i)never .*without .*--for", "an unbounded watch holds the session's tool until the runner ends: the skill says never")
+        run_skill = open(os.path.join(ROOT, "skills", "reef-run", "SKILL.md"), encoding="utf-8").read().split("---", 2)[1]
+        self.assertIn("/reef-run autopilot", run_skill, "the owner looked for /reef:autopilot: the description names it")
+        self.assertIn("autopilot", run_skill.split("argument-hint:", 1)[1].splitlines()[0])
+        self.assertIn("/reef-watch", open(os.path.join(ROOT, "README.md"), encoding="utf-8").read())
+        self.assertIn("reef-watch skill", open(os.path.join(ROOT, "commands", "watch.md"), encoding="utf-8").read(), "the command stub pairs the skill, as every owner verb's does")
