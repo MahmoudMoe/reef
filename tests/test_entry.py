@@ -830,10 +830,10 @@ class TheLogIsOnTheScreen(unittest.TestCase):
         self.assertEqual(mod.log_find(self.LOG, "GREEN", before=10), 7, "n: the next older match")
         self.assertIsNone(mod.log_find(self.LOG, "nothing like it", before=len(self.LOG)))
         lines, st, most = mod.render_log(self.LOG, width=100, height=20, offset=0)
-        self.assertIn("PgUp", lines[0]); self.assertIn("/ search", lines[0]); self.assertIn("following", lines[0])
+        self.assertIn("↑↓ [ ] scroll", lines[0]); self.assertIn("/ search", lines[0]); self.assertIn("following", lines[0])   # PgUp/PgDn work too; the help says so (a Mac keyboard has no PgUp)
         self.assertEqual(st, {i: mod.log_style(l[2:]) for i, l in enumerate(lines) if l.startswith("  21:") and mod.log_style(l[2:])}, "the page's lines carry the board's styles")
         lines, _, most = mod.render_log(self.LOG, width=100, height=20, offset=5)
-        self.assertIn("5 line(s) back", lines[0]); self.assertIn("End follows", lines[0])
+        self.assertIn("5 back", lines[0]); self.assertIn("b newest", lines[0])
         self.assertIn("no match for 'zzz'", mod.render_log(self.LOG, width=100, height=20, found="zzz", matched=False)[0][0])
         nav = mod.log_nav
         self.assertEqual(nav("page_up", self.LOG, 18, 0, "", None), (18, None)); self.assertEqual(nav("page_up", self.LOG, 18, 18, "", None), (23, None), "clamped at the oldest page")
@@ -875,7 +875,7 @@ class TheLogIsOnTheScreen(unittest.TestCase):
         logs = [f for f in win.frames if f and f[0][0].startswith("LOG")]
         self.assertGreaterEqual(len(logs), 5, "the log page was drawn after each key")
         after_pgup, after_home, after_end = logs[1], logs[2], logs[3]
-        self.assertIn("18 line(s) back", after_pgup[0][0], "PgUp scrolls a page (the body's height)")
+        self.assertIn("18 back", after_pgup[0][0], "PgUp scrolls a page (the body's height)")
         self.assertIn("21:00", after_home[1][0], "Home: the oldest line first")
         self.assertIn("following", after_end[0][0], "End: the newest lines, following")
         found = [f for f in logs if "found 'green'" in f[0][0]]
@@ -1030,3 +1030,50 @@ class TheScreenRestartsAfterAnUpdate(unittest.TestCase):
         src = open(ENTRY, encoding="utf-8").read()
         self.assertIn("def restart_screen", src)
         self.assertIn("os.execv(", src.split("def restart_screen", 1)[1].split("\ndef ", 1)[0], "the restart is the same command in a fresh process")
+
+
+class TheOwnersWalkThroughTheScreen(unittest.TestCase):
+    """2026-10-31 19:00, the owner, after a day on the screen: "I like the homepage — the log, the tasks, the rows. In the inbox I still see
+    plan approvals I already approved. When I press Tab it stops at a certain page and I cannot get back; it says Home/End and I have
+    no Home key; q takes me out." Four rules: an approval whose record exists at the question's digest has left the inbox (the
+    runner's last wait text is not the truth, the record is); Tab, i, p and w work from every page, LOG and help included; the LOG
+    page has keys a Mac keyboard has — t the oldest, b the newest (follow), [ and ] a page — beside Home/End and PgUp/PgDn; q on a
+    sub-page (LOG, help, the autopilot panel) goes back and the page's first line says so; on the main pages q quits."""
+
+    def test_an_approval_already_recorded_leaves_the_inbox(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        d = project(**{".reef/loop.json": '{"active": true, "wait": "owner: Approve plan invoices-pdf at 3f9a1c77be02d4e1? and Approve plan rate-limits at 0123456789abcdef?", "stop": null, "parked": null, "hashes": []}',
+                       ".reef/approvals/invoices-pdf.json": '{"digest16": "3f9a1c77be02d4e1", "approved_at": "2026-10-31T18:00:00Z"}'})
+        items = mod.inbox(d)
+        self.assertEqual([i["text"] for i in items], ["Approve plan rate-limits at 0123456789abcdef?"], "the approved plan is gone; the other stays\n" + str(items))
+        self.assertTrue(mod.already_approved(d, "Approve plan invoices-pdf at 3f9a1c77be02d4e1?"))
+        self.assertFalse(mod.already_approved(d, "Approve plan invoices-pdf at ffffffffffffffff?"), "a record at another digest is not this approval (the plan changed)")
+        open(os.path.join(d, ".reef", "approvals", "night.json"), "w").write('{"digest16": "aaaaaaaaaaaaaaaa"}')
+        self.assertTrue(mod.already_approved(d, "Approve night 2026-10-31 at aaaaaaaaaaaaaaaa?"))
+        self.assertFalse(mod.already_approved(d, "Approve proxy by day at bbbbbbbbbbbbbbbb?"))
+        open(os.path.join(d, ".reef", "approvals", "day.json"), "w").write('{"digest16": "bbbbbbbbbbbbbbbb"}')   # reef-approval.py's name for the day contract
+        self.assertTrue(mod.already_approved(d, "Approve proxy by day at bbbbbbbbbbbbbbbb?"), "the day contract's record is day.json (the review: proxy-day.json was nobody's file)")
+        open(os.path.join(d, ".reef", "approvals", "night.json"), "w").write('["not a record"]')
+        self.assertFalse(mod.already_approved(d, "Approve night 2026-10-31 at aaaaaaaaaaaaaaaa?"), "a record that is not a dict is no record")
+
+    def test_every_page_answers_tab_i_p_w_and_says_what_q_does(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        on = mod.on_key
+        for view in ("log", "help", "autopilot"):
+            self.assertEqual(on(9, 0, 0, view)[0], "view", f"Tab from {view} moves on")
+            self.assertEqual(on(ord("i"), 0, 0, view), ("view", "inbox"), f"i from {view}")
+            self.assertEqual(on(ord("p"), 0, 0, view), ("view", "plan"), f"p from {view}")
+            self.assertIn(on(ord("q"), 0, 0, view)[0], ("back", "view"), f"q from {view} goes back, never out")
+        self.assertEqual(on(9, 0, 0, "log"), ("view", "work"), "Tab from LOG: the cycle starts again at WORK")
+        self.assertEqual(on(ord("w"), 0, 0, "help"), ("log",), "w from help: the log"); self.assertEqual(on(ord("w"), 0, 0, "autopilot"), ("log",), "w from the autopilot panel too (one rule)")
+        self.assertEqual(on(ord("t"), 0, 0, "log"), ("top",)); self.assertEqual(on(ord("b"), 0, 0, "log"), ("bottom",))
+        self.assertEqual(on(ord("["), 0, 0, "log"), ("page_up",)); self.assertEqual(on(ord("]"), 0, 0, "log"), ("page_down",))
+        self.assertEqual(on(ord("q"), 0, 2, "work"), ("quit",)); self.assertEqual(on(ord("q"), 0, 2, "inbox"), ("quit",))
+        lines, _, _ = mod.render_log(["a", "b"], width=120, height=10)
+        self.assertIn("t oldest · b newest", lines[0], "the LOG header names keys a Mac keyboard has (Home/End stay in the help)"); self.assertIn("q back", lines[0])
+        longest = mod.render_log(["a"] * 400, width=127, height=10, offset=357, found="a query of some length", matched=True)[0][0]   # scrolled back, a search on: the screen's width is w-1
+        self.assertIn("q back · Tab views", longest, "the header's last words survive 127 columns in its longest state:\n" + longest)
+        help_lines, _ = mod.render_help("work", width=120)
+        self.assertIn("q back", help_lines[0]); self.assertTrue(any("t oldest" in l and "b newest" in l for l in help_lines), "\n".join(help_lines))
+        self.assertTrue(any("Tab" in l and "every page" in l for l in help_lines), "the help says Tab works from every page")
+        self.assertIn("w log", mod.KEYS, "the banner's keys line stays short (a 10x4 terminal wraps it to four rows); i and p are in the help")

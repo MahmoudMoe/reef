@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The screen after the owner's walk** (2026-10-31 19:00): an approval the owner already gave (its record in `.reef/approvals/` at the question's digest) no longer sits in the inbox until the runner wakes; Tab, i, p and w work from every page (LOG and help included — Tab from LOG starts the cycle again at WORK); the log page answers t (oldest), b (newest, following), [ and ] (a page) beside Home/End/PgUp/PgDn a Mac keyboard lacks; every sub-page's first line says `q back`, and the help says where q quits and where it goes back. tests/size-budget.json: unchanged (nothing grew).
 - **Lightening step 4 — orphans and aliases** (`docs/design/lightening.md`; the owner, 2026-10-31: "/reef-plan and /reef:plan — that
   is duplication too", his call: delete). `commands/` held fifteen three-line files that each invoked a skill, so every verb showed
   twice in Claude Code's menu (`/reef:plan` and `/reef:reef-plan`); every document, prompt and the runner name `/reef-<verb>`, which

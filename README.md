@@ -70,10 +70,10 @@ answer prefilled, a parked loop, a doctor's fix. A digit selects, Enter runs it 
 
 **`a`** opens the autopilot's start panel: the contract it will run under, what Mahmoud decides and never decides, the order the rows
 will be worked and what it will merge or close. Enter starts it, detached; the screen keeps showing it. **PLAN** is the same batch as
-progress bars with the lanes; **LOG** is the runner's whole live log as a page — `↑↓` a line, `PgUp`/`PgDn` a page, `Home`/`End` the
-ends, `/` finds a line and `n` the next older one — and the board itself carries the runner's last eight lines under the table, colored
+progress bars with the lanes; **LOG** is the runner's whole live log as a page — `↑↓` a line, `[`/`]` a page, `t` the oldest, `b` the newest
+(following; `PgUp`/`PgDn` and `Home`/`End` work too), `/` finds a line and `n` the next older one — and the board itself carries the runner's last eight lines under the table, colored
 the way the rows are (cyan an agent or a job started, green returned, red a failure in its verdict, yellow a wait); `?` lists every
-key; `q` quits. `reef screen --once` prints the WORK and INBOX text and exits, for a log or an SSH session.
+key; `Tab`, `i`, `p` and `w` reach a page from any page; `q` quits on WORK, INBOX and PLAN and goes back from LOG, the help and the autopilot panel. `reef screen --once` prints the WORK and INBOX text and exits, for a log or an SSH session.
 
 | If you want | Go to |
 |---|---|
