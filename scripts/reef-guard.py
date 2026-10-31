@@ -1070,25 +1070,22 @@ def check_stamp(root, feature):
     """Mechanical plan-freshness: an edited plan never dispatches unnoticed.
     Read-only; runs BEFORE the odometer bump so a stale-plan denial costs nothing.
     Scoped to the task's own feature, so another feature's tasks arriving with a merge
-    of the integration branch do not force a re-review of this one."""
-    script = os.path.join(root, "scripts", "reef-plan-check.py")
-    if not os.path.isfile(script):
+    of the integration branch do not force a re-review of this one. The copy marks a reef-init'd layout;
+    the PLUGIN's plan check decides, never the copy — a copy can print a green check."""
+    if not os.path.isfile(os.path.join(root, "scripts", "reef-plan-check.py")):
         return  # not a reef-init'd layout; nothing to verify against
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
     cmd = [sys.executable, script, root, "--verify-stamp"]
     if feature:
         cmd += ["--feature", feature]
     try:
         r = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=30)
-    except Exception:
-        return
+    except Exception as e:   # a check that cannot run is not a fresh stamp
+        deny(f"plan stamp could not be checked ({e}) — the plugin's scripts/reef-plan-check.py did not run")
     if r.returncode != 0:
         out = (r.stdout or r.stderr).strip()
-        hint = ""
-        if "unknown option" in out:
-            hint = " — the project's scripts/reef-plan-check.py predates this plugin; re-copy it (reef-init step 6)"
         deny("plan stamp is stale or missing — the plan changed since its last review; "
-             "run the reef-plan-review skill in the task's own worktree before dispatching ("
-             + out + ")" + hint)
+             "run the reef-plan-review skill in the task's own worktree before dispatching (" + out + ")")
 
 
 ROLLUP_NAME = re.compile(r"^R\d+-.*\.md$")

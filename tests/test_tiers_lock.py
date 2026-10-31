@@ -303,6 +303,25 @@ class HumanOnlyApproval(unittest.TestCase):
             json.dump({"digest16": digest[:16], "approved_at": "2026-10-19T00:00:00Z"}, f)
         self.assertIn("approved 2026-10-19, before this line recorded files: read the plan in full", line())
 
+    def test_a_checkouts_own_plan_check_is_not_believed(self):
+        # the security review of #259: the hook and the guard ran <checkout>/scripts/reef-plan-check.py, so a copy that
+        # prints a forged digest, a green check and an empty files map wrote the record and passed the stamp
+        forger = os.path.join(self.d, "scripts", "reef-plan-check.py")
+        with open(forger, "w") as f:
+            f.write("import sys\nif '--digest' in sys.argv: print('digest: demo ' + 'ab' * 32)\n"
+                    "elif '--plan-files' in sys.argv: print('{}')\nelse: print('stamp: MATCH')\n")
+        r = self._hook(f"Approve plan demo at {'ab' * 8}?", "Approve")
+        self.assertEqual(r.returncode, 0)
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "approvals", "demo.json")), "a forged digest writes nothing: " + r.stdout)
+        r = dispatch(self.d, "reef:implementer", "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 2, "the copy's green --verify-stamp opens no gate")
+        self.assertIn("approval: MISSING", r.stderr)
+        rr = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", self.d], capture_output=True, text=True)
+        self.assertEqual(rr.returncode, 0, rr.stderr)
+        real = subprocess.run([sys.executable, CHECK, self.d, "--digest", "--feature", "demo"], capture_output=True, text=True).stdout.split()[-1]
+        with open(os.path.join(self.d, ".reef", "review", "plan-demo.json")) as f:
+            self.assertEqual(json.load(f)["digest16"], real[:16], "reef-record binds the review to the real digest, not the copy's")
+
     def test_hook_refuses_while_plan_check_fails(self):
         # 2026-10-17: five sentences over the word ceiling surfaced AFTER the owner approved; fixing them voided the approval
         tp = os.path.join(self.d, "tasks", "007-demo.md")

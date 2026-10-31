@@ -32,6 +32,8 @@ from reef_common import main_checkout, drop_question, process_alive, questions, 
 QUESTION = re.compile(r"^Approve plan (?P<feature>[A-Za-z0-9][A-Za-z0-9._-]*) at (?P<digest>[0-9a-f]{16})\?$")
 NIGHT_Q = re.compile(r"^Approve night (?P<date>\d{4}-\d\d-\d\d) at (?P<digest>[0-9a-f]{16})\?$")
 DAY_Q = re.compile(r"^Approve proxy by day at (?P<digest>[0-9a-f]{16})\?$")
+# the plugin's own plan check, never the checkout's copy: a copy can print any digest, a green check or a forged files map
+PLAN_CHECK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
 
 
 def runner():
@@ -81,21 +83,15 @@ def feature_present(root, feature):
 
 
 def current_digest(root, feature):
-    script = os.path.join(root, "scripts", "reef-plan-check.py")
-    if not os.path.isfile(script):
-        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
-    r = subprocess.run([sys.executable, script, root, "--digest", "--feature", feature], capture_output=True, text=True, timeout=60)
+    r = subprocess.run([sys.executable, PLAN_CHECK, root, "--digest", "--feature", feature], capture_output=True, text=True, timeout=60)
     m = re.search(r"^digest: \S+ ([0-9a-f]{64})", r.stdout, re.M)
     return m.group(1) if m else None
 
 
 def plan_files(root, feature):
     """{file: sha12} over the digest's own files (reef-plan-check.py --plan-files); {} when it cannot run."""
-    script = os.path.join(root, "scripts", "reef-plan-check.py")
-    if not os.path.isfile(script):
-        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
     try:
-        r = subprocess.run([sys.executable, script, root, "--plan-files", "--feature", feature], capture_output=True, text=True, timeout=60)
+        r = subprocess.run([sys.executable, PLAN_CHECK, root, "--plan-files", "--feature", feature], capture_output=True, text=True, timeout=60)
         out = json.loads(r.stdout) if r.returncode == 0 else {}
         return out if isinstance(out, dict) else {}
     except Exception:
@@ -105,11 +101,8 @@ def plan_files(root, feature):
 def plan_check_failures(root, feature):
     """The FAIL lines of reef-plan-check.py for this feature in this checkout, or [] (2026-10-17: five sentences over
     the word ceiling were found AFTER the owner approved; fixing them voided the approval and cost a second gate)."""
-    script = os.path.join(root, "scripts", "reef-plan-check.py")
-    if not os.path.isfile(script):
-        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
     try:
-        r = subprocess.run([sys.executable, script, root, "--feature", feature, "--quiet"], capture_output=True, text=True, timeout=120)
+        r = subprocess.run([sys.executable, PLAN_CHECK, root, "--feature", feature, "--quiet"], capture_output=True, text=True, timeout=120)
     except Exception as e:   # a check that cannot run is not a green check
         return [f"plan-check did not run: {e}"]
     if r.returncode == 0:
