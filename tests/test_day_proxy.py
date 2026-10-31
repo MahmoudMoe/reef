@@ -242,3 +242,55 @@ class Challenge(unittest.TestCase):
         r = self.challenge(d2)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
+
+
+class ContractRecordsBindTheFullDigest(unittest.TestCase):
+    """0.7.4, after #262: night.json and day.json bound 16 hex. reef/proxy.md is no guarded file and can name `plan`, so an
+    agent writing both a benign contract and a 16-hex twin (~2^32 tries) that names `plan` turned one approval into the proxy
+    approving plans. A record binds the full digest (record_binds, reef-plan-check.py); one without `digest` is 0.7.4's 16 hex."""
+
+    def twin(self, d, name, dg):
+        p = os.path.join(d, ".reef", "approvals", f"{name}.json")
+        rec = json.load(open(p))
+        self.assertEqual(rec.get("digest"), dg, f"{name}.json carries the full digest")
+        rec["digest"] = dg[:16] + ("0" if dg[16] != "0" else "1") + dg[17:]   # the approved contract: the same 16 hex, another file
+        json.dump(rec, open(p, "w"))
+        return rec
+
+    def test_a_contract_sharing_only_the_16_hex_is_not_the_one_approved(self):
+        rr = load_run()
+        d = N.project()
+        approve_day(self, d)
+        dg = rr.day_digest(d)
+        self.assertTrue(rr.day_ok(d)[0])
+        rec = self.twin(d, "day", dg)
+        ok, why = rr.day_ok(d)
+        self.assertFalse(ok, "a 16-hex twin of the approved contract is not approved")
+        self.assertIn("changed since the owner approved it", why)
+        del rec["digest"]
+        json.dump(rec, open(os.path.join(d, ".reef", "approvals", "day.json"), "w"))
+        self.assertTrue(rr.day_ok(d)[0], "a record from before 0.7.4 (no `digest`) is read at its 16 hex, this release only")
+        N.approve_night(self, d)
+        self.assertTrue(rr.night_ok(d)[0])
+        self.twin(d, "night", rr.night_digest(d))
+        self.assertFalse(rr.night_ok(d)[0], "the night contract alike")
+
+    def test_the_autopilot_marker_and_the_screen_read_the_full_digest(self):
+        rr = load_run()
+        d = N.project()
+        N.L.write(d, "reef/proxy.md", N.PROXY_MD)
+        approve_day(self, d)
+        dg = rr.day_digest(d)
+        rep = ".reef/ci-local/report-mahmoud-share-links.md"
+        N.L.write(d, rep, f"RUN: agent=mahmoud day={TODAY} question=approve\nAPPROVE plan share-links at {N.digest(d, 'share-links')} — x\nVERDICT: DONE\n")
+        N.L.write(d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": dg[:16], "digest": dg[:16] + "0" * 48}))
+        self.assertIn("no live autopilot", N.proxy(d, "share-links", rep).stdout, "a marker for a 16-hex twin is not this contract's runner")
+        loader = importlib.machinery.SourceFileLoader("reef_entry_full_digest", os.path.join(ROOT, "scripts", "reef"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        entry = importlib.util.module_from_spec(spec)
+        loader.exec_module(entry)
+        self.assertTrue(entry.contract_view(d)["approved"])
+        self.assertTrue(entry.already_approved(d, f"Approve proxy by day at {dg[:16]}?"))
+        self.twin(d, "day", dg)
+        self.assertFalse(entry.contract_view(d)["approved"], "the screen's panel: a twin's record is no approval")
+        self.assertFalse(entry.already_approved(d, f"Approve proxy by day at {dg[:16]}?"), "the inbox keeps the question a twin's record does not answer")

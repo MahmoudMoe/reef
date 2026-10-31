@@ -726,15 +726,31 @@ def files_digest(root, rels):
     return h.hexdigest()
 
 
+_PLAN_CHECK = []
+
+
+def binds(rec, digest):
+    """reef-plan-check.py's record_binds, from this script's own directory — the one comparison of a record with a digest
+    (0.7.4: 16 hex are a prefix an agent writing both contracts can collide). An empty digest binds nothing."""
+    if not _PLAN_CHECK:
+        import importlib.machinery, importlib.util
+        loader = importlib.machinery.SourceFileLoader("reef_plan_check_for_run", os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py"))
+        mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(mod)
+        _PLAN_CHECK.append(mod)
+    return bool(digest) and isinstance(rec, dict) and _PLAN_CHECK[0].record_binds(rec, digest)
+
+
 def record_ok(root, name, digest, what, hint):
-    """(ok, why): .reef/approvals/<name>.json carries the current digest of `what`."""
+    """(ok, why): .reef/approvals/<name>.json binds the current digest of `what` (binds)."""
     try:
         with open(os.path.join(root, ".reef", "approvals", f"{name}.json"), encoding="utf-8") as f:
             rec = json.load(f)
     except (OSError, ValueError):
         return None, f"no .reef/approvals/{name}.json — {hint}"
-    if not digest or rec.get("digest16") != digest[:16]:
-        return None, f"{what} changed since the owner approved it ({rec.get('digest16')} vs {digest[:16] or 'missing'}) — {hint}"
+    if not binds(rec, digest):
+        was = (rec.get("digest") or rec.get("digest16")) if isinstance(rec, dict) else None
+        return None, f"{what} changed since the owner approved it ({was} vs {digest or 'missing'}) — {hint}"
     return rec, ""
 
 
@@ -1286,10 +1302,10 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
     active = os.path.join(root, NIGHT_DIR, "active")
     if night:
         with open(active, "w", encoding="utf-8") as f:
-            f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": night_digest(root)[:16]}))
+            f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": night_digest(root)[:16], "digest": night_digest(root)}))
     if autopilot:
         with open(os.path.join(root, AUTOPILOT), "w", encoding="utf-8") as f:
-            f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": day_digest(root)[:16]}))
+            f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": day_digest(root)[:16], "digest": day_digest(root)}))
     live = os.path.join(root, LIVE)
     open(live, "w", encoding="utf-8").close()
     drop_question(root, when=lambda line: NO_PROGRESS in line)   # the owner started the runner again: the no-progress notice has served

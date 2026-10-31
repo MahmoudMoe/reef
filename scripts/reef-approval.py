@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # CLASS: code
 """Reef approval — the human's plan approval as a RECORD bound to the plan's digest (PostToolUse AskUserQuestion hook).
-Writes .reef/approvals/<feature>.json = {digest16, digest, approved_at, files} only when a question `Approve plan <feature> at <16 hex>?`
+Writes .reef/approvals/<feature>.json = {digest16, digest, approved_at, files} (night.json, day.json: {digest16, digest, …}) only when a question `Approve plan <feature> at <16 hex>?`
 is answered exactly `Approve` and the 16 hex equal the current digest (reef-plan-check.py --digest); a timeout
 (afkTimeoutMs), another label or a stale digest writes nothing. Always exit 0; the guard enforces the record.
 Usage: cat payload.json | reef-approval.py [--root DIR]
@@ -196,7 +196,7 @@ def cmd_proxy(argv):
     try:   # the autopilot's marker (.reef/night/autopilot, a guarded path): a LIVE reef-run.py, under the contract at its current digest
         with open(os.path.join(root, ".reef", "night", "autopilot"), encoding="utf-8") as f:
             ap = json.load(f)
-        autopilot = process_alive(ap.get("pid")) and str(ap.get("digest16") or "") == rr.day_digest(root)[:16]
+        autopilot = process_alive(ap.get("pid")) and rr.binds(ap, rr.day_digest(root))
     except (OSError, ValueError, AttributeError):
         autopilot = False
     if not night and not autopilot:
@@ -544,7 +544,7 @@ def main(argv):
             d = os.path.join(root, ".reef", "approvals")
             os.makedirs(d, exist_ok=True)
             with open(os.path.join(d, "day.json"), "w", encoding="utf-8") as f:
-                json.dump({"digest16": dg[:16], "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f, indent=1)
+                json.dump({"digest16": dg[:16], "digest": dg, "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f, indent=1)
                 f.write("\n")
             print(f"reef-approval: proxy by day approved at {dg[:16]} (decides: {', '.join(rr.day_kinds(root)) or '-'}) -> .reef/approvals/day.json")
             wrote += 1
@@ -563,7 +563,7 @@ def main(argv):
             d = os.path.join(root, ".reef", "approvals")
             os.makedirs(d, exist_ok=True)
             with open(os.path.join(d, "night.json"), "w", encoding="utf-8") as f:
-                json.dump({"digest16": dg[:16], "date": n.group("date"), "rows": rr.night_rows(root),
+                json.dump({"digest16": dg[:16], "digest": dg, "date": n.group("date"), "rows": rr.night_rows(root),
                            "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f, indent=1)
                 f.write("\n")
             print(f"reef-approval: night {n.group('date')} approved at {dg[:16]} (rows {', '.join(rr.night_rows(root)) or '-'}) -> .reef/approvals/night.json")

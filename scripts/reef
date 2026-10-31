@@ -240,13 +240,20 @@ def already_approved(root, q):
     """The approval `q` asks for is on record at that digest (2026-10-31, the owner: "I did approve plan one, plan two, but the inbox
     still shows them" — the runner's last wait text outlives the decision; the record does not lie): .reef/approvals/<slug>.json
     for a plan, night.json for a night, day.json for the day contract (reef-approval.py writes them), each carrying `digest16`.
+    A contract's record with its full `digest` must bind the contract's current one (0.7.4: a 16-hex twin is not the contract
+    approved); a plan's stays at the question's 16 hex — its full digest costs a plan check per frame, and the guard binds it.
     The question's grammar is APPROVE_Q, once (the review): a kind added there is a kind here."""
     if not APPROVE_Q.fullmatch(q or ""):
         return False
     head, digest = q[:-1].rsplit(" at ", 1)
     name = head.split()[2] if head.startswith("Approve plan ") else "night" if head.startswith("Approve night ") else "day"
     rec = read_json(os.path.join(root, ".reef", "approvals", f"{name}.json"))
-    return isinstance(rec, dict) and str(rec.get("digest16") or "") == digest
+    if not isinstance(rec, dict) or str(rec.get("digest16") or "") != digest:
+        return False
+    if name in ("night", "day") and "digest" in rec:
+        rr = sibling_module("reef-run.py", "reef_run_for_screen")
+        return rr is not None and rr.binds(rec, rr.night_digest(root) if name == "night" else rr.day_digest(root))
+    return True
 
 
 def approve_item(q, text=None, row=None):
@@ -575,7 +582,7 @@ def contract_view(root):
         dg = str(rr.day_digest(root) or "") if rr is not None else ""
     except Exception:
         dg = ""
-    approved = bool(digest) and (digest[:16] == dg[:16] if len(dg) >= 16 else True)   # the record at the CURRENT digest (a stale one dies in reef-run: "approve first")
+    approved = bool(digest) and (rr.binds(rec, dg) if len(dg) >= 16 else True)   # the record binds the CURRENT digest (a stale one dies in reef-run: "approve first")
     question = str(rr.day_question(root) or "") if not approved and rr is not None else ""   # the one line the owner had to type: Enter records it
     return {"digest16": plain(digest)[:16], "decides": decides, "never": never, "approved": approved, "question": question}
 
