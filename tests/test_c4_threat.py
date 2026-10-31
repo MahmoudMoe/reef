@@ -9,6 +9,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import write, git_out as git, git_repo  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 C4 = os.path.join(ROOT, "scripts", "reef-c4.py")
@@ -17,22 +19,9 @@ CHECK = os.path.join(ROOT, "scripts", "reef-plan-check.py")
 INIT = os.path.join(ROOT, "scripts", "reef-init.py")
 
 
-def write(root, rel, text):
-    p = os.path.join(root, rel)
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        f.write(text)
-    return p
-
-
-def git(d, *a):
-    return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True, text=True).stdout
-
-
 def fixture():
     """A Node web app: Express routes, a React page, Postgres via pg, Stripe, a compose redis service."""
-    d = tempfile.mkdtemp(prefix="reef-c4.")
-    subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+    d = git_repo(prefix="reef-c4.", branch="main")
     write(d, "package.json", json.dumps({"name": "shop", "dependencies": {"express": "4", "pg": "8", "stripe": "14", "react": "18"}}))
     write(d, "src/server.js", "const app = require('express')();\napp.get('/orders', (req, res) => res.json([]));\n")
     write(d, "src/App.tsx", "export default function App() { return <div/>; }\n")

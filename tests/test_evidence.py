@@ -8,6 +8,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import git_text as git  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EVIDENCE = os.path.join(ROOT, "scripts", "reef-evidence.py")
@@ -31,10 +33,6 @@ if a[:1] == ["api"] and "check-runs" in a[1]:
     print(json.dumps({"total_count": len(runs), "check_runs": runs})); sys.exit(0)
 sys.exit(1)
 '''
-
-
-def git(d, *a):
-    return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True, text=True).stdout.strip()
 
 
 class Evidence(unittest.TestCase):

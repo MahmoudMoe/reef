@@ -7,6 +7,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import write, git  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROW = os.path.join(ROOT, "scripts", "reef-row.py")
@@ -44,18 +46,6 @@ x
 """
 SPEC = ("# demo row one\nRow: 1\n\n## Scope\nOne slice.\n\n## Non-goals\n- none\n\n## Already shipped\nnone\n\n"
         "## Requirements\n- FR-1 [backend]: it works.\n\n## Success criteria\n- SC-1: green.\n\n## Architecture impact\nnone\n")
-
-
-def git(d, *a):
-    return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], capture_output=True, text=True)
-
-
-def write(root, rel, text):
-    p = os.path.join(root, rel)
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        f.write(text)
-    return p
 
 
 class RowStateMachine(unittest.TestCase):

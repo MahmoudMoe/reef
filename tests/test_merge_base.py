@@ -6,20 +6,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import write, git, git_repo  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MERGE = os.path.join(ROOT, "scripts", "reef-merge-base")
-
-
-def git(d, *a):
-    return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], capture_output=True, text=True)
-
-
-def write(d, rel, text):
-    p = os.path.join(d, rel)
-    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        f.write(text)
 
 
 def read(d, rel):
@@ -28,10 +19,7 @@ def read(d, rel):
 
 
 def repo():
-    d = tempfile.mkdtemp(prefix="reef-mb.")
-    subprocess.run(["git", "init", "-q", "-b", "develop", d], check=True)
-    subprocess.run(["git", "-C", d, "config", "user.email", "t@t"], check=True)   # the merge commit needs an identity (CI runner has none)
-    subprocess.run(["git", "-C", d, "config", "user.name", "t"], check=True)
+    d = git_repo(prefix="reef-mb.", branch="develop", identity=True)
     write(d, ".reef/config.json", json.dumps({"branches": {"base": "develop", "release": "main"},
                                               "paths": {"runlog": "reef/journal.md", "queue": "reef/queue.md"}}))
     write(d, "reef/journal.md", "# Journal\n| Task | Result |\n|---|---|\n")

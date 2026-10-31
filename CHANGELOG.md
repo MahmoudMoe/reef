@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **Lightening step 3 — one fixture module for the tests** (`docs/design/lightening.md`; consolidation step 4). `write(root, rel,
+  text)` was defined in twelve test files and a `git(d, *a)` helper in fifteen, in four shapes; `tests/_fixtures.py` holds each once —
+  `write`, `git` (the CompletedProcess, `check` on request), `git_out` (stdout), `git_text` (stripped), `git_repo` (a temporary repository
+  with its branch and config), `load_script` — and a file imports the shape it used under the name it used, so its tests read as
+  before; a suite's own `project()` stays, it is that suite's world. The budget test pins it: no test file carries its own copy. The
+  plan's guess of −1,500 test lines was wrong — the copies were four lines each; what is gone is the drift between them. tests/size-budget.json: unchanged (nothing grew).
 - **Lightening step 2 — the same name in two scripts** (`docs/design/lightening.md`). After step 1, thirty definitions still
   shared a name across scripts. A true duplicate merged into `reef_common` — `load_sibling` (the three `plan_check_module` loaders
   and reef-graph-run's `load_script`), `git_root` (the two `root_of`), `reef_dir`, `section`, `slug_error` with `SLUG_RE` and

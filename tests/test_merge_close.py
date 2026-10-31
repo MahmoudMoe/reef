@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import write, git  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLOSE = os.path.join(ROOT, "scripts", "reef-merge-close")
@@ -25,17 +27,6 @@ attempts: 0
 
 ## Log
 """
-
-
-def git(d, *a):
-    return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], capture_output=True, text=True)
-
-
-def write(d, rel, text):
-    p = os.path.join(d, rel)
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        f.write(text)
 
 
 def read(d, rel):

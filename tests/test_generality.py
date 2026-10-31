@@ -17,6 +17,8 @@ import sys
 import tempfile
 import tokenize
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import write, git_out as git  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASELINE = os.path.join(ROOT, "tests", "generality-baseline.json")
@@ -95,17 +97,6 @@ class GeneralityRatchet(unittest.TestCase):
         # for the trial project); the CHANGELOG keeps the record
         named = [rel for rel in scanned_files() if "ai-coach" in open(os.path.join(ROOT, rel), encoding="utf-8", errors="replace").read()]
         self.assertEqual(named, [])
-
-
-def git(d, *a):
-    return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True, text=True).stdout
-
-
-def write(root, rel, text):
-    p = os.path.join(root, rel)
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        f.write(text)
 
 
 ADR = "# 1. Use a relational store\n\n## Status\nAccepted\n\n## Context\nWe need a store.\n\n## Decision\nPostgres.\n\n## Consequences\nOperate it.\n"
@@ -187,7 +178,6 @@ class AnyStack(unittest.TestCase):
 
     def test_ruby_with_no_stack_profile(self):
         self.adopt("ruby")
-
 
 
 class TheProjectsOwnCommands(unittest.TestCase):

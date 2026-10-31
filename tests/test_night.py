@@ -9,6 +9,8 @@ import sys
 import tempfile
 import time
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import git_repo  # noqa: E402  (the suites' shared fixtures, once)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -23,8 +25,7 @@ CHECK = os.path.join(ROOT, "scripts", "reef-plan-check.py")
 
 
 def project():
-    d = tempfile.mkdtemp(prefix="reef-night.")
-    subprocess.run(["git", "init", "-q", "-b", "develop", d], check=True)
+    d = git_repo(prefix="reef-night.", branch="develop")
     L.write(d, ".reef/config.json", json.dumps({"gates": {"full": "true"}, "branches": {"base": "develop", "release": "main"},
                                                 "paths": {"features": "reef/features", "tasks": "tasks", "queue": "reef/queue.md"}}))
     L.write(d, ".reef/version", "0.6.0\n")

@@ -11,6 +11,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import git_checked as git  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
@@ -553,11 +555,6 @@ class DispatchGuard(unittest.TestCase):
 
 # ---------------- 0.4.0: the stamp under parallel worktrees ----------------
 
-def git(d, *args):
-    return subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *args],
-                          check=True, capture_output=True, text=True)
-
-
 def plan_task(tid, feature, scope="x"):
     return ("---\nid: {id}\nfeature: {f}\nstatus: pending\ncomplexity: mech\neffort: medium\n"
             "blocked-by: []\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n"
@@ -739,7 +736,6 @@ class FeatureStamp(unittest.TestCase):
         self.assertEqual(r.returncode, 0, f"another feature's task staled this feature's stamp: {r.stderr}")
         r = dispatch(d, "REEF-TASK: tasks/008-other.md\nimplement")
         self.assertEqual(r.returncode, 2, "the newly arrived feature itself was never reviewed here")
-
 
 
 class HandoffIsRendered(unittest.TestCase):

@@ -11,6 +11,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import git_repo  # noqa: E402  (the suites' shared fixtures, once)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -84,8 +86,7 @@ class Offered(unittest.TestCase):
 
 class RunRow(unittest.TestCase):
     def test_the_runner_drives_one_row_and_loads_the_plugin_the_environment_names(self):
-        d = tempfile.mkdtemp(prefix="reef-factory-run.")
-        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        d = git_repo(prefix="reef-factory-run.", branch="main")
         os.makedirs(os.path.join(d, ".reef"))
         open(os.path.join(d, ".reef", "config.json"), "w").write('{"gates": {"full": "true"}}')
         b = os.path.join(d, ".bin")
