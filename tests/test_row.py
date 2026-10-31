@@ -101,6 +101,7 @@ class RowStateMachine(unittest.TestCase):
         self.assertEqual(pc.returncode, 0, pc.stdout)
         s = self.state("1")
         self.assertEqual((s["state"], s["slug"]), ("approval", "demo-row-one"))
+        self.assertEqual(s["tasks"], {"done": 0, "total": 1}, "the task count, counted in the feature's checkout (the screen's board, 2026-10-31: the main checkout had none)")
         self.assertIn("Approve plan demo-row-one at", s["detail"])
         self.assertEqual(s["next"], "/reef-plan 1")
         self.assertIn('python3 scripts/reef-approval.py --owner "Approve plan demo-row-one at ', s["detail"],

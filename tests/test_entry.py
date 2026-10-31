@@ -355,7 +355,7 @@ class TheScreen(unittest.TestCase):
             "reef/features/move-specs-to-reef/tasks/701-a.md": "---\nid: 701\nfeature: move-specs-to-reef\nstatus: pending\n---\n",
             ".reef/run/run.log": '{"at": "%sT00:10:00Z", "cost_usd": 4.5, "mode": "autopilot"}\n' % time.strftime("%Y-%m-%d", time.gmtime()),
         })
-        states = {"4": {"row": "4", "slug": "legacy-queue-to-issues", "state": "build", "next": "/reef-task", "detail": "1 open task(s) (PR #90)"},
+        states = {"4": {"row": "4", "slug": "legacy-queue-to-issues", "state": "build", "next": "/reef-task", "detail": "1 open task(s) (PR #90)", "tasks": {"done": 2, "total": 3}},
                   "7": {"row": "7", "slug": "move-specs-to-reef", "state": "approval", "next": "/reef-plan", "detail": "the gate: Approve plan move-specs-to-reef at 0123456789abcdef?"}}
         mod.row_state = lambda root, row: states.get(str(row), {"row": str(row), "state": "plan", "next": "/reef-plan", "detail": ""})
         wm = mod.work_model(d)
@@ -364,6 +364,9 @@ class TheScreen(unittest.TestCase):
         self.assertEqual(ids, ["4", "7", "8", "10", "35"], "the current batch's rows, in queue order; row 99 is batch 3")
         by = {r["id"]: r for r in wm["rows"]}
         self.assertEqual(by["4"]["mark"], "▶"); self.assertEqual(by["4"]["tasks"], (2, 3)); self.assertIn("PR #90", by["4"]["forge"])
+        states["4"]["tasks"] = {"done": 1, "total": 4}   # the row machine's count wins over the main checkout's folder: the plan lives in the feature worktree until the merge
+        self.assertEqual(mod.work_model(d)["rows"][0]["tasks"], (1, 4))
+        del states["4"]["tasks"]
         self.assertEqual(by["7"]["mark"], "⧖", "a row at the owner's gate is his"); self.assertEqual(by["7"]["tasks"], (0, 1))
         self.assertEqual(by["8"]["mark"], "⏸"); self.assertIn("7", by["8"]["waits"], "blocked by an open row it depends on")
         self.assertEqual(by["10"]["mark"], "○", "no open depends, not building: can start now")
@@ -428,6 +431,12 @@ class TheScreen(unittest.TestCase):
         self.assertIn("pid 70417", line); self.assertIn("quiet 25 min", line); self.assertIn("running: ", line)
         self.assertIn("thinking", mod.runner_line(d, 70417, 70418, "01:06", [(70418, 70417, "1:00", "claude -p")]))
         self.assertEqual(mod.runner_line(d, 0, 0, ""), "no runner is running"); self.assertIn("gone", mod.runner_line(d, 0, 70418, "01:06", tree))
+        self.assertIn("since 23:56 ", mod.runner_line(d, 70417, 70418, "2026-10-30T23:56:56Z", tree) + " ", "the runner's ISO start as a clock time")
+        os.makedirs(os.path.join(d, ".reef", "approvals"), exist_ok=True)
+        open(os.path.join(d, ".reef", "approvals", "move-specs.json"), "w").write('{"digest16": "73b12e4b024b95eb", "approved_at": "%sT21:42:42Z", "by": "mahmoud (proxy)"}' % time.strftime("%Y-%m-%d", time.gmtime()))
+        open(os.path.join(d, ".reef", "approvals", "older.json"), "w").write('{"digest16": "x", "approved_at": "2026-10-01T00:00:00Z", "by": "mahmoud (proxy)"}')
+        open(os.path.join(d, ".reef", "approvals", "mine.json"), "w").write('{"digest16": "y", "approved_at": "%sT09:00:00Z"}' % time.strftime("%Y-%m-%d", time.gmtime()))
+        self.assertEqual(mod.autopilot_view(d)["decided_today"], 1, "his plan approval today counts; an older one and the owner's own do not")
         # the loop on the board (a fake curses, as the inbox test below): Enter opens the selected row through the row machine, never an inbox item;
         # Tab, Tab shows PLAN; q quits
         class FC:

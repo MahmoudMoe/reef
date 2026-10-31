@@ -417,6 +417,8 @@ def runner_line(root, pid, spid, since, tree=None):
         return "no runner is running"
     if not pid:
         return f"gone · session {spid} still running since {since} — s ends it"
+    since = str(since or "")
+    since = since[11:16] if len(since) >= 16 and since[10] == "T" else since   # the runner's record is ISO in UTC-less local form; the screen shows the clock
     line = f"running · pid {pid}" + (f" · session {spid} since {since}" if spid > 0 else "")
     age = last_word_age(root)
     if age is not None and age >= 2:
@@ -480,6 +482,14 @@ def autopilot_view(root):
     since = str(ap.get("started") or "")
     since = since[11:16] if len(since) >= 16 and since[10] == "T" else since[:16]
     days, decided = today_keys(), 0
+    try:   # his plan approvals: .reef/approvals/<slug>.json with by: "mahmoud (proxy)" and today's date
+        for name in os.listdir(os.path.join(root, ".reef", "approvals")):
+            if name.endswith(".json") and name not in ("day.json", "night.json"):
+                rec = read_json(os.path.join(root, ".reef", "approvals", name))
+                if "proxy" in str(rec.get("by") or "") and str(rec.get("approved_at", ""))[:10] in days:
+                    decided += 1
+    except OSError:
+        pass
     try:
         with open(os.path.join(root, ".reef", "approvals", "day-decisions.jsonl"), encoding="utf-8", errors="replace") as f:
             for line in f:   # the writer's own shape (reef-approval.py): one JSON record per line
@@ -553,7 +563,8 @@ def work_model(root, runner=None):
         pr = re.search(r"PR #\d+", detail)
         issue = plain(r.get("_issue") or r.get("Issue") or r.get("issue") or "")   # the snapshot's key is _issue (reef-queue.py sync)
         item = re.sub(r"[⁰¹²³⁴⁵⁶⁷⁸⁹]+", "", plain(r.get("Item", ""))).strip()
-        out.append({"id": rid, "item": item, "mark": mark, "tasks": tasks.get(rid, (0, 0)), "depends": deps, "waits": waits,
+        tk = st.get("tasks") if isinstance(st.get("tasks"), dict) else None   # the row machine counts in the feature's checkout; the main checkout's folder is the fallback
+        out.append({"id": rid, "item": item, "mark": mark, "tasks": (int(tk.get("done") or 0), int(tk.get("total") or 0)) if tk else tasks.get(rid, (0, 0)), "depends": deps, "waits": waits,
                     "lane": q.module_of(item) if q is not None else "general", "forge": " · ".join(x for x in ((f"#{issue}" if issue else ""), (pr.group(0) if pr else "")) if x),
                     "state": state or "plan", "detail": detail, "next": plain(st.get("next") or ""), "slug": str(st.get("slug") or "")})
     pid, spid, since = runner if runner is not None else runner_view(root)

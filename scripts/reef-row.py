@@ -161,6 +161,9 @@ def state_of(repo, key):
         return out, 2
     co, slug, fdir, rid = found
     out.update(slug=slug, row=rid or key)
+    done_n = len([f for f in glob.glob(os.path.join(fdir, "tasks", "done", "*.md")) if re.match(r"R?\d+-", os.path.basename(f))])
+    open_n = len([f for f in glob.glob(os.path.join(fdir, "tasks", "*.md")) if re.match(r"R?\d+-", os.path.basename(f))])
+    out["tasks"] = {"done": done_n, "total": done_n + open_n}   # counted where the folder is: the plan's files live in the feature's checkout until it merges (the screen, 2026-10-31)
     scripts = os.path.join(co, "scripts")
     rc, dg = run([sys.executable, os.path.join(scripts, "reef-plan-check.py"), co, "--digest", "--feature", slug], co)
     digest = dg.split()[-1] if rc == 0 and dg.strip() else ""
