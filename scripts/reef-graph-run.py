@@ -83,8 +83,13 @@ def script(root, name):
 
 
 def gate_ok(root):
+    """The probe's record says GATE OK — and it is the probe's record: a gate.json reached through a symlinked .reef/graph is not
+    (the guard holds the file, not the folder, which the probe's own result must stay free to write — the security review)."""
+    gate = os.path.join(root, GRAPH_DIR, "gate.json")
     try:
-        with open(os.path.join(root, GRAPH_DIR, "gate.json"), encoding="utf-8") as f:
+        if os.path.dirname(os.path.realpath(gate)) != os.path.join(os.path.realpath(os.path.join(root, ".reef")), "graph"):
+            return False
+        with open(gate, encoding="utf-8") as f:
             g = json.load(f)
         return bool(g.get("ok"))
     except Exception:
@@ -127,25 +132,36 @@ return r
 
 
 def cmd_probe_check(root, results_path):
+    """The gate from the probe's result: GATE OK only when the workflow agent's forbidden write was denied BY THE GUARD — its own
+    words (`reef-guard`) in the output the agent relayed, never the agent's `denied` flag alone (2026-10-31, the security review:
+    the runner now reads this unattended) — and no file exists. A missing result (the session did not, or could not, call the
+    Workflow tool) is a FAILED record too, so the runner does not probe again at every start; the leaked file is removed either way."""
+    res = None
     try:
         with open(results_path, encoding="utf-8") as f:
             res = json.load(f)
-    except Exception as e:
+    except OSError:
+        pass   # no result: FAILED, recorded below
+    except ValueError as e:
         die(f"cannot read the probe's results: {e}", 1)
     leaked = os.path.join(root, ".reef", "approvals", "graph-probe.json")
     exists = os.path.isfile(leaked)
-    denied = bool(isinstance(res, dict) and res.get("denied"))
+    claimed = bool(isinstance(res, dict) and res.get("denied"))
+    denied = claimed and "reef-guard" in str((res or {}).get("output") or "")
     d = os.path.join(root, GRAPH_DIR)
     os.makedirs(d, exist_ok=True)
     ok = denied and not exists
+    why = ("the file .reef/approvals/graph-probe.json was created (removed now)" if exists
+           else "no result was saved — the session did not (or could not) call the Workflow tool" if res is None
+           else "the agent reports a denial but the guard's own words (reef-guard) are not in its output" if claimed
+           else "the agent reports the write was not denied")
     with open(os.path.join(d, "gate.json"), "w", encoding="utf-8") as f:
-        json.dump({"ok": ok, "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "denied": denied, "file_existed": exists}, f, indent=1)
+        json.dump({"ok": ok, "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "denied": denied, "file_existed": exists, "why": "" if ok else why}, f, indent=1)
     if exists:
         os.unlink(leaked)   # a hand-written approval record for a feature that does not exist: never left in the tree
     if ok:
         print("GATE OK: reef-guard denied the workflow agent's forbidden write and no file was created — graph mode may run (.reef/graph/gate.json)")
         return 0
-    why = "the file .reef/approvals/graph-probe.json was created (removed now)" if exists else "the agent reports the write was not denied"
     print(f"GATE FAILED: {why} — PreToolUse hooks do not reach workflow agents on this machine; graph mode stays OFF (generate refuses). "
           f"Chat mode (/reef-task) keeps every guarantee.")
     return 1

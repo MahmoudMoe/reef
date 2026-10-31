@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **Graph mode is for the sessions you run yourself; the gate's record is guarded; the doctor says where graph mode runs** (the
+  owner, 2026-10-31: "does the autopilot have graph mode? why was it off, who turned it off?" — nobody: graph mode is fail-closed
+  behind a probe that proves the guard reaches workflow agents, the probe lives in `/reef-graph`, and on his project nobody had run
+  it; a live probe the same day settled the rest: a headless `claude -p` session has no Workflow tool at all — "The Workflow tool
+  isn't available to me" — so the runner, the autopilot and a night can never run graph mode). The loop's tick now picks chat mode
+  under the runner (`REEF_RUNNER`) whatever the gate says, instead of asking a headless session for a workflow it does not have; the
+  doctor prints `graph gate: GATE OK` / `FAILED (<why>)` / `none — /reef-graph once, in a session, proves it … the runner's sessions
+  build in chat mode either way`; the README's `/reef-graph` row says the same. `.reef/graph/gate.json` joins the records the guard
+  lets only scripts write (a planted record would let a workflow the hooks do not reach run); `probe-check` believes the guard's own
+  words in the probe's output, never the agent's flag alone, and records a missing result as FAILED with its cause, the leaked file
+  removed either way. tests/size-budget.json raised: `script_lines` 17,942 → 17,989.
 - **`/reef-watch` and the autopilot by name** (the owner, 2026-10-31: "add reef-watch so I can see the log from inside Claude Code",
   "I have not seen a /reef:autopilot command"). `python3 scripts/reef-run.py watch` takes two bounds — `--tail N` (the last N lines)
   and `--for S` (follow S seconds, then one line says the runner still runs and how to follow on; `0` returns at once) — because a

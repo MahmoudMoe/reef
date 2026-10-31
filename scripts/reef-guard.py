@@ -107,8 +107,8 @@ STATUS_LINE = re.compile(r"in flight:.*?/\s*waiting on:.*?/\s*next:\s*\S", re.S)
 # night (0.7, super Reef): the contract and the `active` marker; evidence (v3): the gate's one result per tree. Case-insensitive
 # (a macOS disk opens .reef/Evidence/ as the same folder) and after `=` (dd's of=); a whole folder copied, synced, unpacked or
 # removed is caught in check_record_dirs (the security review of v3 phase 2, 2026-10-25)
-RECORD_DIRS = re.compile(r"(^|[/=])\.reef/(approvals|review|night|evidence|run/jobs)(/|$)", re.I)   # run/jobs: the runner's job records (step 3) — a planted record would be a command the guard never saw
-RECORD_NAMES = {"approvals", "review", "night", "evidence"}
+RECORD_DIRS = re.compile(r"(^|[/=])\.reef/((approvals|review|night|evidence|run/jobs)(/|$)|graph/gate\.json$)", re.I)   # run/jobs: the runner's job records (step 3) — a planted record would be a command the guard never saw; graph/gate.json: the graph gate's proof (2026-10-31: a planted one would let a workflow the hooks do not reach run) — the probe's own result file beside it stays writable
+RECORD_NAMES = {"approvals", "review", "night", "evidence", "graph"}
 HANDOFF_DENIAL = ("HANDOFF.md is rendered whole from measured state by scripts/reef-handoff --write (python3 scripts/reef-loop.py wait "
                   "\"<reason>\" runs it) — never written by hand: a handoff from memory is a map that lies (v3 phase 5)")
 # evidence an AGENT produced: a hand-back, a verifier/hunter report, a plan review. The main session (no agent_id in
@@ -334,11 +334,15 @@ def check_record_dirs(seg):
     """.reef/approvals/ and .reef/review/ are written by scripts/reef-approval.py and scripts/reef-record
     only: a hand-written record would be an approval nobody gave (tripwire; the digest check is the code)."""
     here = CTX.get("cd_hint") or CTX.get("cwd") or ""
-    resolved = lambda t: os.path.normpath(os.path.join(here, os.path.expanduser(t))) if here and not os.path.isabs(t) else t   # `../../evidence/x` after a cd
+    resolved = lambda t: os.path.normpath(os.path.join(here, os.path.expanduser(t))) if here and not os.path.isabs(t) else os.path.normpath(t)   # `../../evidence/x` after a cd; `graph/./gate.json`
     hits = lambda t: RECORD_DIRS.search(t) or RECORD_DIRS.search(resolved(t))
     targets = write_targets(seg)
-    if any(hits(t) for t in targets):
-        deny("writing under .reef/approvals/, .reef/review/, .reef/night/, .reef/evidence/ or .reef/run/jobs/ by hand — these records are written by the "
+    landed = list(targets)   # a copy INTO a directory lands the source's name there: `cp x .reef/graph/` is a write to .reef/graph/gate.json when x is
+    copy_head0 = next((os.path.basename(x) for x in seg if os.path.basename(x) in WRITE_HEADS), None)   # gate.json — judged whether or not the folder exists here
+    if copy_head0 in COPY_HEADS and len(targets) >= 2:
+        landed.append(os.path.join(targets[-1], os.path.basename(targets[-2])))
+    if any(hits(t) for t in landed):
+        deny("writing under .reef/approvals/, .reef/review/, .reef/night/, .reef/evidence/ or .reef/run/jobs/, or .reef/graph/gate.json, by hand — these records are written by the "
              "AskUserQuestion hook, scripts/reef-record, scripts/reef-run.py and scripts/reef-gate.sh, bound to a digest, a forge SHA or a tree snapshot "
              "(a job: `python3 scripts/reef-run.py job <name> -- <command>`)")
     # the folder as a whole: copied, synced or unpacked INTO .reef/, or removed with .reef/ (the security review, 2026-10-25)
@@ -1500,7 +1504,7 @@ def check_edit(tool_input, payload, ctx):
         # close carried the edit, the plan's digest moved and the owner re-approved an unchanged plan three times
         deny(PLAN_DENIAL.format(rel=rel))
     if RECORD_DIRS.search(path) or RECORD_DIRS.search(rel):
-        deny("editing under .reef/approvals/, .reef/review/, .reef/night/ or .reef/evidence/ — these records are written by the AskUserQuestion "
+        deny("editing under .reef/approvals/, .reef/review/, .reef/night/ or .reef/evidence/, or .reef/graph/gate.json — these records are written by the AskUserQuestion "
              "hook, scripts/reef-record, scripts/reef-run.py and scripts/reef-gate.sh, bound to a digest, a forge SHA or a tree snapshot; "
              "a hand-written one is an approval nobody gave, or a suite run that never happened")
     if ctx.get("main_session") and (EVIDENCE.search(path) or EVIDENCE.search(rel)):
