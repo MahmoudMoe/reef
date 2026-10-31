@@ -70,8 +70,10 @@ answer prefilled, a parked loop, a doctor's fix. A digit selects, Enter runs it 
 
 **`a`** opens the autopilot's start panel: the contract it will run under, what Mahmoud decides and never decides, the order the rows
 will be worked and what it will merge or close. Enter starts it, detached; the screen keeps showing it. **PLAN** is the same batch as
-progress bars with the lanes; **LOG** is the runner's live log; `?` lists every key; `q` quits. `reef screen --once` prints the WORK
-and INBOX text and exits, for a log or an SSH session.
+progress bars with the lanes; **LOG** is the runner's whole live log as a page — `↑↓` a line, `PgUp`/`PgDn` a page, `Home`/`End` the
+ends, `/` finds a line and `n` the next older one — and the board itself carries the runner's last eight lines under the table, colored
+the way the rows are (cyan an agent or a job started, green returned, red a failure in its verdict, yellow a wait); `?` lists every
+key; `q` quits. `reef screen --once` prints the WORK and INBOX text and exits, for a log or an SSH session.
 
 | If you want | Go to |
 |---|---|
@@ -99,7 +101,8 @@ rows it depends on · ⧖ yours), tasks done/total, the lane (rows of one module
 other), what each row waits on, its issue and PR, and the selected row's next step; **the inbox** — every wait Reef recorded,
 numbered, each carrying the exact command that answers it (an approval, a footnote answer, a parked loop's restart, a doctor's
 fix): a digit selects, Enter runs it inside the screen, an answer is typed on the screen with the recommendation prefilled;
-**PLAN** — a progress bar per row, the autopilot's line, the lanes; **LOG** — the runner's live log. `Tab` switches, `a` opens the
+**PLAN** — a progress bar per row, the autopilot's line, the lanes; **LOG** — the runner's whole live log, a page at a time, with a
+search; its last eight lines sit under the WORK table too. `Tab` switches, `a` opens the
 autopilot's start panel (the contract, the order it will work the rows, what it will close; Enter starts it), `?` lists every key,
 `q` quits. The header says whether the runner is alive, how long its log has been silent and what its session is running right now,
 so working, waiting and dead look different. `reef screen --once` prints the screen and exits (a log, an SSH session); `reef --menu`

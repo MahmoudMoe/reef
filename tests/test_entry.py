@@ -289,10 +289,10 @@ class TheScreen(unittest.TestCase):
         self.assertIn("footnote yes --row 7", head[0]); self.assertIn("exit 0", head[0])
         self.assertIn("  line 29", lines, "the last lines of the output, not the first")
         self.assertTrue(any(l.startswith("keys: q quit") for l in lines[-3:]), "the keys end the screen, quit first")
-        log, _ = mod.render_log(model["log"], width=100, height=20, offset=0)
+        log, _, _ = mod.render_log(model["log"], width=100, height=20, offset=0)
         self.assertLessEqual(len(log), 20)
         self.assertTrue(log[0].startswith("LOG"), log[0]); self.assertIn("step 59", "\n".join(log), "the newest lines first on the screen")
-        log2, _ = mod.render_log(model["log"], width=100, height=20, offset=10)
+        log2, _, _ = mod.render_log(model["log"], width=100, height=20, offset=10)
         self.assertIn("step 49", log2[-2], "↑ scrolls back ten lines: the window ends ten earlier"); self.assertNotIn("step 59", "\n".join(log2))
         self.assertIn("1-9 select", mod.KEYS); self.assertIn("Enter runs", mod.KEYS); self.assertIn("w log", mod.KEYS); self.assertIn("a autopilot", mod.KEYS)
         # the panel is shed before the steps on a short terminal, and never silently
@@ -758,3 +758,110 @@ class TheUpdateIsReefs(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("/plugin marketplace update mymarket, then /reload-plugins", r.stdout)
         self.assertNotIn("<", r.stdout.split("reef update: done")[1])
+
+
+class TheLogIsOnTheScreen(unittest.TestCase):
+    """2026-10-31, the owner: "when I open the log it should appear in a big box under the screen, with navigation". The board carries
+    the runner's last lines under the table (colored: → cyan started, ← green returned, red failed, yellow a wait), shed first on a
+    short terminal; `w` opens the whole log as a page that scrolls by line and by page, jumps to the ends, and finds a line (`/`, then
+    `n` for the next older one)."""
+
+    LOG = [f"21:{i:02d} s1 → Implement {1200 + i} (reef:implementer)" if i % 3 == 0 else f"21:{i:02d} s1 ← Verify {1200 + i}: GREEN" if i % 3 == 1
+           else f"21:{i:02d} s1 ← Gate {1200 + i}: FAIL" for i in range(40)] + ["21:40 s1 WAIT owner: row 7 needs you"]
+
+    def test_the_board_carries_the_runners_last_lines_colored_and_sheds_them_first(self):
+        mod = load_entry()
+        wm = {"rows": [{"id": "7", "mark": "▶", "tasks": (1, 3), "lane": "src/a", "state": "build", "detail": "1 open task", "next": "tick", "depends": [], "forge": "PR #9", "item": "row seven"}],
+              "facts": ["demo · Reef 0.7.4", "", "", "", ""], "progress": {"rows": (0, 1), "tasks": (1, 3)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()}
+        lines, st, sel = mod.render_work(wm, [], width=120, height=40, selected=0, log=self.LOG)
+        head = [i for i, l in enumerate(lines) if l.startswith("LOG")]
+        self.assertEqual(len(head), 1, "one LOG section on the board\n" + "\n".join(lines))
+        self.assertIn("w opens it", lines[head[0]])
+        body = lines[head[0] + 1:head[0] + 9]
+        self.assertTrue(body[-1].endswith("row 7 needs you"), "the newest line last\n" + "\n".join(lines))
+        self.assertTrue(any("21:33" in l for l in body) and not any("21:20" in l for l in body), "the last eight lines, not the first")
+        self.assertEqual([st.get(head[0] + 1 + i) for i in range(8)], [mod.log_style(l) for l in self.LOG[-8:]], "each line styled by what it says")
+        self.assertIn("blocked", [st.get(head[0] + 1 + i) for i in range(8)])
+        self.assertEqual(mod.log_style("21:00 s1 → Implement 1200 (reef:implementer)"), "build")
+        self.assertEqual(mod.log_style("21:00 s1 → Implement 1203: fix the error path, red first (reef:implementer)"), "build", "a title is prose, not a verdict")
+        self.assertEqual(mod.log_style("21:01 s1 ← Verify 1201: GREEN"), "done")
+        self.assertEqual(mod.log_style("21:01 s1 ← Implement 1201: returned"), "", "returned is no verdict: no color")
+        self.assertEqual(mod.log_style("21:02 s1 ← Gate 1202: FAIL"), "blocked")
+        self.assertEqual(mod.log_style("21:02 s1 ← Implement the red-first test: completed"), "done", "the verdict is read, not the name")
+        self.assertEqual(mod.log_style("21:02 s1 ← gate-4 rc=1 (3 min)"), "blocked")
+        self.assertEqual(mod.log_style("21:02 s1 jobs done: gate-801 rc=0 — this session continues their rows"), "")
+        self.assertEqual(mod.log_style("21:02 s1 job converge-8: killed after 180 min"), "blocked")
+        self.assertEqual(mod.log_style("21:40 s1 WAIT owner: row 7 needs you"), "wait")
+        self.assertEqual(mod.log_style("21:41 the runner ended"), "")
+        # a short terminal: the log lines go before the row's box and the rows; the header stays
+        short, st2, _ = mod.render_work(wm, [], width=120, height=24, selected=0, log=self.LOG)
+        self.assertLessEqual(len(short), 24)
+        self.assertTrue(any(l.startswith("LOG") for l in short), "the header survives")
+        box = lambda ls: sum(1 for l in ls if l.startswith("│ "))
+        self.assertEqual(box(short), box(lines), "the row's box is whole: the log paid first")
+        self.assertLess(sum(1 for l in short if l.startswith("  21:")), 8); self.assertGreaterEqual(sum(1 for l in short if l.startswith("  21:")), 2, "the newest two stay")
+        empty, _, _ = mod.render_work(wm, [], width=120, height=40, selected=0, log=[])
+        self.assertTrue(any(l.startswith("LOG") and "no live log yet" in l for l in empty), "\n".join(empty))
+
+    def test_the_log_page_scrolls_by_page_jumps_to_the_ends_and_finds_a_line(self):
+        mod = load_entry()
+        on = mod.on_key
+        self.assertEqual(on(mod.KEY_PPAGE, 0, 0, "log"), ("page_up",)); self.assertEqual(on(mod.KEY_NPAGE, 0, 0, "log"), ("page_down",))
+        self.assertEqual(on(mod.KEY_HOME, 0, 0, "log"), ("top",)); self.assertEqual(on(mod.KEY_END, 0, 0, "log"), ("bottom",))
+        self.assertEqual(on(ord("/"), 0, 0, "log"), ("search",)); self.assertEqual(on(ord("n"), 0, 0, "log"), ("next",))
+        self.assertEqual(on(ord("q"), 0, 0, "log"), ("back",), "q still goes back")
+        self.assertEqual(mod.log_find(self.LOG, "verify 1210", before=len(self.LOG)), 10, "case-insensitive, the newest match before `before`")
+        self.assertEqual(mod.log_find(self.LOG, "GREEN", before=10), 7, "n: the next older match")
+        self.assertIsNone(mod.log_find(self.LOG, "nothing like it", before=len(self.LOG)))
+        lines, st, most = mod.render_log(self.LOG, width=100, height=20, offset=0)
+        self.assertIn("PgUp", lines[0]); self.assertIn("/ search", lines[0]); self.assertIn("following", lines[0])
+        self.assertEqual(st, {i: mod.log_style(l[2:]) for i, l in enumerate(lines) if l.startswith("  21:") and mod.log_style(l[2:])}, "the page's lines carry the board's styles")
+        lines, _, most = mod.render_log(self.LOG, width=100, height=20, offset=5)
+        self.assertIn("5 line(s) back", lines[0]); self.assertIn("End follows", lines[0])
+        self.assertIn("no match for 'zzz'", mod.render_log(self.LOG, width=100, height=20, found="zzz", matched=False)[0][0])
+        nav = mod.log_nav
+        self.assertEqual(nav("page_up", self.LOG, 18, 0, "", None), (18, None)); self.assertEqual(nav("page_up", self.LOG, 18, 18, "", None), (23, None), "clamped at the oldest page")
+        self.assertEqual(nav("top", self.LOG, 18, 0, "", None), (23, None)); self.assertEqual(nav("bottom", self.LOG, 18, 23, "", None), (0, None))
+        self.assertEqual(nav("search", self.LOG, 18, 0, "GREEN", None), (3, 37), "the newest hit as the page's last line")
+        self.assertEqual(nav("next", self.LOG, 18, 3, "GREEN", 37), (6, 34), "n: the next older")
+        self.assertEqual(nav("next", self.LOG, 18, 23, "GREEN", 1), (3, 37), "none older: the newest again")
+        self.assertEqual(nav("search", self.LOG, 18, 5, "zzz", None), (5, None), "no hit at all: found_at None, the offset kept")
+        self.assertEqual(nav("next", self.LOG, 18, 5, "zzz", None), (5, None))
+        d = project(**{".reef/run/live.log": "\n".join(self.LOG) + "\n"})
+        class FC:
+            A_REVERSE, A_BOLD, A_NORMAL = 1, 2, 0
+            error = Exception
+            def curs_set(self, *_): pass
+            def flushinp(self): pass
+            def update_lines_cols(self): pass
+            def has_colors(self): return False
+        class FW:
+            def __init__(self, keys): self.keys = list(keys); self.rows = []; self.frames = []
+            def getmaxyx(self): return (20, 100)
+            def timeout(self, *_): pass
+            def erase(self): self.frames.append([])
+            def refresh(self): pass
+            def move(self, *_): pass
+            def clrtoeol(self): pass
+            def addstr(self, y, x, text, *a):
+                self.rows.append(text)
+                if self.frames: self.frames[-1].append((text, a[0] if a else 0))
+            def getch(self): return self.keys.pop(0) if self.keys else ord("q")
+        mod.doctor_lines = lambda root, fetch=False: []
+        mod.work_model = lambda root, runner=None: {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()}
+        keys = [-1, ord("w"), mod.KEY_PPAGE, mod.KEY_HOME, mod.KEY_END, ord("/")] + [ord(c) for c in "green"] + [10, ord("n"), ord("/")] + [ord(c) for c in "zzz"] + [10, ord("q"), ord("q")]
+        win = FW(keys)
+        self.assertEqual(mod.screen_loop(win, d, FC()), 0)
+        logs = [f for f in win.frames if f and f[0][0].startswith("LOG")]
+        self.assertGreaterEqual(len(logs), 5, "the log page was drawn after each key")
+        after_pgup, after_home, after_end = logs[1], logs[2], logs[3]
+        self.assertIn("18 line(s) back", after_pgup[0][0], "PgUp scrolls a page (the body's height)")
+        self.assertIn("21:00", after_home[1][0], "Home: the oldest line first")
+        self.assertIn("following", after_end[0][0], "End: the newest lines, following")
+        found = [f for f in logs if "found 'green'" in f[0][0]]
+        self.assertGreaterEqual(len(found), 2, "the header names what was found\n" + "\n".join(x[0] for x in logs[-1]))
+        body = lambda f: [(t, a) for t, a in f if t.startswith("  21:")]   # the page's lines (the find prompt is drawn into the frame too)
+        self.assertTrue(body(found[0])[-1][0].endswith("Verify 1237: GREEN"), "the newest hit is the page's last line\n" + "\n".join(t for t, _ in found[0]))
+        self.assertEqual(body(found[0])[-1][1], 1, "the hit is highlighted (A_REVERSE)")
+        self.assertTrue(body(found[1])[-1][0].endswith("Verify 1234: GREEN"), "n: the next older hit is the page's last line\n" + "\n".join(t for t, _ in found[1]))
+        self.assertTrue(any("no match for 'zzz'" in f[0][0] for f in logs), "a query with no hit says so in the header")
