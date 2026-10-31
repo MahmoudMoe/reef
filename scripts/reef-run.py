@@ -50,6 +50,7 @@ own words, a decision, a merge — what the terminal shows, and the Runner secti
 The lock stops a second RUNNER; it does not stop an interactive /reef-loop beside it — run one orchestrator at a time.
 """
 import atexit
+import hashlib
 import math
 import html
 import json
@@ -63,7 +64,7 @@ import time
 from functools import cache, partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question, merge_by, read_config, load_sibling, die as _die  # noqa: E402
+from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question, merge_by, read_config, load_sibling, plugin_version, die as _die  # noqa: E402
 
 RUN_DIR = os.path.join(".reef", "run")
 LIVE = os.path.join(RUN_DIR, "live.log")
@@ -1250,7 +1251,153 @@ def cmd_status(root):
     return 2 if wait else 0   # an owner wait: 2, as `watch` says it (the CLI review: status said 0)
 
 
+def file_owner_question(root, text, recommended, row=None):
+    """The owner's question in the inbox: the queue files it (an issue too, on an issues queue), else the line the screen reads
+    (the review: "filed" must be true). Once: a question already there with the same words is not filed twice."""
+    if any(text[:60] in q for _, _, q, _ in questions(root)):
+        return
+    ask = os.path.join(root, "scripts", "reef-queue.py")
+    filed = False
+    if os.path.isfile(ask):
+        try:
+            filed = subprocess.run([sys.executable, ask, "ask", text, "--recommended", recommended, *(["--row", row] if row else []), "--repo", root],
+                                   capture_output=True, text=True, cwd=root, timeout=90).returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            filed = False
+    if not filed:
+        with open(os.path.join(root, ".reef", "questions.md"), "a", encoding="utf-8") as f:
+            f.write(question_line(row or "-", text, recommended) + "\n")
+
+
+RESTART = os.path.join(JOBS_DIR, ".restart")   # under the guarded jobs dir: no agent writes it; not *.json: never read as a job
+
+
+def restart_state(root):
+    """A runner restarted on its synced copy (os.execv: the same pid, lock and log) carries its run — the start checks and the
+    markers were done when the owner started it, and the report counts from that start. The state is honoured only by the
+    process that wrote it, holding the lock, read once (the security review: an environment variable would let any process
+    skip the start checks), and every field is checked."""
+    p = os.path.join(root, RESTART)
+    try:
+        with open(p, encoding="utf-8") as f:
+            st = json.load(f)
+        os.unlink(p)
+        with open(os.path.join(root, RUN_DIR, "lock"), encoding="utf-8") as f:
+            lock_pid = int(f.read().strip() or 0)
+    except (OSError, ValueError):
+        return None
+    ok = (isinstance(st, dict) and st.get("pid") == os.getpid() == lock_pid and isinstance(st.get("started"), str)
+          and isinstance(st.get("i"), int) and isinstance(st.get("owner_waits"), int) and isinstance(st.get("tried"), list)
+          and all(isinstance(x, str) for x in st["tried"]) and (st.get("plugin") is None or isinstance(st.get("plugin"), str)))
+    return st if ok else None
+
+
+def pinned_plugin():
+    """The plugin clone the runner syncs from, read once when the owner starts it: CLAUDE_PLUGIN_ROOT, else the directory of
+    the marketplace that installed reef (installed_plugins.json's reef@<name>). Never the first marketplace entry that says
+    "reef": an unattended process does not walk a list an agent can add to (the security review of the sync)."""
+    cands = [os.environ.get("CLAUDE_PLUGIN_ROOT")]
+    base = os.path.expanduser("~/.claude/plugins")
+    try:
+        with open(os.path.join(base, "installed_plugins.json"), encoding="utf-8") as f:
+            inst = json.load(f)
+        with open(os.path.join(base, "known_marketplaces.json"), encoding="utf-8") as f:
+            known = json.load(f)
+        for key in (inst.get("plugins", inst) if isinstance(inst, dict) else {}):
+            v = known.get(key.split("@", 1)[1]) if isinstance(key, str) and key.startswith("reef@") else None
+            if isinstance(v, dict):
+                src = v.get("source")
+                cands += [v.get("installLocation"), src.get("path") if isinstance(src, dict) else None]
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
+    for c in cands:
+        if c and os.path.isfile(os.path.join(c, ".claude-plugin", "plugin.json")) and os.path.isdir(os.path.join(c, "scripts")):
+            return os.path.realpath(c)
+    return None
+
+
+def sync_scripts(root, plugin, say, tried):
+    """The project's copies brought level with the pinned plugin before a session (2026-10-31, the owner's autopilot: the
+    plugin moved on, the copies stayed behind, and an approval was refused on a stale reef-approval.py until `reef update`).
+    Only a copy Reef wrote and nobody touched (its bytes hash to its init-manifest entry) is replaced, with the plugin's
+    bytes; a copy edited since is the owner's question, never committed. One commit of those files and the manifest alone
+    (`git commit -- <paths>`: whatever else is staged stays out), pushed only when it is the branch's one unpushed commit.
+    A state already tried is not tried again. True when the runner's own two files changed and now equal the plugin's."""
+    if not plugin:
+        return False
+    pdir, sdir = os.path.join(plugin, "scripts"), os.path.join(root, "scripts")
+    def body(p):
+        try:
+            with open(p, "rb") as f:
+                return f.read()
+        except OSError:
+            return None
+    git = lambda *a, **k: subprocess.run(["git", "-C", root, *a], capture_output=True, text=True, **k)
+    names = [n for n in sorted(os.listdir(pdir)) if n == "reef" or n.startswith(("reef-", "reef_"))]
+    behind = {n: body(os.path.join(pdir, n)) for n in names
+              if os.path.isfile(os.path.join(sdir, n)) and body(os.path.join(sdir, n)) != body(os.path.join(pdir, n))}
+    key = hashlib.sha256(b"".join(n.encode() + (behind[n] or b"") for n in sorted(behind))).hexdigest()
+    if not behind or key in tried:
+        return False
+    tried.add(key)
+    man_rel = os.path.join(".reef", "init-manifest.json")
+    try:
+        man = json.loads(git("show", f"HEAD:{man_rel}").stdout or "{}")
+    except ValueError:
+        man = {}
+    man = man if isinstance(man, dict) else {}
+    ours = [n for n in behind if man.get(f"scripts/{n}") == hashlib.sha256(body(os.path.join(sdir, n)) or b"").hexdigest()]
+    edited = [n for n in behind if n not in ours and f"scripts/{n}" in man]   # a copy the manifest never recorded is not Reef's to judge
+    if edited:   # reef-init proposes over an edited copy and never overwrites it; the runner never commits one
+        file_owner_question(root, f"scripts behind the plugin and edited in this project: {', '.join(edited[:6])} — Reef's sync leaves them as they are",
+                            "python3 scripts/reef update lists each proposal to accept or keep")
+        say(f"scripts edited in this project, not synced ({', '.join(edited[:4])}) — filed as your question")
+    head = subprocess.run(["git", "-C", plugin, "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "-C", plugin, "status", "--porcelain"], capture_output=True, text=True).stdout.strip()
+    base = str((read_config(root).get("branches") or {}).get("base", "main") or "main")
+    on = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    if not ours or head != "main" or dirty or on != base or git("diff", "--quiet", "HEAD", "--", man_rel).returncode != 0:
+        if ours:
+            say(f"scripts behind the plugin ({', '.join(ours[:4])}) — not synced: "
+                + (f"the plugin clone {plugin} is not on main" if head != "main" else f"the plugin clone {plugin} is not clean" if dirty
+                   else f"this checkout is on {on}, not {base}" if on != base else f"{man_rel} has uncommitted changes") + " — reef update")
+        return False
+    me = [os.path.join(os.path.dirname(os.path.abspath(__file__)), n) for n in ("reef-run.py", "reef_common.py")]
+    before = [body(p) for p in me]
+    for n in ours:
+        target = os.path.join(sdir, n)
+        mode = os.stat(target).st_mode
+        with open(target, "wb") as f:
+            f.write(behind[n])
+        os.chmod(target, mode)
+        man[f"scripts/{n}"] = hashlib.sha256(behind[n]).hexdigest()
+    with open(os.path.join(root, man_rel), "w", encoding="utf-8") as f:   # as reef-init writes it
+        json.dump(dict(sorted(man.items())), f, indent=2)
+        f.write("\n")
+    version = plugin_version(plugin)
+    sha = subprocess.run(["git", "-C", plugin, "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip()
+    paths = [f"scripts/{n}" for n in ours] + [man_rel]
+    c = git("commit", "-q", "-m", f"reef: scripts {version} ({sha}) — synced by the runner", "--", *paths, timeout=600)
+    if c.returncode != 0:
+        git("checkout", "HEAD", "--", *paths)   # the commit refused (the gate): the copies as they were, nothing half-done
+        say(f"scripts behind the plugin ({', '.join(ours[:4])}) — the sync's commit was refused: {(c.stderr or c.stdout).strip()[-200:]} — reef update")
+        return False
+    pushed = ""
+    remote = git("config", f"branch.{on}.remote").stdout.strip()
+    merge = git("config", f"branch.{on}.merge").stdout.strip()
+    if remote and merge:
+        ahead = git("rev-list", "--count", "@{u}..HEAD").stdout.strip()
+        pushed = (" · pushed" if git("push", "-q", remote, f"HEAD:{merge}", timeout=600).returncode == 0 else " · not pushed (the push was refused)") if ahead == "1" \
+            else f" · not pushed: {ahead} local commits on the branch — yours to push"
+    say(f"scripts synced from the plugin ({', '.join(ours[:4])}{'…' if len(ours) > 4 else ''}) — committed as 'reef: scripts {version} ({sha})'{pushed}")
+    after = [body(p) for p in me]
+    return after != before and after == [body(os.path.join(pdir, n)) for n in ("reef-run.py", "reef_common.py")]
+
+
 def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=False):
+    carried = restart_state(root)
+    if carried:
+        return run_loop(root, mode, cap, night, row, autopilot, carried)
     if night:
         ok, why = night_ok(root)
         if not ok:
@@ -1299,6 +1446,24 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
         detach(root)   # every refusal above printed to the caller; from here on the runner is on its own
     with open(lock, "w", encoding="utf-8") as f:
         f.write(str(os.getpid()))
+    started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    if night:
+        with open(os.path.join(root, NIGHT_DIR, "active"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": night_digest(root)[:16]}))
+    if autopilot:
+        dg = day_digest(root)   # the full digest: --proxy reads the marker through binds (a 16-hex twin is not this contract)
+        with open(os.path.join(root, AUTOPILOT), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": dg[:16], "digest": dg}))
+    open(os.path.join(root, LIVE), "w", encoding="utf-8").close()
+    drop_question(root, when=lambda line: NO_PROGRESS in line)   # the owner started the runner again: the no-progress notice has served
+    stop_req = os.path.join(root, RUN_DIR, "stop-request")
+    if os.path.exists(stop_req):
+        os.unlink(stop_req)   # a request from before this run is not about this run
+    return run_loop(root, mode, cap, night, row, autopilot, {"started": started, "i": 0, "plugin": pinned_plugin()})
+
+
+def run_loop(root, mode, cap, night, row, autopilot, carried):
+    lock = os.path.join(root, RUN_DIR, "lock")
 
     def ending(signum, frame):   # TERM, INT: unwind — session()'s finally ends the session, cmd_run's finally the lock
         raise SystemExit(128 + signum)   # (the review: never wait on the child from inside a handler — the main thread may hold its wait lock)
@@ -1308,22 +1473,12 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
     # same way (an asynchronous SystemExit from a handler fired inside the cleanup itself and at interpreter shutdown)
     atexit.register(end_session)
     log = os.path.join(root, RUN_DIR, "run.log")
-    started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    started, plugin = carried["started"], carried.get("plugin")
     active = os.path.join(root, NIGHT_DIR, "active")
-    if night:
-        with open(active, "w", encoding="utf-8") as f:
-            f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": night_digest(root)[:16]}))
-    if autopilot:
-        dg = day_digest(root)   # the full digest: --proxy reads the marker through binds (a 16-hex twin is not this contract)
-        with open(os.path.join(root, AUTOPILOT), "w", encoding="utf-8") as f:
-            f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": dg[:16], "digest": dg}))
     live = os.path.join(root, LIVE)
-    open(live, "w", encoding="utf-8").close()
-    drop_question(root, when=lambda line: NO_PROGRESS in line)   # the owner started the runner again: the no-progress notice has served
     stop_req = os.path.join(root, RUN_DIR, "stop-request")
-    if os.path.exists(stop_req):
-        os.unlink(stop_req)   # a request from before this run is not about this run
-    i, prev_sig, prev_wait, owner_waits = 0, None, None, 0
+    i, prev_sig, prev_wait, owner_waits = carried.get("i", 0), carried.get("prev_sig"), carried.get("prev_wait"), carried.get("owner_waits", 0)
+    tried = set(carried.get("tried") or [])
 
     def record(text):
         """A line the owner sees everywhere — live.log (watch, status, the status page) first, the terminal after: the
@@ -1355,12 +1510,18 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
         return rc
 
     try:
-        for i in range(1, cap + 1):
+        for i in range(i + 1, cap + 1):
             say("session started" + (" (night)" if night else " (autopilot)" if autopilot else ""))
             done_jobs = wait_jobs(root, say, stop_req)   # long work runs under the runner: wait for it before the session that reads its result (a restart too)
             if os.path.exists(stop_req):
                 os.unlink(stop_req)
                 return end(0, "reef-run: stopped on the owner's request (reef-run.py stop) while a job ran — the job runs on; the next run reads its result")
+            if sync_scripts(root, plugin, say, tried):   # between sessions, no job running: the new code runs from here on
+                say("reef-run.py changed with the sync — the runner restarts on the new copy")
+                with open(os.path.join(root, RESTART), "w", encoding="utf-8") as f:
+                    json.dump({"pid": os.getpid(), "started": started, "plugin": plugin, "i": i - 1, "prev_sig": prev_sig,
+                               "prev_wait": prev_wait, "owner_waits": owner_waits, "tried": sorted(tried)}, f)
+                os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)] + [a for a in sys.argv[1:] if a != "--detach"])
             note = jobs_note(done_jobs)
             if done_jobs:
                 say("jobs done: " + ", ".join(f"{j['name']} rc={j.get('rc')}" for j in done_jobs) + " — this session continues their rows")
@@ -1392,20 +1553,11 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
             if wait and not owner_wait(wait):
                 sig = progress_signature(root, wait) if not done_jobs else None   # a job that ended IS progress: the next session reads it
                 if sig is not None and sig == prev_sig:   # 2026-10-28: the same state twice (the base's head, the handoff, the wait) is no progress — not a tenth session on it
-                    ask = os.path.join(root, "scripts", "reef-queue.py")   # 2026-10-30: a question in the inbox and a word to the desk, never a silent exit
                     q_text, q_rec = f"the loop made no progress across two sessions — the same wait twice: {wait[:160]}", "read HANDOFF.md, fix what stops the row, then answer this question — the runner starts again by itself"
                     rows_named = sorted(set(re.findall(r"\brow (\d+)", wait)))
                     q_row = rows_named[0] if len(rows_named) == 1 else None   # the row the wait names, so the question can be answered and cleared on it
-                    filed = any(NO_PROGRESS in q for _, _, q, _ in questions(root))   # once: a restart on the same stuck wait files no second one
-                    if not filed and os.path.isfile(ask):   # the queue files it (an issue too, on an issues queue)
-                        try:
-                            filed = subprocess.run([sys.executable, ask, "ask", q_text, "--recommended", q_rec, *(["--row", q_row] if q_row else []), "--repo", root],
-                                                   capture_output=True, text=True, cwd=root, timeout=90).returncode == 0
-                        except (OSError, subprocess.TimeoutExpired):
-                            filed = False
-                    if not filed:   # no queue script, or it refused: the line the screen reads, written here (the review: "filed" must be true)
-                        with open(os.path.join(root, ".reef", "questions.md"), "a", encoding="utf-8") as f:
-                            f.write(question_line(q_row or "-", q_text, q_rec) + "\n")
+                    if not any(NO_PROGRESS in q for _, _, q, _ in questions(root)):   # 2026-10-30: a question in the inbox, never a silent exit; once
+                        file_owner_question(root, q_text, q_rec, q_row)
                     return end(2, f"reef-run: no progress — two sessions ended on the same wait with nothing changed: {wait[:160]} — fix what stops them "
                                   "(HANDOFF.md names it), then answer the question it filed — the runner starts again by itself\n  filed as your question: python3 scripts/reef shows it")
                 prev_sig = sig
