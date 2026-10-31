@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The board's task counts are the row machine's** (the owner's first working board, 2026-10-31 03:57: every row said `tasks 0/0`
+  while rows 4 and 7 had finished theirs — the plan's files live in the row's feature worktree until it merges, and the board had
+  counted the main checkout). `reef-row.py state --json` now carries `tasks: {done, total}`, counted where the folder is, and the
+  board takes it (the main checkout's folder is the fallback). The autopilot line counts Mahmoud's plan approvals of the day
+  (`.reef/approvals/<slug>.json`, `by: mahmoud (proxy)`) beside his day decisions; the runner's start shows as a clock time. tests/size-budget.json raised: `script_lines` 17,701 → 17,704.
 - **The screen never freezes** (the owner, 2026-10-31 03:05, the first run of the fourth screen on an issues queue: "nothing works
   and still in black and white" — the board had asked the row machine about every row, one subprocess after another, on the UI
   thread; the first frame stayed for minutes and the keys were dead). Every reading — the inbox, the board, the doctor — now runs
