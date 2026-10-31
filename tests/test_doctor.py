@@ -492,3 +492,24 @@ class TheUpdateIsOneVerb(unittest.TestCase):
         self.assertNotIn("/reload-plugins", r.stdout)
         r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--dry-run"], capture_output=True, text=True)
         self.assertIn("/reload-plugins", r.stdout, "alone, the script still says the step")
+
+
+class TheGraphGateLine(unittest.TestCase):
+    """2026-10-31: the owner's project had graph.mode auto and no graph gate, every row built in chat mode, and the doctor said nothing.
+    The line says the plain truth: the gate is for the rows the owner builds himself (/reef-graph proves it, in a session); the
+    runner's sessions build in chat mode either way (no Workflow tool headless)."""
+
+    def test_the_doctor_names_a_missing_graph_gate_and_where_graph_mode_runs(self):
+        d = project()
+        r = doctor(d)
+        self.assertRegex(r.stdout, r"(?m)^WARN graph gate: none — graph\.mode auto: /reef-graph once", r.stdout)
+        self.assertIn("a headless session has no Workflow tool", r.stdout)
+        self.assertNotIn("reef-run.py probe", [l for l in r.stdout.splitlines() if l.startswith("WARN graph gate")][0], "the runner cannot prove it: no such fix is named")
+        os.makedirs(os.path.join(d, ".reef", "graph"))
+        json.dump({"ok": False, "why": "no result was saved — the session did not (or could not) call the Workflow tool"}, open(os.path.join(d, ".reef", "graph", "gate.json"), "w"))
+        self.assertRegex(doctor(d).stdout, r"(?m)^WARN graph gate: FAILED \(no result was saved", "FAILED is told apart from none, with its cause")
+        json.dump({"ok": True}, open(os.path.join(d, ".reef", "graph", "gate.json"), "w"))
+        self.assertRegex(doctor(d).stdout, r"(?m)^OK   graph gate: GATE OK — a row you build yourself")
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump({"branches": {"base": "main", "feature_prefix": "feat/"}, "paths": {"queue": "reef/queue.md"}, "graph": {"mode": "chat"}}, f)
+        self.assertNotIn("graph gate", doctor(d).stdout, "chat mode wants none")

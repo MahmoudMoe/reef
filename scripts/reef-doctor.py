@@ -279,6 +279,18 @@ def main(argv):
         gate = {}
     say("OK" if gate.get("ok") else "WARN", f"gate probe: GATE OK for --permission-mode {gate.get('mode')}" if gate.get("ok") else "gate probe: none — the runner refuses to start",
         "" if gate.get("ok") else "python3 scripts/reef-run.py probe")
+    gmode = str(((cfg.get("graph") or {}) if isinstance(cfg.get("graph"), dict) else {}).get("mode", "auto") or "auto").strip().lower()
+    if gmode != "chat":   # 2026-10-31: the owner's project had graph.mode auto, no graph gate, every row built in chat mode, and no line said so
+        try:
+            with open(os.path.join(root, ".reef", "graph", "gate.json"), encoding="utf-8") as f:
+                ggate = json.load(f)
+        except (OSError, ValueError):
+            ggate = {}
+        headless = "the runner's sessions build in chat mode either way: a headless session has no Workflow tool"
+        say("OK" if ggate.get("ok") else "WARN",
+            f"graph gate: GATE OK — a row you build yourself (/reef-loop, /reef-graph) runs as one workflow; {headless}" if ggate.get("ok")
+            else f"graph gate: FAILED ({ggate.get('why') or 'the hooks did not reach the workflow agent'}) — your own sessions build in chat mode too" if ggate
+            else f"graph gate: none — graph.mode {gmode}: /reef-graph once, in a Claude Code session in this project, proves it for the rows you build yourself; {headless}")
     setup_s = os.path.join(root, "scripts", "reef-setup.py")
     if os.path.isfile(setup_s):
         try:

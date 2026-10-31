@@ -936,3 +936,47 @@ class WatchInsideASession(unittest.TestCase):
         self.assertIn("autopilot", run_skill.split("argument-hint:", 1)[1].splitlines()[0])
         self.assertIn("/reef-watch", open(os.path.join(ROOT, "README.md"), encoding="utf-8").read())
         self.assertIn("reef-watch skill", open(os.path.join(ROOT, "commands", "watch.md"), encoding="utf-8").read(), "the command stub pairs the skill, as every owner verb's does")
+
+
+class GraphModeIsForTheOwnersOwnSessions(unittest.TestCase):
+    """2026-10-31, the owner: "does the autopilot have graph mode? why was it off, who turned it off?" — the live answer: a headless
+    `claude -p` session has no Workflow tool ("The Workflow tool isn't available to me"), so graph mode is for the sessions the owner
+    runs himself. The runner never probes the graph gate (every attempt would fail and cost a session), and the loop's tick picks chat
+    mode under the runner whatever the gate says."""
+
+    def test_the_runner_never_probes_the_graph_gate(self):
+        d = project()
+        r = run(d, ["probe-deny"], "probe")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(calls(d), ["probe-deny"], "one session: the headless gate; no graph probe")
+        self.assertFalse(os.path.exists(os.path.join(d, ".reef", "graph")))
+        open(os.path.join(d, ".fake-calls"), "w").write("")
+        self.assertEqual(run(d, ["stop:done"]).returncode, 0)
+        self.assertEqual(calls(d), ["stop:done"], "the runner's start probes nothing either")
+        src = open(RUN, encoding="utf-8").read()
+        self.assertNotIn("Workflow tool", src.split("def cmd_probe", 1)[1].split("def detach", 1)[0], "the runner asks no session for the Workflow tool")
+
+    def test_the_loop_picks_chat_mode_under_the_runner_whatever_the_gate_says(self):
+        import importlib.machinery, importlib.util
+        loader = importlib.machinery.SourceFileLoader("reef_loop_for_graph_mode", os.path.join(ROOT, "scripts", "reef-loop.py"))
+        spec = importlib.util.spec_from_loader(loader.name, loader); loop = importlib.util.module_from_spec(spec); loader.exec_module(loop)
+        d = project()
+        os.makedirs(os.path.join(d, ".reef", "graph"))
+        json.dump({"ok": True}, open(os.path.join(d, ".reef", "graph", "gate.json"), "w"))
+        cfg = {"graph": {"mode": "auto"}}
+        old = os.environ.pop("REEF_RUNNER", None)
+        try:
+            self.assertEqual(loop.graph_mode(d, cfg), ("auto", True), "an interactive session with the gate proven: graph")
+            os.environ["REEF_RUNNER"] = "1"
+            self.assertEqual(loop.graph_mode(d, cfg), ("chat", False), "under the runner: chat, whatever the gate says (no Workflow tool headless)")
+            os.environ.pop("REEF_RUNNER")
+            os.makedirs(os.path.join(d, ".reef", "run"), exist_ok=True)
+            open(os.path.join(d, ".reef", "run", "lock"), "w").write(str(os.getpid()))   # the runner's live lock says the same, env line or not
+            self.assertEqual(loop.graph_mode(d, cfg), ("chat", False), "the live lock, not only the env line, means the runner")
+            os.remove(os.path.join(d, ".reef", "run", "lock"))
+            real = os.path.join(d, ".reef", "graph"); os.rename(real, real + "-elsewhere"); os.symlink(real + "-elsewhere", real)
+            self.assertEqual(loop.graph_mode(d, cfg), ("auto", False), "a symlinked .reef/graph is not the probe's record")
+        finally:
+            os.environ.pop("REEF_RUNNER", None)
+            if old is not None:
+                os.environ["REEF_RUNNER"] = old

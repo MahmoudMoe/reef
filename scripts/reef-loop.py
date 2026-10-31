@@ -21,7 +21,7 @@ import calendar
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import run as _run, read_config as config, read_replace as read, main_checkout, drop_hold  # noqa: E402
+from reef_common import run as _run, read_config as config, read_replace as read, main_checkout, drop_hold, process_alive  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 MAX_LINES = 30
@@ -80,13 +80,28 @@ def graph_mode(root, cfg):
     mode = str(((policy.get("graph") or {}) if isinstance(policy.get("graph"), dict) else {}).get("mode", "auto") or "auto").strip().lower()
     if mode not in ("auto", "chat", "graph"):
         mode = "auto"
+    if os.environ.get("REEF_RUNNER") or runner_alive(first):   # a headless session (the runner's: REEF_RUNNER=1, or its live lock) has no Workflow tool — measured
+        return "chat", False                                   # 2026-10-31 on a live probe, "The Workflow tool isn't available to me": under the runner every row builds in chat mode
     ok = False
+    gate = os.path.join(first, ".reef", "graph", "gate.json")
     try:
-        with open(os.path.join(first, ".reef", "graph", "gate.json"), encoding="utf-8") as f:
+        if os.path.dirname(os.path.realpath(gate)) != os.path.join(os.path.realpath(os.path.join(first, ".reef")), "graph"):   # a symlinked folder: not the probe's record
+            return mode, False
+        with open(gate, encoding="utf-8") as f:
             ok = bool(json.load(f).get("ok"))
     except (OSError, ValueError):
         ok = False
     return mode, ok
+
+
+def runner_alive(root):
+    """The runner's lock names a live process: this session runs under it (the lock is the runner's own record; an env line can be unset)."""
+    try:
+        with open(os.path.join(root, ".reef", "run", "lock"), encoding="utf-8") as f:
+            pid = int(f.read().strip() or 0)
+        return bool(pid) and process_alive(pid)
+    except (OSError, ValueError):
+        return False
 
 
 def markers(root, kind, stale_minutes=None):

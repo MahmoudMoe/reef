@@ -60,6 +60,21 @@ class Gate(unittest.TestCase):
         r = g(d, "probe-check", ".reef/graph/probe-results.json")
         self.assertEqual(r.returncode, 1)
         self.assertFalse(os.path.exists(os.path.join(d, ".reef", "approvals", "graph-probe.json")))
+        # the agent's flag alone is not a denial: the guard's own words must be in the output (the runner reads this unattended)
+        with open(os.path.join(d, ".reef", "graph", "probe-results.json"), "w") as f:
+            json.dump({"denied": True, "output": "I did not run it"}, f)
+        r = g(d, "probe-check", ".reef/graph/probe-results.json")
+        self.assertEqual(r.returncode, 1); self.assertIn("guard's own words", r.stdout)
+        # no result at all: FAILED, recorded (the runner probes once, not at every start), the cause named
+        r = g(d, "probe-check", ".reef/graph/no-such-results.json")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        rec = json.load(open(os.path.join(d, ".reef", "graph", "gate.json")))
+        self.assertFalse(rec["ok"]); self.assertIn("Workflow tool", rec["why"]); self.assertIn("Workflow tool", r.stdout)
+        # no result AND a leaked file: the leak names itself, and is removed
+        open(os.path.join(d, ".reef", "approvals", "graph-probe.json"), "w").write("{}")
+        r = g(d, "probe-check", ".reef/graph/no-such-results.json")
+        self.assertEqual(r.returncode, 1); self.assertIn("was created", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(d, ".reef", "approvals", "graph-probe.json")))
         # denied and no file → ok
         r = pass_gate(d)
         self.assertEqual(r.returncode, 0, r.stdout)

@@ -1006,4 +1006,18 @@ class AJobIsNotAWayAroundTheGate(unittest.TestCase):
         for w in ("printf '{}' > .reef/run/jobs/x.json", "echo x >> .reef/run/jobs/gate-4.json", "cp /tmp/x.json .reef/run/jobs/y.json"):
             r = bash(w)
             self.assertEqual(r.returncode, 2, "the job records are the runner's: " + w + " " + r.stderr); self.assertIn("run/jobs", r.stderr)
+        # the graph gate's proof (2026-10-31): a planted record would let a workflow the hooks do not reach run — denied; the probe's own result file beside it is the session's to write
+        for w in ("printf '{\"ok\": true}' > .reef/graph/gate.json", "cp /tmp/g.json .reef/graph/gate.json", "echo x >> ./.reef/graph/gate.json"):
+            r = bash(w)
+            self.assertEqual(r.returncode, 2, "the graph gate is the probe's: " + w + " " + r.stderr); self.assertIn("graph/gate.json", r.stderr)
+        for w in ("cp /tmp/gate.json .reef/graph/", "mv gate.json .reef/graph", "cd .reef/graph && printf '{}' > gate.json", "printf '{}' > /x/.reef/graph/./gate.json",
+                  "cp -r /tmp/graph .reef/"):   # the landed name, a cd, a dot component, the folder whole (the second security pass)
+            r = bash(w)
+            self.assertEqual(r.returncode, 2, "spelled around the record: " + w + " " + r.stderr)
+        r = bash("printf '{}' > .reef/graph/probe-results.json")
+        self.assertEqual(r.returncode, 0, "the probe's result is written by the session: " + r.stderr)
+        r = bash("cp /tmp/probe-results.json .reef/graph/")
+        self.assertEqual(r.returncode, 0, "and may land there by name: " + r.stderr)
+        r = run_guard({"tool_name": "Write", "tool_input": {"file_path": "/x/.reef/graph/gate.json", "content": "{}"}})
+        self.assertEqual(r.returncode, 2, "nor through the Write tool: " + r.stderr)
 
