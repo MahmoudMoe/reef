@@ -138,10 +138,11 @@ APPROVAL_SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")   # reef-approval.py's
 def plan_gate(root, scripts, py, tasks):
     """Split ready tasks into (dispatchable, awaiting): per feature, `reef-plan-check.py --verify-stamp --feature`
     decides — approval MISSING/STALE or stamp MISSING/STALE keeps the feature out of `dispatch now` and names why.
-    Without the project's plan-check script (a layout older than reef-init) nothing is held back."""
-    pc = os.path.join(scripts, "reef-plan-check.py")
-    if not os.path.isfile(pc) or not tasks:
+    Without the project's plan-check script (a layout older than reef-init) nothing is held back; with it, the one beside
+    this script decides — the copy only marks the layout, as in the guard."""
+    if not os.path.isfile(os.path.join(scripts, "reef-plan-check.py")) or not tasks:
         return tasks, []
+    pc = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
     verdict, command = {}, {}
     for t in tasks:
         feat = task_feature(t.get("path", ""))

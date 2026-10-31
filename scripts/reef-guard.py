@@ -1080,8 +1080,8 @@ def check_stamp(root, feature):
         cmd += ["--feature", feature]
     try:
         r = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=30)
-    except Exception:
-        return
+    except Exception as e:   # a check that cannot run is not a fresh stamp
+        deny(f"plan stamp could not be checked ({e}) — the plugin's scripts/reef-plan-check.py did not run")
     if r.returncode != 0:
         out = (r.stdout or r.stderr).strip()
         deny("plan stamp is stale or missing — the plan changed since its last review; "

@@ -316,6 +316,11 @@ class HumanOnlyApproval(unittest.TestCase):
         r = dispatch(self.d, "reef:implementer", "REEF-TASK: tasks/007-demo.md\nimplement")
         self.assertEqual(r.returncode, 2, "the copy's green --verify-stamp opens no gate")
         self.assertIn("approval: MISSING", r.stderr)
+        rr = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", self.d], capture_output=True, text=True)
+        self.assertEqual(rr.returncode, 0, rr.stderr)
+        real = subprocess.run([sys.executable, CHECK, self.d, "--digest", "--feature", "demo"], capture_output=True, text=True).stdout.split()[-1]
+        with open(os.path.join(self.d, ".reef", "review", "plan-demo.json")) as f:
+            self.assertEqual(json.load(f)["digest16"], real[:16], "reef-record binds the review to the real digest, not the copy's")
 
     def test_hook_refuses_while_plan_check_fails(self):
         # 2026-10-17: five sentences over the word ceiling surfaced AFTER the owner approved; fixing them voided the approval
