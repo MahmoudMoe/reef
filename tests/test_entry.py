@@ -276,7 +276,7 @@ class TheScreen(unittest.TestCase):
         self.assertEqual(on(ord("R"), 0, 5, "inbox"), ("verb", "run"), "one case: a caps lock is not silence")
         self.assertEqual(on(10, 1, 5, "inbox"), ("run", 1), "Enter runs the selected")
         self.assertEqual(on(ord("9"), 0, 2, "inbox"), None, "a digit past the list is nothing")
-        self.assertEqual(on(ord("q"), 0, 2, "inbox"), ("quit",)); self.assertEqual(on(27, 0, 2, "inbox"), ("quit",))
+        self.assertEqual(on(ord("q"), 0, 2, "inbox"), ("quit",)); self.assertIsNone(on(27, 0, 2, "inbox"))   # Esc never quits (the CLI review)
         self.assertEqual(on(ord("w"), 0, 2, "inbox"), ("log",)); self.assertEqual(on(ord("w"), 0, 2, "log"), ("back",))
         self.assertEqual(on(ord("q"), 0, 2, "log"), ("back",), "q in the log view goes back, not out")
         self.assertEqual(on(ord("r"), 0, 2, "inbox"), ("verb", "run"))
@@ -409,7 +409,7 @@ class TheScreen(unittest.TestCase):
         short, sstyles2, ssel = mod.render_work(wm, [], width=110, height=14, selected=4)
         self.assertLessEqual(len(short), 14); self.assertIn("35", short[ssel], "the selected row survives the shedding"); self.assertTrue(any("more (" in l for l in short), "the cut is said")
         wm["autopilot"] = {"on": True, "pid": 70417, "since": "01:22", "decided_today": 3}
-        plan, pstyles = mod.render_plan(wm, [], width=110, height=30)
+        plan, pstyles, _ = mod.render_plan(wm, [], width=110, height=30)
         self.assertLessEqual(len(plan), 30)
         self.assertTrue(any("row 4" in l and "█" in l for l in plan), "a progress bar per row")
         self.assertTrue(any("decided by Mahmoud today" in l and "3" in l for l in plan))
@@ -428,7 +428,7 @@ class TheScreen(unittest.TestCase):
         self.assertEqual(on(ord("3"), 0, 5, "work"), ("select", 2)); self.assertEqual(on(10, 1, 5, "work"), ("open", 1))
         self.assertEqual(on(10, 1, 5, "plan"), ("open", 1), "PLAN shows rows: Enter never runs an inbox item the view does not show (the security review)")
         self.assertEqual(on(ord("q"), 0, 2, "log"), ("back",))
-        self.assertEqual(on(27, 0, 3, "help"), ("view", "work")); self.assertEqual(on(ord("q"), 0, 3, "help"), ("view", "work"))
+        self.assertEqual(on(27, 0, 3, "help"), ("back",)); self.assertEqual(on(ord("q"), 0, 3, "help"), ("back",))   # to the page it was opened from
         attrs = mod.style_attrs({"A_REVERSE": 1, "A_BOLD": 2, "A_NORMAL": 0, "A_DIM": 4}, colors=False)
         self.assertEqual(attrs["sel"], 1); self.assertEqual(attrs["banner"], 2); self.assertEqual(attrs["done"], 4, "done is dim, not green: the eye goes to what can start")
         class C:   # a curses with colors: the palette that reads at a glance
@@ -1228,3 +1228,159 @@ class TheScreenStaysSmooth(unittest.TestCase):
         frames = [f for f in win.frames if any(r.startswith("RUNNER  the last steps") for r in f)]   # the INBOX page, by its RUNNER header (the DOCTOR section is what may vanish)
         self.assertGreaterEqual(len(frames), 3)
         self.assertTrue(all(any("WARN plugin" in r for r in f) for f in frames), "the doctor's line never left the inbox page\n" + "\n".join(next((f for f in frames if not any("WARN plugin" in r for r in f)), [])))
+
+
+class ThePagesAndTheKeys(unittest.TestCase):
+    """The CLI review (2026-10-31 19:30), the second group: PLAN was half a view (no selection drawn, yet ↑↓/digits/Enter moved an
+    invisible one; a command there drew another page's frame and came back with no panel); `d` kept the doctor's LAST twelve lines
+    while the WARNs are its first; help's own header said `q back` but q went to WORK from anywhere; Esc meant back on sub-pages
+    and quit on the main ones, and arrived a second late; the tabs line nagged `board N s old` for 96% of every cycle while the
+    help promised a refresh every 3 s; `s` ended a night with one unconfirmed keystroke next to a/d/w; the keys line broke
+    `c / cost` across two rows at 120 columns."""
+
+    class FC:
+        A_REVERSE, A_BOLD, A_NORMAL = 1, 2, 0
+        error = Exception
+        def curs_set(self, *_): pass
+        def flushinp(self): pass
+        def update_lines_cols(self): pass
+        def has_colors(self): return False
+        def endwin(self): pass
+
+    class FW:
+        def __init__(self, keys): self.keys = list(keys); self.rows = []; self.frames = []
+        def getmaxyx(self): return (40, 120)
+        def timeout(self, *_): pass
+        def erase(self): self.frames.append([])
+        def refresh(self): pass
+        def move(self, *_): pass
+        def clrtoeol(self): pass
+        def addstr(self, y, x, text, *a): self.rows.append(text); self.frames[-1].append(text) if self.frames else None
+        def getch(self):
+            k = self.keys.pop(0) if self.keys else ord("q")
+            if k == -1:
+                settle()
+            return k
+
+    def board(self, rows):
+        return {"rows": rows, "facts": ["x"] * 5, "progress": {"rows": (0, len(rows)), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time(), "batch": 3}
+
+    def row(self, id, mark, detail="", nxt="", state="plan"):
+        return {"id": id, "mark": mark, "tasks": (1, 3), "lane": "src", "state": state, "detail": detail, "next": nxt, "depends": [], "waits": [], "forge": "", "item": f"row {id} item", "slug": ""}
+
+    def test_plan_shows_its_selection_and_the_panel(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        wm = self.board([self.row("9", "○"), self.row("10", "▶", state="build")])
+        lines, styles, sel_line = mod.render_plan(wm, [], width=120, height=40, selected=1)
+        self.assertIsNotNone(sel_line); self.assertIn("row 10", lines[sel_line]); self.assertEqual(styles.get(sel_line), "sel", "the selected row is drawn as such")
+        lines, styles, _ = mod.render_plan(wm, [], width=120, height=40, selected=0, panel={"shown": "reef cost", "rc": 0, "lines": ["$1.20 per row"]})
+        self.assertTrue(any(l.startswith("OUTPUT  $ reef cost · exit 0") for l in lines), "the panel is on PLAN too\n" + "\n".join(lines))
+        self.assertTrue(any("$1.20 per row" in l for l in lines))
+        # on the screen: a verb on PLAN draws PLAN with the panel, and the key after the exit closes it (never eaten by an invisible one)
+        d = project()
+        mod.doctor_lines = lambda root, fetch=False: []
+        mod.work_model = lambda root, runner=None, states=True: self.board([self.row("9", "○")])
+        mod.run_captured = lambda root, argv, timeout=900, sink=None: (0, ["$1.20 per row"])
+        win = self.FW([-1, ord("p"), ord("c"), -1, ord("x"), ord("q")])
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        plan_frames = [f for f in win.frames if any(l.startswith("PLAN  batch") for l in f)]
+        self.assertTrue(any(any(l.startswith("OUTPUT") for l in f) for f in plan_frames), "the panel was drawn on the PLAN page")
+        self.assertFalse(any("[WORK]" in l for f in plan_frames for l in f))
+
+    def test_plan_windows_its_rows_around_the_selection_and_carries_the_tabs(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        wm = self.board([self.row(str(i), "○") for i in range(30)])
+        lines, styles, sel_line = mod.render_plan(wm, [], width=120, height=20, selected=25)
+        self.assertLessEqual(len(lines), 20)
+        self.assertIsNotNone(sel_line, "the selected row is on the page, whatever the height (the review: it fell off the cut)")
+        self.assertIn("row 25", lines[sel_line]); self.assertEqual(styles[sel_line], "sel")
+        self.assertTrue(any("… " in l and "more" in l for l in lines), "the cut is marked\n" + "\n".join(lines))
+        self.assertTrue(lines[0].startswith(" WORK ") and "[PLAN]" in lines[0], "the tabs row says where Tab stands\n" + lines[0])
+        # a panel that keeps its head (the doctor's) sheds from the tail on a short page, on WORK too
+        panel = {"shown": "reef doctor", "rc": 0, "lines": ["FAIL a", "WARN b"] + [f"OK {i}" for i in range(10)], "keep": "head"}
+        lines, _, _ = mod.render_work(self.board([self.row("9", "○")]), [], width=120, height=22, selected=0, panel=panel)
+        self.assertTrue(any("FAIL a" in l for l in lines), "the FAIL survives a short page\n" + "\n".join(lines))
+        self.assertTrue(any("more line(s) below" in l for l in lines))
+        self.assertEqual(mod.doctor_first(["OK a"] + ["WARN x"] * 13)[-1], "… 3 more line(s), 2 of them WARN or FAIL — reef doctor in a terminal shows them")
+
+    def test_the_doctor_panel_puts_its_warnings_first(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        d = project()
+        mod.doctor_lines = lambda root, fetch=False: []
+        mod.work_model = lambda root, runner=None, states=True: self.board([])
+        out = [f"OK   check {i}" for i in range(14)] + ["WARN plugin: a new Reef, 2 commit(s) since your copy", "FAIL queue: the branch carries queue edits"]
+        mod.run_captured = lambda root, argv, timeout=900, sink=None: (0, list(out)) if argv[2:3] == ["doctor"] else (0, ["ok"])
+        win = self.FW([-1, ord("d"), -1, ord("x"), ord("q")])
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        frame = next(f for f in win.frames if any(l.startswith("OUTPUT  $ reef doctor · exit 0") for l in f))
+        i = next(j for j, l in enumerate(frame) if l.startswith("OUTPUT"))
+        self.assertIn("FAIL queue", frame[i + 1]); self.assertIn("WARN plugin", frame[i + 2]); self.assertIn("OK   check 0", frame[i + 3])
+        self.assertEqual(mod.doctor_first(["OK a", "WARN b", "FAIL c", "OK d"]), ["FAIL c", "WARN b", "OK a", "OK d"])
+
+    def test_q_and_esc_go_back_to_the_page_help_was_opened_from_and_esc_never_quits(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        on = mod.on_key
+        self.assertEqual(on(ord("q"), 0, 0, "help"), ("back",)); self.assertEqual(on(27, 0, 0, "help"), ("back",)); self.assertEqual(on(ord("?"), 0, 0, "help"), ("back",))
+        self.assertEqual(on(ord("q"), 0, 0, "autopilot"), ("back",)); self.assertEqual(on(27, 0, 0, "autopilot"), ("back",))
+        self.assertEqual(on(27, 0, 0, "log"), ("back",))
+        for view in ("work", "inbox", "plan"):
+            self.assertIsNone(on(27, 0, 2, view), f"Esc on {view} quits nothing (the CLI review: Esc twice out of LOG quit the screen)")
+            self.assertEqual(on(ord("q"), 0, 2, view), ("quit",))
+        d = project()
+        mod.doctor_lines = lambda root, fetch=False: ["WARN plugin: x"]
+        mod.work_model = lambda root, runner=None, states=True: self.board([])
+        win = self.FW([-1, -1, -1, ord("i"), ord("?"), ord("q"), 27, 27, ord("q")])   # i; ? help; q: INBOX again; Esc Esc: still here; q quits
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        help_at = next(i for i, f in enumerate(win.frames) if any(l.startswith("KEYS  (you are on INBOX)") for l in f))
+        after = win.frames[help_at + 1:]
+        self.assertGreaterEqual(len(after), 3, "Esc Esc drew two more frames: the screen stayed")
+        self.assertTrue(all(any(l.startswith("DOCTOR") for l in f) for f in after), "every frame after the help is the INBOX page\n" + "\n".join(after[0]))
+        src = open(ENTRY, encoding="utf-8").read()
+        self.assertIn("set_escdelay(", src, "Esc arrives at once (curses waits a second for a sequence by default) — a reading of the source: the fake curses has no delay to measure")
+        # the help opened on the autopilot panel returns there (the review: it went to WORK and the header lied)
+        win = self.FW([-1, ord("a"), ord("?"), ord("q"), ord("q"), ord("q")])   # a: the panel; ?: help; q: the panel again; q: back to WORK; q quits
+        mod.contract_view = lambda root: {"digest16": "", "decides": [], "never": "", "approved": False, "question": ""}
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        at = [i for i, f in enumerate(win.frames) if any(l.startswith("AUTOPILOT  start") for l in f)]
+        hp = next(i for i, f in enumerate(win.frames) if any(l.startswith("KEYS  (you are on AUTOPILOT)") for l in f))
+        self.assertTrue(any(i > hp for i in at), "after q on the help, the autopilot panel again")
+        lines, _ = mod.render_help("inbox", width=120)
+        self.assertTrue(any("q / Esc" in l and "back" in l and "Esc never quits" in l for l in lines), "\n".join(lines))
+
+    def test_the_tabs_line_names_the_boards_age_only_when_overdue_and_the_help_the_real_intervals(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        self.assertNotIn("old", mod.tabs_line("work", 0, 120, age=30))
+        self.assertNotIn("old", mod.tabs_line("work", 0, 120, age=mod.BOARD_SECONDS + 10), "a reading in progress is not overdue")
+        self.assertIn("board 5 min old (g reads it now)", mod.tabs_line("work", 0, 120, age=300))
+        lines, _ = mod.render_help("work", width=120)
+        g = next(l for l in lines if l.startswith("  g "))
+        self.assertIn(f"inbox every {mod.INBOX_SECONDS} s", g); self.assertIn(f"board every {mod.BOARD_SECONDS // 60} min", g); self.assertIn(f"doctor every {mod.UPDATE_SECONDS // 60} min", g); self.assertNotIn("3 s", g)
+        self.assertEqual((mod.INBOX_SECONDS, mod.BOARD_SECONDS, mod.UPDATE_SECONDS), (10, 120, 900), "the intervals the owner was told")
+
+    def test_s_asks_before_it_stops_the_runner(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        d = project()
+        mod.doctor_lines = lambda root, fetch=False: []
+        mod.work_model = lambda root, runner=None, states=True: self.board([])
+        ran = []
+        mod.run_captured = lambda root, argv, timeout=900, sink=None: (ran.append(argv), (0, ["stopped"]))[1]
+        win = self.FW([-1, ord("s"), ord("n"), 10, ord("s"), ord("y"), 10, -1, ord("x"), ord("q")])   # s, n Enter: nothing; s, y Enter: the stop
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        self.assertEqual([a[2] for a in ran], ["stop"], "one stop, after the yes\n" + str(ran))
+        self.assertTrue(any("stop the runner after its session? y/N" in r for r in win.rows), "the question on the last line")
+        self.assertEqual(mod.on_key(ord("s"), 0, 0, "work"), ("verb", "stop"))
+
+    def test_the_keys_line_wraps_between_keys_never_inside_one(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        cells = mod.KEYS.split(" · ")
+        for w in range(24, 160):
+            rows = mod.wrap_cells(mod.KEYS, w)
+            for r in rows:
+                self.assertLessEqual(len(r), w)
+                for c in r.split(" · "):
+                    self.assertIn(c, cells, f"width {w}: a key was cut: {r!r}")
+            self.assertEqual(" · ".join(rows).split(" · "), cells, f"width {w}: every key, in order")
+        self.assertEqual(mod.wrap_cells("a · bb · ccc", 6), ["a · bb", "ccc"])
+        self.assertEqual(mod.wrap_cells("keys: q quit · x", 5), ["keys:", "q", "quit", "x"], "a cell wider than the terminal falls back to words")
+        lines, _, _ = mod.render_work(self.board([]), [], width=120, height=40)
+        self.assertFalse(any(l.endswith(" · c") or l.startswith("cost") for l in lines), "no `c` / `cost` across two rows at 120 columns")
