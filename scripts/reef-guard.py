@@ -926,6 +926,20 @@ WRITER_LOADS = ("reef_common.py", "reef-plan-check.py", "reef-adversarial", "ree
 PYTHON_LOADERS = re.compile(r"^PYTHON(PATH|HOME|STARTUP|USERBASE|PLATLIBDIR|EXECUTABLE|SAFEPATH|INSPECT)=")   # what changes the code Python runs
 
 
+def stdlib_names():
+    """The standard library's module names: sys's own list from 3.10; on the Mac's 3.9, the stdlib folder's own
+    listing (an AttributeError here failed the record-writer check open — 2026-11-01, the macOS CI leg)."""
+    names = getattr(sys, "stdlib_module_names", None)
+    if names:
+        return names
+    import sysconfig
+    found = set(sys.builtin_module_names)
+    for d in (sysconfig.get_paths()["stdlib"], os.path.join(sysconfig.get_paths()["stdlib"], "lib-dynload")):
+        for f in os.listdir(d) if os.path.isdir(d) else ():
+            found.add(f.split(".")[0])
+    return found
+
+
 def same_file(a, b):
     try:
         with open(a, "rb") as x, open(b, "rb") as y:
@@ -950,8 +964,9 @@ def check_record_writer(seg, ctx):
              f"writer) — run: {fix}")
     here = os.path.join(ctx.get("cwd") or os.getcwd(), ctx.get("cd_hint") or "")
     folder = os.path.dirname(os.path.realpath(os.path.join(here, os.path.expanduser(seg[i]))))
+    stdlib = stdlib_names()
     shadow = [] if folder == OWN_SCRIPTS or not os.path.isdir(folder) else [f for f in os.listdir(folder) if f.endswith(".pth")   # a module beside the copy that
-              or os.path.splitext(f)[0] in sys.stdlib_module_names and (f.endswith(".py") or os.path.isdir(os.path.join(folder, f)))]   # Python imports first
+              or os.path.splitext(f)[0] in stdlib and (f.endswith(".py") or os.path.isdir(os.path.join(folder, f)))]   # Python imports first
     if shadow or not all(same_file(os.path.join(folder, n), os.path.join(OWN_SCRIPTS, n)) for n in (name,) + WRITER_LOADS):
         deny(f"{seg[i]} is not the plugin's {name}: "
              + (f"{shadow[0]} beside it would run inside it" if shadow else "it, or a script it loads (the plan check first), differs from the copy beside this guard")
