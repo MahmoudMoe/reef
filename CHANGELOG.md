@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **`/reef-watch` and the autopilot by name** (the owner, 2026-10-31: "add reef-watch so I can see the log from inside Claude Code",
+  "I have not seen a /reef:autopilot command"). `python3 scripts/reef-run.py watch` takes two bounds — `--tail N` (the last N lines)
+  and `--for S` (follow S seconds, then one line says the runner still runs and how to follow on; `0` returns at once) — because a
+  session's tool holds until a command returns; the terminal's `reef watch` stays unbounded. The `reef-watch` skill shows the last
+  forty lines, or `follow`s for a hundred seconds, never an unbounded tail. `/reef-run`'s description and argument hint name
+  `autopilot` (the same as `reef autopilot` and `a` on the screen). tests/size-budget.json raised: `prose_words` 24,146 → 24,437, `script_lines` 17,928 → 17,942.
 - **The log is on the screen** (the owner, 2026-10-31: "when I open the log it should appear in a big box under the screen, with
   navigation"). The WORK board carries the runner's last eight live-log lines under the table, colored by what they say (cyan an agent
   or a job started, green returned, red a failure in its verdict, yellow a wait), shed first on a short terminal; the LOG page scrolls

@@ -1,7 +1,7 @@
 ---
 name: reef-run
-description: Run the loop in the background from Claude Code — scripts/reef-run.py starts /reef-loop in a fresh headless session whenever the last one fills its context, detached. Also shows or stops it. Use when the owner says "/reef-run", "run the loop in the background", or "stop the runner".
-argument-hint: <empty | status | stop | the most sessions to run>
+description: Run the loop in the background from Claude Code — scripts/reef-run.py starts /reef-loop in a fresh headless session whenever the last one fills its context, detached. `/reef-run autopilot` is the AUTOPILOT — the runner on its own under the approved reef/proxy.md, Mahmoud deciding inside it, until the batch is done (`autopilot off` ends it); the same as `reef autopilot` or `a` on the screen. Also shows or stops the runner. Use when the owner says "/reef-run", "autopilot", "run the loop in the background", or "stop the runner".
+argument-hint: <empty | autopilot | autopilot off | status | stop | the most sessions to run>
 ---
 
 # Reef Run — the loop in the background

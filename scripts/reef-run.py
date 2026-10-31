@@ -50,6 +50,7 @@ own words, a decision, a merge — what the terminal shows, and the Runner secti
 The lock stops a second RUNNER; it does not stop an interactive /reef-loop beside it — run one orchestrator at a time.
 """
 import atexit
+import math
 import html
 import json
 import signal
@@ -373,21 +374,23 @@ def notify_owner(summary):
         pass
 
 
-def cmd_watch(root):
-    """Follow .reef/run/live.log: the last 20 lines, then each new one (a new run truncates it — start again from 0) — while a
+def cmd_watch(root, tail=20, seconds=None):
+    """Follow .reef/run/live.log: the last `tail` lines, then each new one (a new run truncates it — start again from 0) — while a
     runner runs. When it ends, or none is running, the run's last word is on the screen already (the runner writes it to
     live.log), one line says the runner ended, and watch returns: 2 when the loop waits on the owner, else 0 (2026-10-30,
-    the owner: a dead tail under "session ended", twice)."""
+    the owner: a dead tail under "session ended", twice). `seconds` bounds the follow (a session's tool holds until a command
+    returns — /reef-watch, 2026-10-31): after them, one line says the runner still runs and how to follow on; 0 returns at once."""
     p, pos = os.path.join(root, LIVE), 0
     try:
         with open(p, encoding="utf-8") as f:
             lines = f.read().splitlines()
             pos = f.tell()
-        print("\n".join(lines[-20:]) or "reef-run: no live steps yet", flush=True)
+        print("\n".join(lines[-max(1, int(tail)):]) or "reef-run: no live steps yet", flush=True)
     except OSError:
         print(f"reef-run: no {LIVE} yet — it appears when a run starts", flush=True)
     ran = bool(runner_pid(root))
     gone = 0
+    deadline = None if seconds is None else time.time() + max(0.0, float(seconds))
     try:
         while ran:
             size = os.path.getsize(p) if os.path.exists(p) else 0
@@ -403,6 +406,9 @@ def cmd_watch(root):
                 gone += 1
                 if gone >= 2:   # two quiet ticks with no runner: its last lines are read
                     break
+            if deadline is not None and time.time() >= deadline:   # after the read: the last second's lines are shown on the way out
+                print("reef-run: the runner still runs — `python3 scripts/reef-run.py watch --for 100` follows on; `python3 scripts/reef` shows the board", flush=True)
+                return 0
             time.sleep(1)
     except KeyboardInterrupt:
         return 0
@@ -1421,6 +1427,7 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
 
 VERBS = ("watch", "status", "stop", "probe", "contract", "release", "resume", "job")
 VALUE_FLAGS = ("--repo", "--permission-mode", "--host", "--max-iterations", "--row", "--from")
+WATCH_FLAGS = ("--tail", "--for")   # watch's bounds, known after the verb alone: never a way for a flag-only argv to start a run
 BARE_FLAGS = ("--night", "--detach", "--day", "--autopilot")
 
 
@@ -1429,7 +1436,7 @@ def unknown_argument(args):
     are known. 2026-10-29: `--status`, a typo for the verb, fell through to cmd_run and started a loop session."""
     i = (2 if args[:1] == ["release"] and len(args) > 1 and re.fullmatch(r"R?\d+", args[1]) else 1) if args[:1] and args[0] in VERBS else 0   # `release <task>` takes its one value
     while i < len(args):
-        if args[i] in VALUE_FLAGS:
+        if args[i] in VALUE_FLAGS or (args[i] in WATCH_FLAGS and args[:1] == ["watch"]):
             if i + 1 >= len(args) or args[i + 1].startswith("--"):
                 return f"{args[i]} (it takes a value)"
             if args[i] == "--max-iterations" and not args[i + 1].isdigit():
@@ -1471,8 +1478,15 @@ def main(argv):
         if args[jv] == "_job-run":   # the wrapper: `_job-run <name> -- <command…>`, started by cmd_job alone (REEF_JOB)
             return cmd_job_run(root, rest[0] if rest else "", rest[rest.index("--") + 1:] if "--" in rest else [])
         return cmd_job(root, rest)
-    if args[:1] == ["watch"]:
-        return cmd_watch(root)
+    if args[:1] == ["watch"]:   # --tail N (default 20) · --for S (follow S seconds, then return; the terminal's reef watch passes none: unbounded)
+        opt = lambda k: args[args.index(k) + 1] if k in args and args.index(k) + 1 < len(args) else None
+        try:
+            seconds = None if opt("--for") is None else float(opt("--for"))
+            if seconds is not None and not math.isfinite(seconds):
+                raise ValueError(seconds)
+            return cmd_watch(root, tail=int(opt("--tail") or 20), seconds=seconds)
+        except ValueError:
+            die("watch: --tail takes a count and --for seconds (finite)")   # exit 1: 2 is the owner's wait
     if args[:1] == ["status"]:
         return cmd_status(root)
     if args[:1] == ["stop"]:
