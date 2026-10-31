@@ -102,6 +102,10 @@ class RowStateMachine(unittest.TestCase):
         s = self.state("1")
         self.assertEqual(s["state"], "build")
         self.assertIn("1 open task(s): 101-slice.md", s["detail"])
+        collided = digest[:16] + ("0" if digest[16] != "0" else "1") + digest[17:]
+        write(self.main, ".reef/approvals/demo-row-one.json", json.dumps({"digest16": digest[:16], "digest": collided, "approved_at": "2026-10-31T00:00:00Z"}))
+        self.assertEqual(self.state("1")["state"], "approval", "the same 16 hex with another full digest is not this plan's approval")
+        write(self.main, ".reef/approvals/demo-row-one.json", json.dumps({"digest16": digest[:16], "digest": digest, "approved_at": "2026-10-31T00:00:00Z"}))
         self.assertIn("reef-loop.py tick", s["next"])
         # the slug works as a key too
         self.assertEqual(self.state("demo-row-one")["state"], "build")

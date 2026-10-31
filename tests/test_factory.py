@@ -218,6 +218,7 @@ class FromIssue(_Forge):
         self.assertIn("approved at", r.stdout)
         got = json.load(open(rec))
         self.assertEqual(got["digest16"], self.digest)
+        self.assertTrue(got["digest"].startswith(self.digest) and len(got["digest"]) == 64, "--from-issue records the full digest")
         self.assertEqual(got["by"], "owner (issue #12, @mahmoud)")
         r = subprocess.run([sys.executable, os.path.join(self.d, "scripts", "reef-plan-check.py"), self.d, "--verify-stamp", "--feature", "exact-totals"], capture_output=True, text=True)
         self.assertIn("approval: OK", r.stdout, "the guard's check reads it like the hook's record")

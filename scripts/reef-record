@@ -8,7 +8,7 @@ Usage: reef-record <feature> <verdict> [--pr <number|url|branch>] [--report FILE
   security (0.7) writes .reef/review/security-<sha12>.json = {kind, head, base, verdict, report_sha256, recorded_at}: the
   release's security pass (reef:security) bound to the head of branches.base; the guard refuses `gh pr create` into
   branches.release without a PASS whose head is the PR's head.
-  plan-review writes .reef/review/plan-<feature>.json = {digest16, verdict, rounds, decided?, report_sha256, recorded_at} in the MAIN
+  plan-review writes .reef/review/plan-<feature>.json = {digest16, digest, verdict, rounds, decided?, report_sha256, recorded_at} in the MAIN
   checkout; the digest is computed where the plan is (--root, default cwd). `reef-plan-check.py --verify-stamp` requires
   a PASS at the current digest for any feature with a task above `light`, so the guard refuses the first dispatch of a
   plan whose semantic review never passed (first contact, 2026-10-16: the stamp recorded the scripted check only).
@@ -98,7 +98,7 @@ def cmd_plan_review(argv):
     digest = plan_digest(root, feature)
     if not digest:
         die(f"cannot compute the plan digest for {feature!r} in {root} — run from the checkout that holds the plan")
-    rec = {"digest16": digest[:16], "verdict": verdict, "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    rec = {"digest16": digest[:16], "digest": digest, "verdict": verdict, "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     if report:
         try:
             with open(report, "rb") as f:

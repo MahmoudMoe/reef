@@ -303,6 +303,49 @@ class HumanOnlyApproval(unittest.TestCase):
             json.dump({"digest16": digest[:16], "approved_at": "2026-10-19T00:00:00Z"}, f)
         self.assertIn("approved 2026-10-19, before this line recorded files: read the plan in full", line())
 
+    def test_the_record_binds_the_full_digest_not_its_16_hex(self):
+        # the security review of #259: a 16-hex binding is a 64-bit prefix — an agent writing both plans finds a collision
+        # in ~2^32 tries, so the record keeps the full digest; the owner still reads and types 16 hex
+        digest = plan_check(self.d, "--digest", "--feature", "demo").stdout.split()[-1]
+        rec = os.path.join(self.d, ".reef", "approvals", "demo.json")
+        self.assertEqual(self._hook(f"Approve plan demo at {digest[:16]}?", "Approve").returncode, 0)
+        with open(rec) as f:
+            self.assertEqual(json.load(f)["digest"], digest, "the record carries the full digest of the plan approved")
+        rr = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", self.d], capture_output=True, text=True)
+        self.assertEqual(rr.returncode, 0, rr.stderr)
+        with open(os.path.join(self.d, ".reef", "review", "plan-demo.json")) as f:
+            self.assertEqual(json.load(f)["digest"], digest, "so does the review record")
+        self.assertEqual(plan_check(self.d, "--verify-stamp", "--feature", "demo").returncode, 0)
+        collided = digest[:16] + ("0" if digest[16] != "0" else "1") + digest[17:]
+        with open(rec, "w") as f:
+            json.dump({"digest16": digest[:16], "digest": collided, "approved_at": "2026-10-31T00:00:00Z"}, f)
+        r = plan_check(self.d, "--verify-stamp", "--feature", "demo")
+        self.assertEqual(r.returncode, 1, "the same 16 hex with another full digest is another plan")
+        self.assertIn(f"approval: STALE for 'demo' (approved {collided}, plan is {digest})", r.stdout, "the line names the full digests")
+        with open(rec, "w") as f:
+            json.dump({"digest16": digest[:16], "digest": "", "approved_at": "2026-10-31T00:00:00Z"}, f)
+        self.assertEqual(plan_check(self.d, "--verify-stamp", "--feature", "demo").returncode, 1, "an empty digest binds nothing")
+        with open(rec, "w") as f:
+            json.dump({"digest16": digest[:16], "approved_at": "2026-10-19T00:00:00Z"}, f)
+        self.assertEqual(plan_check(self.d, "--verify-stamp", "--feature", "demo").returncode, 0, "an older record (16 hex only) works for one release")
+
+    def test_two_plans_sharing_the_16_hex_approve_neither(self):
+        # the hook takes the owner's 16 hex: when two checkouts' plans share them, which plan the owner read is unknowable
+        import contextlib
+        import io
+        from _fixtures import load_script
+        mod = load_script("reef-approval.py")
+        a, b = os.path.join(self.d, "a"), os.path.join(self.d, "b")
+        mod.plan_digests = lambda cwd, feature: {a: "ab" * 8 + "0" * 48, b: "ab" * 8 + "1" * 48}
+        mod.plan_check_failures = lambda root, feature: []
+        mod.plan_files = lambda root, feature: {}
+        mod.clear_question = lambda *a: 0
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            mod.main(["--owner", f"Approve plan demo at {'ab' * 8}?", "--root", self.d])
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "approvals", "demo.json")), out.getvalue())
+        self.assertIn("two plans", out.getvalue())
+
     def test_a_checkouts_own_plan_check_is_not_believed(self):
         # the security review of #259: the hook and the guard ran <checkout>/scripts/reef-plan-check.py, so a copy that
         # prints a forged digest, a green check and an empty files map wrote the record and passed the stamp
@@ -410,6 +453,18 @@ class PlanReviewVerdictIsARecord(unittest.TestCase):
         r = plan_check(d, "--verify-stamp", "--feature", "demo")
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("review: OK for 'demo'", r.stdout)
+        # the review binds the full digest too: the same 16 hex with another full digest is another plan
+        rp = os.path.join(d, ".reef", "review", "plan-demo.json")
+        with open(rp) as f:
+            good = json.load(f)
+        self.assertEqual(good["digest"], digest)
+        with open(rp, "w") as f:
+            json.dump(dict(good, digest=digest[:16] + ("0" if digest[16] != "0" else "1") + digest[17:]), f)
+        r = plan_check(d, "--verify-stamp", "--feature", "demo")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("review: STALE", r.stdout)
+        with open(rp, "w") as f:
+            json.dump(good, f)
         # a FAIL verdict blocks
         subprocess.run([sys.executable, RECORD, "plan-review", "demo", "FAIL", "--root", d], capture_output=True, text=True)
         r = plan_check(d, "--verify-stamp", "--feature", "demo")

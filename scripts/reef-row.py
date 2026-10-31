@@ -18,7 +18,7 @@ import sys
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read_config as config, merge_by, run_rc, git_out  # noqa: E402
+from reef_common import main_checkout, read_config as config, merge_by, run_rc, git_out, load_sibling  # noqa: E402
 
 
 run = lambda args, cwd, timeout=60: run_rc(args, cwd, timeout, timeout_rc=1)   # the readers know 1
@@ -157,7 +157,7 @@ def state_of(repo, key):
     digest = dg.split()[-1] if rc == 0 and dg.strip() else ""
     try:
         with open(os.path.join(main, ".reef", "approvals", f"{slug}.json"), encoding="utf-8") as f:
-            approved = str(json.load(f).get("digest16", "")) == digest[:16] and bool(digest)
+            approved = bool(digest) and load_sibling("reef-plan-check.py", "reef_plan_check").record_binds(json.load(f), digest)
     except (OSError, ValueError):
         approved = False
     if not approved:
