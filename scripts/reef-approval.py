@@ -602,7 +602,7 @@ def main(argv):
             continue
         d = os.path.join(root, ".reef", "approvals")
         os.makedirs(d, exist_ok=True)
-        rec = {"digest16": digest16, "digest": full.pop(), "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        rec = {"digest16": digest16, "digest": next(iter(full)), "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         files = plan_files(where[0], feature)
         if files:
             rec["files"] = files   # 0.7: {file: sha12} — the next gate's summary names what changed since this approval

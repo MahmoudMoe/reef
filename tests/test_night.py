@@ -179,7 +179,10 @@ class ProxyApproval(unittest.TestCase):
         self.assertNotEqual(old, new, "the main checkout keeps the older plan")
         r = proxy(self.d, "share-links", self.report(dg=new))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(json.load(open(os.path.join(self.d, ".reef", "approvals", "share-links.json")))["digest16"], new)
+        got = json.load(open(os.path.join(self.d, ".reef", "approvals", "share-links.json")))
+        self.assertEqual(got["digest16"], new)
+        self.assertEqual(got["digest"], subprocess.run([sys.executable, CHECK, wt, "--digest", "--feature", "share-links"], capture_output=True, text=True).stdout.split()[-1],
+                         "--proxy records the full digest of the plan of record")
         r = proxy(self.d, "share-links", self.report(dg=old))
         self.assertEqual(r.returncode, 1, "an approval of the older copy is stale, though the main checkout still holds it")
         self.assertIn(old, r.stdout, "the refusal names every checkout's digest"); self.assertIn(new, r.stdout)

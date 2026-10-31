@@ -315,8 +315,14 @@ def planned_under_06(stamp, feat):
 def record_binds(rec, digest):
     """A record binds the plan whose full digest it carries: 16 hex are a 64-bit prefix an agent writing both plans can
     collide (~2^32 tries). A record without `digest` (written before 0.7.4) is read at its 16 hex for this release only."""
-    full = str(rec.get("digest") or "")
-    return full == digest if full else str(rec.get("digest16", "")) == digest[:16]
+    if "digest" in rec:
+        return str(rec["digest"]) == digest
+    return str(rec.get("digest16", "")) == digest[:16]
+
+
+def bound_to(rec):
+    """What a record names in a STALE line: its full digest when it has one (16 hex alike, another plan, must read so)."""
+    return rec.get("digest") or rec.get("digest16")
 
 
 def approval_state(root, feat, digest):
@@ -328,7 +334,7 @@ def approval_state(root, feat, digest):
     except Exception:
         return False, f"approval: MISSING for {feat!r} ({os.path.relpath(p, root)}, plan is {digest[:16]}) — the human approves the plan in /reef-plan's gate; the hook writes the record"
     if not record_binds(rec, digest):
-        return False, f"approval: STALE for {feat!r} (approved {rec.get('digest16')}, plan is {digest[:16]}) — re-approve the current plan"
+        return False, f"approval: STALE for {feat!r} (approved {bound_to(rec)}, plan is {digest if 'digest' in rec else digest[:16]}) — re-approve the current plan"
     return True, f"approval: OK for {feat!r} ({digest[:16]}, {rec.get('approved_at', '?')})"
 
 
@@ -428,7 +434,7 @@ def review_state(root, feat, digest, task_paths):
     except Exception:
         return False, f"review: MISSING for {feat!r} ({os.path.relpath(p, root)}) — run /reef-plan-review; it records the verdict with scripts/reef-record plan-review", True
     if not record_binds(rec, digest):
-        return False, f"review: STALE for {feat!r} (reviewed {rec.get('digest16')}, plan is {digest[:16]}) — re-run /reef-plan-review", True
+        return False, f"review: STALE for {feat!r} (reviewed {bound_to(rec)}, plan is {digest if 'digest' in rec else digest[:16]}) — re-run /reef-plan-review", True
     if str(rec.get("verdict", "")).upper() != "PASS":
         return False, f"review: FAILED for {feat!r} ({rec.get('verdict')}, {rec.get('recorded_at', '?')}) — fix the findings and re-run /reef-plan-review", True
     return True, f"review: OK for {feat!r} ({digest[:16]}, {rec.get('recorded_at', '?')})", True

@@ -1286,3 +1286,18 @@ class NoAliasLayer(unittest.TestCase):
             self.assertNotRegex(text, r"(?<![\w/.])/reef:[a-z]", f"{os.path.relpath(f, ROOT)} names a /reef:<verb> alias — the skill is /reef-<verb>")   # a path like .opencode/agents/reef:x is not one
         self.assertIn("Invoke the {skill} skill", read("scripts", "reef-opencode.py"), "the OpenCode command stubs are written from the skills, one per SKILL.md")
         self.assertEqual(SizeBudget.orphan_scripts(), [], "nothing else to remove")
+
+
+class The16HexFallbackLastsOneRelease(unittest.TestCase):
+    """0.7.4: an approval or review record binds the plan's full digest; one written before carries only `digest16`
+    and is read at 16 hex for that release only. Past 0.7.4 this goes red until the fallback in record_binds is gone."""
+
+    def test_the_fallback_is_gone_after_0_7_4(self):
+        version = tuple(int(x) for x in json.loads(read(".claude-plugin", "plugin.json"))["version"].split(".")[:3])
+        if version <= (0, 7, 4):
+            self.skipTest("0.7.4 still reads a record without `digest` at its 16 hex")
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from _fixtures import load_script
+        pc = load_script("reef-plan-check.py")
+        self.assertFalse(pc.record_binds({"digest16": "a" * 16}, "a" * 64), "drop record_binds' 16-hex fallback (and this test)")
+
