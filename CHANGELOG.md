@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **Lightening step 0 — the pins** (`docs/design/lightening.md`, new; the owner, 2026-10-31: "a comprehensive plan to wipe
+  duplication, keep duplicate scripts from coming back, and remove what has no use"). `tests/size-budget.json` gains two numbers
+  that ratchet like the other three: `duplicate_defs` — a function name defined in more than one script, each definition past the
+  first (64 today: `die` ×13, `run` ×10, `git` ×8 …; the guard's own copies of shared helpers are the one exception, by design) — and
+  `orphan_scripts` — a script no skill, agent, hook, command, template or other script names (0 today). The budget test measures
+  both and names the offenders when one grows; a planted tree with one more `def run` in a script nothing names moves each by one.
+  The plan's steps 1–5 (the shared helpers finished, the same name in two scripts, one fixture module for the tests, orphans and the
+  `commands/` aliases, the prose) each ship as their own PR with no behaviour change and a lower budget. tests/size-budget.json: unchanged (nothing grew).
 - **Graph mode is for the sessions you run yourself; the gate's record is guarded; the doctor says where graph mode runs** (the
   owner, 2026-10-31: "does the autopilot have graph mode? why was it off, who turned it off?" — nobody: graph mode is fail-closed
   behind a probe that proves the guard reaches workflow agents, the probe lives in `/reef-graph`, and on his project nobody had run
