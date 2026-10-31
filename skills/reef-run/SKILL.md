@@ -6,9 +6,9 @@ argument-hint: <empty | autopilot | autopilot off | status | stop | the most ses
 
 # Reef Run — the loop in the background
 
-Not a long session moved to the background: that one re-reads a full context at every step, unwatched (2026-10-24: three days near the ceiling, then a collision on develop).
+Not a long session moved to the background: that one re-reads a full context at every step, unwatched.
 
-1. `python3 scripts/reef-run.py status` (exit 2 = the loop waits on the owner; its first line names the wait — report it). A live runner, or `$ARGUMENTS` = `status`: report it and stop. A recorded wait in `.reef/loop.json` is not a reason to hold back (2026-10-28: the skill refused to start on a wait the owner had already answered): the runner's first session clears it and asks the row machine; only a live runner stops this step.
+1. `python3 scripts/reef-run.py status` (exit 2 = the loop waits on the owner; its first line names the wait — report it). A live runner, or `$ARGUMENTS` = `status`: report it and stop. A recorded wait in `.reef/loop.json` is not a reason to hold back: the runner's first session clears it and asks the row machine; only a live runner stops this step.
 2. `$ARGUMENTS` = `stop`: `python3 scripts/reef-run.py stop` (it ends after its current session, never mid-merge). Report and stop.
 2b. `$ARGUMENTS` = `autopilot`: `python3 scripts/reef-run.py --autopilot --detach` — the runner on its own under the approved `reef/proxy.md` (it refuses, naming the one approval question, when the contract is not approved); `autopilot off` is `stop`. Report the pid and stop.
 3. No ok for auto mode in `.reef/run/gate.json`: `python3 scripts/reef-run.py probe --permission-mode auto` first; a failed probe stops here.
@@ -17,7 +17,7 @@ Not a long session moved to the background: that one re-reads a full context at 
 
 When the runner waits on the owner, the answer is one line from a terminal — `reef approve <row>` (the row's plan at its digest), `reef answer <row> "<text>"` (a filed question), or `reef` alone, the screen with every wait as an item (Enter runs it) — or `/reef-loop` here; the runner resumes by itself.
 
-The runner the owner starts IS the orchestrator (2026-10-28, the first night: three sessions burned on a hold a dead desktop session left): it takes a loop hold another session left and says so; two sessions ending on the same wait stop it as no progress. Every wait it prints names the terminal command that answers it — `python3 scripts/reef-approval.py --owner "<the exact question>"` for an approval, `reef-queue.py footnote … --row <id>` for a filed question — never a pointer to another session. From a terminal, `reef` is the owner's one entry point (`reef run`, `reef night start`, `reef status`, `reef doctor`, `reef update`, `reef setup prove`, `reef factory <row>`, `reef cost`); `reef --all` lists every script.
+The runner the owner starts IS the orchestrator: it takes a loop hold another session left and says so; two sessions ending on the same wait stop it as no progress. Every wait it prints names the terminal command that answers it — `python3 scripts/reef-approval.py --owner "<the exact question>"` for an approval, `reef-queue.py footnote … --row <id>` for a filed question — never a pointer to another session. From a terminal, `reef` is the owner's one entry point (`reef run`, `reef night start`, `reef status`, `reef doctor`, `reef update`, `reef setup prove`, `reef factory <row>`, `reef cost`); `reef --all` lists every script.
 
 End with the pid, then `reef-run.py status`, `watch` (a terminal) and `stop`. A line the owner will type carries real values — the slug, the digest, read from `reef-row.py state <row> --json` — never a placeholder like `<slug>`.
 

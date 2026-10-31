@@ -3,7 +3,7 @@ name: acceptance
 description: The row's ONE reviewer (workflow v3) — judges a Reef feature against its SPEC.md from the user's side, its diff against the base, and every acceptance criterion against its named test in the evidence. Fresh context, read-only, evidence per key. Writes one report that opens with HEAD and ends with VERDICT; the GREEN record binds to it. Dispatched by /reef-review with the model from roles.reviewer.
 tools: Read, Glob, Grep, Bash
 model: opus
-# DEFAULT: opus (= roles.reviewer). 0.7.2 (the owner's go, 2026-10-24): a lean judge in place of a general-purpose agent, which started at about 17k tokens of context against about 7.5k for Reef's own agents.
+# DEFAULT: opus (= roles.reviewer). 0.7.2: a lean judge in place of a general-purpose agent, which started at about 17k tokens of context against about 7.5k for Reef's own agents.
 ---
 
 # Acceptance

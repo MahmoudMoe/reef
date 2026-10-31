@@ -437,6 +437,26 @@ class SizeBudget(unittest.TestCase):
         self.assertEqual(count2, count + 1, "one more definition of `run`")
         self.assertEqual(orphans2, orphans + ["reef-nobody.py"], "a script nothing names")
 
+class ProseCarriesRulesNotHistory(unittest.TestCase):
+    """Lightening step 5: a skill or agent states the rule; the day it was learned lives in the CHANGELOG. The CHANGELOG keeps
+    0.7 and after; the releases before it live in docs/changelog-archive.md."""
+
+    def test_no_skill_or_agent_carries_a_dated_note(self):
+        for f in sorted(glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md")) + glob.glob(os.path.join(ROOT, "agents", "*.md"))):
+            text = read_file(f)
+            dated = re.findall(r"(?<![/\w-])20\d\d-\d\d-\d\d", text)   # a date inside a path (docs/perf/2026-10-18.md) is a pointer, not a note
+            self.assertEqual(dated, [], f"{os.path.relpath(f, ROOT)}: a dated history note — the rule stays, the story goes to the CHANGELOG")
+
+    def test_the_changelog_keeps_0_7_and_after_and_names_the_archive(self):
+        log = read("CHANGELOG.md")
+        versions = re.findall(r"(?m)^## (\d+)\.(\d+)\.(\d+)", log)
+        self.assertTrue(versions)
+        self.assertTrue(all((int(a), int(b)) >= (0, 7) for a, b, _ in versions), "a release before 0.7 belongs in docs/changelog-archive.md")
+        self.assertIn("docs/changelog-archive.md", log)
+        archive = read("docs", "changelog-archive.md")
+        self.assertIn("## 0.6.0", archive); self.assertIn("## 0.5.0", archive)
+
+
 class HandbackShapeIsTold(unittest.TestCase):
     def test_the_implementer_is_told_the_claims_list_the_check_requires(self):
         # 2026-10-20 (qassimha 301): the definition listed the hand-back's contents without the claims list; the check
