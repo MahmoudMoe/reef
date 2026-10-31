@@ -72,9 +72,7 @@ def footnote_recorded(root, feature, mark):
 
 
 def plan_digest(root, feature):
-    script = os.path.join(root, "scripts", "reef-plan-check.py")
-    if not os.path.isfile(script):
-        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")   # its own, never the checkout's copy
     r = subprocess.run([sys.executable, script, root, "--digest", "--feature", feature], capture_output=True, text=True, timeout=60)
     m = re.search(r"^digest: \S+ ([0-9a-f]{64})", r.stdout, re.M)
     return m.group(1) if m else None
