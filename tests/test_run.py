@@ -26,6 +26,8 @@ open(plan, "w").write("\n".join(rest))
 open(os.path.join(os.getcwd(), ".fake-calls"), "a").write(step + "\n")
 open(os.path.join(os.getcwd(), ".fake-env"), "w").write(os.environ.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", "unset"))
 open(os.path.join(os.getcwd(), ".fake-argv"), "w").write(json.dumps(sys.argv))
+if os.path.isfile(os.path.join(os.getcwd(), ".reef", "night", "autopilot")):   # the marker the runner wrote, for the test to read
+    open(os.path.join(os.getcwd(), ".fake-autopilot"), "w").write(open(os.path.join(os.getcwd(), ".reef", "night", "autopilot")).read())
 lp = os.path.join(os.getcwd(), ".reef", "loop.json")
 st = {"active": True, "wait": None, "stop": None, "parked": None, "hashes": []}
 kind, _, arg = step.partition(":")

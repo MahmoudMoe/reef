@@ -206,8 +206,9 @@ def cmd_proxy(argv):
         ok, why = rr.night_ok(root)
     else:   # autopilot (2026-10-30): the standing contract, and the owner's word that plans are Mahmoud's by day
         ok, why = rr.day_ok(root)
-        if ok and "plan" not in rr.day_kinds(root):
-            ok, why = False, "reef/proxy.md's `Decides:` line does not name `plan` — a plan approval by day is the owner's until it does"
+        no = rr.day_plan_refusal(root) if ok else ""
+        if no:
+            ok, why = False, f"{no} — a plan approval by day is the owner's until then"
     if not ok:
         return refuse(why)
     if not re.search(r"(^|/)\.reef/ci-local/report-mahmoud-" + re.escape(feature) + r"\.md$", report.replace(os.sep, "/")):
@@ -353,8 +354,9 @@ def cmd_proxy_challenge(argv):
         ok, why = rr.day_ok(root)
         if not ok:
             return refuse(why)
-        if "plan" not in rr.day_kinds(root):
-            return refuse("reef/proxy.md's `Decides:` line does not name `plan` — a plan is the owner's to challenge until it does")
+        no = rr.day_plan_refusal(root)
+        if no:
+            return refuse(f"{no} — a plan is the owner's to challenge until then")
     if not re.search(r"(^|/)\.reef/ci-local/report-mahmoud-[A-Za-z0-9_-]+\.md$", report.replace(os.sep, "/")):
         return refuse(f"the report must be Mahmoud's own file copied to .reef/ci-local/report-mahmoud-challenge-{row}.md")
     try:

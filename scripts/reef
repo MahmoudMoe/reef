@@ -578,11 +578,11 @@ def contract_view(root):
         never = plain(m.group(1)) if m else ""
     except OSError:
         pass
-    try:
+    try:   # the record binds the CURRENT digest (a stale one dies in reef-run: "approve first")
         dg = str(rr.day_digest(root) or "") if rr is not None else ""
+        approved = bool(digest) and len(dg) >= 16 and rr.binds(rec, dg)   # an unread digest approves nothing
     except Exception:
-        dg = ""
-    approved = bool(digest) and (rr.binds(rec, dg) if len(dg) >= 16 else True)   # the record binds the CURRENT digest (a stale one dies in reef-run: "approve first")
+        approved = bool(digest)
     question = str(rr.day_question(root) or "") if not approved and rr is not None else ""   # the one line the owner had to type: Enter records it
     return {"digest16": plain(digest)[:16], "decides": decides, "never": never, "approved": approved, "question": question}
 

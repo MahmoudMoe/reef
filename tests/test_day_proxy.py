@@ -243,7 +243,6 @@ class Challenge(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 
-
 class ContractRecordsBindTheFullDigest(unittest.TestCase):
     """0.7.4, after #262: night.json and day.json bound 16 hex. reef/proxy.md is no guarded file and can name `plan`, so an
     agent writing both a benign contract and a 16-hex twin (~2^32 tries) that names `plan` turned one approval into the proxy
@@ -283,6 +282,9 @@ class ContractRecordsBindTheFullDigest(unittest.TestCase):
         dg = rr.day_digest(d)
         rep = ".reef/ci-local/report-mahmoud-share-links.md"
         N.L.write(d, rep, f"RUN: agent=mahmoud day={TODAY} question=approve\nAPPROVE plan share-links at {N.digest(d, 'share-links')} — x\nVERDICT: DONE\n")
+        N.L.write(d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": dg[:16], "digest": dg}))
+        self.assertNotIn("no live autopilot", N.proxy(d, "share-links", rep).stdout, "the runner's own marker passes")
+        os.unlink(os.path.join(d, ".reef", "approvals", "share-links.json"))
         N.L.write(d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": dg[:16], "digest": dg[:16] + "0" * 48}))
         self.assertIn("no live autopilot", N.proxy(d, "share-links", rep).stdout, "a marker for a 16-hex twin is not this contract's runner")
         loader = importlib.machinery.SourceFileLoader("reef_entry_full_digest", os.path.join(ROOT, "scripts", "reef"))
@@ -294,3 +296,10 @@ class ContractRecordsBindTheFullDigest(unittest.TestCase):
         self.twin(d, "day", dg)
         self.assertFalse(entry.contract_view(d)["approved"], "the screen's panel: a twin's record is no approval")
         self.assertFalse(entry.already_approved(d, f"Approve proxy by day at {dg[:16]}?"), "the inbox keeps the question a twin's record does not answer")
+        rec = json.load(open(os.path.join(d, ".reef", "approvals", "day.json")))
+        del rec["digest"]   # a day.json from 0.7.3: it never expires, and its 16 hex are what a twin naming plan must match
+        json.dump(rec, open(os.path.join(d, ".reef", "approvals", "day.json"), "w"))
+        N.L.write(d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": dg[:16], "digest": dg}))
+        r = N.proxy(d, "share-links", rep)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("predates 0.7.4", r.stdout, "plan authority by day needs the contract approved at its full digest")
