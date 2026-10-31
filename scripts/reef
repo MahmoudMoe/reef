@@ -44,7 +44,7 @@ VERBS = [
     ("run",     "the loop in fresh headless sessions until it waits on you — `run 5` caps the sessions",
      lambda root, a: run_script("reef-run.py", ["--repo", root, "--detach", *(["--max-iterations", a[0], *a[1:]] if a and a[0].isdigit() else a)], root)),
     ("night",   "tonight's contract: install it, print the approval question; `night start` runs it detached",
-     lambda root, a: run_script("reef-run.py", ["--repo", root, "--night", "--detach"] if a[:1] == ["start"] else ["contract", "--repo", root, *a], root)),
+     lambda root, a: cmd_night(root, a)),
     ("autopilot", "the runner on its own under reef/proxy.md, approved once: Mahmoud decides inside it, the loop never waits on you; `autopilot off` stops it",
      lambda root, a: run_script("reef-run.py", ["stop", "--repo", root] if a[:1] == ["off"] else
                                 ["--repo", root, "--autopilot", "--detach", *(["--max-iterations", a[0], *a[1:]] if a and a[0].isdigit() else a)], root)),
@@ -54,6 +54,10 @@ VERBS = [
      lambda root, a: run_script("reef-run.py", ["stop", "--repo", root], root)),
     ("setup",   "the worktree setup, proven once per change: `setup` says the state, `setup prove` proves it",
      lambda root, a: run_script("reef-setup.py", [*(a or ["state"]), "--repo", root], root)),
+    ("probe",   "prove once, per permission mode, that reef-guard denies a headless session's forbidden write — the runner refuses to loop without it",
+     lambda root, a: run_script("reef-run.py", ["probe", "--repo", root, *a], root)),
+    ("resume",  "the runner again after a decision recorded outside the screen (its last mode); says why not, otherwise",
+     lambda root, a: run_script("reef-run.py", ["resume", "--repo", root], root)),
     ("update",  "a new Reef: pull the plugin, the project's copies (one commit, pushed), the setup re-proved, the marketplace refreshed",
      lambda root, a: cmd_update(root, a)),
     ("factory", "the row on GitHub Actions: `factory` shows the last runs, `factory <row>` labels its issue reef-ready",
@@ -567,7 +571,13 @@ def contract_view(root):
         never = plain(m.group(1)) if m else ""
     except OSError:
         pass
-    return {"digest16": plain(digest)[:16], "decides": decides, "never": never, "approved": bool(digest)}
+    try:
+        dg = str(rr.day_digest(root) or "") if rr is not None else ""
+    except Exception:
+        dg = ""
+    approved = bool(digest) and (digest[:16] == dg[:16] if len(dg) >= 16 else True)   # the record at the CURRENT digest (a stale one dies in reef-run: "approve first")
+    question = str(rr.day_question(root) or "") if not approved and rr is not None else ""   # the one line the owner had to type: Enter records it
+    return {"digest16": plain(digest)[:16], "decides": decides, "never": never, "approved": approved, "question": question}
 
 
 def row_entry(r, st, done_ids, asked, lane, tasks):
@@ -823,7 +833,7 @@ def tabs_line(view, n_items, w, age=None):
     return row[:w]
 
 
-def render_work(wm, items, width=120, height=None, selected=None, panel=None, note="", log=None):
+def render_work(wm, items, width=120, height=None, selected=None, panel=None, note="", log=None, keys=True):
     """WORK: the banner with the batch's facts, the tabs, the rows as a table, the selected row's details boxed under it, the
     runner's last lines (`log`, BOARD_LOG_LINES of them, styled by log_style — shed first on a short terminal), the inbox's count,
     the keys last. Returns (lines, styles {line index: style name}, the selected line's index). Styles name the row's state
@@ -838,7 +848,7 @@ def render_work(wm, items, width=120, height=None, selected=None, panel=None, no
         facts[0] += " · a new Reef waits (u)"   # the board is the first view: said here as on the inbox (hands-off step 6)
     if wm and wm.get("partial") and len(facts) > 1:
         facts[1] = f"{facts[1]} · {reading_line()}"
-    head = [(row + "   " + fact)[:w] for row, fact in zip(BLOCK, facts)] + ["─" * w, tabs_line("work", len(items or []), w, (time.time() - wm["at"]) if wm and wm.get("at") else None)]
+    head = [(row + "   " + fact)[:w] for row, fact in zip(BLOCK, facts)] + ["─" * w] + ([tabs_line("work", len(items or []), w, (time.time() - wm["at"]) if wm and wm.get("at") else None)] if keys else [])   # keys False: text for a log, no key hints
     styles = {i: "banner" for i in range(len(BLOCK))}
     styles[len(head) - 1] = "tabs"
     col = f"      row  tasks  {'lane':<16} {'what':<24} {'forge':<14} item"[:w]
@@ -852,7 +862,7 @@ def render_work(wm, items, width=120, height=None, selected=None, panel=None, no
         for text in row_lines(rows[sel], items):
             box += wrap(text, w - 4)[:2]
     panel_head, panel_lines = panel_block(panel, w)
-    keys = wrap_cells(KEYS, w)
+    key_rows = wrap_cells(KEYS, w) if keys else []
     log_lines = list(log or [])[-BOARD_LOG_LINES:]
 
     def frame(lo, hi, box, panel_lines, log_lines):
@@ -874,14 +884,15 @@ def render_work(wm, items, width=120, height=None, selected=None, panel=None, no
             out += [(title + "─" * (w - len(title) - 1) + "┐")[:w]] + ["│ " + b.ljust(w - 4)[:w - 4] + " │" for b in box] + ["└" + "─" * (w - 2) + "┘"]
         if panel:
             out += [panel_head] + ["  " + l[:w - 2] for l in panel_lines]
-        out.append((f"LOG  the runner's last {len(log_lines)} line(s) · w opens it" if log_lines else "LOG  no live log yet · w opens it")[:w]); st[len(out) - 1] = "head"
+        out.append((f"LOG  the runner's last {len(log_lines)} line(s)" + (" · w opens it" if keys else "") if log_lines else "LOG  no live log yet" + (" · w opens it" if keys else ""))[:w]); st[len(out) - 1] = "head"
         for l in log_lines:
             out.append("  " + l[:w - 2])
             style = log_style(l)
             if style:
                 st[len(out) - 1] = style
-        out.append((f"INBOX  {len(items)} item(s) wait on you · i opens it" if items else "INBOX  nothing waits on you")[:w])
-        out += ["─" * w] + keys
+        out.append((f"INBOX  {len(items)} item(s) wait on you" + (" · i opens it" if keys else "") if items else "INBOX  nothing waits on you")[:w])
+        if keys:
+            out += ["─" * w] + key_rows
         return out, st, sel_line
 
     lo, hi = 0, n
@@ -907,8 +918,8 @@ def render_work(wm, items, width=120, height=None, selected=None, panel=None, no
             lo += 1
         lines, st, sel_line = frame(lo, hi, box, panel_lines, log_lines)
     if len(lines) > h:
-        lines = lines[:max(0, h - len(keys))] + keys
-        sel_line = sel_line if sel_line is not None and sel_line < h - len(keys) else None
+        lines = lines[:max(0, h - len(key_rows))] + key_rows
+        sel_line = sel_line if sel_line is not None and sel_line < h - len(key_rows) else None
     return lines, st, sel_line
 
 
@@ -988,7 +999,8 @@ def render_autopilot(wm, contract, width=120, height=None):
              f"  never: {contract.get('never') or '-'}"[:w], ""]
     styles = {0: "tabs", 1: "wait"}
     if not contract.get("approved"):
-        lines.append("  no approved contract: Enter runs `reef autopilot`, which prints the one approval line to type first"[:w])
+        lines.append((f"  no approved contract: Enter records the approval — {contract['question']} — then a, Enter starts it" if contract.get("question")
+                      else "  no contract to approve: python3 scripts/reef-run.py contract --day seeds reef/proxy.md (reef/owner.md is yours); Enter runs `reef autopilot`, which says so")[:w])
         lines.append("")
     lines.append(f"  the order it works ({'what can start first' if wm.get('order') == 'start' else 'the queue'} · o toggles):")
     closes = []
@@ -1088,7 +1100,7 @@ def wrap(text, width):
     return out + [line] if line or not out else out
 
 
-def render(model, width=120, height=None, selected=None, panel=None):
+def render(model, width=120, height=None, selected=None, panel=None, keys=True, banner=True):
     """The screen as lines for a terminal of `width` and, when known, `height`: the banner with the facts beside it, the inbox
     as a list — with `selected` an index, the chosen row marked and its command boxed under the list (wrapped; a command past
     four lines is cut with a mark, `run` shows it whole); with None (`--once`, a log; no height), every item with its command
@@ -1101,7 +1113,7 @@ def render(model, width=120, height=None, selected=None, panel=None):
     items, warns = model["items"], model["warns"]
     n = len(items)
     sel = None if selected is None or not n else min(max(int(selected), 0), n - 1)
-    head = [(row + "   " + fact)[:w] for row, fact in zip(BLOCK, model["facts"])] + ["─" * w]
+    head = ([(row + "   " + fact)[:w] for row, fact in zip(BLOCK, model["facts"])] + ["─" * w]) if banner else []   # banner False: the page under another page's banner (--once)
     head.append((f"INBOX  {n} item(s) wait on you" if n else "INBOX  nothing waits on you")[:w])   # the keys have one home: the last line
     rows = []   # one entry per item: its lines
     for idx, it in enumerate(items):
@@ -1113,7 +1125,7 @@ def render(model, width=120, height=None, selected=None, panel=None):
         box = box[:3] + [box[3][:w - 6] + " …"]
     steps = list(model["steps"]) or ["(no steps recorded)"]
     warn_rows = warns[:3]
-    keys = wrap_cells(KEYS, w)   # measured, never assumed: two rows under 96 columns, three under 50; a row breaks between keys, never inside one
+    key_rows = wrap_cells(KEYS, w) if keys else []   # measured, never assumed: two rows under 96 columns, three under 50; a row breaks between keys, never inside one
     panel_head, panel_lines = panel_block(panel, w)
 
     def frame(box, steps, warn_rows, lo, hi, panel_lines=None):
@@ -1134,7 +1146,8 @@ def render(model, width=120, height=None, selected=None, panel=None):
         if model["doctor"]:
             out.append(f"DOCTOR  {len(warns)} warning(s) · d for the whole report" if warns else "DOCTOR  nothing wrong")
             out += ["  " + l[:w - 2] for l in warn_rows]
-        out += ["─" * w] + keys
+        if keys:
+            out += ["─" * w] + key_rows
         return out, sel_line
 
     lo, hi = 0, n
@@ -1163,17 +1176,29 @@ def render(model, width=120, height=None, selected=None, panel=None):
             lo += 1
         lines, sel_line = frame(box, steps, warn_rows, lo, hi, panel_lines)
     if len(lines) > h:                                            # a terminal too small for the furniture: the keys stay last
-        lines = lines[:max(0, h - len(keys))] + keys
-        sel_line = sel_line if sel_line is not None and sel_line < h - len(keys) else None
+        lines = lines[:max(0, h - len(key_rows))] + key_rows
+        sel_line = sel_line if sel_line is not None and sel_line < h - len(key_rows) else None
     return lines, sel_line
 
 
 def screen_text(root, doctor=None, width=120):
-    """The screen as text, once: every item with its command (`reef screen --once`, a test, an SSH session, a log)."""
-    return "\n".join(render(screen_model(root, doctor), width=width)[0]) + "\n"
+    """The screen as text, once (`reef screen --once`, a test, an SSH session, a log): the WORK board as the live screen opens on it,
+    then the INBOX page without its banner — every item with its command — and no keys line (nobody can press them on a page)."""
+    model = screen_model(root, doctor)
+    try:
+        wm = work_model(root)   # the full board: a row machine read per open row (the live screen reads it in a thread; here it is the print)
+    except Exception as e:   # said, never a traceback (the live screen shows a failed reading the same way)
+        wm = work_model(root, states=False)
+        wm["facts"] = list(wm["facts"][:2]) + [f"board: reading failed — {type(e).__name__}: {str(e)[:100]}"] + list(wm["facts"][3:])
+    work = render_work(wm, model["items"], width=width, log=model.get("log"), keys=False)[0]
+    page = render(model, width=width, keys=False, banner=False)[0]
+    return "\n".join(work + [""] + page) + "\n"
 
 
 def cmd_screen(root, args):
+    if not os.path.isfile(os.path.join(root, ".reef", "config.json")):   # as status and doctor say it (the CLI review: a fake "loop idle" screen, rc 0)
+        print(f"reef screen: {root} is not a Reef project (no .reef/config.json) — /reef-init sets one up", file=sys.stderr)
+        return 2
     if "--once" in args or not (sys.stdout.isatty() and sys.stdin.isatty()):
         print(screen_text(root, doctor_lines(root, fetch="--fetch" in args)), end="")   # --fetch asks the forge, as the doctor's flag does
         return 0
@@ -1596,8 +1621,13 @@ def screen_loop(stdscr, root, curses):
                 sel = act[1]
             continue
         argv, shown = None, None
-        if act[0] == "start":   # the autopilot panel's Enter: the verb, then back to the work board
-            argv, shown, view = [PY, os.path.abspath(__file__), "autopilot", "--repo", root], "reef autopilot", "work"
+        if act[0] == "start":   # the autopilot panel's Enter: the approval when the contract has none, else the verb; then back to the work board
+            cv = contract_view(root)
+            if not cv["approved"] and cv.get("question"):
+                it = approve_item(cv["question"])
+                argv, shown, view = it["argv"], it["cmd"], "work"
+            else:
+                argv, shown, view = [PY, os.path.abspath(__file__), "autopilot", "--repo", root], "reef autopilot", "work"
         elif act[0] == "open":   # a row: yours → INBOX on its item; else its facts from the board, in the panel — no subprocess
             r = ordered(wm)[act[1]] if wm and act[1] < nrows else None
             if r is None:
@@ -1638,6 +1668,18 @@ def screen_loop(stdscr, root, curses):
                 panel["rc"] = rc   # last: the loop reads rc as the end
 
             threading.Thread(target=run_command, daemon=True, name="reef-command").start()
+
+
+def cmd_night(root, args):
+    """`night`: the contract's approval question; `night start` runs it. Without a contract it says where one comes from and seeds
+    nothing (the CLI review: `n` on the screen died with "/reef-night drafts both" after silently seeding reef/owner.md)."""
+    if args[:1] == ["start"]:
+        return run_script("reef-run.py", ["--repo", root, "--night", "--detach"], root)
+    if "--from" not in args and "--day" not in args and not os.path.isfile(os.path.join(root, ".reef", "night", "contract.md")):
+        print("reef night: no contract yet — /reef-night in Claude Code drafts tonight's contract with Mahmoud and asks for the one approval; "
+              "then `reef night` prints that question and `reef night start` runs the night detached", file=sys.stderr)
+        return 1
+    return run_script("reef-run.py", ["contract", "--repo", root, *args], root)
 
 
 def cmd_approve(root, args):
@@ -1818,7 +1860,7 @@ def main(argv):
         if sys.stdout.isatty() and sys.stdin.isatty() and not os.environ.get("REEF_NO_SCREEN"):
             return cmd_screen(root, [])   # a terminal: the screen; `reef --menu`, or no terminal, the menu
         return menu(root)
-    if args == ["--menu"]:
+    if args in (["--menu"], ["--help"], ["-h"], ["help"]):
         return menu(root)
     if args[0] == "--all":
         for name in sorted(os.listdir(HERE)):
