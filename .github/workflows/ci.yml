@@ -1,11 +1,15 @@
 name: reef selftests
 on:
-  push:
-    branches: [main]
+  # the PR is the one run (the owner, a solo developer, 2026-11-01: "once"): the squash-merge lands the tree the PR tested
   pull_request:
 
 permissions:
   contents: read
+
+# a newer push to the PR cancels the run it supersedes
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
