@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The screen reads at a glance** (the owner, 2026-10-31 04:35, a batch of ready rows: "colors vanished", "REEF is black and white,
+  small, not visible", "spaces, order"). The palette follows the state the eye looks for: green can start · cyan building · yellow
+  yours · red blocked · dim done; the REEF banner is in color; a line of air sits between the tabs and the table; the selected row is
+  the highlight alone, no second arrow beside its mark. tests/size-budget.json: unchanged (nothing grew).
 - **The board's task counts are the row machine's** (the owner's first working board, 2026-10-31 03:57: every row said `tasks 0/0`
   while rows 4 and 7 had finished theirs — the plan's files live in the row's feature worktree until it merges, and the board had
   counted the main checkout). `reef-row.py state --json` now carries `tasks: {done, total}`, counted where the folder is, and the

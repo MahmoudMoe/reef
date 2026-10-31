@@ -643,14 +643,14 @@ def render_work(wm, items, width=120, height=None, selected=None, panel=None, no
 
     def frame(lo, hi, box, panel_lines):
         out, st = list(head), dict(styles)
+        out.append("")   # air between the tabs and the table
         out.append(col); st[len(out) - 1] = "head"
         sel_line = None
         for i in range(lo, hi):
             line, style = table[i]
-            cur = "▶" if i == sel else " "
             if i == sel:
                 sel_line = len(out)
-            out.append((cur + line[1:])[:w]); st[len(out) - 1] = "sel" if i == sel else style
+            out.append(line[:w]); st[len(out) - 1] = "sel" if i == sel else style   # the selection is the highlight alone: no second arrow beside the mark
         if n == 0:
             out.append("  (no rows in the current batch — add one: python3 scripts/reef-queue.py add-row \"<item>\")"[:w])
         if hi < n or lo > 0:
@@ -780,19 +780,20 @@ def render_help(view, width=120, height=None):
 
 
 def style_attrs(c, colors=True):
-    """Style name → curses attribute, once per screen: the selection reversed, the banner and tabs bold, the states colored where
-    the terminal has colors (green done, cyan building, yellow yours, red blocked), plain otherwise. `c` is the curses module (or,
-    in a test, a dict of its constants)."""
+    """Style name → curses attribute, once per screen: the selection reversed; where the terminal has colors, a palette that reads at a
+    glance (the owner, 2026-10-31: a batch of ready rows looked black and white) — green can start, cyan building, yellow yours, red
+    blocked, dim done, the banner in color; bold and dim alone otherwise. `c` is the curses module (or, in a test, a dict of its constants)."""
     g = (lambda k, d=0: c.get(k, d)) if isinstance(c, dict) else (lambda k, d=0: getattr(c, k, d))
-    bold, rev, normal = g("A_BOLD"), g("A_REVERSE"), g("A_NORMAL")
-    attrs = {"banner": bold, "tabs": bold, "head": normal, "sel": rev, "done": normal, "build": bold, "ready": bold, "wait": bold, "blocked": normal}
+    bold, rev, normal, dim = g("A_BOLD"), g("A_REVERSE"), g("A_NORMAL"), g("A_DIM")
+    attrs = {"banner": bold, "tabs": bold, "head": dim, "sel": rev, "done": dim, "build": bold, "ready": bold, "wait": bold, "blocked": bold}
     if colors and not isinstance(c, dict):
         try:
             if c.has_colors():
                 c.start_color(); c.use_default_colors()
                 for i, color in ((1, c.COLOR_GREEN), (2, c.COLOR_CYAN), (3, c.COLOR_YELLOW), (4, c.COLOR_RED), (5, c.COLOR_WHITE)):
                     c.init_pair(i, color, -1)
-                attrs.update({"done": c.color_pair(1), "build": c.color_pair(2) | bold, "wait": c.color_pair(3) | bold, "blocked": c.color_pair(4), "ready": c.color_pair(5) | bold})
+                attrs.update({"ready": c.color_pair(1) | bold, "build": c.color_pair(2) | bold, "wait": c.color_pair(3) | bold, "blocked": c.color_pair(4) | bold,
+                              "done": c.color_pair(5) | dim, "banner": c.color_pair(3) | bold})
         except Exception:
             pass
     return attrs
@@ -1156,6 +1157,7 @@ def screen_loop(stdscr, root, curses):
             lines, styles = render_help(back, width=w - 1, height=h)
         else:
             lines, sel_line = render(cur, width=w - 1, height=h, selected=sel, panel=panel)
+            styles = {i: "banner" for i in range(len(BLOCK))}
         draw(lines, sel_line, styles)
         loading = any(t.is_alive() for t in jobs.values())
         stdscr.timeout(400 if loading or results else 3000)   # while a reading runs, redraw often: the count moves, a result lands
