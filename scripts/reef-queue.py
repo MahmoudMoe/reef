@@ -75,9 +75,10 @@ import os
 import re
 import subprocess
 import sys
+from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_config as config, repo_root, read, table_cells, issues_mode, question_line, QUESTION_LINE, drop_question, questions  # noqa: E402
+from reef_common import read_config as config, repo_root, read, table_cells, issues_mode, question_line, QUESTION_LINE, drop_question, questions, die as _die  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 TASK_NAME_RE = re.compile(r"R?\d+-.*\.md$")
@@ -127,9 +128,7 @@ def structure_errors(root, cfg):
     return bad
 
 
-def die(msg, code=2):
-    print(f"reef-queue: {msg}", file=sys.stderr)
-    sys.exit(code)
+die = partial(_die, prefix="reef-queue")
 
 
 def parse_table(text):

@@ -60,9 +60,10 @@ import shlex
 import subprocess
 import sys
 import time
+from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question, merge_by, read_config  # noqa: E402
+from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question, merge_by, read_config, die as _die  # noqa: E402
 
 RUN_DIR = os.path.join(".reef", "run")
 LIVE = os.path.join(RUN_DIR, "live.log")
@@ -105,9 +106,7 @@ PROMPT = ("/reef-loop — a reef-run iteration: headless, AskUserQuestion does n
           "starts the next session with JOBS DONE and its rc; the log is .reef/run/jobs/<name>.log.")
 
 
-def die(msg, code=1):
-    print(f"reef-run: {msg}", file=sys.stderr)
-    sys.exit(code)
+die = lambda msg, code=1: _die(msg, code, prefix="reef-run")   # the signature the script always had: a positional code, 1 by default
 
 
 def steps(ev, names, verdicts):
@@ -839,7 +838,6 @@ def queue_open_rows(root):
             return {m.group(1) for m in re.finditer(r"^\|\s*(\d+)\s*\|", f.read(), re.M)}
     except (OSError, ValueError):
         return None
-
 
 
 def progress_signature(root, wait):

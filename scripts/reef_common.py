@@ -359,3 +359,80 @@ def row_approval_question(root, row, row_script):
 def git(cwd, *args, timeout=None):
     """`git -C cwd …` as run() returns it (no timeout unless given: a merge or a fetch is as long as it is)."""
     return run(["git", "-C", cwd, *args], cwd=None, timeout=timeout)
+
+
+# The shapes the scripts read a command in (lightening step 1, 2026-10-31: each script had its own 2–4 line adapter over run()/git();
+# a script keeps its own defaults with functools.partial, its call sites unchanged).
+def run_rc(args, cwd, timeout=60, env=None, timeout_rc=124):
+    """(returncode, stdout)."""
+    r = run(args, cwd, timeout, env, timeout_rc)
+    return r.returncode, r.stdout
+
+
+def run_rc3(args, cwd, timeout=60, env=None, timeout_rc=124):
+    """(returncode, stdout, stderr)."""
+    r = run(args, cwd, timeout, env, timeout_rc)
+    return r.returncode, r.stdout, r.stderr
+
+
+def run_out(args, cwd, timeout=60):
+    """stdout, stripped, when the command succeeded — else ""."""
+    r = run(args, cwd, timeout)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def run_all(args, cwd, timeout=60, strip=False):
+    """(returncode, stdout + stderr) — the whole of what the command said, for a log or a summary line."""
+    r = run(args, cwd, timeout)
+    both = (r.stdout or "") + (r.stderr or "")
+    return r.returncode, both.strip() if strip else both
+
+
+def git_rc(cwd, *args, timeout=None):
+    """(returncode, stdout stripped)."""
+    r = git(cwd, *args, timeout=timeout)
+    return r.returncode, r.stdout.strip()
+
+
+def git_out(cwd, *args, timeout=None, strip=True):
+    """stdout (stripped, unless `strip` is off) when git succeeded — else ""."""
+    r = git(cwd, *args, timeout=timeout)
+    return (r.stdout.strip() if strip else r.stdout) if r.returncode == 0 else ""
+
+
+def git_checked(cwd, *args, prefix, check=True, limit=200, where=False, timeout=None):
+    """git as run() returns it; with `check`, a failure prints `<prefix>: git <verb> failed[ in <cwd>]: <what git said>` and exits 1."""
+    r = git(cwd, *args, timeout=timeout)
+    if check and r.returncode != 0:
+        print(f"{prefix}: git {' '.join(str(a) for a in args[:2])} failed{' in ' + str(cwd) if where else ''}: {(r.stderr or r.stdout).strip()[:limit]}", file=sys.stderr)
+        sys.exit(1)
+    return r
+
+
+def git_text(cwd, *args, prefix, check=True, limit=200, timeout=None):
+    """git's stdout; with `check`, a failure is reported and exits 1 (git_checked)."""
+    return git_checked(cwd, *args, prefix=prefix, check=check, limit=limit, timeout=timeout).stdout
+
+
+def die(msg, code=2, *, prefix):
+    """`<prefix>: <msg>` on stderr and exit — the one way a script refuses (lightening step 1: thirteen scripts each had their own);
+    the prefix is the script's own word, always given (never read from the command line)."""
+    print(f"{prefix}: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def plugin_root(arg=None):
+    """The plugin clone: the argument, $CLAUDE_PLUGIN_ROOT, else this module's own repository — the first that holds a plugin manifest."""
+    for cand in (arg, os.environ.get("CLAUDE_PLUGIN_ROOT"), os.path.dirname(os.path.dirname(os.path.abspath(__file__)))):
+        if cand and os.path.isfile(os.path.join(cand, ".claude-plugin", "plugin.json")):
+            return os.path.abspath(cand)
+    return None
+
+
+def plugin_version(plugin, default="?"):
+    """The plugin manifest's version, or `default` when the manifest cannot be read."""
+    try:
+        with open(os.path.join(plugin, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
+            return str(json.load(f).get("version") or default)
+    except Exception:
+        return default

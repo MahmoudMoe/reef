@@ -31,15 +31,17 @@ import re
 import subprocess
 import sys
 import json
+from functools import partial
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import die as _die  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 ORDER = {"light": 0, "full": 1, "design": 2, "critical": 3}
 DEFAULT_TESTS = ["tests/**", "test/**", "**/*.test.*", "**/*_test.*", "**/test_*.py", "**/*.spec.*"]
 
 
-def die(msg, code=2):
-    print(f"reef-tier: {msg}", file=sys.stderr)
-    sys.exit(code)
+die = partial(_die, prefix="reef-tier")
 
 
 def matches(path, globs):

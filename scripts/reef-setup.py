@@ -29,7 +29,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, run as _run  # noqa: E402
+from reef_common import main_checkout, run_all  # noqa: E402
 
 CHANGE_SET = ("package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "pyproject.toml", "uv.lock",
               "poetry.lock", "Pipfile", "Pipfile.lock", "requirements.txt", "Cargo.toml", "Cargo.lock", "go.mod", "go.sum",
@@ -38,9 +38,7 @@ FAIL_MARK = re.compile(r"^\s*(?:\x1b\[[0-9;]*m)*\s*(FAIL\b|AssertionError\b|✗|
 FAIL_LINE = re.compile(r"(^|\s)(FAIL|FAILED|ERROR|AssertionError|✗|✘|❯|×)(\s|:|$)|\b\d+ (failed|errors?)\b", re.I)   # a sentence with the word
 
 
-def run(args, cwd, timeout=600):
-    r = _run(args, cwd, timeout)
-    return r.returncode, (r.stdout or "") + (r.stderr or "")
+run = lambda args, cwd, timeout=600: run_all(args, cwd, timeout)
 
 
 def parts(cfg):

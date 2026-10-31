@@ -43,9 +43,10 @@ import subprocess
 import sys
 import time
 import tempfile
+from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read_config, repo_root, table_cells  # noqa: E402
+from reef_common import main_checkout, read_config, repo_root, table_cells, die as _die  # noqa: E402
 
 DEFAULT_CAP = 3
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
@@ -53,9 +54,7 @@ EFFORTS = ("low", "medium", "high")
 TIERS = ("light", "full", "design", "critical")
 
 
-def die(msg):
-    print(f"USER ACTION REQUIRED: {msg}", file=sys.stderr)
-    sys.exit(2)
+die = partial(_die, prefix="USER ACTION REQUIRED")
 
 
 # Line/column stripping is keyed on a CURATED set of code-file shapes — a bare
@@ -254,7 +253,7 @@ def plan_check_module():
     return mod
 
 
-def run(cap_flag, path, failure):
+def run_attempt(cap_flag, path, failure):
     if not os.path.isfile(path):
         die(f"task file not found: {path}")
     root = repo_root(path)
@@ -359,7 +358,7 @@ def run(cap_flag, path, failure):
 def main():
     cap_flag, path, failure = parse_args(sys.argv[1:])
     try:
-        run(cap_flag, path, failure)
+        run_attempt(cap_flag, path, failure)
     except SystemExit:
         raise
     except Exception as e:   # fail closed: exit 2 with a reason, never a traceback

@@ -26,9 +26,10 @@ import os
 import re
 import subprocess
 import sys
+from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import git as _git, read_replace as read, table_cells  # noqa: E402
+from reef_common import read_replace as read, table_cells, git_text, die as _die  # noqa: E402
 
 KEEP = {"README.md", "LICENSE", "LICENSE.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md", "CODEOWNERS", "CODE_OF_CONDUCT.md", "AGENTS.md", "CLAUDE.md", "HANDOFF.md"}
 # 0.7.2 (first adoption, 2026-10-24, item 16): a licence anywhere, under any name (a font's OFL.md, LICENSE-fonts.md, NOTICE.md), is kept;
@@ -58,16 +59,10 @@ RUNBOOK = re.compile(r"runbook|operations|how[-_ ]?to|guide|playbook|onboarding"
 LINK = re.compile(r"(!?\[[^\]]*\]\()([^)\s#]+)(#[^)]*)?(\))")
 
 
-def die(msg, code=2):
-    print(f"reef-recalibrate: {msg}", file=sys.stderr)
-    sys.exit(code)
+die = partial(_die, prefix="reef-recalibrate")
 
 
-def git(root, *a, check=True):
-    r = _git(root, *a)
-    if check and r.returncode != 0:
-        die(f"git {' '.join(a[:2])} failed: {r.stderr.strip()[:200]}", 1)
-    return r.stdout
+git = partial(git_text, prefix="reef-recalibrate")
 
 
 def served_dirs(root):

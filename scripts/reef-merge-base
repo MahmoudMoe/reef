@@ -14,19 +14,15 @@ import os
 import re
 import subprocess
 import sys
+from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import git as _git  # noqa: E402
+from reef_common import git_checked  # noqa: E402
 
 HUNK = re.compile(r"<<<<<<< [^\n]*\n(.*?)=======\n(.*?)>>>>>>> [^\n]*\n", re.S)
 
 
-def git(root, *args, check=False):
-    r = _git(root, *args)
-    if check and r.returncode != 0:
-        print(f"reef-merge-base: git {' '.join(args[:2])} failed: {r.stderr.strip()[:300]}", file=sys.stderr)
-        sys.exit(1)
-    return r
+git = partial(git_checked, prefix="reef-merge-base", check=False, limit=300)
 
 
 def main(argv):

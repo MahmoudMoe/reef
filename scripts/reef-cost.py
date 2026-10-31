@@ -22,10 +22,11 @@ import re
 import shutil
 import subprocess
 import sys
+from functools import partial
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.dont_write_bytecode = True
-from reef_common import table_cells  # noqa: E402
+from reef_common import table_cells, die as _die, git_out as _git_out  # noqa: E402
 
 TAIL_BYTES = 256 * 1024
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
@@ -34,9 +35,7 @@ REEF_FEATURE = re.compile(r"^REEF-FEATURE:[ \t]*(\S+)", re.M)
 NOTIFIED_ID = re.compile(r"<tool-use-id>\s*([^<\s]+)\s*</tool-use-id>")
 
 
-def die(msg):
-    print(f"reef-cost: {msg}", file=sys.stderr)
-    sys.exit(2)
+die = partial(_die, prefix="reef-cost")
 
 
 def ctx(usage):
@@ -540,9 +539,7 @@ def is_process(path, roots):
     return False
 
 
-def git_out(repo, *a):
-    r = subprocess.run(["git", "-C", repo, *a], capture_output=True, text=True)
-    return r.stdout if r.returncode == 0 else ""
+git_out = partial(_git_out, strip=False)
 
 
 def forge_pr(repo, n, cache):

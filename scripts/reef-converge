@@ -15,9 +15,10 @@ import os
 import re
 import subprocess
 import sys
+from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read  # noqa: E402
+from reef_common import main_checkout, read, die as _die  # noqa: E402
 
 TEST_RE = re.compile(r"(?<![A-Za-z0-9_])test_[a-z0-9_]+|(?<![A-Za-z0-9_])Test[A-Z][A-Za-z0-9_]*|(?:\bit|\btest|\bdescribe)\((['\"])(.+?)\1\)")
 # a backticked Proof is a COMMAND when it reads like one — shell operators, a flag, a path, or a known runner up front;
@@ -83,9 +84,7 @@ def looks_like_command(s):
     return nxt.startswith("-") or "=" in nxt or "/" in nxt or "." in nxt or nxt in SUBCOMMANDS
 
 
-def die(msg, code=2):
-    print(f"reef-converge: {msg}", file=sys.stderr)
-    sys.exit(code)
+die = partial(_die, prefix="reef-converge")
 
 
 def section(text, heading):

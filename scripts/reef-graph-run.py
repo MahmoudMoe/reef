@@ -55,16 +55,15 @@ import re
 import subprocess
 import sys
 import time
+from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import run as _run  # noqa: E402
+from reef_common import run_rc3, die as _die  # noqa: E402
 
 GRAPH_DIR = os.path.join(".reef", "graph")
 
 
-def die(msg, code=2):
-    print(f"reef-graph-run: {msg}", file=sys.stderr)
-    sys.exit(code)
+die = partial(_die, prefix="reef-graph-run")
 
 
 def root_of(repo):
@@ -72,9 +71,7 @@ def root_of(repo):
     return r.stdout.strip() if r.returncode == 0 else os.path.abspath(repo)
 
 
-def run(args, cwd, timeout=120):
-    r = _run(args, cwd, timeout)
-    return r.returncode, r.stdout, r.stderr
+run = lambda args, cwd, timeout=120: run_rc3(args, cwd, timeout)
 
 
 def script(root, name):

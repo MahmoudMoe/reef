@@ -6,6 +6,7 @@ import glob
 import json
 import os
 import re
+import sys
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -420,7 +421,6 @@ class SizeBudget(unittest.TestCase):
         """The measurement itself, on a planted tree: one more definition of `run` counts one; a script nothing names counts one."""
         import shutil, tempfile
         dup, count = self.duplicate_defs()
-        self.assertIn("run", dup, "the census of 2026-10-31: `run` is defined in several scripts (the lightening's step 1 removes them)")
         self.assertNotIn("merge_by", dup, "the guard's own copy is the one exception, by design")
         guard = read("scripts", "reef-guard.py")
         for name in self.GUARD_OWN:
@@ -1114,3 +1114,44 @@ class LongWorkIsTheRunners(unittest.TestCase):
         self.assertIn("Never a background shell in a headless session", read("skills", "reef-loop", "SKILL.md"))
         self.assertIn("shipped 2026-10-31", read("docs", "design", "owner-hands-off.md"))
 
+
+
+class SharedHelpersHaveOneHome(unittest.TestCase):
+    """docs/design/lightening.md step 1 (2026-10-31): every local `run`, `git`, `die`, `plugin_root`, `plugin_version` was a 2–4 line
+    adapter over reef_common's run()/git() or a copy; each is one shared shape now, imported, the script's own defaults kept with
+    functools.partial. A name that meant two different things was renamed (reef-init's `run` → render_tree, reef-attempt's `run` →
+    run_attempt, reef-approval's `worktrees` → all_checkouts, reef-opencode's `frontmatter` → split_frontmatter, reef-factory's `say` →
+    note); reef-merge-close's `fail` IS die with a prefix."""
+
+    def test_no_shared_helper_is_defined_twice(self):
+        dup, _ = SizeBudget.duplicate_defs()
+        for name in ("run", "git", "die", "plugin_root", "plugin_version", "worktrees", "frontmatter", "say", "fail"):
+            self.assertNotIn(name, dup, f"{name} is defined in {dup.get(name)} — one home: scripts/reef_common.py")
+        common = read("scripts", "reef_common.py")
+        for name in ("run_rc", "run_rc3", "run_out", "run_all", "git_rc", "git_out", "git_checked", "git_text", "die", "plugin_root", "plugin_version"):
+            self.assertRegex(common, rf"(?m)^def {name}\(", f"reef_common defines {name}")
+
+    def test_the_shapes_say_what_the_adapters_said(self):
+        import importlib.machinery, importlib.util, io, contextlib
+        loader = importlib.machinery.SourceFileLoader("reef_common_for_shapes", os.path.join(ROOT, "scripts", "reef_common.py"))
+        spec = importlib.util.spec_from_loader(loader.name, loader); c = importlib.util.module_from_spec(spec); loader.exec_module(c)
+        py = sys.executable
+        self.assertEqual(c.run_rc([py, "-c", "print('a')"], None), (0, "a\n"))
+        self.assertEqual(c.run_rc3([py, "-c", "import sys; print('a'); print('b', file=sys.stderr)"], None), (0, "a\n", "b\n"))
+        self.assertEqual(c.run_out([py, "-c", "print(' a ')"], None), "a"); self.assertEqual(c.run_out([py, "-c", "raise SystemExit(3)"], None), "")
+        self.assertEqual(c.run_all([py, "-c", "import sys; print('a'); print('b', file=sys.stderr)"], None), (0, "a\nb\n"))
+        self.assertEqual(c.run_all([py, "-c", "print(' a ')"], None, strip=True), (0, "a"))
+        self.assertEqual(c.git_rc(ROOT, "rev-parse", "--is-inside-work-tree"), (0, "true"))
+        self.assertEqual(c.git_out(ROOT, "rev-parse", "--is-inside-work-tree"), "true"); self.assertEqual(c.git_out(ROOT, "no-such-verb"), "")
+        self.assertEqual(c.git_text(ROOT, "rev-parse", "--is-inside-work-tree", prefix="t").strip(), "true")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+            c.git_checked(ROOT, "no-such-verb", prefix="reef-x", limit=40, where=True)
+        self.assertEqual(cm.exception.code, 1); self.assertRegex(err.getvalue(), r"^reef-x: git no-such-verb failed in .*: .{1,40}\n$")
+        self.assertEqual(c.git_checked(ROOT, "no-such-verb", prefix="reef-x", check=False).returncode, 1 if False else c.git(ROOT, "no-such-verb").returncode)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+            c.die("no", 3, prefix="reef-y")
+        self.assertEqual((cm.exception.code, err.getvalue()), (3, "reef-y: no\n"))
+        self.assertEqual(c.plugin_root(ROOT), ROOT); self.assertIsNone(c.plugin_root(os.path.join(ROOT, "docs")) if not os.environ.get("CLAUDE_PLUGIN_ROOT") and not os.path.isfile(os.path.join(ROOT, ".claude-plugin", "plugin.json")) else None)
+        self.assertEqual(c.plugin_version(ROOT), json.loads(read(".claude-plugin", "plugin.json"))["version"]); self.assertEqual(c.plugin_version("/nowhere"), "?")

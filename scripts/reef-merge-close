@@ -16,9 +16,10 @@ import os
 import re
 import subprocess
 import sys
+from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, git as _git  # noqa: E402
+from reef_common import main_checkout, git_checked, die as _die  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 LOCKFILES = {"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "prisma/schema.prisma", "requirements.txt",
@@ -26,9 +27,7 @@ LOCKFILES = {"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
 SECRET = re.compile(r"(^|/)(\.env[^/]*|[^/]+\.(pem|key))$")
 
 
-def fail(msg, code):
-    print(f"merge-close: {msg}", file=sys.stderr)
-    sys.exit(code)
+fail = partial(_die, prefix="merge-close")
 
 
 def plan_check_module():
@@ -44,11 +43,7 @@ def plan_check_module():
     return mod
 
 
-def git(cwd, *args, check=True):
-    r = _git(cwd, *args)
-    if check and r.returncode != 0:
-        fail(f"git {' '.join(args[:2])} failed in {cwd}: {(r.stderr or r.stdout).strip()[:400]}", 1)
-    return r
+git = partial(git_checked, prefix="merge-close", where=True, limit=400)
 
 
 def main(argv):
