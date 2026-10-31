@@ -411,7 +411,7 @@ scripts/reef-*   .githooks/   .github/workflows/ci.yml      # tooling where git 
 ```
 
 The plugin itself: `skills/` (init, assess, explore, loop, plan, plan-review, task, graph, verify, review, c4, threat, pentest,
-doctor, night) · `commands/` · `agents/` (implementer, verifier, plan-reviewer, loophole-hunter, mechanic, planner, security,
+doctor, night, watch) · `commands/reef.md` (the overview; every verb is its skill, `/reef-<verb>`) · `agents/` (implementer, verifier, plan-reviewer, loophole-hunter, mechanic, planner, security,
 mahmoud) · `scripts/` (`reef-init.py`, `reef-update.py`, `reef-doctor.py`, `reef-run.py` [probe|contract [--day]|watch|--night|--autopilot|--row], `reef-row.py` [state|next],
 `reef-graph-run.py` [probe|generate|row|settle], `reef-evidence.py`, `reef-factory.py`,
 `reef-migrate`, `reef-loop.py` [tick|start|stop|wait|unlock], `reef-handoff`, `reef-gate.sh` [fast|full|--failures],

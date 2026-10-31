@@ -40,5 +40,5 @@ refreshes; open it in a browser).
 
 ## What you type
 
-`/reef:loop` to run · `/clear` when the loop asks · `/reef:doctor` when something looks off ·
+`/reef-loop` to run · `/clear` when the loop asks · `/reef-doctor` when something looks off ·
 `python3 <plugin>/scripts/reef-update.py --commit` to pull a new Reef into this project.

@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **Lightening step 4 — orphans and aliases** (`docs/design/lightening.md`; the owner, 2026-10-31: "/reef-plan and /reef:plan — that
+  is duplication too", his call: delete). `commands/` held fifteen three-line files that each invoked a skill, so every verb showed
+  twice in Claude Code's menu (`/reef:plan` and `/reef:reef-plan`); every document, prompt and the runner name `/reef-<verb>`, which
+  is the skill. The fifteen are gone; `commands/reef.md` — the overview, which has no skill — stays. The OpenCode host writes its
+  command stubs from the skills now (one per `SKILL.md`, plus the overview); the doctor's stop line and the project README template
+  say `/reef-<verb>`; the budget test pins it: the folder holds the overview alone and no Reef text names a `/reef:<verb>` alias.
+  `orphan_scripts` was already 0 — nothing else to remove. tests/size-budget.json: unchanged (nothing grew).
 - **Lightening step 3 — one fixture module for the tests** (`docs/design/lightening.md`; consolidation step 4). `write(root, rel,
   text)` was defined in twelve test files and a `git(d, *a)` helper in fifteen, in four shapes; `tests/_fixtures.py` holds each once —
   `write`, `git` (the CompletedProcess, `check` on request), `git_out` (stdout), `git_text` (stripped), `git_repo` (a temporary repository

@@ -10,7 +10,7 @@ Writes, all regenerated on every run (machine-local: they carry absolute paths, 
   .opencode/agents/reef:<name>.md   one per agents/*.md: the model is roles.<role> (a provider/model id); a judge gets
                                      `edit: deny`
   .opencode/skills/<skill>          a link to the plugin's skill
-  .opencode/commands/reef-<x>.md    one per commands/*.md (/reef-loop, /reef-plan, ...)
+  .opencode/commands/<skill>.md     one per skills/*/SKILL.md (/reef-loop, /reef-plan, ...) and commands/reef.md
   .opencode/reef-host.md            what the skills' Claude Code words mean here, read through opencode.json `instructions`
 Not on OpenCode: graph mode (tasks run one dispatch each), the Stop and SessionStart hooks, the approval capture (the
 owner approves in their own terminal with reef-approval.py --owner), the context ceiling (it fails open).
@@ -149,6 +149,10 @@ def install(repo, plugin):
         src, dst = os.path.join(plugin, "skills", skill), os.path.join(oc, "skills", skill)
         if not os.path.isfile(os.path.join(src, "SKILL.md")):
             continue
+        skill = os.path.basename(src)   # one command stub per skill (lightening step 4: the plugin's own alias files are gone)
+        d = re.search(r"^description:\\s*(.+)$", open(os.path.join(src, "SKILL.md"), encoding="utf-8").read(), re.M)
+        desc = (d.group(1).strip() if d else skill).split(" — ")[0].split(". ")[0][:160]
+        write(os.path.join(oc, "commands", f"{skill}.md"), f"---\ndescription: {desc}\n---\nInvoke the {skill} skill with $ARGUMENTS.\n")
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         if os.path.islink(dst):
             os.remove(dst)
@@ -156,10 +160,9 @@ def install(repo, plugin):
             warnings.append(f"{os.path.relpath(dst, repo)} exists and is not Reef's link — left as it is")
             continue
         os.symlink(src, dst)
-    for fn in sorted(os.listdir(os.path.join(plugin, "commands"))):
+    for fn in sorted(os.listdir(os.path.join(plugin, "commands"))):   # the real commands (the overview)
         if fn.endswith(".md"):
-            name = fn if fn == "reef.md" else "reef-" + fn
-            write(os.path.join(oc, "commands", name), open(os.path.join(plugin, "commands", fn), encoding="utf-8").read())
+            write(os.path.join(oc, "commands", fn), open(os.path.join(plugin, "commands", fn), encoding="utf-8").read())
     write(os.path.join(oc, "reef-host.md"), HOST.replace("{plugin}", plugin).replace("{scratch}", scratch_dir()))
     conf = os.path.join(repo, "opencode.json")
     if os.path.isfile(os.path.join(repo, "opencode.jsonc")):

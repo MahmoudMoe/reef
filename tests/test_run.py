@@ -936,7 +936,6 @@ class WatchInsideASession(unittest.TestCase):
         self.assertIn("/reef-run autopilot", run_skill, "the owner looked for /reef:autopilot: the description names it")
         self.assertIn("autopilot", run_skill.split("argument-hint:", 1)[1].splitlines()[0])
         self.assertIn("/reef-watch", open(os.path.join(ROOT, "README.md"), encoding="utf-8").read())
-        self.assertIn("reef-watch skill", open(os.path.join(ROOT, "commands", "watch.md"), encoding="utf-8").read(), "the command stub pairs the skill, as every owner verb's does")
 
 
 class GraphModeIsForTheOwnersOwnSessions(unittest.TestCase):
