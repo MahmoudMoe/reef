@@ -7,6 +7,14 @@
   session's tool holds until a command returns; the terminal's `reef watch` stays unbounded. The `reef-watch` skill shows the last
   forty lines, or `follow`s for a hundred seconds, never an unbounded tail. `/reef-run`'s description and argument hint name
   `autopilot` (the same as `reef autopilot` and `a` on the screen). tests/size-budget.json raised: `prose_words` 24,146 → 24,437, `script_lines` 17,928 → 17,942.
+- **The screen answers at once** (the owner, 2026-10-31 12:30, on an issues queue: "the CLI is heavy and hangs today — I press
+  something and nothing happens"). A key pressed before the board landed had waited up to five seconds and been re-queued — every key
+  felt dead while the row machine asked GitHub about eight rows — and the board stayed "reading the rows … 3/8" until the last row
+  landed. Now no key waits: it acts on what is there (Tab, `i`, `w`, the verbs, `q` at once; a digit or Enter needs its list). The
+  board is read in two steps: the queue first, at once — every open row listed with a `…` mark, its id and item visible — then the row
+  machine, four rows at a time, each row's state filled in the moment it lands. The inbox is read every ten seconds and the board every
+  two minutes (`INBOX_SECONDS`, `BOARD_SECONDS`; any command reads both again): each row's state is a subprocess that may talk to the
+  forge, and that was the heat. tests/size-budget.json: unchanged (nothing grew).
 - **The log is on the screen** (the owner, 2026-10-31: "when I open the log it should appear in a big box under the screen, with
   navigation"). The WORK board carries the runner's last eight live-log lines under the table, colored by what they say (cyan an agent
   or a job started, green returned, red a failure in its verdict, yellow a wait), shed first on a short terminal; the LOG page scrolls

@@ -304,10 +304,11 @@ BLOCK = ("██████  ███████ ███████ ██
 VERB_KEYS = {"r": "run", "n": "night", "s": "stop", "d": "doctor", "c": "cost", "u": "update"}
 KEYS = "keys: q quit · Tab views · ↑↓ 1-9 select · Enter runs · w log · a autopilot · ? help · " + " · ".join(f"{k} {v}" for k, v in VERB_KEYS.items())   # quit first: never cut at the edge; g refreshes too
 VIEWS = ("work", "inbox", "plan", "log")   # Tab's cycle (2026-10-31, the fourth screen)
-MARK_ORDER = {"○": 0, "▶": 1, "⧖": 2, "⏸": 3, "✓": 4}   # what can start first, then what runs, then yours, then blocked, then done
-MARK_STYLE = {"✓": "done", "▶": "build", "○": "ready", "⧖": "wait", "⏸": "blocked"}
-BOARD_SECONDS = 60   # the work board costs a subprocess per row (the row machine): read this often, the tick redraws it with its age
-BOARD = {"done": 0, "total": 0}   # the rows read so far, for the frame drawn while the board loads
+MARK_ORDER = {"○": 0, "▶": 1, "⧖": 2, "⏸": 3, "…": 4, "✓": 5}   # what can start first, then what runs, then yours, then blocked, then unknown yet, then done
+MARK_STYLE = {"✓": "done", "▶": "build", "○": "ready", "⧖": "wait", "⏸": "blocked", "…": ""}   # …: the row machine has not answered yet
+INBOX_SECONDS = 10   # the inbox reading asks the row machine about the rows a wait names: seconds apart, not every tick (2026-10-31 12:30, the owner: "heavy")
+BOARD_SECONDS = 120   # the work board costs a subprocess per row (the row machine, which may ask the forge): minutes apart; any command reads it again
+BOARD = {"done": 0, "total": 0, "rows": {}}   # the rows read so far and each finished row as it lands, for the board drawn while the row machine answers
 BOARD_LOCK = threading.Lock()
 QUIT = threading.Event()   # set when the screen leaves: the row readers stop taking rows, so q returns the prompt at once (the review)
 
@@ -325,9 +326,11 @@ def read_rows(ids, fn, workers=4):
                 rid = todo.get_nowait()
             except queue.Empty:
                 return
-            out[rid] = fn(rid)
-            with BOARD_LOCK:
+            got = fn(rid)
+            out[rid] = got
+            with BOARD_LOCK:   # published as it lands: the screen fills the row in while the others are still being read
                 BOARD["done"] += 1
+                BOARD["rows"][rid] = got
     threads = [threading.Thread(target=work, daemon=True, name="reef-row") for _ in range(max(1, min(workers, len(ids))))]
     for t in threads:
         t.start()
@@ -552,50 +555,90 @@ def contract_view(root):
     return {"digest16": plain(digest)[:16], "decides": decides, "never": never, "approved": bool(digest)}
 
 
-def work_model(root, runner=None):
+def row_entry(r, st, done_ids, asked, lane, tasks):
+    """One board row from the queue's row `r` and the row machine's answer `st` — None while it is being read (the `…` mark; the
+    screen fills the row in when the answer lands). done_ids/asked/lane/tasks are the batch's facts the caller holds."""
+    rid = str(r["Id"])
+    deps = [d for d in re.split(r"[,\s]+", plain(r.get("Depends", "") or "")) if d]
+    waits = [d for d in deps if d not in done_ids]
+    state, detail = (str(st.get("state") or ""), plain(st.get("detail") or "")) if st is not None else ("", "")
+    if rid in done_ids or state == "closed":
+        mark, state = "✓", "done"
+    elif st is None:
+        mark, state = "…", "reading"
+    elif waits:
+        mark = "⏸"
+    elif state == "approval" or rid in asked or approval_questions(detail):
+        mark = "⧖"
+    elif state in ("build", "review", "merge", "close"):
+        mark = "▶"
+    else:
+        mark = "○"
+    pr = re.search(r"PR #\d+", detail)
+    issue = plain(r.get("_issue") or r.get("Issue") or r.get("issue") or "")   # the snapshot's key is _issue (reef-queue.py sync)
+    item = re.sub(r"[⁰¹²³⁴⁵⁶⁷⁸⁹]+", "", plain(r.get("Item", ""))).strip()
+    tk = st.get("tasks") if st is not None and isinstance(st.get("tasks"), dict) else None   # the row machine counts in the feature's checkout; the main checkout's folder is the fallback
+    return {"id": rid, "item": item, "mark": mark, "tasks": (int(tk.get("done") or 0), int(tk.get("total") or 0)) if tk else tasks.get(rid, (0, 0)), "depends": deps, "waits": waits,
+            "lane": lane, "forge": " · ".join(x for x in ((f"#{issue}" if issue else ""), (pr.group(0) if pr else "")) if x),
+            "state": state or "plan", "detail": detail, "next": plain(st.get("next") or "") if st is not None else "", "slug": str(st.get("slug") or "") if st is not None else ""}
+
+
+def fill_in(wm, landed):
+    """The provisional board's `…` rows swapped for the finished rows that have landed (BOARD["rows"]) — in place; True when one changed.
+    The header's counts stay the provisional ones until the full board replaces it (one rule, not half of one)."""
+    changed = False
+    for i, row in enumerate(wm.get("rows") or []):
+        if row["mark"] == "…" and landed.get(row["id"]) is not None:
+            wm["rows"][i] = landed[row["id"]]
+            changed = True
+    return changed
+
+
+def reanchor_rows(wm, wsel, chosen):
+    """The board's selection follows its row by id when the rows change under it (a state landed, the full board replaced the
+    provisional one, the order re-sorted) — as the inbox's selection follows its item."""
+    if chosen is None:
+        return wsel
+    ids = [r["id"] for r in ordered(wm)]
+    return ids.index(chosen) if chosen in ids else min(wsel, max(len(ids) - 1, 0))
+
+
+def reading_line():
+    return f"reading the rows … {min(BOARD['done'], BOARD['total'])}/{BOARD['total']}"
+
+
+def work_model(root, runner=None, states=True):
     """The batch as the owner asked to see it before choosing (2026-10-31): every row of the current batch with a state mark
     (✓ done · ▶ building · ○ can start now · ⏸ waits on the open rows it depends on · ⧖ yours — a gate or a question), its
     tasks done/total, its lane (the module its Item names: rows of one module go one at a time, different modules run beside
     each other), its forge (issue, PR), plus the batch's progress and today's cost. States come from the row machine
-    (`row_state`), the rows from the queue's own parser — the screen computes nothing the scripts do not."""
+    (`row_state`), the rows from the queue's own parser — the screen computes nothing the scripts do not. `states=False`: the
+    queue alone, at once — the provisional board every open row `…` (`partial`), which the screen fills in as the full reading
+    publishes each row's state (2026-10-31 12:30: the board stayed "reading the rows … 3/8" until the last row landed)."""
     cfg = read_json(os.path.join(root, ".reef", "config.json"))
     batch, rows, archived = queue_rows(root, cfg)
     q = load_sibling("reef-queue.py", "reef_queue_for_screen")
     try:
-        states = q.task_states(root, cfg) if q is not None else {}   # the queue's own rule for done (reef-queue.py load): no third counting here
+        tstates = q.task_states(root, cfg) if q is not None else {}   # the queue's own rule for done (reef-queue.py load): no third counting here
     except Exception:
-        states = {}
-    tasks = {rid: (sum(1 for x in st if x == "done"), len(st)) for rid, st in states.items()}
+        tstates = {}
+    tasks = {rid: (sum(1 for x in st if x == "done"), len(st)) for rid, st in tstates.items()}
     done_ids = set(archived) | {rid for rid, (d, n) in tasks.items() if n and d == n}
     current = [r for r in rows if not batch or str(r.get("Batch", "")).strip() == batch]
     asked = {rr for rr, _, _, _ in questions(root)}
-    BOARD["done"], BOARD["total"] = 0, sum(1 for r in current if str(r["Id"]) not in done_ids)
+    rows_by_id = {str(r["Id"]): r for r in current}
+    lane_of = lambda r: q.module_of(re.sub(r"[⁰¹²³⁴⁵⁶⁷⁸⁹]+", "", plain(r.get("Item", ""))).strip()) if q is not None else "general"
 
-    states_by_row = read_rows([str(r["Id"]) for r in current], lambda rid: row_state(root, rid) if rid not in done_ids else {})
-    out = []
-    for r in current:
-        rid = str(r["Id"])
-        st = states_by_row.get(rid) or {}
-        deps = [d for d in re.split(r"[,\s]+", plain(r.get("Depends", "") or "")) if d]
-        waits = [d for d in deps if d not in done_ids]
-        state, detail = str(st.get("state") or ""), plain(st.get("detail") or "")
-        if rid in done_ids or state == "closed":
-            mark, state = "✓", "done"
-        elif waits:
-            mark = "⏸"
-        elif state == "approval" or rid in asked or approval_questions(detail):
-            mark = "⧖"
-        elif state in ("build", "review", "merge", "close"):
-            mark = "▶"
-        else:
-            mark = "○"
-        pr = re.search(r"PR #\d+", detail)
-        issue = plain(r.get("_issue") or r.get("Issue") or r.get("issue") or "")   # the snapshot's key is _issue (reef-queue.py sync)
-        item = re.sub(r"[⁰¹²³⁴⁵⁶⁷⁸⁹]+", "", plain(r.get("Item", ""))).strip()
-        tk = st.get("tasks") if isinstance(st.get("tasks"), dict) else None   # the row machine counts in the feature's checkout; the main checkout's folder is the fallback
-        out.append({"id": rid, "item": item, "mark": mark, "tasks": (int(tk.get("done") or 0), int(tk.get("total") or 0)) if tk else tasks.get(rid, (0, 0)), "depends": deps, "waits": waits,
-                    "lane": q.module_of(item) if q is not None else "general", "forge": " · ".join(x for x in ((f"#{issue}" if issue else ""), (pr.group(0) if pr else "")) if x),
-                    "state": state or "plan", "detail": detail, "next": plain(st.get("next") or ""), "slug": str(st.get("slug") or "")})
+    def finished(rid):   # one finished board row, from the row machine's answer (done rows need none) — what the reader threads publish
+        r = rows_by_id[rid]
+        return row_entry(r, row_state(root, rid) if rid not in done_ids else {}, done_ids, asked, lane_of(r), tasks)
+    if states:
+        with BOARD_LOCK:
+            BOARD["done"], BOARD["total"], BOARD["rows"] = 0, sum(1 for r in current if str(r["Id"]) not in done_ids), {}
+        got = read_rows(list(rows_by_id), finished)
+        out = [got.get(rid) or finished(rid) for rid in rows_by_id]
+    else:   # the queue alone: every open row `…`
+        out = [row_entry(r, None if rid not in done_ids else {}, done_ids, asked, lane_of(r), tasks) for rid, r in rows_by_id.items()]
     pid, spid, since = runner if runner is not None else runner_view(root)
     ap, cost = autopilot_view(root), cost_today(root)
     dt, nt = sum(t["tasks"][0] for t in out), sum(t["tasks"][1] for t in out)
@@ -610,7 +653,7 @@ def work_model(root, runner=None):
              "runner  " + runner_line(root, pid, spid, since),
              "autopilot  " + (f"on · pid {ap['pid']} · since {ap['since']} · {ap['decided_today']} decided by Mahmoud today" if ap["on"] else "off · a starts it"), ""]
     return {"batch": batch, "rows": out, "progress": {"rows": (dr, len(out)), "tasks": (dt, nt)}, "cost_today": cost, "facts": facts,
-            "autopilot": ap, "order": "queue", "cap": int(((cfg.get("loop") or {}).get("rows_in_flight", 2)) or 0), "at": time.time()}
+            "autopilot": ap, "order": "queue", "cap": int(((cfg.get("loop") or {}).get("rows_in_flight", 2)) or 0), "at": time.time(), "partial": not states}
 
 
 def ordered(wm):
@@ -629,6 +672,8 @@ def row_what(r):
         return "yours: " + ("plan approval" if r["state"] == "approval" else "a question")
     if r["mark"] == "▶":
         return {"build": "building", "review": "in review", "merge": "merging", "close": "closing"}.get(r["state"], "running")
+    if r["mark"] == "…":
+        return "reading …"
     return "can start now"
 
 
@@ -708,10 +753,12 @@ def render_work(wm, items, width=120, height=None, selected=None, panel=None, no
     rows = ordered(wm) if wm else []
     n = len(rows)
     sel = None if selected is None or not n else min(max(int(selected), 0), n - 1)
-    facts = list((wm or {}).get("facts") or ["", f"reading the rows … {min(BOARD['done'], BOARD['total'])}/{BOARD['total']} (the row machine, four at a time)" if BOARD["total"] else "reading the queue …",
+    facts = list((wm or {}).get("facts") or ["", f"{reading_line()} (the row machine, four at a time)" if BOARD["total"] else "reading the queue …",
                                              note or "the keys work meanwhile · q quits", "", ""])   # `note`: a reading that failed, while no board is up
     if new_reef_waits(items) and facts[0] and "a new Reef" not in facts[0]:
         facts[0] += " · a new Reef waits (u)"   # the board is the first view: said here as on the inbox (hands-off step 6)
+    if wm and wm.get("partial") and len(facts) > 1:
+        facts[1] = f"{facts[1]} · {reading_line()}"
     head = [(row + "   " + fact)[:w] for row, fact in zip(BLOCK, facts)] + ["─" * w, tabs_line("work", len(items or []), w, (time.time() - wm["at"]) if wm and wm.get("at") else None)]
     styles = {i: "banner" for i in range(len(BLOCK))}
     styles[len(head) - 1] = "tabs"
@@ -1178,7 +1225,7 @@ def screen_loop(stdscr, root, curses):
     utf = bool(sys.stdout.encoding and "utf" in sys.stdout.encoding.lower())
     doctor, sel, model, view, offset, panel = None, 0, None, "work", 0, None   # the first frame is drawn before any reading returns
     doctor_at = 0.0   # the doctor fetches the plugin clone: read again every UPDATE_SECONDS, so a merge in Reef becomes an item by itself
-    wm, wm_at, wsel, back, order = None, 0.0, 0, "work", "queue"   # the work board, refreshed every 30 s (a row's state is a subprocess each)
+    wm, wm_at, wsel, back, order = None, 0.0, 0, "work", "queue"   # the work board, read every BOARD_SECONDS (a row's state is a subprocess each)
     found, found_at = "", None   # the log page's search: the query and the index of its last hit (None: no match)
     attrs = style_attrs(curses, colors=os.environ.get("REEF_COLOR", "1") != "0")
 
@@ -1218,8 +1265,8 @@ def screen_loop(stdscr, root, curses):
     def take():
         """The readings that landed, swapped in: the inbox (the selection follows its item), the board (the order kept), the doctor.
         A reading that raised is shown on the screen (never a silent "reading …" forever — the review) and not retried until g."""
-        nonlocal model, model_at, wm, wm_at, doctor, doctor_at, sel
-        for name in ("model", "board", "doctor"):
+        nonlocal model, model_at, wm, wm_at, doctor, doctor_at, sel, wsel
+        for name in ("model", "board", "doctor", "queue"):
             if name in results and isinstance(results[name], Exception):
                 e = results.pop(name)
                 failed[name] = f"{name}: {type(e).__name__}: {str(e)[:120]}"
@@ -1228,9 +1275,16 @@ def screen_loop(stdscr, root, curses):
             chosen = model["items"][sel]["cmd"] if model and model["items"] and sel < len(model["items"]) else None
             model, model_at = res, time.time()
             sel = reanchor(model["items"], sel, chosen) if chosen else sel
+        if "queue" in results:
+            got = results.pop("queue")
+            if wm is None:   # the full board may have landed first
+                wm, wm_at = got, 0.0
+                wm["order"] = order
         if "board" in results:
+            chosen = ordered(wm)[wsel]["id"] if wm and wm.get("rows") and wsel < len(wm["rows"]) else None
             wm, wm_at = results.pop("board"), time.time()
             wm["order"] = order
+            wsel = reanchor_rows(wm, wsel, chosen)
         if "doctor" in results:
             got = results.pop("doctor")
             if got is None:   # the doctor did not answer (180 s): a failed reading, shown and retried on g — not "nothing wrong" for fifteen minutes
@@ -1243,11 +1297,19 @@ def screen_loop(stdscr, root, curses):
 
     while True:
         h, w = stdscr.getmaxyx()
-        # readings: the inbox model on every tick, the board every BOARD_SECONDS, the doctor once and on g — each in its thread
-        if model is None or time.time() - model_at > 3:
+        # readings: the inbox model every INBOX_SECONDS, the board every BOARD_SECONDS (the queue first, at once), the doctor every UPDATE_SECONDS and on g — each in its thread
+        if model is None or time.time() - model_at > INBOX_SECONDS:
             spawn("model", lambda: screen_model(root, doctor))
-        if view in ("work", "plan", "autopilot") and (wm is None or time.time() - wm_at > BOARD_SECONDS):
+        if view in ("work", "plan", "autopilot") and (wm is None or time.time() - wm_at > BOARD_SECONDS):   # spawn() skips while the board is still being read
+            if wm is None:
+                spawn("queue", lambda: work_model(root, states=False))   # the rows at once, every open one `…`
             spawn("board", lambda: work_model(root))
+        if wm is not None and wm.get("partial"):
+            with BOARD_LOCK:
+                landed = dict(BOARD["rows"])
+            chosen = ordered(wm)[wsel]["id"] if wm.get("rows") and wsel < len(wm["rows"]) else None
+            if fill_in(wm, landed):   # each row as the row machine answers; the selection follows its row
+                wsel = reanchor_rows(wm, wsel, chosen)
         if doctor is None or time.time() - doctor_at > UPDATE_SECONDS:   # at open, after a command, on g — and when the reading is UPDATE_SECONDS old
             spawn("doctor", lambda: doctor_lines(root, fetch=time.time() - doctor_at > UPDATE_SECONDS))   # the forge is asked minutes apart, not after every key
         take()
@@ -1296,20 +1358,6 @@ def screen_loop(stdscr, root, curses):
         if (ch == "q" or k == 27) and view in ("work", "inbox"):   # q never waits for a reading: the readers stop at QUIT
             QUIT.set()
             return 0
-        if model is None or (wm is None and view in ("work", "plan", "autopilot")):   # a key before the reading its view needs landed: wait for it under one deadline
-            deadline = time.time() + 5
-            for name in (["model"] if view == "inbox" else ["model", "board"]):
-                t = jobs.get(name)
-                if t is not None:
-                    t.join(max(0.0, deadline - time.time()))
-            take()
-            if model is None or (wm is None and view in ("work", "plan", "autopilot")):
-                if hasattr(curses, "ungetch"):   # still not there: the key goes back to the queue and is read again after the next frame
-                    curses.ungetch(k)
-                continue
-            cur = model
-            n = len(cur["items"]); sel = min(sel, max(n - 1, 0))
-            nrows = len(wm["rows"]) if wm else 0; wsel = min(wsel, max(nrows - 1, 0))
         act = on_key(k, wsel if view in ("work", "plan") else sel, nrows if view in ("work", "plan") else n, view)
         if act is None:
             continue
@@ -1354,8 +1402,8 @@ def screen_loop(stdscr, root, curses):
             else:
                 sel = min(max(n - 1, 0), sel + 1)
             continue
-        if act[0] == "refresh":   # g: every reading again, the last good ones stay on the screen until the new ones land
-            doctor, model_at, wm_at = None, 0.0, 0.0; continue
+        if act[0] == "refresh":   # g: every reading again (a reading that failed too), the last good ones stay on the screen until the new ones land
+            failed.clear(); doctor, model_at, wm_at = None, 0.0, 0.0; continue
         if act[0] == "select":
             if view in ("work", "plan"):
                 wsel = act[1]

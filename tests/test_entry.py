@@ -97,6 +97,17 @@ def project(**files):
     return d
 
 
+def settle(limit=15.0):
+    """A fake tick: wait until the screen's reader threads (reef-*) are done, so the next key finds its reading landed — keys no
+    longer wait for a reading themselves (2026-10-31, the owner: "I press something and nothing happens")."""
+    import threading
+    t0 = time.time()
+    while time.time() - t0 < limit and any(t.name.startswith("reef-") and t.is_alive() for t in threading.enumerate()):
+        time.sleep(0.05)
+    stuck = [t.name for t in threading.enumerate() if t.name.startswith("reef-") and t.is_alive()]
+    assert not stuck, f"a reading did not land in {limit} s: {stuck}"
+
+
 def load_entry():
     import importlib.machinery, importlib.util
     loader = importlib.machinery.SourceFileLoader("reef_entry_under_test", ENTRY)
@@ -318,13 +329,17 @@ class TheScreen(unittest.TestCase):
             def move(self, *_): pass
             def clrtoeol(self): pass
             def addstr(self, y, x, text, *a): self.rows.append(text)
-            def getch(self): return self.keys.pop(0) if self.keys else ord("q")
+            def getch(self):
+                k = self.keys.pop(0) if self.keys else ord("q")
+                if k == -1:
+                    settle()
+                return k
         ran = []
         real_run = mod.run_captured
         mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["ok"]))[1]
         mod.doctor_lines = lambda root, fetch=False: []
         d2 = project(**{".reef/questions.md": "- row 7: Keep it? — recommended: yes\n- row 8: Rename it? — recommended: no\n"})
-        win = FakeWin([ord("i"), ord("2"), 10, 10, ord("x"), 10, 10, ord("q")])   # i: the inbox (the screen opens on WORK since the fourth design); 2 selects; Enter runs it and opens the answer line; Enter keeps 'no'; x closes the panel; Enter, Enter again; q
+        win = FakeWin([-1, ord("i"), ord("2"), 10, 10, ord("x"), 10, 10, ord("q")])   # a tick (the readings land); i: the inbox (the screen opens on WORK since the fourth design); 2 selects; Enter runs it and opens the answer line; Enter keeps 'no'; x closes the panel; Enter, Enter again; q
         self.assertEqual(mod.screen_loop(win, d2, FakeCurses()), 0)
         self.assertEqual(len(ran), 2, "Enter ran the selected item twice (the second Enter, after the close): never the close key itself\n" + str(ran))
         self.assertIn("no", ran[0], "the recommendation kept with a plain Enter on the answer line")
@@ -475,12 +490,16 @@ class TheScreen(unittest.TestCase):
             def erase(self): pass
             def refresh(self): pass
             def addstr(self, y, x, text, *a): self.rows.append(text)
-            def getch(self): return self.keys.pop(0) if self.keys else ord("q")
+            def getch(self):
+                k = self.keys.pop(0) if self.keys else ord("q")
+                if k == -1:
+                    settle()
+                return k
         ran = []
         mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["state: build"]))[1]
         mod.doctor_lines = lambda root, fetch=False: []
         mod.inbox = lambda root, doctor=None, runner=None: [{"kind": "approve", "text": "x", "argv": [sys.executable, "-c", "pass"], "cmd": "approve x", "row": "7", "recommended": "", "issue": ""}]
-        win = FW([ord("2"), 10, ord("x"), 9, 9, 10, ord("x"), ord("q")])   # 2 selects row 7, Enter opens it; x closes; Tab Tab → PLAN; Enter there opens the row too; q
+        win = FW([-1, ord("2"), 10, ord("x"), 9, 9, 10, ord("x"), ord("q")])   # a tick (the board lands); 2 selects row 7, Enter opens it; x closes; Tab Tab → PLAN; Enter there opens the row too; q
         self.assertEqual(mod.screen_loop(win, d, FC()), 0)
         self.assertEqual(len(ran), 2, str(ran)); self.assertTrue(all(os.path.basename(str(r[1])) == "reef-row.py" and r[2:4] == ["state", "7"] for r in ran), str(ran))
         self.assertTrue(any(r.startswith("PLAN") for r in win.rows), "Tab, Tab reached PLAN")
@@ -604,7 +623,7 @@ class TheScreenNeverFreezes(unittest.TestCase):
             def refresh(self): pass
             def addstr(self, y, x, text, *a): self.rows.append(text)
             def getch(self): return self.keys.pop(0) if self.keys else ord("q")
-        mod.work_model = lambda root, runner=None: (_t.sleep(3), {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": _t.time()})[1]
+        mod.work_model = lambda root, runner=None, states=True: (_t.sleep(3), {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": _t.time()})[1]
         mod.doctor_lines = lambda root, fetch=False: (_t.sleep(3), [])[1]
         win = FW([-1, -1, ord("q")])
         t0 = _t.time(); self.assertEqual(mod.screen_loop(win, d, FC()), 0); dt = _t.time() - t0
@@ -623,7 +642,7 @@ class TheScreenNeverFreezes(unittest.TestCase):
         self.assertLess(dt, 0.6, f"the readers kept taking rows after QUIT: {dt:.2f} s"); self.assertLessEqual(len(out), 4)
         mod.QUIT.clear()
         # a reading that raises is shown, not swallowed into "reading …" forever
-        mod.work_model = lambda root, runner=None: (_ for _ in ()).throw(RuntimeError("the queue file is not a table"))
+        mod.work_model = lambda root, runner=None, states=True: (_ for _ in ()).throw(RuntimeError("the queue file is not a table"))
         mod.doctor_lines = lambda root, fetch=False: []
         win = FW([-1, -1, -1, ord("q")])
         self.assertEqual(mod.screen_loop(win, d, FC()), 0)
@@ -657,7 +676,7 @@ class TheUpdateIsReefs(unittest.TestCase):
             if callable(k):   # a step of the test between two ticks (the clock moves on)
                 k(); k = -1
             if k == -1:
-                time.sleep(0.3)   # a tick takes the time a real one takes: the readings land meanwhile
+                settle()   # a tick: the readings land meanwhile
             return k
 
     def test_the_real_doctors_lines_are_one_item_on_the_inbox_and_the_headers_say_so(self):
@@ -695,7 +714,7 @@ class TheUpdateIsReefs(unittest.TestCase):
         d = project()
         reads = []
         mod.doctor_lines = lambda root, fetch=False: (reads.append(fetch), ["WARN plugin: a new Reef, 2 commit(s) since your copy: Two fixes — python3 scripts/reef update"])[1]
-        mod.work_model = lambda root, runner=None: {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()}
+        mod.work_model = lambda root, runner=None, states=True: {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()}
         ran = []
         mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["reef update: done"]))[1]
         def age_out():
@@ -846,9 +865,13 @@ class TheLogIsOnTheScreen(unittest.TestCase):
             def addstr(self, y, x, text, *a):
                 self.rows.append(text)
                 if self.frames: self.frames[-1].append((text, a[0] if a else 0))
-            def getch(self): return self.keys.pop(0) if self.keys else ord("q")
+            def getch(self):
+                k = self.keys.pop(0) if self.keys else ord("q")
+                if k == -1:
+                    settle()
+                return k
         mod.doctor_lines = lambda root, fetch=False: []
-        mod.work_model = lambda root, runner=None: {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()}
+        mod.work_model = lambda root, runner=None, states=True: {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()}
         keys = [-1, ord("w"), mod.KEY_PPAGE, mod.KEY_HOME, mod.KEY_END, ord("/")] + [ord(c) for c in "green"] + [10, ord("n"), ord("/")] + [ord(c) for c in "zzz"] + [10, ord("q"), ord("q")]
         win = FW(keys)
         self.assertEqual(mod.screen_loop(win, d, FC()), 0)
@@ -865,3 +888,100 @@ class TheLogIsOnTheScreen(unittest.TestCase):
         self.assertEqual(body(found[0])[-1][1], 1, "the hit is highlighted (A_REVERSE)")
         self.assertTrue(body(found[1])[-1][0].endswith("Verify 1234: GREEN"), "n: the next older hit is the page's last line\n" + "\n".join(t for t, _ in found[1]))
         self.assertTrue(any("no match for 'zzz'" in f[0][0] for f in logs), "a query with no hit says so in the header")
+
+
+class TheScreenAnswersAtOnce(unittest.TestCase):
+    """2026-10-31 12:30, the owner on an issues queue: "the CLI is heavy and hangs today — I press something and nothing happens". A key
+    pressed before the board landed waited up to five seconds and was re-queued (every key felt dead while the row machine asked GitHub
+    about eight rows), and the board stayed "reading the rows … 3/8" until the last row landed. Now a key acts at once on what is
+    there; the rows show the moment the queue is read, each with a `…` mark that becomes its state as the row machine answers; the
+    inbox is read every INBOX_SECONDS and the board every BOARD_SECONDS, minutes apart (each row's state is a subprocess that may
+    talk to the forge)."""
+
+    class FC:
+        A_REVERSE, A_BOLD, A_NORMAL = 1, 2, 0
+        error = Exception
+        def curs_set(self, *_): pass
+        def flushinp(self): pass
+        def update_lines_cols(self): pass
+        def has_colors(self): return False
+
+    class FW:
+        def __init__(self, keys, tick=0.25): self.keys = list(keys); self.rows = []; self.frames = []; self.tick = tick
+        def getmaxyx(self): return (40, 120)
+        def timeout(self, *_): pass
+        def erase(self): self.frames.append([])
+        def refresh(self): pass
+        def addstr(self, y, x, text, *a):
+            self.rows.append(text)
+            if self.frames: self.frames[-1].append(text)
+        def getch(self):
+            k = self.keys.pop(0) if self.keys else ord("q")
+            if callable(k):   # a step of the test between two ticks
+                k(); k = -1
+            if k == -1:
+                time.sleep(self.tick)
+            return k
+
+    def test_a_key_never_waits_for_a_reading(self):
+        mod = load_entry()
+        d = project()
+        mod.work_model = lambda root, runner=None, states=True: (time.sleep(2), {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()})[1]
+        mod.doctor_lines = lambda root, fetch=False: (time.sleep(2), [])[1]
+        mod.screen_model = lambda root, doctor=None, runner=None: (time.sleep(2), {"facts": ["m"] * 5, "items": [], "steps": [], "log": [], "warns": [], "doctor": False})[1]
+        win = self.FW([ord("i"), 9, ord("w"), ord("q"), ord("q")])   # i: the inbox, Tab: the next view, w: the log, q back, q out — none waits for a reading
+        t0 = time.time(); self.assertEqual(mod.screen_loop(win, d, self.FC()), 0); dt = time.time() - t0
+        self.assertLess(dt, 1.5, f"five keys took {dt:.2f} s: a key waited for a reading")
+        self.assertTrue(any(r.startswith("INBOX") for r in win.rows), "the inbox was drawn before its reading landed")
+        self.assertTrue(any(r.startswith("LOG") for r in win.rows), "the log too")
+
+    def test_the_rows_show_at_once_and_their_states_fill_in(self):
+        mod = load_entry()
+        d = project(**{"docs/queue.md": "# Queue\nCurrent batch: 1\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n"
+                                        + "".join(f"| {i} | row {i} (src/m{i}) | | planned | 1 | |\n" for i in range(1, 7))})
+        mod.row_state = lambda root, row: (time.sleep(0.6), {"row": str(row), "state": "build", "next": "tick", "detail": f"1 open task(s) (PR #{row})"})[1]
+        mod.doctor_lines = lambda root, fetch=False: []
+        win = self.FW([-1] * 14 + [ord("q")], tick=0.25)
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        boards = [f for f in win.frames if any(l.strip().startswith(("… 1", "▶ 1", "○ 1")) for l in f)]
+        self.assertTrue(boards, "the rows were listed\n" + "\n".join(win.frames[-1]))
+        first = boards[0]
+        self.assertTrue(any(l.strip().startswith("… 6") for l in first), "at first every row carries the reading mark, the id and item visible\n" + "\n".join(first))
+        self.assertTrue(any("reading the rows" in l for l in first), "the header counts the rows as they land")
+        mixed = [f for f in boards if any(l.strip().startswith("… ") for l in f) and any(l.strip().startswith("▶ ") for l in f)]
+        self.assertTrue(mixed, "a frame with some states landed and some still reading: they fill in one by one, not all at the end")
+        last = boards[-1]
+        self.assertFalse(any(l.strip().startswith("… ") for l in last), "in the end every row has its state\n" + "\n".join(last))
+        self.assertTrue(any(l.strip().startswith("▶ 6") and "PR #6" in l for l in last))
+        # the model, asked for the queue alone, is the provisional board: every open row reading, done rows done
+        wm = mod.work_model(d, states=False)
+        self.assertTrue(wm.get("partial")); self.assertEqual({r["mark"] for r in wm["rows"]}, {"…"})
+        self.assertEqual(mod.row_what(wm["rows"][0]), "reading …")
+        for key in ("raw", "done_ids", "asked", "task_counts"):
+            self.assertNotIn(key, wm, "the board carries no intermediates: the reader threads publish finished rows")
+        self.assertLess(mod.MARK_ORDER["…"], mod.MARK_ORDER["✓"], "in start order an unknown row sorts before a done one")
+
+    def test_the_readings_are_minutes_apart_and_g_reads_a_failed_one_again(self):
+        mod = load_entry()
+        d = project()
+        calls = {"model": 0, "board": 0}
+        def board(root, runner=None, states=True):
+            calls["board"] += 1
+            if calls["board"] == 1:
+                raise RuntimeError("the forge did not answer")
+            return {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time(), "partial": not states}
+        mod.work_model = board
+        mod.screen_model = lambda root, doctor=None, runner=None: (calls.__setitem__("model", calls["model"] + 1), {"facts": ["m"] * 5, "items": [], "steps": [], "log": [], "warns": [], "doctor": False})[1]
+        mod.doctor_lines = lambda root, fetch=False: []
+        seen = {}
+        def note():
+            seen["model"], seen["board"] = calls["model"], calls["board"]
+        def age():
+            mod.INBOX_SECONDS, mod.BOARD_SECONDS = 0.0, 0.0   # minutes pass
+        win = self.FW([-1, -1, -1, -1, note, ord("g"), -1, -1, age, -1, -1, ord("q")])
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        self.assertLessEqual(seen["model"], 2, f"four ticks within INBOX_SECONDS: one inbox reading (and one more when the doctor landed), not one per tick ({calls})")
+        self.assertEqual(seen["board"], 2, f"the queue and the board, once each, within BOARD_SECONDS ({calls})")
+        self.assertTrue(any("reading failed" in r and "RuntimeError" in r for r in win.rows), "the board that raised is on the screen")
+        self.assertGreaterEqual(calls["board"], 3, f"g read the failed board again ({calls})")
+        self.assertGreaterEqual(calls["model"], 3, f"once INBOX_SECONDS passed the inbox was read again ({calls})")
