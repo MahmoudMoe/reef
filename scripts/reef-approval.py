@@ -132,6 +132,23 @@ def plan_digests(cwd, feature):
     return out
 
 
+def plan_of_record(digests, feature, main):
+    """(checkout, digest) of the plan an approval binds to: the feature's own worktree, `<main>/.reef/worktrees/<feature>`
+    by its exact path, where the plan is drafted and amended and the row machine reads it; else the main checkout; else
+    (None, None). Never "the first checkout holding it": a task worktree branched before an amendment holds an older plan
+    (row 187, 2026-10-31: `git worktree list` named it first and Mahmoud's approval of the amended plan was refused for the
+    stale copy's digest), and a path that only ends like the feature's worktree is not it (the security review)."""
+    real = {os.path.realpath(w): (w, d) for w, d in digests.items()}
+    for path in (os.path.join(main, ".reef", "worktrees", feature), main):
+        if os.path.realpath(path) in real:
+            return real[os.path.realpath(path)]
+    return None, None
+
+
+def seen_digests(digests):
+    return ", ".join(f"{d[:16]} in {os.path.basename(w) or w}" for w, d in digests.items())
+
+
 def clear_question(main, feature, co, digest16):
     """The approval's own question leaves .reef/questions.md and its reef-question issue closes (2026-10-28: the owner approved in
     his terminal and three runner sessions re-read the filed question, believed it, and recorded the same wait). The row's lines
@@ -205,7 +222,17 @@ def cmd_proxy(argv):
     digests = plan_digests(cwd, feature)
     if not digests:
         return refuse("no checkout holds this plan")
-    where, dg = next(iter(digests.items()))
+    try:
+        with open(report if os.path.isabs(report) else os.path.join(cwd, report), encoding="utf-8") as f:
+            text = f.read()
+    except OSError as e:
+        return refuse(f"cannot read the report: {e}")
+    where, dg = plan_of_record(digests, feature, root)
+    if not where:
+        return refuse(f"the plan is in neither its feature worktree nor the main checkout ({seen_digests(digests)})")
+    if not re.search(r"^APPROVE plan " + re.escape(feature) + r" at " + dg[:16] + r"\b", text, re.M):
+        return refuse(f"the report has no `APPROVE plan {feature} at {dg[:16]}` line (the plan in {os.path.basename(where) or where}; "
+                      f"every checkout: {seen_digests(digests)})")
     row = feature_row(where, feature)
     if not row:
         return refuse("its SPEC.md has no Row: line")
@@ -215,15 +242,8 @@ def cmd_proxy(argv):
         open_ids = rr.queue_open_rows(root)
         if open_ids is not None and row not in open_ids:
             return refuse(f"its row ({row}) is not an open queue row — the autopilot approves the work it was given")
-    try:
-        with open(report if os.path.isabs(report) else os.path.join(cwd, report), encoding="utf-8") as f:
-            text = f.read()
-    except OSError as e:
-        return refuse(f"cannot read the report: {e}")
     if not re.search(r"^RUN:[ \t]*agent=mahmoud\b", text, re.M):
         return refuse("the report's first line is not `RUN: agent=mahmoud …`")
-    if not re.search(r"^APPROVE plan " + re.escape(feature) + r" at " + dg[:16] + r"\b", text, re.M):
-        return refuse(f"the report has no `APPROVE plan {feature} at {dg[:16]}` line (the plan's current digest)")
     fails = plan_check_failures(where, feature)
     if fails:
         return refuse(f"reef-plan-check.py FAILS in {where}: {fails[0][:160]}")
@@ -420,7 +440,10 @@ def cmd_from_issue(argv):
     if not digests:
         print(f"reef-approval: row {row}: no checkout holds the plan {slug}")
         return 1
-    where, dg = next(iter(digests.items()))
+    where, dg = plan_of_record(digests, slug, root)
+    if not where:
+        print(f"reef-approval: row {row}: the plan {slug} is in neither its feature worktree nor the main checkout ({seen_digests(digests)})")
+        return 1
     question = f"Approve plan {slug} at {dg[:16]}?"
     r = gh("api", f"repos/{{owner}}/{{repo}}/issues/{n}/comments", "--paginate", "--slurp")
     try:
@@ -566,8 +589,7 @@ def main(argv):
             continue
         where = [wt for wt, dg in digests.items() if dg[:16] == digest16]
         if not where:
-            seen = ", ".join(f"{dg[:16]} in {os.path.basename(wt) or wt}" for wt, dg in digests.items())
-            print(f"reef-approval: {feature}: the question's digest {digest16} matches no checkout's plan ({seen}) (stale) — nothing written")
+            print(f"reef-approval: {feature}: the question's digest {digest16} matches no checkout's plan ({seen_digests(digests)}) (stale) — nothing written")
             continue
         fails = plan_check_failures(where[0], feature)
         if fails:

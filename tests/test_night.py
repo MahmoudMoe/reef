@@ -166,6 +166,34 @@ class ProxyApproval(unittest.TestCase):
         self.assertIn("approval: OK", r.stdout, "the guard's check reads a proxy record like the owner's")
 
 
+    def test_the_approval_reads_the_checkout_whose_plan_mahmoud_approved(self):
+        # 2026-10-31, row 187: a task worktree branched before the plan's last amendment held the older plan, `git worktree
+        # list` named it first, and --proxy refused Mahmoud's approval of the amended plan for the stale one's digest
+        L.write(self.d, ".reef/night/active", "{}")
+        wt = os.path.join(self.d, ".reef", "worktrees", "share-links")
+        L.git(self.d, "worktree", "add", "-q", "-b", "feat/share-links", wt)
+        spec = os.path.join(wt, "reef", "features", "share-links", "SPEC.md")
+        with open(spec, "a") as f:
+            f.write("\nAmended after the task worktree branched.\n")
+        old, new = digest(self.d, "share-links"), digest(wt, "share-links")
+        self.assertNotEqual(old, new, "the main checkout keeps the older plan")
+        r = proxy(self.d, "share-links", self.report(dg=new))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(json.load(open(os.path.join(self.d, ".reef", "approvals", "share-links.json")))["digest16"], new)
+        r = proxy(self.d, "share-links", self.report(dg=old))
+        self.assertEqual(r.returncode, 1, "an approval of the older copy is stale, though the main checkout still holds it")
+        self.assertIn(old, r.stdout, "the refusal names every checkout's digest"); self.assertIn(new, r.stdout)
+        # a decoy whose path only ENDS like the feature's worktree is not the plan of record: without the real one, the main
+        # checkout's plan is
+        L.git(self.d, "worktree", "remove", "--force", wt)
+        decoy = os.path.join(self.d, "a", ".reef", "worktrees", "share-links")
+        L.git(self.d, "worktree", "add", "-q", "--detach", decoy, "HEAD")
+        with open(os.path.join(decoy, "reef", "features", "share-links", "SPEC.md"), "a") as f:
+            f.write("\nA plan nobody approved.\n")
+        r = proxy(self.d, "share-links", self.report(dg=digest(decoy, "share-links")))
+        self.assertEqual(r.returncode, 1, "the decoy's plan is not the one an approval binds to\n" + r.stdout)
+        self.assertEqual(proxy(self.d, "share-links", self.report(dg=old)).returncode, 0, "the main checkout's plan, by its exact path")
+
 class NightGuard(unittest.TestCase):
     def guard(self, d, cmd):
         return subprocess.run([sys.executable, GUARD], input=json.dumps({"tool_name": "Bash", "cwd": d, "tool_input": {"command": cmd}}),

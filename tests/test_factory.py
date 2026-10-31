@@ -222,6 +222,26 @@ class FromIssue(_Forge):
         r = subprocess.run([sys.executable, os.path.join(self.d, "scripts", "reef-plan-check.py"), self.d, "--verify-stamp", "--feature", "exact-totals"], capture_output=True, text=True)
         self.assertIn("approval: OK", r.stdout, "the guard's check reads it like the hook's record")
 
+    def test_the_comment_is_matched_against_the_checkout_whose_plan_it_names(self):
+        # row 187's shape: the plan amended in its feature worktree, an older copy in a checkout `git worktree list` names first
+        wt = os.path.join(self.d, ".reef", "worktrees", "exact-totals")
+        TR.git(self.d, "worktree", "add", "-q", "-b", "feat/exact-totals", wt)
+        with open(os.path.join(wt, "reef", "features", "exact-totals", "SPEC.md"), "a") as f:
+            f.write("\nAmended in the feature worktree.\n")
+        r = subprocess.run([sys.executable, os.path.join(self.d, "scripts", "reef-plan-check.py"), wt, "--digest", "--feature", "exact-totals"], capture_output=True, text=True)
+        new = r.stdout.split()[-1][:16]
+        self.assertNotEqual(new, self.digest)
+        r = self.approval("--from-issue", "3")
+        self.assertIn(f"Approve plan exact-totals at {new}?", r.stdout, "the line to post names the feature worktree's plan, as the row machine does")
+        self.comment(f"Approve plan exact-totals at {self.digest}?")
+        r = self.approval("--from-issue", "3")
+        self.assertIn("stale", r.stdout, "a comment on the older copy approves nothing, however many checkouts still hold it")
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "approvals", "exact-totals.json")))
+        self.comment(f"Approve plan exact-totals at {new}?")
+        r = self.approval("--from-issue", "3")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr); self.assertIn("approved at", r.stdout)
+        self.assertEqual(json.load(open(os.path.join(self.d, ".reef", "approvals", "exact-totals.json")))["digest16"], new)
+
     def test_a_row_without_a_plan_has_nothing_to_approve(self):
         r = self.approval("--from-issue", "4")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
