@@ -1000,6 +1000,11 @@ class OneHomePerHelper(unittest.TestCase):
         self.assertIn('("reef-", "reef_")', read("scripts", "reef-loop.py"), "scripts_behind_plugin compares the module")
         self.assertIn("scripts/reef[-_]", read("scripts", "reef-structure"))
         self.assertIn("scripts/reef-*|scripts/reef_*", read(".github", "workflows", "ci.yml"))
+        # 2026-11-01, the owner: the suite ran three times per change (local, the PR, the push to main) — the PR is the one
+        # run, and a superseded run is cancelled
+        ci = read(".github", "workflows", "ci.yml")
+        self.assertNotIn("push:", ci.split("jobs:")[0], "the PR is the one run: no second run on the push to main")
+        self.assertIn("cancel-in-progress: true", ci)
         self.assertIn('"scripts/reef_*"', read("templates", "config.json"))
         self.assertEqual(open(common, encoding="utf-8").readline().strip(), "# CLASS: code", "a change to the shared module needs a test, like every script")
 
