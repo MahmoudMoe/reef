@@ -17,7 +17,7 @@ import subprocess
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, run as _run, read_config as config  # noqa: E402
+from reef_common import main_checkout, run as _run, read_config as config, merge_by  # noqa: E402
 
 
 def run(args, cwd, timeout=60):
@@ -28,16 +28,6 @@ def run(args, cwd, timeout=60):
 def git(cwd, *a):
     rc, out = run(["git", *a], cwd)
     return out.strip() if rc == 0 else ""
-
-
-def merge_by(cfg):
-    """merge.by or its v3 default: loop when ci.feature_gate is ci and base differs from release (scripts/reef-guard.py)."""
-    v = str((cfg.get("merge") or {}).get("by", "") or "").strip()
-    if v:
-        return v
-    b = cfg.get("branches") or {}
-    ci = str((cfg.get("ci") or {}).get("feature_gate", "ci") or "ci") == "ci"
-    return "loop" if ci and str(b.get("base", "main") or "main") != str(b.get("release", "main") or "main") else "human"
 
 
 def checkouts(main, prefix):

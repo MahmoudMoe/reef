@@ -1,6 +1,7 @@
 """scripts/reef — the owner's one entry point (2026-10-28: "the person opens the terminal, writes reef, sees a logo and the
 options with a short description each"). The owner's verbs, one line each; the internal scripts under --all; every verb runs
 the sibling script it names."""
+import json
 import os
 import re
 import subprocess
@@ -442,6 +443,11 @@ class TheScreen(unittest.TestCase):
         line = mod.runner_line(d, 70417, 70418, "01:06", tree)
         self.assertIn("pid 70417", line); self.assertIn("quiet 25 min", line); self.assertIn("running: ", line)
         self.assertIn("thinking", mod.runner_line(d, 70417, 70418, "01:06", [(70418, 70417, "1:00", "claude -p")]))
+        os.makedirs(os.path.join(d, ".reef", "run", "jobs"), exist_ok=True)   # the runner's own record of its long work comes before the process table
+        open(os.path.join(d, ".reef", "run", "jobs", "gate-4.json"), "w").write(json.dumps({"name": "gate-4", "pid": os.getpid(), "cmd": ["sh", "scripts/reef-gate.sh", "full"], "started_ts": time.time() - 700}))
+        self.assertIn("job gate-4 (11 min)", mod.runner_line(d, 70417, 70418, "01:06", tree))
+        open(os.path.join(d, ".reef", "run", "jobs", "gate-4.json"), "w").write(json.dumps({"name": "gate-4", "pid": os.getpid(), "cmd": ["x"], "started_ts": time.time(), "rc": 0}))
+        self.assertNotIn("job gate-4", mod.runner_line(d, 70417, 70418, "01:06", tree), "an ended job is not running")
         self.assertEqual(mod.runner_line(d, 0, 0, ""), "no runner is running"); self.assertIn("gone", mod.runner_line(d, 0, 70418, "01:06", tree))
         self.assertIn("since 23:56 ", mod.runner_line(d, 70417, 70418, "2026-10-30T23:56:56Z", tree) + " ", "the runner's ISO start as a clock time")
         os.makedirs(os.path.join(d, ".reef", "approvals"), exist_ok=True)

@@ -61,12 +61,14 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question  # noqa: E402
+from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question, merge_by, read_config  # noqa: E402
 
 RUN_DIR = os.path.join(".reef", "run")
 LIVE = os.path.join(RUN_DIR, "live.log")
 SESSION_PID = os.path.join(RUN_DIR, "session.pid")   # the headless session the runner is in
 SESSION = {"p": None}                                 # its Popen while it runs (end_session)
+JOBS_DIR = os.path.join(RUN_DIR, "jobs")              # the runner's jobs: long commands a session starts and the runner waits for (step 3, 2026-10-31)
+JOB_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 # the commands that decide or merge — every other Bash call is noise in the live view
 KEY_BASH = re.compile(r"reef-approval\.py --proxy|reef-queue\.py footnote|reef-record |gh pr (create|merge)|git merge |reef-loop\.py wait")
 NIGHT_DIR = os.path.join(".reef", "night")
@@ -95,7 +97,11 @@ PROMPT = ("/reef-loop — a reef-run iteration: headless, AskUserQuestion does n
           "\"<the question>\" --row <id> --recommended \"<your answer>\"` — the next interactive /reef-loop asks them as ONE set. "
           "At the context ceiling `python3 scripts/reef-loop.py wait \"/clear requested …\"` (it renders the handoff). "
           "When no row can move without the owner, `python3 scripts/reef-loop.py wait \"owner: <what>\"` and end. A filed question is "
-          "answered when the row's state moved past it (`reef-row.py state <row>`): clear it, never re-record it.")
+          "answered when the row's state moved past it (`reef-row.py state <row>`): clear it, never re-record it. "
+          "LONG WORK IS THE RUNNER'S: a command that may run longer than two minutes (the full gate, reef-converge, a CI wait) is a runner job — "
+          "`python3 scripts/reef-run.py job <name> -- <command…>` (letters, digits, dashes) — then `python3 scripts/reef-loop.py wait \"job: <name> — <what it proves>\"` "
+          "and END the turn; never a background shell here (it keeps this process alive and the runner waiting). The runner waits for the job and "
+          "starts the next session with JOBS DONE and its rc; the log is .reef/run/jobs/<name>.log.")
 
 
 def die(msg, code=1):
@@ -268,6 +274,8 @@ def session(root, prompt, mode, say=None):
         extra = shlex.split(os.environ.get("REEF_CLAUDE_ARGS", ""))
     except ValueError as e:
         die(f"REEF_CLAUDE_ARGS is not a shell word list: {e}")
+    if loop_merges(root):   # the loop merges feature PRs (merge.by): the ONE command auto mode's classifier refused headless (2026-10-31) is pre-allowed;
+        extra += ["--allowedTools", "Bash(gh pr merge:*)"]   # the guard still gates it on the GREEN record; nothing else is pre-allowed (a job line would have pre-allowed any command)
     t0 = time.time()
     try:
         p = subprocess.Popen([claude, "-p", prompt, "--permission-mode", mode, "--output-format", "stream-json", "--verbose", *extra],
@@ -408,8 +416,166 @@ def cmd_watch(root):
 
 
 def owner_wait(wait):
-    """A recorded wait that is the owner's to answer — not the `/clear …` hand-over between sessions."""
-    return bool(wait) and not str(wait).startswith("/clear")
+    """A recorded wait that is the owner's to answer — not the `/clear …` hand-over between sessions, not a `job: …` the runner waits for."""
+    return bool(wait) and not str(wait).startswith(("/clear", "job:"))
+
+
+def jobs(root):
+    """Every job record under .reef/run/jobs: {name, pid, started, cmd, cwd, log, rc?, ended?, reported?} — oldest first. The name
+    is the FILE's (a record's content never names a path: the security review — a planted name would have made the runner write
+    under .reef/review/), the log is the one the name gives, the command a list of words."""
+    d = os.path.join(root, JOBS_DIR)
+    out = []
+    try:
+        names = sorted(n for n in os.listdir(d) if n.endswith(".json"))
+    except OSError:
+        return out
+    for n in names:
+        name = n[:-5]
+        if not JOB_NAME.match(name):
+            continue
+        try:
+            with open(os.path.join(d, n), encoding="utf-8") as f:
+                rec = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(rec, dict) or not isinstance(rec.get("cmd"), list) or not all(isinstance(x, str) for x in rec["cmd"]):
+            continue
+        rec["name"], rec["log"] = name, os.path.join(JOBS_DIR, name + ".log")
+        out.append(rec)
+    return out
+
+
+def job_alive(rec):
+    return "rc" not in rec and process_alive(rec.get("pid") or 0)
+
+
+def write_job(root, rec):
+    with open(os.path.join(root, JOBS_DIR, rec["name"] + ".json"), "w", encoding="utf-8") as f:
+        json.dump(rec, f)
+
+
+def cmd_job(root, args):
+    """`reef-run.py job <name> -- <command…>`: the command runs detached under the runner (its own session, stdin closed, output to
+    .reef/run/jobs/<name>.log), the record names its pid; the session that started it ends its turn, the runner waits for the job
+    and the next session reads its rc. `reef-run.py job` alone lists the jobs. The one way a headless session runs long work:
+    a background shell of its own keeps the process alive and the runner waiting (2026-10-31, twice)."""
+    if not args or args[0] in ("status", "list"):
+        recs = jobs(root)
+        if not recs:
+            print("reef-run: no jobs — start one: python3 scripts/reef-run.py job <name> -- <command>")
+            return 0
+        for j in recs:
+            mins = int((time.time() - float(j.get("started_ts") or time.time())) // 60)
+            state = f"running {mins} min" if job_alive(j) else (f"ended rc={j.get('rc')}" if "rc" in j else "dead (no rc)")
+            print(f"{j['name']:<24} {state:<20} {' '.join(j.get('cmd') or [])[:80]}  · log {j.get('log')}")
+        return 0
+    if "--" not in args or args.index("--") != 1 or not JOB_NAME.match(args[0]) or args.index("--") + 1 >= len(args):
+        print("usage: reef-run.py job <name> -- <command…>   (a name of letters, digits and dashes; the command as it would be typed)", file=sys.stderr)
+        return 2
+    name, cmd = args[0], args[args.index("--") + 1:]
+    for j in jobs(root):
+        if j["name"] == name and job_alive(j):
+            die(f"job {name} is still running (pid {j['pid']}, since {j.get('started')}) — another name, or wait for it")
+    os.makedirs(os.path.join(root, JOBS_DIR), exist_ok=True)
+    log = os.path.join(JOBS_DIR, name + ".log")
+    rec = {"name": name, "cmd": cmd, "cwd": os.getcwd(), "log": log, "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "started_ts": time.time()}
+    write_job(root, rec)
+    p = subprocess.Popen([sys.executable, os.path.abspath(__file__), "--repo", root, "_job-run", name, "--", *cmd], cwd=os.getcwd(), stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, env=dict(os.environ, REEF_JOB=name))   # the command on the wrapper's argv: the record is never read for it
+    rec = next((j for j in jobs(root) if j["name"] == name), rec)   # the wrapper may already have written rc (a command that ended at once)
+    rec["pid"] = p.pid
+    write_job(root, rec)
+    print(f"job {name}: started (pid {p.pid}) · log {log} · end the turn: the runner waits for it and the next session gets its result (rc) · `reef-run.py job` lists jobs")
+    return 0
+
+
+def cmd_job_run(root, name, cmd):
+    """The job's own process (started by cmd_job — REEF_JOB names it — never typed): runs the command it was given on its argv, the one
+    the guard judged, with its output in the log, then writes rc and ended into the record. The record's cmd is never read back."""
+    if os.environ.get("REEF_JOB") != name or not JOB_NAME.match(name) or not cmd:
+        return 2
+    rec = next((j for j in jobs(root) if j["name"] == name), None) or {"name": name, "cmd": cmd, "cwd": os.getcwd(), "log": os.path.join(JOBS_DIR, name + ".log"),
+                                                                       "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "started_ts": time.time()}
+    rec["cmd"] = cmd
+    with open(os.path.join(root, rec["log"]), "a", encoding="utf-8") as log:
+        log.write(f"# job {name} · {rec['started']} · {' '.join(cmd)}\n"); log.flush()
+        try:
+            rc = subprocess.run(cmd, cwd=os.getcwd(), stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT).returncode
+        except OSError as e:
+            log.write(f"job {name}: could not start: {e}\n"); rc = 127
+        log.write(f"# job {name} · exit {rc}\n")
+    latest = next((j for j in jobs(root) if j["name"] == name), None)
+    if latest:
+        rec["pid"] = latest.get("pid", rec.get("pid"))
+    rec["rc"], rec["ended"], rec["ended_ts"] = rc, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), time.time()
+    write_job(root, rec)
+    return 0
+
+
+def job_max_minutes(root):
+    """loop.job_max_minutes (default 180): a job past it is killed and reported — the runner never waits forever (the review)."""
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            return int(((json.load(f).get("loop") or {}).get("job_max_minutes", 180)) or 180)
+    except (OSError, ValueError, AttributeError, TypeError):
+        return 180
+
+
+def wait_jobs(root, say, stop_req):
+    """Between sessions: wait while any job runs (a line every two minutes), unless the owner asked the runner to stop. A job past
+    loop.job_max_minutes is killed (rc 124); one whose process died without writing rc is marked died (rc -1). Returns the jobs that
+    ended and were not yet reported — the next session's prompt carries them."""
+    said, limit = {}, job_max_minutes(root)
+    while True:
+        running = [j for j in jobs(root) if job_alive(j)]
+        if not running or os.path.exists(stop_req):
+            break
+        now = time.time()
+        for j in running:
+            mins = int((now - float(j.get("started_ts") or now)) // 60)
+            if mins >= limit:
+                try:
+                    os.killpg(int(j["pid"]), signal.SIGTERM)
+                except (OSError, ValueError, TypeError):
+                    pass
+                j["rc"], j["ended"], j["ended_ts"], j["killed"] = 124, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), now, f"past loop.job_max_minutes ({limit})"
+                write_job(root, j)
+                say(f"job {j['name']}: killed after {mins} min — past loop.job_max_minutes ({limit}); its log: {j['log']}")
+                continue
+            if now - said.get(j["name"], 0) >= 120:
+                said[j["name"]] = now
+                say(f"job {j['name']}: running {mins} min — {' '.join(j.get('cmd') or [])[:70]} · log {j['log']}")
+        time.sleep(5)
+    for j in jobs(root):   # a wrapper that died (killed, a reboot) wrote no rc: the next session must hear of it, not meet the same wait twice
+        if "rc" not in j and not process_alive(j.get("pid") or 0):
+            j["rc"], j["ended"], j["ended_ts"], j["died"] = -1, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), time.time(), "the job's process ended without a result"
+            write_job(root, j)
+    return [j for j in jobs(root) if "rc" in j and not j.get("reported")]   # reported is marked by the caller, after a session has read the note (the review: a run that ends here lost it)
+
+
+def mark_reported(root, done):
+    for j in done:
+        rec = next((x for x in jobs(root) if x["name"] == j["name"]), j)
+        rec["reported"] = True
+        write_job(root, rec)
+
+
+def jobs_note(done):
+    """The line the next session reads first: which jobs ended, how, where their log is."""
+    if not done:
+        return ""
+    return " JOBS DONE since the last session — read each log and continue its row: " + "; ".join(
+        f"{j['name']} rc={j.get('rc')}" + (" (died: no result, run it again)" if j.get("rc") == -1 else " (killed: past loop.job_max_minutes)" if j.get("killed") else "")
+        + f" ({int((float(j.get('ended_ts') or time.time()) - float(j.get('started_ts') or time.time())) // 60)} min) log {j['log']}" for j in done) + "."
+
+
+def loop_merges(root):
+    """merge.by says the loop merges feature PRs — set, or by the v3 default (reef_common.merge_by, the one definition)."""
+    try:
+        return merge_by(read_config(root)) == "loop"
+    except Exception:
+        return False
 
 
 def loop_state(root):
@@ -1153,9 +1319,17 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
     try:
         for i in range(1, cap + 1):
             say("session started" + (" (night)" if night else " (autopilot)" if autopilot else ""))
+            done_jobs = wait_jobs(root, say, stop_req)   # long work runs under the runner: wait for it before the session that reads its result (a restart too)
+            if os.path.exists(stop_req):
+                os.unlink(stop_req)
+                return end(0, "reef-run: stopped on the owner's request (reef-run.py stop) while a job ran — the job runs on; the next run reads its result")
+            note = jobs_note(done_jobs)
+            if done_jobs:
+                say("jobs done: " + ", ".join(f"{j['name']} rc={j.get('rc')}" for j in done_jobs) + " — this session continues their rows")
             prompt = (f"/reef-loop {row}" + PROMPT[len("/reef-loop"):]) if row else PROMPT
-            out = session(root, prompt + (NIGHT_PROMPT if night else AUTOPILOT_PROMPT if autopilot else ""), mode, say)
+            out = session(root, prompt + (NIGHT_PROMPT if night else AUTOPILOT_PROMPT if autopilot else "") + note, mode, say)
             release_hold(root, out.get("session_id"))
+            mark_reported(root, done_jobs)   # the session read the note: now the job is reported
             st = loop_state(root)
             wait, stop, parked = CONTROL.sub(" ", str(st.get("wait") or "")), st.get("stop") or "", st.get("parked") or ""   # agent text: nothing a terminal reads
             markers = [] if (wait or stop or parked) else in_flight_markers(root)   # read once: the log line and the release judge the same snapshot
@@ -1178,8 +1352,8 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
             if parked:
                 return end(3, f"reef-run: the loop parked — {parked}")
             if wait and not owner_wait(wait):
-                sig = progress_signature(root, wait)
-                if sig == prev_sig:   # 2026-10-28: the same state twice (the base's head, the handoff, the wait) is no progress — not a tenth session on it
+                sig = progress_signature(root, wait) if not done_jobs else None   # a job that ended IS progress: the next session reads it
+                if sig is not None and sig == prev_sig:   # 2026-10-28: the same state twice (the base's head, the handoff, the wait) is no progress — not a tenth session on it
                     ask = os.path.join(root, "scripts", "reef-queue.py")   # 2026-10-30: a question in the inbox and a word to the desk, never a silent exit
                     q_text, q_rec = f"the loop made no progress across two sessions — the same wait twice: {wait[:160]}", "read HANDOFF.md, fix what stops the row, then answer this question — the runner starts again by itself"
                     rows_named = sorted(set(re.findall(r"\brow (\d+)", wait)))
@@ -1245,7 +1419,7 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
             morning_report(root, started, log, mode="autopilot")
 
 
-VERBS = ("watch", "status", "stop", "probe", "contract", "release", "resume")
+VERBS = ("watch", "status", "stop", "probe", "contract", "release", "resume", "job")
 VALUE_FLAGS = ("--repo", "--permission-mode", "--host", "--max-iterations", "--row", "--from")
 BARE_FLAGS = ("--night", "--detach", "--day", "--autopilot")
 
@@ -1271,7 +1445,8 @@ def unknown_argument(args):
 def main(argv):
     repo, mode, cap = ".", "auto", 10
     args = list(argv)
-    bad = unknown_argument(args)
+    jv = next((k for k, a in enumerate(args[:3]) if a in ("job", "_job-run")), None)   # `job <name> -- <command…>`: the command is the job's, not this script's flags
+    bad = None if jv is not None else unknown_argument(args)
     if bad is not None:
         sys.stderr.write(__doc__[__doc__.index("Usage"):].rstrip() + "\n\n")
         die(f"unknown argument {bad!r} — a verb is one of {', '.join(VERBS)}, a flag one of {', '.join(VALUE_FLAGS + BARE_FLAGS)}; nothing ran")
@@ -1291,6 +1466,11 @@ def main(argv):
         die(f"{root} is not a Reef project (no .reef/config.json)")
     os.makedirs(os.path.join(root, RUN_DIR), exist_ok=True)
     os.makedirs(os.path.join(root, NIGHT_DIR), exist_ok=True)
+    if jv is not None:
+        rest = args[jv + 1:]
+        if args[jv] == "_job-run":   # the wrapper: `_job-run <name> -- <command…>`, started by cmd_job alone (REEF_JOB)
+            return cmd_job_run(root, rest[0] if rest else "", rest[rest.index("--") + 1:] if "--" in rest else [])
+        return cmd_job(root, rest)
     if args[:1] == ["watch"]:
         return cmd_watch(root)
     if args[:1] == ["status"]:

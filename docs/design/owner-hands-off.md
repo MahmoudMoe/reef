@@ -31,7 +31,7 @@ key on the `reef` screen, or made by the proxy under the contract below.
 2. **The runner never stops dead.** "Work in flight": it checks whether the work still runs (the marker's pid, its age);
    if not, it releases the marker itself, says so, and the task retries. "No progress": the cause becomes a question in
    the inbox, not an exit. Every exit that remains is a decision, shown as an item.
-3. **Long work is Reef's.** A task's command runs in the session's foreground and the session waits for it. One that
+3. **Long work is Reef's** (shipped 2026-10-31 for the orchestrator's commands: `reef-run.py job`, the runner waits before every session, the headless prompt and the loop, task and review skills say so; the implementer's own brief: not yet). A task's command runs in the session's foreground and the session waits for it. One that
    outlives a session is started detached by Reef (`reef-run.py job <task> -- <command>`), recorded on the task, and picked
    up by the next session, which closes the task when the job's exit and its evidence say so. The implementer's brief and
    the headless prompt forbid a background job of the session's own and forbid handing the owner a command.

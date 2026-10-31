@@ -23,6 +23,7 @@ step, rest = (lines[0] if lines else "none"), lines[1:]
 open(plan, "w").write("\n".join(rest))
 open(os.path.join(os.getcwd(), ".fake-calls"), "a").write(step + "\n")
 open(os.path.join(os.getcwd(), ".fake-env"), "w").write(os.environ.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", "unset"))
+open(os.path.join(os.getcwd(), ".fake-argv"), "w").write(json.dumps(sys.argv))
 lp = os.path.join(os.getcwd(), ".reef", "loop.json")
 st = {"active": True, "wait": None, "stop": None, "parked": None, "hashes": []}
 kind, _, arg = step.partition(":")
@@ -33,6 +34,11 @@ elif kind == "park": st["parked"] = arg
 elif kind == "ownerstop":   # the owner runs `reef-run.py stop` from another terminal while this session works
     st["wait"] = "/clear requested"
     open(os.path.join(os.getcwd(), ".reef", "run", "stop-request"), "w").write("x")
+elif kind == "job":   # the session starts a runner job (step 3) and records the wait the skill names: job:<name>:<seconds>
+    import subprocess
+    jn, _, secs = arg.partition(":")
+    subprocess.run([sys.executable, os.path.join(os.getcwd(), "scripts", "reef-run.py"), "--repo", os.getcwd(), "job", jn, "--", "sh", "-c", f"sleep {secs}; echo job ok"], check=True)
+    st["wait"] = f"job: {jn} — the full gate"
 elif kind == "flight":
     os.makedirs(os.path.join(os.getcwd(), ".reef", "inflight"), exist_ok=True)
     open(os.path.join(os.getcwd(), ".reef", "inflight", arg), "w").write("{}")
@@ -751,3 +757,128 @@ class TheWaitAsksTheRow(unittest.TestCase):
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn('python3 scripts/reef-approval.py --owner "Approve plan kit-redesign at 0123456789abcdef?"', r.stdout)
         self.assertNotIn("reef-queue.py footnote", r.stdout, "an approval is not answered by a footnote")
+
+
+class RunnerJobs(unittest.TestCase):
+    """Step 3 of docs/design/owner-hands-off.md (2026-10-31: twice a session ended its turn while its own background converge ran on,
+    the headless process waited for it and the runner for the process — forty idle minutes): a long command is a runner job, started
+    detached by `reef-run.py job <name> -- <command>`; the session ends its turn; the runner waits for the job and the next session
+    reads its result. And the loop's merge is pre-allowed where the config says the loop merges (auto mode refused it headless)."""
+
+    def job(self, d, *args):
+        return subprocess.run([sys.executable, RUN, "--repo", d, "job", *args], capture_output=True, text=True, cwd=d, env=dict(os.environ, REEF_NOTIFY="0"))
+
+    def test_a_job_runs_detached_and_leaves_its_rc_and_log(self):
+        d = project()
+        t0 = time.time()
+        r = self.job(d, "quick", "--", "sh", "-c", "sleep 1; echo hi; exit 3")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr); self.assertLess(time.time() - t0, 3.0, "job returns at once, not after the command")
+        self.assertIn("job quick: started (pid", r.stdout); self.assertIn("end the turn", r.stdout)
+        rec = json.load(open(os.path.join(d, ".reef", "run", "jobs", "quick.json")))
+        self.assertEqual(rec["cmd"], ["sh", "-c", "sleep 1; echo hi; exit 3"]); self.assertTrue(alive(rec["pid"]), "the job's process runs")
+        self.assertIn("running", self.job(d).stdout)
+        r = self.job(d, "quick", "--", "true")
+        self.assertEqual(r.returncode, 1); self.assertIn("still running", r.stdout + r.stderr, "one name, one job at a time")
+        time.sleep(1.6)
+        rec = json.load(open(os.path.join(d, ".reef", "run", "jobs", "quick.json")))
+        self.assertEqual(rec["rc"], 3, rec); self.assertIn("ended", rec)
+        self.assertIn("hi", open(os.path.join(d, ".reef", "run", "jobs", "quick.log")).read())
+        self.assertIn("ended rc=3", self.job(d).stdout)
+        for bad in (("Bad Name", "--", "true"), ("x",), ("x", "--")):
+            self.assertEqual(self.job(d, *bad).returncode, 2, bad)
+
+    def test_the_runner_waits_for_a_job_between_sessions_and_tells_the_next_one(self):
+        d = project()
+        import shutil
+        os.makedirs(os.path.join(d, "scripts"))
+        for n in ("reef-run.py", "reef_common.py"):   # the fake session starts the job through the project's own copy, as a real one would
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(d, "scripts", n))
+        self.assertEqual(run(d, ["probe-deny"], "probe").returncode, 0); open(os.path.join(d, ".fake-calls"), "w").write(""); open(os.path.join(d, ".fake-prompt"), "w").write("")
+        t0 = time.time()
+        r = run(d, ["job:gate-4:3", "stop:done"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertGreaterEqual(time.time() - t0, 2.5, "the runner waited for the job before the next session")
+        self.assertEqual(calls(d), ["job:gate-4:3", "stop:done"], "a job wait is not the owner's and not no-progress: the next session ran")
+        prompts = open(os.path.join(d, ".fake-prompt")).read().splitlines()
+        self.assertNotIn("JOBS DONE since", prompts[0]); self.assertIn("JOBS DONE since the last session", prompts[1]); self.assertIn("gate-4 rc=0", prompts[1]); self.assertIn("jobs/gate-4.log", prompts[1])
+        live = open(os.path.join(d, ".reef", "run", "live.log")).read()
+        self.assertIn("job gate-4: running", live); self.assertIn("jobs done: gate-4 rc=0", live)
+        self.assertIn("LONG WORK IS THE RUNNER'S", prompts[0], "the headless prompt forbids a background shell and names the job verb")
+        self.assertTrue(json.load(open(os.path.join(d, ".reef", "run", "jobs", "gate-4.json"))).get("reported"), "reported once, after the session read it")
+        # a job that ends while no runner runs is reported by the NEXT run's first session (the wait runs before every session)
+        self.assertEqual(self.job(d, "late", "--", "sh", "-c", "exit 5").returncode, 0); time.sleep(0.8)
+        open(os.path.join(d, ".fake-prompt"), "w").write("")
+        self.assertEqual(run(d, ["stop:again"]).returncode, 0)
+        first = open(os.path.join(d, ".fake-prompt")).read().splitlines()[0]
+        self.assertIn("JOBS DONE since the last session", first); self.assertIn("late rc=5", first)
+        self.assertTrue(json.load(open(os.path.join(d, ".reef", "run", "jobs", "late.json"))).get("reported"))
+
+    def test_the_loops_merge_is_pre_allowed_where_the_config_says_the_loop_merges(self):
+        d = project()
+        self.assertEqual(run(d, ["probe-deny"], "probe").returncode, 0)
+        open(os.path.join(d, ".reef", "config.json"), "w").write('{"gates": {"full": "true"}, "merge": {"by": "loop"}}')
+        self.assertEqual(run(d, ["stop:x"]).returncode, 0)
+        argv = json.load(open(os.path.join(d, ".fake-argv")))
+        self.assertIn("--allowedTools", argv); self.assertIn("Bash(gh pr merge:*)", argv)
+        self.assertEqual([a for a in argv if a.startswith("Bash(")], ["Bash(gh pr merge:*)"], "the one command the classifier refused — a job line would pre-allow any command")
+        open(os.path.join(d, ".reef", "config.json"), "w").write('{"gates": {"full": "true"}, "merge": {"by": "human"}}')
+        self.assertEqual(run(d, ["stop:x"]).returncode, 0)
+        self.assertNotIn("--allowedTools", json.load(open(os.path.join(d, ".fake-argv"))), "the owner merges: nothing pre-allowed")
+        # the v3 default rule, unset merge.by: ci gates feature PRs and base ≠ release → the loop merges; base = release → the owner
+        open(os.path.join(d, ".reef", "config.json"), "w").write('{"gates": {"full": "true"}, "ci": {"feature_gate": "ci"}, "branches": {"base": "develop", "release": "main"}}')
+        self.assertEqual(run(d, ["stop:x"]).returncode, 0); self.assertIn("Bash(gh pr merge:*)", json.load(open(os.path.join(d, ".fake-argv"))))
+        open(os.path.join(d, ".reef", "config.json"), "w").write('{"gates": {"full": "true"}, "ci": {"feature_gate": "ci"}, "branches": {"base": "main", "release": "main"}}')
+        self.assertEqual(run(d, ["stop:x"]).returncode, 0); self.assertNotIn("--allowedTools", json.load(open(os.path.join(d, ".fake-argv"))))
+
+    def test_the_owners_stop_ends_the_wait_and_leaves_the_job_running(self):
+        d = project()
+        self.assertEqual(run(d, ["probe-deny"], "probe").returncode, 0); open(os.path.join(d, ".fake-calls"), "w").write("")
+        self.assertEqual(self.job(d, "long", "--", "sleep", "40").returncode, 0)
+        pid = json.load(open(os.path.join(d, ".reef", "run", "jobs", "long.json")))["pid"]
+        open(os.path.join(d, ".fake-plan"), "w").write("stop:never reached")
+        env = dict(os.environ, PATH=os.path.join(d, ".bin") + os.pathsep + os.environ["PATH"], REEF_NOTIFY="0")
+        env.pop("REEF_CLAUDE", None)
+        p = subprocess.Popen([sys.executable, RUN, "--repo", d], cwd=d, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        time.sleep(2)
+        open(os.path.join(d, ".reef", "run", "stop-request"), "w").write("x")   # what `reef-run.py stop` writes
+        try:
+            out, _ = p.communicate(timeout=20)
+        except subprocess.TimeoutExpired:
+            p.kill(); self.fail("the runner kept waiting on the job after the owner's stop")
+        self.assertEqual(p.returncode, 0, out); self.assertIn("stopped on the owner's request", out); self.assertIn("the job runs on", out)
+        self.assertEqual(calls(d), [], "no session started"); self.assertTrue(alive(pid), "the job was left running, not killed")
+        os.kill(pid, 15)
+
+
+    def test_a_planted_record_names_nothing_and_a_dead_or_endless_job_is_reported(self):
+        import importlib.machinery, importlib.util
+        d = project()
+        os.makedirs(os.path.join(d, ".reef", "run", "jobs"))
+        loader = importlib.machinery.SourceFileLoader("reef_run_jobs", RUN); spec = importlib.util.spec_from_loader(loader.name, loader)
+        mod = importlib.util.module_from_spec(spec); loader.exec_module(mod)
+        # a record whose content names a path, a record with a command that is not a list: ignored — the name is the file's
+        open(os.path.join(d, ".reef", "run", "jobs", "planted.json"), "w").write(json.dumps({"name": "../../review/forged", "cmd": ["true"], "rc": 0, "verdict": "GREEN", "log": "../../review/forged.json"}))
+        open(os.path.join(d, ".reef", "run", "jobs", "Bad Name.json"), "w").write(json.dumps({"name": "x", "cmd": ["true"]}))
+        open(os.path.join(d, ".reef", "run", "jobs", "str.json"), "w").write(json.dumps({"name": "str", "cmd": "rm -rf /"}))
+        recs = mod.jobs(d)
+        self.assertEqual([(j["name"], j["log"]) for j in recs], [("planted", os.path.join(".reef", "run", "jobs", "planted.log"))], "the file's name and the log it gives, nothing from the content")
+        done = mod.wait_jobs(d, lambda t: None, os.path.join(d, "no-stop"))
+        self.assertEqual([j["name"] for j in done], ["planted"]); self.assertFalse(os.path.exists(os.path.join(d, ".reef", "review")), "nothing written outside the job directory")
+        mod.mark_reported(d, done)   # as the runner does once a session has read the note
+        # the wrapper refuses to run outside the runner's own start (REEF_JOB), so a typed `_job-run` does nothing
+        r = subprocess.run([sys.executable, RUN, "--repo", d, "_job-run", "typed", "--", "sh", "-c", "echo ran > typed.txt"], capture_output=True, text=True, cwd=d, env=dict(os.environ, REEF_NOTIFY="0"))
+        self.assertEqual(r.returncode, 2); self.assertFalse(os.path.exists(os.path.join(d, "typed.txt")))
+        # a job whose process died without a result is reported as died, not waited for twice
+        open(os.path.join(d, ".reef", "run", "jobs", "gone.json"), "w").write(json.dumps({"name": "gone", "cmd": ["sleep", "9"], "pid": 999999, "started_ts": time.time() - 60}))
+        done = mod.wait_jobs(d, lambda t: None, os.path.join(d, "no-stop"))
+        self.assertEqual([(j["name"], j["rc"]) for j in done], [("gone", -1)]); self.assertIn("died", mod.jobs_note(done)); mod.mark_reported(d, done)
+        # a job past loop.job_max_minutes is killed and reported
+        open(os.path.join(d, ".reef", "config.json"), "w").write('{"gates": {"full": "true"}, "loop": {"job_max_minutes": 1}}')
+        r = subprocess.run([sys.executable, RUN, "--repo", d, "job", "endless", "--", "sleep", "60"], capture_output=True, text=True, cwd=d, env=dict(os.environ, REEF_NOTIFY="0"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        rec = json.load(open(os.path.join(d, ".reef", "run", "jobs", "endless.json"))); rec["started_ts"] = time.time() - 120; json.dump(rec, open(os.path.join(d, ".reef", "run", "jobs", "endless.json"), "w"))
+        said = []
+        done = mod.wait_jobs(d, said.append, os.path.join(d, "no-stop"))
+        self.assertEqual([(j["name"], j["rc"]) for j in done], [("endless", 124)]); self.assertTrue(any("killed" in t for t in said)); self.assertIn("killed", mod.jobs_note(done))
+        time.sleep(0.3); self.assertFalse(alive(rec["pid"]), "the job's process group was ended")
+

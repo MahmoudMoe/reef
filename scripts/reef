@@ -402,6 +402,18 @@ def session_doing(spid, tree=None):
     return f"running: {name}"[:60] + f" ({et})"
 
 
+def jobs_running(root):
+    """[(name, minutes, command)] of the runner's jobs still running — through the runner's own `jobs`/`job_alive` (one record contract)."""
+    mod = load_sibling("reef-run.py", "reef_run_for_screen")
+    if mod is None:
+        return []
+    try:
+        return [(plain(j["name"]), int((time.time() - float(j.get("started_ts") or time.time())) // 60), plain(" ".join(j.get("cmd") or []))[:40])
+                for j in mod.jobs(root) if mod.job_alive(j)]
+    except Exception:
+        return []
+
+
 def last_word_age(root):
     """Minutes since the runner's live log last moved, or None without a log."""
     try:
@@ -423,6 +435,9 @@ def runner_line(root, pid, spid, since, tree=None):
     age = last_word_age(root)
     if age is not None and age >= 2:
         line += f" · quiet {age} min"
+    running = jobs_running(root)
+    if running:   # the runner's own record first; the process table only when it has none
+        return line + " · job " + ", ".join(f"{n} ({m} min)" for n, m, _ in running)
     doing = session_doing(spid, tree) if spid > 0 else ""
     return line + (f" · {doing}" if doing else (" · thinking" if spid > 0 and age is not None and age >= 2 else ""))
 

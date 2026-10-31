@@ -153,6 +153,17 @@ def table_cells(line):
     return [c.strip() for c in line.strip().strip("|").split("|")]
 
 
+def merge_by(cfg):
+    """merge.by or its v3 default: `loop` when ci.feature_gate is ci and base differs from release (the guard's rule) — the one
+    definition the row machine, the runner and the guard's readers share (2026-10-31: three spellings had drifted)."""
+    v = str((cfg.get("merge") or {}).get("by", "") or "").strip()
+    if v:
+        return v
+    b = cfg.get("branches") or {}
+    ci = str((cfg.get("ci") or {}).get("feature_gate", "ci") or "ci") == "ci"
+    return "loop" if ci and str(b.get("base", "main") or "main") != str(b.get("release", "main") or "main") else "human"
+
+
 def issues_mode(cfg):
     """`queue.home: issues` — the queue's rows and the owner's questions live in GitHub issues."""
     return (cfg.get("queue") or {}).get("home") == "issues"

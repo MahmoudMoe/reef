@@ -979,3 +979,31 @@ class TheEntryPointAndTheRunnerAreTheOwners(unittest.TestCase):
         # the main session runs the runner (/reef-run) and nothing changes for it
         r = run_guard({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": "python3 scripts/reef-run.py --detach"}})
         self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class AJobIsNotAWayAroundTheGate(unittest.TestCase):
+    """Step 3 (2026-10-31): `reef-run.py job <name> -- <command>` runs the command detached under the runner — so the guard judges that
+    command exactly as if the session typed it, and the job runner's own verb is never typed."""
+
+    def test_the_jobs_command_is_checked_and_the_internal_verb_is_denied(self):
+        r = bash('python3 scripts/reef-run.py job gate-4 -- git commit -m x --no-verify')
+        self.assertEqual(r.returncode, 2, "a gate bypass inside a job: " + r.stderr)
+        r = bash("python3 scripts/reef-run.py --repo . job gate-4 -- sh -c 'git commit -n -m x'")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        r = bash("python3 scripts/reef-run.py job gate-4 -- sh scripts/reef-gate.sh full --failures")
+        self.assertEqual(r.returncode, 0, "the gate as a job is the normal case: " + r.stderr)
+        r = bash("python3 scripts/reef-run.py job converge-4 -- python3 scripts/reef-converge move-specs")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for spelled in ("python3 scripts/reef-run.py --repo . _job-run gate-4 -- true", "python3 scripts/reef-run.py --repo=. _job-run gate-4 -- true",
+                        "python3 scripts/reef-run.py '_job-run' gate-4 -- true", "python3 scripts/reef-run.py --night _job-run gate-4 -- true"):
+            r = bash(spelled)
+            self.assertEqual(r.returncode, 2, "the job runner is internal, however spelled: " + spelled + " " + r.stderr); self.assertIn("job <name> --", r.stderr)
+        for spelled in ("python3 scripts/reef-run.py --repo=. job gate-4 -- python3 -m pytest -q tests/ | tail -1",
+                        "python3 scripts/reef-run.py --permission-mode auto job m -- python3 -m pytest -q tests/ | tail -1",
+                        "cd x && python3 scripts/reef-run.py --night job 'm' -- python3 -m pytest -q tests/ | tail -1"):
+            r = bash(spelled)
+            self.assertEqual(r.returncode, 2, "the job's command is judged whatever the flags before `job`: " + spelled + " " + r.stderr)
+        for w in ("printf '{}' > .reef/run/jobs/x.json", "echo x >> .reef/run/jobs/gate-4.json", "cp /tmp/x.json .reef/run/jobs/y.json"):
+            r = bash(w)
+            self.assertEqual(r.returncode, 2, "the job records are the runner's: " + w + " " + r.stderr); self.assertIn("run/jobs", r.stderr)
+
