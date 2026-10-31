@@ -354,26 +354,88 @@ class RollupNoPlanHunter(unittest.TestCase):
 class SizeBudget(unittest.TestCase):
     """0.7 (the owner, 2026-10-20: "is Reef creating technical debt?"): config keys, skill and agent prose, and script lines
     grew with every fix and nothing was removed. tests/size-budget.json holds the ceiling; a PR that grows a number
-    edits that file in the same diff, with its reason in the CHANGELOG — the raise is a reviewed line, never silent."""
+    edits that file in the same diff, with its reason in the CHANGELOG — the raise is a reviewed line, never silent.
+    docs/design/lightening.md step 0 (2026-10-31, the owner: "a plan to wipe duplication and keep it from coming back"): two more
+    numbers ratchet the same way — `duplicate_defs`, a function name defined in more than one script (each definition past the
+    first; the guard's own copies of helpers other scripts own are the one exception, by design — it must run when any other script
+    is broken), and `orphan_scripts`, a script that no
+    skill, agent, hook, command, template or other script names. A new duplicate or orphan is a raise someone has to write down."""
 
-    @staticmethod
-    def measure():
+    SCRIPT_FILES = staticmethod(lambda root: sorted(glob.glob(os.path.join(root, "scripts", "reef-*")) + glob.glob(os.path.join(root, "scripts", "reef_common.py")) + [os.path.join(root, "scripts", "reef")]))
+    GUARD_OWN = {"main_checkout", "merge_by", "read_frontmatter", "feature_row", "lock_path_for", "check_single_rollup", "feature_path", "gh"}   # the guard keeps its own copies of helpers other scripts own, on purpose: it must run when any other script is broken (the critical path)
+
+    @classmethod
+    def duplicate_defs(cls, root=None):
+        """{name: [files]} for every top-level function defined in more than one script (the guard's own copies excepted), and the count of definitions past the first."""
+        defs = {}
+        for f in cls.SCRIPT_FILES(root or ROOT):
+            name = os.path.basename(f)
+            for m in re.finditer(r"^def ([A-Za-z_]\w*)\(", open(f, encoding="utf-8", errors="ignore").read(), re.M):
+                if m.group(1) == "main" or (name == "reef-guard.py" and m.group(1) in cls.GUARD_OWN):
+                    continue
+                defs.setdefault(m.group(1), []).append(name)
+        dup = {k: v for k, v in defs.items() if len(v) > 1}
+        return dup, sum(len(v) - 1 for v in dup.values())
+
+    @classmethod
+    def orphan_scripts(cls, root=None):
+        """Scripts named by no skill, agent, hook, command, template or OTHER script (a script only tests run is an orphan too — the consolidation plan's definition)."""
+        root = root or ROOT
+        namers = []
+        for d in ("skills", "agents", "hooks", "commands", "templates"):
+            namers += [f for f in glob.glob(os.path.join(root, d, "**", "*"), recursive=True) if os.path.isfile(f)]
+        scripts = cls.SCRIPT_FILES(root)
+        texts = {f: open(f, encoding="utf-8", errors="replace").read() for f in namers + scripts}
+        out = []
+        for f in scripts:
+            name = os.path.basename(f)
+            if name in ("reef", "reef_common.py"):
+                continue   # the entry point and the shared module: named by their nature
+            if not any(name in t for g, t in texts.items() if g != f):
+                out.append(name)
+        return sorted(out)
+
+    @classmethod
+    def measure(cls):
         def n(d):
             return sum(n(v) if isinstance(v, dict) and v else 1 for v in d.values())
         keys = n(json.loads(read("templates", "config.json")))
         words = sum(len(open(f, encoding="utf-8").read().split()) for f in glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md")) + glob.glob(os.path.join(ROOT, "agents", "*.md")))
         lines = sum(len(open(f, encoding="utf-8", errors="ignore").read().splitlines()) for f in glob.glob(os.path.join(ROOT, "scripts", "reef-*")) + glob.glob(os.path.join(ROOT, "scripts", "reef_*.py")))
-        return {"config_keys": keys, "prose_words": words, "script_lines": lines}
+        return {"config_keys": keys, "prose_words": words, "script_lines": lines, "duplicate_defs": cls.duplicate_defs()[1], "orphan_scripts": len(cls.orphan_scripts())}
 
     def test_reef_does_not_grow_without_a_reviewed_raise(self):
         budget = json.loads(read("tests", "size-budget.json"))
         now = self.measure()
-        print(f"\nsize: config_keys {now['config_keys']}/{budget['config_keys']} · prose_words {now['prose_words']}/{budget['prose_words']} · "
-              f"script_lines {now['script_lines']}/{budget['script_lines']}")
+        for k in ("duplicate_defs", "orphan_scripts"):
+            self.assertIn(k, budget, f"tests/size-budget.json pins {k} too (lightening step 0)")
+        print("\nsize: " + " · ".join(f"{k} {now[k]}/{budget[k]}" for k in ("config_keys", "prose_words", "script_lines", "duplicate_defs", "orphan_scripts")))
         over = {k: (now[k], budget[k]) for k in budget if now[k] > budget[k]}
+        dup, _ = self.duplicate_defs()
         self.assertEqual(over, {}, "Reef grew past tests/size-budget.json — cut something, or raise the number in that file in this "
-                                   "PR with the reason in the CHANGELOG")
+                                   "PR with the reason in the CHANGELOG" + (f"; duplicate definitions: {dup}" if "duplicate_defs" in over else "")
+                                   + (f"; orphan scripts: {self.orphan_scripts()}" if "orphan_scripts" in over else ""))
 
+    def test_the_pins_see_a_new_duplicate_and_a_new_orphan(self):
+        """The measurement itself, on a planted tree: one more definition of `run` counts one; a script nothing names counts one."""
+        import shutil, tempfile
+        dup, count = self.duplicate_defs()
+        self.assertIn("run", dup, "the census of 2026-10-31: `run` is defined in several scripts (the lightening's step 1 removes them)")
+        self.assertNotIn("merge_by", dup, "the guard's own copy is the one exception, by design")
+        guard = read("scripts", "reef-guard.py")
+        for name in self.GUARD_OWN:
+            self.assertRegex(guard, rf"(?m)^def {name}\(", f"the exception list names a helper the guard no longer defines: {name} — drop it from GUARD_OWN")
+        orphans = self.orphan_scripts()
+        self.assertNotIn("reef-run.py", orphans); self.assertNotIn("reef-doctor.py", orphans)
+        # a planted copy of the tree with one more duplicate and one orphan: both numbers move by one
+        with tempfile.TemporaryDirectory(prefix="reef-pins.") as tmp:
+            for d in ("scripts", "skills", "agents", "hooks", "commands", "templates"):
+                shutil.copytree(os.path.join(ROOT, d), os.path.join(tmp, d), ignore=shutil.ignore_patterns("__pycache__"))
+            with open(os.path.join(tmp, "scripts", "reef-nobody.py"), "w") as f:
+                f.write("def run(args):\n    pass\n")
+            dup2, count2 = self.duplicate_defs(tmp); orphans2 = self.orphan_scripts(tmp)
+        self.assertEqual(count2, count + 1, "one more definition of `run`")
+        self.assertEqual(orphans2, orphans + ["reef-nobody.py"], "a script nothing names")
 
 class HandbackShapeIsTold(unittest.TestCase):
     def test_the_implementer_is_told_the_claims_list_the_check_requires(self):
