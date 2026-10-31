@@ -358,7 +358,7 @@ def screen_model(root, doctor=None, runner=None):
              f"base    {base}" + (f" · {len(flying)} in flight ({', '.join(flying)[:40]})" if flying else ""), ""]
     try:
         with open(os.path.join(root, ".reef", "run", "live.log"), encoding="utf-8") as f:
-            steps = f.read().splitlines()
+            steps = [plain(l) for l in f.read().splitlines()]   # agent-written lines as the owner's terminal may show them (the security review)
     except OSError:
         steps = []
     warns = [l for l in (doctor or []) if l.startswith(("WARN", "FAIL"))]
@@ -632,6 +632,65 @@ def row_what(r):
     return "can start now"
 
 
+LOG_FAIL = re.compile(r"\b(FAIL(?:ED)?|RED|denied|error|rc=[1-9]\d*|exit(?:ed)? [1-9]\d*)\b")   # in a verdict (uppercase by convention)
+LOG_RUNNER_FAIL = re.compile(r"\b(rc=[1-9]\d*|died|killed)\b")   # the runner's own lines: a job's end
+LOG_PASS = re.compile(r"\b(GREEN|PASS(?:ED)?|DONE|ok|completed|merged|Converged|closed)\b")
+LOG_WAIT = re.compile(r"\b(WAIT|wait)\b")
+BOARD_LOG_LINES = 8   # the board carries the runner's last lines under the table (the owner, 2026-10-31: a live log box, w for the whole)
+
+
+def log_style(line):
+    """A live-log line's style — read from its VERDICT, never from prose (a task titled "fix the error path" is not a failure): → cyan an
+    agent or a job started; ← its return — red on a failure word in the verdict, green on a pass word, plain otherwise ("returned" is
+    no verdict); the runner's own job lines red when a job died, was killed or ended rc≠0; yellow a wait."""
+    if "←" in line:
+        after = line.split("←", 1)[1]
+        verdict = after.split(": ", 1)[1] if ": " in after else after
+        if LOG_FAIL.search(verdict) or LOG_RUNNER_FAIL.search(verdict):
+            return "blocked"
+        return "done" if LOG_PASS.search(verdict) else ""
+    if "→" in line:
+        return "build"
+    if LOG_RUNNER_FAIL.search(line):
+        return "blocked"
+    if LOG_WAIT.search(line):
+        return "wait"
+    return ""
+
+
+def log_find(log, query, before):
+    """The index of the newest line before `before` that contains `query` (case-insensitive), or None — `/` on the page, `n` for the next older."""
+    q = query.lower()
+    for i in range(min(before, len(log)) - 1, -1, -1):
+        if q in log[i].lower():
+            return i
+    return None
+
+
+def log_nav(act, log, body_h, offset, found, found_at):
+    """The log page's navigation, pure: page_up/page_down a page, top/bottom the ends, search/next the newest hit of `found` before
+    `found_at` (next: the next older; none older wraps to the newest; no hit at all: found_at None, the header says so). Returns
+    (offset, found_at); the hit becomes the page's last line (or sits on the page when the log is shorter than the page)."""
+    most = max(0, len(log) - body_h)
+    if act == "page_up":
+        return min(most, offset + body_h), found_at
+    if act == "page_down":
+        return max(0, offset - body_h), found_at
+    if act == "top":
+        return most, found_at
+    if act == "bottom":
+        return 0, found_at
+    if act in ("search", "next") and found:
+        before = len(log) if act == "search" or found_at is None else found_at
+        hit = log_find(log, found, before)
+        if hit is None and before < len(log):
+            hit = log_find(log, found, len(log))   # none older: the newest again
+        if hit is None:
+            return offset, None
+        return min(most, max(0, len(log) - 1 - hit)), hit
+    return offset, found_at
+
+
 def tabs_line(view, n_items, w, age=None):
     cells = [("WORK", "work"), (f"INBOX {n_items}" if n_items else "INBOX", "inbox"), ("PLAN", "plan"), ("LOG", "log")]
     row = "  ".join(f"[{t}]" if v == view else f" {t} " for t, v in cells) + "    Tab switches · ? keys"
@@ -640,10 +699,11 @@ def tabs_line(view, n_items, w, age=None):
     return row[:w]
 
 
-def render_work(wm, items, width=120, height=None, selected=None, panel=None, note=""):
+def render_work(wm, items, width=120, height=None, selected=None, panel=None, note="", log=None):
     """WORK: the banner with the batch's facts, the tabs, the rows as a table, the selected row's details boxed under it, the
-    inbox's count, the keys last. Returns (lines, styles {line index: style name}, the selected line's index). Styles name the
-    row's state (done, build, ready, wait, blocked), the banner, the selection — the loop maps them to attributes once."""
+    runner's last lines (`log`, BOARD_LOG_LINES of them, styled by log_style — shed first on a short terminal), the inbox's count,
+    the keys last. Returns (lines, styles {line index: style name}, the selected line's index). Styles name the row's state
+    (done, build, ready, wait, blocked), the banner, the selection — the loop maps them to attributes once."""
     w = max(60, int(width))
     rows = ordered(wm) if wm else []
     n = len(rows)
@@ -671,8 +731,9 @@ def render_work(wm, items, width=120, height=None, selected=None, panel=None, no
     panel_lines = list((panel or {}).get("lines") or ["(no output)"])[-12:] if panel else []
     panel_head = (f"OUTPUT  $ {panel.get('shown', '')} · " + ("running …" if panel.get("rc") is None else f"exit {panel['rc']} · any key closes"))[:w] if panel else ""
     keys = wrap(KEYS, w)
+    log_lines = list(log or [])[-BOARD_LOG_LINES:]
 
-    def frame(lo, hi, box, panel_lines):
+    def frame(lo, hi, box, panel_lines, log_lines):
         out, st = list(head), dict(styles)
         out.append("")   # air between the tabs and the table
         out.append(col); st[len(out) - 1] = "head"
@@ -691,30 +752,39 @@ def render_work(wm, items, width=120, height=None, selected=None, panel=None, no
             out += [(title + "─" * (w - len(title) - 1) + "┐")[:w]] + ["│ " + b.ljust(w - 4)[:w - 4] + " │" for b in box] + ["└" + "─" * (w - 2) + "┘"]
         if panel:
             out += [panel_head] + ["  " + l[:w - 2] for l in panel_lines]
+        out.append((f"LOG  the runner's last {len(log_lines)} line(s) · w opens it" if log_lines else "LOG  no live log yet · w opens it")[:w]); st[len(out) - 1] = "head"
+        for l in log_lines:
+            out.append("  " + l[:w - 2])
+            style = log_style(l)
+            if style:
+                st[len(out) - 1] = style
         out.append((f"INBOX  {len(items)} item(s) wait on you · i opens it" if items else "INBOX  nothing waits on you")[:w])
         out += ["─" * w] + keys
         return out, st, sel_line
 
     lo, hi = 0, n
-    lines, st, sel_line = frame(lo, hi, box, panel_lines)
+    lines, st, sel_line = frame(lo, hi, box, panel_lines, log_lines)
     if height is None:
         return lines, st, sel_line
     h = int(height)
+    while len(lines) > h and len(log_lines) > 2:                   # 1. the log's oldest lines (the newest two stay; w has the whole)
+        log_lines = log_lines[1:]
+        lines, st, sel_line = frame(lo, hi, box, panel_lines, log_lines)
     dropped = 0
     while len(lines) > h and len(panel_lines) > 1:
         panel_lines, dropped = panel_lines[1:], dropped + 1
         panel_lines[0] = f"… {dropped} more line(s) above"
-        lines, st, sel_line = frame(lo, hi, box, panel_lines)
+        lines, st, sel_line = frame(lo, hi, box, panel_lines, log_lines)
     while len(lines) > h and len(box) > 1:
         box = box[:-1]
-        lines, st, sel_line = frame(lo, hi, box, panel_lines)
+        lines, st, sel_line = frame(lo, hi, box, panel_lines, log_lines)
     while len(lines) > h and hi - lo > 1:
         anchor = sel if sel is not None else 0
         if hi - 1 > anchor and (hi - 1 - anchor) >= (anchor - lo):
             hi -= 1
         else:
             lo += 1
-        lines, st, sel_line = frame(lo, hi, box, panel_lines)
+        lines, st, sel_line = frame(lo, hi, box, panel_lines, log_lines)
     if len(lines) > h:
         lines = lines[:max(0, h - len(keys))] + keys
         sel_line = sel_line if sel_line is not None and sel_line < h - len(keys) else None
@@ -805,6 +875,7 @@ def render_help(view, width=120, height=None):
              "  1-9        select the row or item", "  Enter      WORK, PLAN: open the row (its state and next step) · INBOX: run the item (an answer is typed on the screen)",
              "  o          order: the queue's, or what can start first", "  a          the autopilot's start panel (Enter there starts it)",
              "  g          refresh now (the screen refreshes itself every 3 s)", "  r n s d c u  reef run · night · stop · doctor · cost · update",
+             "  on the log: ↑↓ a line · PgUp/PgDn a page · Home/End the ends · / find a line, n the next older · q back",
              "  q / Esc    quit (in LOG or help: back)", "", "  marks: ✓ done · ▶ building · ○ can start now · ⏸ waits on open rows · ⧖ yours (a gate or a question)",
              "  lanes: rows of one module go one at a time; different modules run beside each other (loop.rows_in_flight caps them)"]
     return [l[:w] for l in lines][:int(height)] if height is not None else [l[:w] for l in lines], {0: "tabs"}
@@ -947,15 +1018,20 @@ def cmd_screen(root, args):
         return 0
 
 
-def render_log(steps, width=120, height=24, offset=0):
-    """The whole live log as a screen: the newest lines at the bottom, `offset` lines scrolled back. Returns (lines, the largest offset)."""
+def render_log(steps, width=120, height=24, offset=0, found="", matched=True):
+    """The whole live log as a page: the newest lines at the bottom, `offset` lines scrolled back (0: following); each body line styled
+    by log_style (the full line, as on the board). The header says where the page is, what `/` found (`found`; `matched` False: no
+    match) and the keys. Returns (lines, styles, the largest offset)."""
     w = max(40, int(width)); h = max(5, int(height))
     body_h = h - 2
     top = max(0, len(steps) - body_h - int(offset))
     body = steps[top:top + body_h]
     most = max(0, len(steps) - body_h)
-    return ([f"LOG  {len(steps)} line(s) · ↑↓ scroll · q, Esc or w back"[:w]] + ["  " + l[:w - 2] for l in body]
-            + ["─" * w]), most
+    where = "following" if int(offset) <= 0 else f"{int(offset)} line(s) back · End follows"
+    what = (f" · found {found!r} · n next" if matched else f" · no match for {found!r}") if found else ""
+    head = f"LOG  {len(steps)} line(s) · {where}{what} · ↑↓ line · PgUp/PgDn page · Home/End · / search · q back"
+    styles = {i + 1: log_style(l) for i, l in enumerate(body) if log_style(l)}
+    return [head[:w]] + ["  " + l[:w - 2] for l in body] + ["─" * w], styles, most
 
 
 def on_key(k, sel, n, view):
@@ -979,7 +1055,7 @@ def on_key(k, sel, n, view):
             return ("up",)
         if k in (KEY_DOWN, ord("j")):
             return ("down",)
-        return None
+        return {KEY_PPAGE: ("page_up",), KEY_NPAGE: ("page_down",), KEY_HOME: ("top",), KEY_END: ("bottom",), ord("/"): ("search",), ord("n"): ("next",)}.get(k)
     if k == 9:   # Tab: the next view
         return ("view", VIEWS[(VIEWS.index(view) + 1) % len(VIEWS)] if view in VIEWS else "work")
     if ch == "?":
@@ -1012,6 +1088,7 @@ def on_key(k, sel, n, view):
 
 
 KEY_UP, KEY_DOWN, KEY_ENTER, KEY_BACKSPACE, KEY_RESIZE = 259, 258, 343, 263, 410   # curses' codes, named here so on_key needs no curses
+KEY_PPAGE, KEY_NPAGE, KEY_HOME, KEY_END = 339, 338, 262, 360
 
 
 def edit_step(buf, k):
@@ -1102,6 +1179,7 @@ def screen_loop(stdscr, root, curses):
     doctor, sel, model, view, offset, panel = None, 0, None, "work", 0, None   # the first frame is drawn before any reading returns
     doctor_at = 0.0   # the doctor fetches the plugin clone: read again every UPDATE_SECONDS, so a merge in Reef becomes an item by itself
     wm, wm_at, wsel, back, order = None, 0.0, 0, "work", "queue"   # the work board, refreshed every 30 s (a row's state is a subprocess each)
+    found, found_at = "", None   # the log page's search: the query and the index of its last hit (None: no match)
     attrs = style_attrs(curses, colors=os.environ.get("REEF_COLOR", "1") != "0")
 
     def draw(lines, sel_line, styles=None):
@@ -1184,11 +1262,15 @@ def screen_loop(stdscr, root, curses):
         nrows = len(wm["rows"]) if wm else 0
         wsel = min(wsel, max(nrows - 1, 0))
         sel_line, styles = None, None
+        log_all = cur.get("log") or []
         if view == "log":
-            lines, most = render_log(cur.get("log") or cur["steps"], width=w - 1, height=h, offset=offset)
+            lines, styles, most = render_log(log_all, width=w - 1, height=h, offset=offset, found=found, matched=found_at is not None)
             offset = min(offset, most)
+            top = max(0, len(log_all) - (h - 2) - offset)
+            if found and found_at is not None and top <= found_at < top + h - 2:
+                sel_line = found_at - top + 1   # the hit, highlighted
         elif view == "work" or (view in ("plan", "autopilot") and wm is None):
-            lines, styles, sel_line = render_work(wm, cur["items"], width=w - 1, height=h, selected=wsel, panel=panel, note=note)
+            lines, styles, sel_line = render_work(wm, cur["items"], width=w - 1, height=h, selected=wsel, panel=panel, note=note, log=log_all)
         elif view == "plan":
             lines, styles = render_plan(wm, cur["items"], width=w - 1, height=h)
         elif view == "autopilot":
@@ -1241,11 +1323,20 @@ def screen_loop(stdscr, root, curses):
         if act[0] in ("log", "help", "autopilot"):
             back = view if view in VIEWS else "work"
             view, offset = {"log": "log", "help": "help", "autopilot": "autopilot"}[act[0]], 0
+            found, found_at = "", None   # the page opens following, with no search
             continue
         if act[0] == "order":
             order = "start" if order == "queue" else "queue"
             if wm:
                 wm["order"] = order
+            continue
+        if view == "log" and act[0] in ("page_up", "page_down", "top", "bottom", "search", "next"):
+            if act[0] == "search":   # / asks for the query on the last line; the hit becomes the page's last line, highlighted; n the next older
+                q = edit_line(stdscr, curses, h - 1, w, "find: ", "")   # a fresh query (n repeats the last one)
+                if not q:
+                    continue
+                found = q
+            offset, found_at = log_nav(act[0], log_all, max(1, h - 2), offset, found, found_at)
             continue
         if act[0] == "up":
             if view == "log":

@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **The log is on the screen** (the owner, 2026-10-31: "when I open the log it should appear in a big box under the screen, with
+  navigation"). The WORK board carries the runner's last eight live-log lines under the table, colored by what they say (cyan an agent
+  or a job started, green returned, red a failure in its verdict, yellow a wait), shed first on a short terminal; the LOG page scrolls
+  by line and by page (`PgUp`/`PgDn`), jumps to the ends (`Home`/`End`), finds a line (`/`, the hit as the page's last line; `n` the
+  next older) and is colored the same way; its header says where the page is. Two lines from the same morning's autopilot log: a
+  runner job is started from the row's worktree (the task and review skills; a converge from the base checkout exited 2 — no task
+  files there — and cost a session), and Mahmoud's day report path is under the session's scratchpad (the loop skill; a prompt that
+  named none had him asked twice). tests/size-budget.json raised: `prose_words` 24,060 → 24,146.
 - **The update is Reef's too** (`docs/design/owner-hands-off.md` step 6; the owner, 2026-10-31: after every merge in Reef a person told
   him to run `reef update`, then two Claude Code commands). The screen's doctor reading now fetches the plugin clone itself (`--fetch`),
   every fifteen minutes in its thread; the doctor's lines about a new Reef — the clone behind its upstream (`plugin: a new Reef, 3
