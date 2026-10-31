@@ -78,6 +78,7 @@ The skills are written in Claude Code's words. Here they mean:
 - **AskUserQuestion** does not exist. Ask in the chat. A plan or night approval is the owner's, in their own terminal:
   `python3 {plugin}/scripts/reef-approval.py --owner "Approve plan <slug> at <digest16>?"` (or `"Approve night <date> at
   <digest16>?"`). Never run it yourself: the guard refuses an agent running reef-approval.py.
+- **`${CLAUDE_PLUGIN_ROOT}`** in a skill is `{plugin}` — type that path; the shell would expand the variable to nothing.
 - **Graph mode and the Workflow tool** do not exist: every task is its own dispatch (`/reef-task`); `graph.mode` stays `chat`.
 - **`/clear`** means: end this session; the owner starts a fresh one, which reads the handoff head and one tick.
 - **Monitor, ScheduleWakeup, SendMessage** do not exist: poll by re-running the command, and dispatch a fresh agent with the

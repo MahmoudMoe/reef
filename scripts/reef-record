@@ -23,7 +23,7 @@ import subprocess
 import sys
 import time
 from functools import partial
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
 from reef_common import main_checkout, die as _die  # noqa: E402
 
@@ -72,7 +72,7 @@ def footnote_recorded(root, feature, mark):
 
 
 def plan_digest(root, feature):
-    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")   # its own, never the checkout's copy
+    script = os.path.join(os.path.dirname(os.path.realpath(__file__)), "reef-plan-check.py")   # its own, never the checkout's copy
     r = subprocess.run([sys.executable, script, root, "--digest", "--feature", feature], capture_output=True, text=True, timeout=60)
     m = re.search(r"^digest: \S+ ([0-9a-f]{64})", r.stdout, re.M)
     return m.group(1) if m else None
@@ -138,7 +138,7 @@ def feature_guard_pass_missing(cwd, feature):
     adversarial-guard record; [] under the task mode (the pre-commit enforced it per task) or with every task stamped."""
     import importlib.machinery
     import importlib.util
-    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-adversarial")
+    p = os.path.join(os.path.dirname(os.path.realpath(__file__)), "reef-adversarial")
     if not os.path.isfile(p):
         return []
     spec = importlib.util.spec_from_loader("reef_adversarial", importlib.machinery.SourceFileLoader("reef_adversarial", p))
@@ -216,7 +216,7 @@ def evidence_for(cwd, sha):
     binds a verdict to a commit; without green evidence for that commit there is nothing to bind it to."""
     import importlib.machinery
     import importlib.util
-    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-evidence.py")
+    p = os.path.join(os.path.dirname(os.path.realpath(__file__)), "reef-evidence.py")
     if not os.path.isfile(p):
         return {"source": "none", "state": "none", "why": "scripts/reef-evidence.py is missing (reef-update copies it)"}
     spec = importlib.util.spec_from_loader("reef_evidence", importlib.machinery.SourceFileLoader("reef_evidence", p))

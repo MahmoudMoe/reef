@@ -25,7 +25,7 @@ import shutil
 import subprocess
 import sys
 import time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
 from reef_common import main_checkout, drop_question, process_alive, questions, issues_mode, read_config  # noqa: E402
 
@@ -33,13 +33,13 @@ QUESTION = re.compile(r"^Approve plan (?P<feature>[A-Za-z0-9][A-Za-z0-9._-]*) at
 NIGHT_Q = re.compile(r"^Approve night (?P<date>\d{4}-\d\d-\d\d) at (?P<digest>[0-9a-f]{16})\?$")
 DAY_Q = re.compile(r"^Approve proxy by day at (?P<digest>[0-9a-f]{16})\?$")
 # the plugin's own plan check, never the checkout's copy: a copy can print any digest, a green check or a forged files map
-PLAN_CHECK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py")
+PLAN_CHECK = os.path.join(os.path.dirname(os.path.realpath(__file__)), "reef-plan-check.py")
 
 
 def runner():
     """reef-run.py's night digest and rows — one definition, imported (the hook and --proxy must agree with it)."""
     import importlib.util
-    here = os.path.dirname(os.path.abspath(__file__))
+    here = os.path.dirname(os.path.realpath(__file__))
     spec = importlib.util.spec_from_file_location("reef_run", os.path.join(here, "reef-run.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -314,7 +314,7 @@ def cmd_proxy_day(argv):
                     return refuse(f"this report is already recorded (footnote {old.get('footnote')}) — one decision, one footnote")
     except OSError:
         pass
-    here = os.path.dirname(os.path.abspath(__file__))
+    here = os.path.dirname(os.path.realpath(__file__))
     r = subprocess.run([sys.executable, os.path.join(here, "reef-queue.py"), "footnote", note, "--row", row, "--repo", root], capture_output=True, text=True, cwd=root,
                        env=dict(os.environ, REEF_NO_RESUME="1"))   # the proxy decides while the runner runs: nothing to resume
     if r.returncode != 0:
@@ -423,7 +423,7 @@ def cmd_from_issue(argv):
     if not slug:
         print(f"reef-approval: row {row}: no feature folder with `Row: {row}` yet — nothing to approve (/reef-plan {row} first)")
         return 0
-    here = os.path.dirname(os.path.abspath(__file__))
+    here = os.path.dirname(os.path.realpath(__file__))
     r = subprocess.run([sys.executable, os.path.join(here, "reef-queue.py"), "row-issue", row, "--repo", root], cwd=root, capture_output=True, text=True, timeout=120)
     n = r.stdout.strip().splitlines()[-1].strip() if r.returncode == 0 and r.stdout.strip() else ""
     if not n.isdigit():

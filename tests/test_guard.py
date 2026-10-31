@@ -1050,6 +1050,103 @@ class TaskFilesAreThePlan(unittest.TestCase):
         self.assertEqual(r.returncode, 0, "a look-alike path outside the project is nobody's: " + r.stderr)
 
 
+class TheRecordWritersAreThePlugins(unittest.TestCase):
+    """The security review after #261: reef-approval.py and reef-record load the scripts beside their own file (the plan check
+    first), so a checkout's copy ran the checkout's plan check — guard-protected, not plugin-owned, and an older copy writes
+    records this guard refuses. The copy an agent runs, and what it loads, is byte for byte the plugin's."""
+
+
+    def setUp(self):
+        import shutil
+        self.d = plan_repo(tempfile.mkdtemp(prefix="reef-guard-writers."))
+        for n in ("reef-approval.py", "reef-record"):   # the plan check and reef_common are plan_repo's; the rest is missing
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.d, "scripts", n))
+        self.own = os.path.join(ROOT, "scripts")
+
+    def sh(self, cmd, env=None):
+        return subprocess.run([sys.executable, GUARD], input=json.dumps({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": cmd}}),
+                              capture_output=True, text=True, env={**os.environ, **(env or {})})
+
+    def test_a_copy_that_is_not_the_plugins_is_denied_and_the_plugins_named(self):
+        for cmd in ("python3 scripts/reef-approval.py --proxy --feature demo --report r.md",
+                    "scripts/reef-record demo GREEN --report r.md", "python3 -u scripts/reef-record plan-review demo PASS --report r.md",
+                    f"python3 {self.d}/scripts/reef-record demo GREEN --report r.md", "cd scripts && python3 reef-record demo GREEN",
+                    "python3 /tmp/elsewhere/scripts/reef-approval.py --proxy --feature demo --report r.md",
+                    "env A=1 python3 $HOME/scripts/reef-record demo GREEN",
+                    "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/reef-record demo GREEN",   # the shell, not the guard, expands it
+                    f"PYTHONPATH=/tmp/evil python3 {self.own}/reef-record demo GREEN", "python3 -X utf8 scripts/reef-record demo GREEN",
+                    "python3 -W error scripts/reef-approval.py --proxy --feature demo --report r.md"):
+            with self.subTest(cmd=cmd):
+                r = self.sh(cmd)
+                self.assertEqual(r.returncode, 2, f"NOT DENIED: {cmd!r}\nstderr: {r.stderr}")
+                self.assertIn(self.own, r.stderr, "the denial names the plugin's own copy")
+
+    def test_the_plugins_copy_and_a_current_project_copy_run(self):
+        import shutil
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("reef_guard_under_test", GUARD)
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        for n in guard.RECORD_WRITERS + guard.WRITER_LOADS:
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.d, "scripts", n))
+        for cmd in (f"python3 {self.own}/reef-approval.py --proxy --feature demo --report r.md", f"{self.own}/reef-record demo GREEN",
+                    "python3 scripts/reef-approval.py --proxy --feature demo --report r.md", "scripts/reef-record demo GREEN",
+                    "cat scripts/reef-record", "grep -n proxy scripts/reef-approval.py", "echo $CLAUDE_PLUGIN_ROOT"):
+            with self.subTest(cmd=cmd):
+                r = self.sh(cmd)
+                self.assertEqual(r.returncode, 0, f"FALSE POSITIVE: {cmd!r}\nstderr: {r.stderr}")
+        self.assertEqual(self.sh("PYTHONUNBUFFERED=1 python3 scripts/reef-record demo GREEN").returncode, 0, "output buffering loads nothing")
+        with open(os.path.join(self.d, "scripts", "shutil.py"), "w") as f:   # Python imports the copy's folder first
+            f.write("print('planted')\n")
+        r = self.sh("python3 scripts/reef-approval.py --proxy --feature demo --report r.md")
+        self.assertEqual(r.returncode, 2, "a stdlib name beside a current copy: " + r.stderr)
+        self.assertIn("shutil.py", r.stderr)
+        os.remove(os.path.join(self.d, "scripts", "shutil.py"))
+        with open(os.path.join(self.d, "scripts", "reef-plan-check.py"), "a") as f:
+            f.write("\n# edited\n")
+        r = self.sh("python3 scripts/reef-approval.py --proxy --feature demo --report r.md")
+        self.assertEqual(r.returncode, 2, "an edited plan check beside the copy: " + r.stderr)
+
+    def test_a_link_to_the_plugins_writer_loads_the_plugins_scripts(self):
+        lnk = tempfile.mkdtemp(prefix="reef-guard-link.")
+        with open(os.path.join(lnk, "reef-plan-check.py"), "w") as f:
+            f.write("print('stamp: MATCH')\n")
+        os.symlink(os.path.join(self.own, "reef-record"), os.path.join(lnk, "reef-record"))
+        self.assertEqual(self.sh(f"python3 {lnk}/reef-record demo GREEN").returncode, 0, "the link resolves to the plugin's copy")
+        for n in ("reef-record", "reef-approval.py"):
+            with open(os.path.join(self.own, n), encoding="utf-8") as f:
+                self.assertNotIn("abspath(__file__)", f.read(), f"{n} loads beside its real file, not beside a link to it")
+
+    def test_every_sibling_a_writer_loads_is_compared(self):
+        import importlib.util
+        import re
+        spec = importlib.util.spec_from_file_location("reef_guard_under_test", GUARD)
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        for n in guard.RECORD_WRITERS:
+            with open(os.path.join(self.own, n), encoding="utf-8") as f:
+                text = f.read()
+            loads = set(re.findall(r'"(reef[-_][\w.-]+)"', text)) | ({"reef_common.py"} if "from reef_common import" in text else set())
+            loads = {x for x in loads if os.path.isfile(os.path.join(self.own, x)) and x not in guard.RECORD_WRITERS}
+            with self.subTest(writer=n):
+                self.assertLessEqual(loads, set(guard.WRITER_LOADS), "a script a writer loads is missing from WRITER_LOADS")
+
+    def test_reefs_own_repository_runs_its_own_scripts(self):
+        r = self.sh("python3 scripts/reef-record demo GREEN --report r.md", env={"CLAUDE_PLUGIN_ROOT": self.d})
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_the_skills_call_the_plugins_copies(self):
+        import glob
+        import re
+        bare = re.compile(r"(?<!\$\{CLAUDE_PLUGIN_ROOT\}/)scripts/(reef-approval\.py|reef-record)\b")
+        for f in glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md")) + glob.glob(os.path.join(ROOT, "agents", "*.md")) \
+                + glob.glob(os.path.join(ROOT, "commands", "*.md")):
+            with open(f, encoding="utf-8") as fh:   # the owner's own terminal command (--owner) is printed as the project's
+                hits = [h for line in fh for h in bare.findall(re.sub(r"`[^`]*--owner[^`]*`", "", line))]
+            with self.subTest(f=os.path.relpath(f, ROOT)):
+                self.assertEqual(hits, [], "a command an agent runs names the plugin's copy: ${CLAUDE_PLUGIN_ROOT}/scripts/…")
+
+
 class TheSharedModuleIsAGuardFile(unittest.TestCase):
     """consolidation step 1 (2026-10-29): scripts/reef_common.py is imported by every script, so a write to it is a write to
     all of them — protected like scripts/reef-*."""
