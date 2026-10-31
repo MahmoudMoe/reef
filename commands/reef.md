@@ -1,4 +1,4 @@
 ---
-description: Reef overview — status of tasks, gates, and what to run next
+description: Reef overview — where the queue, the runner and the screen stand, and what to run next
 ---
-Show Reef status for this repo: the task graph (`scripts/reef-graph.py status` — ready / in-progress with worktrees and held resources / waiting / blocked / done), whether the gates are installed (core.hooksPath, .githooks/, CI workflow), the runlog tail, and suggest the next command (/reef-init if not bootstrapped, /reef-plan if no pending tasks, /reef-task otherwise).
+Show where this project's Reef stands and what to run next: `python3 scripts/reef-loop.py tick` (the loop's one read: the batch's rows, what is ready, what waits on the owner), `python3 scripts/reef-run.py status` (the runner: alive or not, autopilot or night, its last session), `python3 scripts/reef-doctor.py` (what is wrong and the command that fixes it). Then suggest the next step: `/reef-init` when there is no `.reef/config.json`; `/reef-plan <row>` when a ready row has no approved plan; `/reef-loop` here or `/reef-run` (the runner in the background, `/reef-watch` to follow it) when rows are ready; the owner's own answers from a terminal are `reef approve <row>`, `reef answer <row> "<text>"`, or `reef` alone — the screen, one key per wait.

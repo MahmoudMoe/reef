@@ -801,6 +801,12 @@ Never: product, money, data, look, security, the release, a night contract's har
 DAY_LABEL = r"Mahmoud \(proxy,\s*day\b"   # the footnote label reef-approval.py --proxy --day writes; the guard refuses it typed by hand
 
 
+def day_question(root):
+    """The one line the owner answers to approve the day contract as it stands — reef-approval.py's DAY_Q checks it."""
+    dg = day_digest(root)
+    return f"Approve proxy by day at {dg[:16]}?" if len(dg) >= 16 else ""
+
+
 def day_digest(root):
     """v3 phase 6: reef/proxy.md + reef/owner.md; the owner approves both once; an edit voids it."""
     return files_digest(root, DAY_FILES)
@@ -940,7 +946,7 @@ def cmd_contract(root, src, day=False):
             die("no reef/owner.md — /reef-night drafts it (or copy ~/.reef/owner.md)")
         print(f"day digest: {dg}")
         print(f"decides: {', '.join(day_kinds(root)) or '-'}")
-        print(f"question: Approve proxy by day at {dg[:16]}?")
+        print(f"question: {day_question(root)}")
         return 0
     if src:
         dst = os.path.join(root, NIGHT_DIR, "contract.md")
@@ -1199,7 +1205,9 @@ def cmd_status(root):
         night = f"autopilot on (pid {ap.get('pid')} {'alive' if process_alive(ap.get('pid')) else 'DEAD — the marker is stale; the next --autopilot replaces it'})"
     except (OSError, ValueError, AttributeError):
         pass
-    print(f"reef-run: {state}; {night}")
+    wait = CONTROL.sub(" ", str(loop_state(root).get("wait") or ""))   # agent text: nothing a terminal reads
+    wait = wait if owner_wait(wait) else ""   # the `/clear …` hand-over and a `job: …` are the runner's own, as `watch` reads them
+    print(f"reef-run: {state}; {night}" + (f"; waiting on you: {wait[:160]}" if wait else ""))
     try:
         with open(os.path.join(root, LIVE), encoding="utf-8") as f:
             for line in f.read().splitlines()[-15:]:
@@ -1209,11 +1217,11 @@ def cmd_status(root):
     try:
         with open(os.path.join(root, RUN_DIR, "run.log"), encoding="utf-8") as f:
             rec = json.loads(f.read().splitlines()[-1])
-        end = rec.get("wait") or rec.get("stop") or rec.get("parked") or ""
+        end = CONTROL.sub(" ", str(rec.get("wait") or rec.get("stop") or rec.get("parked") or ""))
         print(f"last session: {rec.get('at')} · {rec.get('seconds')} s · ${rec.get('cost_usd') or 0:.2f}" + (f" · ended on: {end[:160]}" if end else ""))
     except (OSError, ValueError, IndexError):
         pass
-    return 0
+    return 2 if wait else 0   # an owner wait: 2, as `watch` says it (the CLI review: status said 0)
 
 
 def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=False):
@@ -1230,9 +1238,8 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
             print(f"autopilot: seeded {DAY_FILES[0]} from Reef's default — edit its Decides: line, commit it, then approve once", flush=True)
         ok, why = day_ok(root)
         if not ok:
-            dg = day_digest(root)[:16]
             die(f"autopilot needs the standing contract approved — {why}. To approve reef/proxy.md as it is, once: python3 scripts/reef-approval.py "
-                f"--owner \"Approve proxy by day at {dg}?\" — to widen it first, edit its Decides: line (plan, question, hole, triage for the whole day), "
+                f"--owner \"{day_question(root)}\" — to widen it first, edit its Decides: line (plan, question, hole, triage for the whole day), "
                 "then `python3 scripts/reef-run.py contract --day` prints the fresh question")
     try:
         with open(os.path.join(root, RUN_DIR, "gate.json"), encoding="utf-8") as f:

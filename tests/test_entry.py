@@ -142,7 +142,7 @@ class TheScreen(unittest.TestCase):
         self.assertIn("python3 scripts/reef-loop.py start", out, "a parked loop is a wait with its command")
         self.assertIn("implementer 903 out → PASS", out, "the runner's last steps")
         self.assertIn("no runner is running", out)
-        self.assertRegex(out, r"keys: q quit.*\br\b.*run", "every key is a verb the owner could type; quit first")
+        self.assertNotIn("keys:", out, "no keys on a page nobody can press them on (the CLI review)")
         self.assertNotIn("Traceback", r.stderr)
 
     def test_on_an_issues_queue_a_question_is_answered_by_its_issue(self):
@@ -1384,3 +1384,135 @@ class ThePagesAndTheKeys(unittest.TestCase):
         self.assertEqual(mod.wrap_cells("keys: q quit · x", 5), ["keys:", "q", "quit", "x"], "a cell wider than the terminal falls back to words")
         lines, _, _ = mod.render_work(self.board([]), [], width=120, height=40)
         self.assertFalse(any(l.endswith(" · c") or l.startswith("cost") for l in lines), "no `c` / `cost` across two rows at 120 columns")
+
+
+class TheVerbsTellOneStory(unittest.TestCase):
+    """The CLI review (2026-10-31 19:30), the third group: the autopilot panel's Enter without an approved day contract ended in a
+    refusal whose approval line had to be typed by hand — the screen's one "type this" moment; `reef --help` said unknown verb;
+    `n` (night) from the screen died with "/reef-night drafts both" after silently seeding reef/owner.md; `reef screen --once`
+    printed the INBOX text with the keys of a live screen, and a fake screen (rc 0) in a folder that is not a Reef project;
+    `probe` and `resume` were reachable only as `python3 scripts/reef-run.py …`; `reef status` exited 0 on an owner wait while
+    `watch` exits 2; the skills never named `reef approve` / `reef answer`; commands/reef.md described a Reef of three versions ago."""
+
+    class FC:
+        A_REVERSE, A_BOLD, A_NORMAL = 1, 2, 0
+        error = Exception
+        def curs_set(self, *_): pass
+        def flushinp(self): pass
+        def update_lines_cols(self): pass
+        def has_colors(self): return False
+        def endwin(self): pass
+
+    class FW:
+        def __init__(self, keys): self.keys = list(keys); self.rows = []
+        def getmaxyx(self): return (40, 120)
+        def timeout(self, *_): pass
+        def erase(self): pass
+        def refresh(self): pass
+        def move(self, *_): pass
+        def clrtoeol(self): pass
+        def addstr(self, y, x, text, *a): self.rows.append(text)
+        def getch(self):
+            k = self.keys.pop(0) if self.keys else ord("q")
+            if k == -1:
+                settle()
+            return k
+
+    def board(self):
+        return {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time(), "batch": 3}
+
+    def test_the_autopilot_panels_enter_records_the_approval_first_then_starts(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        d = project()
+        os.makedirs(os.path.join(d, "reef"))
+        open(os.path.join(d, "reef", "proxy.md"), "w").write("# Proxy\n\nDecides: plan, question\n\nNever: money\n")
+        open(os.path.join(d, "reef", "owner.md"), "w").write("# Owner\n\nsimple and robust\n")
+        os.makedirs(os.path.join(d, ".reef", "approvals"), exist_ok=True)
+        cv = mod.contract_view(d)
+        self.assertFalse(cv["approved"]); self.assertRegex(cv["question"], r"^Approve proxy by day at [0-9a-f]{16}\?$", str(cv))
+        lines, _ = mod.render_autopilot(self.board(), cv, width=120)
+        self.assertTrue(any("Enter records the approval" in l and cv["question"] in l for l in lines), "the panel names the question Enter answers\n" + "\n".join(lines))
+        mod.doctor_lines = lambda root, fetch=False: []
+        mod.work_model = lambda root, runner=None, states=True: self.board()
+        ran = []
+        mod.run_captured = lambda root, argv, timeout=900, sink=None: (ran.append(argv), (0, ["ok"]))[1]
+        win = self.FW([-1, ord("a"), 10, -1, ord("x"), ord("q")])
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        self.assertEqual(len(ran), 1); self.assertEqual(os.path.basename(ran[0][1]), "reef-approval.py"); self.assertEqual(ran[0][2:4], ["--owner", cv["question"]])
+        self.assertTrue(any("OUTPUT  $ python3 scripts/reef-approval.py --owner" in r for r in win.rows))
+        open(os.path.join(d, ".reef", "approvals", "day.json"), "w").write('{"digest16": "%s"}' % cv["question"][-17:-1])
+        self.assertTrue(mod.contract_view(d)["approved"])
+        ran.clear()
+        win = self.FW([-1, ord("a"), 10, -1, ord("x"), ord("q")])
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        self.assertEqual([a[2] for a in ran], ["autopilot"], "approved: Enter starts it")
+        open(os.path.join(d, "reef", "proxy.md"), "a").write("\nan edit after the approval\n")   # a stale record is no approval (the review): the question again
+        cv = mod.contract_view(d)
+        self.assertFalse(cv["approved"]); self.assertRegex(cv["question"], r"^Approve proxy by day at [0-9a-f]{16}\?$")
+        self.assertNotEqual(cv["question"][-17:-1], open(os.path.join(d, ".reef", "approvals", "day.json")).read()[14:30])
+
+    def test_help_night_probe_resume_and_status_are_verbs_of_one_entry_point(self):
+        d = project()
+        for args in (["--help"], ["-h"], ["help"]):
+            r = reef(*args, "--repo", d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr); self.assertIn("  screen", r.stdout, args)
+        r = reef("night", "--repo", d)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("/reef-night", r.stdout + r.stderr); self.assertIn("reef night start", r.stdout + r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(d, "reef", "owner.md")), "nothing is seeded by a verb that only tells")
+        names = [v[0] for v in load_script("reef", "reef_entry_under_test").VERBS]
+        self.assertIn("probe", names); self.assertIn("resume", names)
+        r = reef("--menu", "--repo", d)
+        self.assertIn("  probe", r.stdout); self.assertIn("  resume", r.stdout)
+        open(os.path.join(d, ".reef", "loop.json"), "w").write('{"active": true, "wait": "owner: Approve plan x at 0123456789abcdef?", "stop": null, "parked": null, "hashes": []}')
+        r = reef("status", "--repo", d)
+        self.assertEqual(r.returncode, 2, "an owner wait: exit 2, as watch does\n" + r.stdout + r.stderr)
+        self.assertIn("waiting on you", r.stdout)
+        open(os.path.join(d, ".reef", "loop.json"), "w").write('{"active": true, "wait": "/clear requested — the session filled its context", "stop": null, "parked": null, "hashes": []}')
+        r = reef("status", "--repo", d)
+        self.assertEqual(r.returncode, 0, "the hand-over between sessions is the runner's own wait, not the owner's (as watch reads it)\n" + r.stdout); self.assertNotIn("waiting on you", r.stdout)
+        r = reef("night", "--day", "--repo", d)
+        self.assertNotIn("no contract yet", r.stdout + r.stderr, "`night --day` is the day contract's own path (it seeds reef/proxy.md)")
+
+    def test_probe_resume_and_night_from_forward_to_the_runner(self):
+        m = load_script("reef", "reef_entry_forwarding")
+        calls = []
+        m.run_script = lambda name, args, cwd: calls.append((name, list(args))) or 0
+        verbs = {v[0]: v[2] for v in m.VERBS}
+        d = project()
+        verbs["probe"](d, ["--permission-mode", "auto"]); verbs["resume"](d, [])
+        m.cmd_night(d, ["--from", "/tmp/c.md"])
+        self.assertEqual(calls, [("reef-run.py", ["probe", "--repo", d, "--permission-mode", "auto"]),
+                                 ("reef-run.py", ["resume", "--repo", d]),
+                                 ("reef-run.py", ["contract", "--repo", d, "--from", "/tmp/c.md"])])
+
+    def test_status_strips_what_a_terminal_reads_from_the_agents_wait(self):
+        d = project(**{".reef/loop.json": '{"active": true, "wait": "owner: Approve plan x at 0123456789abcdef?\\u001b]0;pwned\\u0007", "stop": null, "parked": null, "hashes": []}'})
+        r = reef("status", "--repo", d)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("waiting on you", r.stdout); self.assertNotIn("\x1b", r.stdout); self.assertNotIn("\x07", r.stdout)
+
+    def test_once_is_the_board_and_the_inbox_as_text_and_refuses_outside_a_project(self):
+        d = project(**{".reef/loop.json": '{"active": true, "wait": "owner: Approve plan x at 0123456789abcdef?", "stop": null, "parked": null, "hashes": []}'})
+        r = reef("screen", "--once", "--repo", d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertLess(r.stdout.index("[WORK]") if "[WORK]" in r.stdout else r.stdout.index("row  tasks  lane"), r.stdout.index("\nINBOX  "), "the board first, as the live screen opens")
+        self.assertNotIn("opens it", r.stdout, "no key hints on a page nobody can press them on"); self.assertNotIn("Tab switches", r.stdout)
+        self.assertRegex(r.stdout, r"\nINBOX  \d+ item\(s\) wait on you\n", "the inbox page follows the board (the doctor adds its fixes on a bare project)")
+        self.assertIn('--owner "Approve plan x at 0123456789abcdef?"', r.stdout)
+        self.assertNotIn("keys:", r.stdout, "no keys on a page nobody can press them on")
+        bare = tempfile.mkdtemp(prefix="reef-bare.")
+        subprocess.run(["git", "init", "-q", bare], check=True)
+        r = reef("screen", "--once", "--repo", bare)
+        self.assertEqual(r.returncode, 2, "not a Reef project: say so, as status and doctor do\n" + r.stdout + r.stderr)
+        self.assertIn("not a Reef project", r.stderr)
+
+    def test_the_skills_and_the_overview_tell_the_same_story(self):
+        root = os.path.dirname(os.path.dirname(ENTRY))
+        for skill in ("reef-run", "reef-loop"):
+            text = open(os.path.join(root, "skills", skill, "SKILL.md"), encoding="utf-8").read()
+            self.assertIn("reef approve <row>", text, skill); self.assertIn("reef answer <row>", text, skill)
+        over = open(os.path.join(root, "commands", "reef.md"), encoding="utf-8").read()
+        self.assertNotIn("reef-graph.py status", over, "the overview describes today's Reef")
+        for word in ("queue", "runner", "screen", "/reef-loop", "/reef-run"):
+            self.assertIn(word, over, word)

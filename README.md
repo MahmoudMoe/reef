@@ -105,8 +105,8 @@ fix): a digit selects, Enter runs it inside the screen, an answer is typed on th
 search; its last eight lines sit under the WORK table too. `Tab` switches, `a` opens the
 autopilot's start panel (the contract, the order it will work the rows, what it will close; Enter starts it), `?` lists every key,
 `q` quits. The header says whether the runner is alive, how long its log has been silent and what its session is running right now,
-so working, waiting and dead look different. `reef screen --once` prints the screen and exits (a log, an SSH session); `reef --menu`
-is the verb list. Two verbs exist for the two things you type most: `reef approve <row>` writes the row's plan approval at its
+so working, waiting and dead look different. `reef screen --once` prints the board and the inbox as text and exits (a log, an SSH session); `reef --menu`
+(or `reef --help`) is the verb list, `reef probe` the one-time proof that the guard holds in a headless session. Two verbs exist for the two things you type most: `reef approve <row>` writes the row's plan approval at its
 current digest, `reef answer <row> "<text>"` files your answer as the footnote the loop reads. `reef autopilot` runs the standing
 delegation (below); `reef resume` restarts a runner that stopped on a decision you have now taken. The screen knows nothing the scripts
 do not — every key runs a command you could type. The other verbs, a line each — `reef run`, `reef night`, `reef status`, `reef doctor`,
