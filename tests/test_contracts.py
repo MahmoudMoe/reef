@@ -104,7 +104,6 @@ class PentestOnDemand(unittest.TestCase):
                        "the owner named", "production", "--source found", ".reef/hunt/pentest-"):
             self.assertIn(needle, text, needle)
         self.assertNotIn("REEF-TASK: <", text, "the live attack is not a task's judge")
-        self.assertIn("reef-pentest", read("commands", "pentest.md"))
         self.assertNotIn("once per release", read("agents", "loophole-hunter.md"), "no step runs it per release")
 
 
@@ -338,7 +337,7 @@ class OneReviewer(unittest.TestCase):
         self.assertLessEqual(len(agent.splitlines()), 60)
         with open(os.path.join(ROOT, "templates", "config.json"), encoding="utf-8") as f:
             self.assertNotIn("diff_review", json.load(f)["review"], "the key is gone with the step")
-        for p in (("skills", "reef-loop", "SKILL.md"), ("templates", "project", "AGENTS.md"), ("README.md",), ("commands", "review.md"), ("docs", "manual", "ar", "index.html")):
+        for p in (("skills", "reef-loop", "SKILL.md"), ("templates", "project", "AGENTS.md"), ("README.md",), ("skills", "reef-review", "SKILL.md"), ("docs", "manual", "ar", "index.html")):
             self.assertNotIn("diff review", read(*p), "/".join(p))
             self.assertNotIn("diff_review", read(*p), "/".join(p))
         # the review (2026-10-26): the reviewer is told the head, the base branch, and what red or pending evidence means
@@ -458,7 +457,7 @@ class SuperReefIsHonest(unittest.TestCase):
         self.assertIn("`Approve night <YYYY-MM-DD> at <digest16>?`", skill)
         self.assertIn("Mahmoud (proxy, night <date>)", skill, "a proxy footnote is labeled, never the owner's words")
         self.assertRegex(read("scripts", "reef-guard.py"), r'LOCKED_TYPES = \([^)]*"mahmoud"')
-        self.assertIn("reef-night", read("commands", "night.md"))
+        self.assertIn("name: reef-night", read("skills", "reef-night", "SKILL.md"))
 
 
 class ReviewSkill(unittest.TestCase):
@@ -1248,3 +1247,22 @@ class OneFixtureModule(unittest.TestCase):
                 fx.git(d, "no-such-verb", check=True)
             m = fx.load_script("reef-tier.py")
             self.assertTrue(hasattr(m, "main"))
+
+
+class NoAliasLayer(unittest.TestCase):
+    """docs/design/lightening.md step 4 (2026-10-31, the owner: "/reef-plan and /reef:plan — that is duplication too"; his call: delete).
+    `commands/` held fifteen three-line files that each invoked a skill, so every verb showed twice in Claude Code's menu; every
+    document, prompt and the runner name `/reef-<verb>`, which is the skill. The folder keeps the one real command — `reef.md`, the
+    overview, which has no skill — and the OpenCode host writes its command stubs from the skills. `orphan_scripts` was already 0:
+    nothing else to remove."""
+
+    def test_the_aliases_are_gone_and_no_text_names_one(self):
+        self.assertEqual(sorted(os.listdir(os.path.join(ROOT, "commands"))), ["reef.md"], "the overview alone")
+        self.assertIn("Reef overview", read("commands", "reef.md"))
+        pages = [os.path.join(ROOT, "README.md")] + [f for d in ("skills", "agents", "templates", "scripts", "hooks") for f in glob.glob(os.path.join(ROOT, d, "**", "*"), recursive=True) if os.path.isfile(f)]
+        pages += [os.path.join(ROOT, "docs", "index.html"), os.path.join(ROOT, "docs", "manual", "ar", "index.html")]
+        for f in pages:
+            text = open(f, encoding="utf-8", errors="replace").read()
+            self.assertNotRegex(text, r"(?<![\w/.])/reef:[a-z]", f"{os.path.relpath(f, ROOT)} names a /reef:<verb> alias — the skill is /reef-<verb>")   # a path like .opencode/agents/reef:x is not one
+        self.assertIn("Invoke the {skill} skill", read("scripts", "reef-opencode.py"), "the OpenCode command stubs are written from the skills, one per SKILL.md")
+        self.assertEqual(SizeBudget.orphan_scripts(), [], "nothing else to remove")

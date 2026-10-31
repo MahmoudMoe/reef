@@ -242,7 +242,7 @@ def main(argv):
         st = {}
     state = "active" if st.get("active") else "inactive"
     if st.get("stop"):
-        say("WARN", f"loop: {state}, STOP={str(st['stop'])[:90]}", "/clear, then /reef:loop re-enters from HANDOFF.md")
+        say("WARN", f"loop: {state}, STOP={str(st['stop'])[:90]}", "/clear, then /reef-loop re-enters from HANDOFF.md")
     elif st.get("wait"):
         say("OK", f"loop: {state}, waiting — {str(st['wait'])[:100]}")
     else:

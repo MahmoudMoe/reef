@@ -51,10 +51,10 @@ path), named in the test, which also checks that each named helper is still the 
    `git`s left the test files, and every suite's `project()` opens its repository through `git_repo()`. The test files went 17,590 →
    17,469 lines; with the module, 17,590 → 17,532: the plan's guess of −1,500 was wrong — the copies were four lines each; what is
    gone is the drift between them, not weight. test_entry's script loader moved too; the other ad-hoc loaders are a follow-up.)
-4. **Orphans and aliases.** Whatever `orphan_scripts` names goes, or gains the one caller it was written for. `commands/`: fifteen
-   three-line files that each invoke a skill, so every verb shows twice in Claude Code's menu (`/reef:plan` and `/reef:reef-plan`);
-   every document, prompt and the runner name `/reef-plan`, which is the skill. Recommended: delete `commands/`; the owner types
-   `/reef-plan` instead of `/reef:plan`. The owner's call, taken in this step.
+4. **Orphans and aliases** (shipped 2026-10-31, the owner's call "delete": `orphan_scripts` was already 0 — nothing to remove; the
+   0 alias files under `commands/` are gone, `commands/reef.md` — the overview, which has no skill — stays; every verb is its
+   skill, `/reef-<verb>`, as every document, prompt and the runner already said; the OpenCode host writes its command stubs from the
+   skills; the doctor's and the project README template's `/reef:<verb>` lines say `/reef-<verb>`; `script_lines` +3: the stub generation is a few lines longer than the copy loop it replaced).
 5. **The prose.** CHANGELOG entries before 0.7 move to `docs/changelog-archive.md`, out of the budget (−25,000 words of the file);
    the "why" notes that skills carry as history ("2026-10-29, the owner: …") move to the CHANGELOG, the rule stays; the README leans
    on the site for what the site already says. Expected: `prose_words` 24,400 → about 18,000.
