@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # CLASS: code
 """Reef approval — the human's plan approval as a RECORD bound to the plan's digest (PostToolUse AskUserQuestion hook).
-Writes .reef/approvals/<feature>.json = {digest16, approved_at, files} only when a question `Approve plan <feature> at <16 hex>?`
+Writes .reef/approvals/<feature>.json = {digest16, digest, approved_at, files} only when a question `Approve plan <feature> at <16 hex>?`
 is answered exactly `Approve` and the 16 hex equal the current digest (reef-plan-check.py --digest); a timeout
 (afkTimeoutMs), another label or a stale digest writes nothing. Always exit 0; the guard enforces the record.
 Usage: cat payload.json | reef-approval.py [--root DIR]
@@ -249,7 +249,7 @@ def cmd_proxy(argv):
         return refuse(f"reef-plan-check.py FAILS in {where}: {fails[0][:160]}")
     d = os.path.join(root, ".reef", "approvals")
     os.makedirs(d, exist_ok=True)
-    rec = {"digest16": dg[:16], "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    rec = {"digest16": dg[:16], "digest": dg, "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
            "by": "mahmoud (proxy)", **({"night": rr.night_digest(root)[:16]} if night else {"day": rr.day_digest(root)[:16]})}
     files = plan_files(where, feature)
     if files:
@@ -489,7 +489,7 @@ def cmd_from_issue(argv):
         return 0
     d = os.path.join(root, ".reef", "approvals")
     os.makedirs(d, exist_ok=True)
-    rec = {"digest16": dg[:16], "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    rec = {"digest16": dg[:16], "digest": dg, "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
            "by": f"owner (issue #{n}, @{login})", "comment_id": c.get("id")}
     files = plan_files(where, slug)
     if files:
@@ -591,13 +591,18 @@ def main(argv):
         if not where:
             print(f"reef-approval: {feature}: the question's digest {digest16} matches no checkout's plan ({seen_digests(digests)}) (stale) — nothing written")
             continue
+        full = {digests[wt] for wt in where}   # the record binds the full digest: which plan the owner read must be one
+        if len(full) > 1:
+            print(f"reef-approval: {feature}: two plans share the fingerprint {digest16} ({', '.join(where)}) — which one was read is "
+                  "unknowable; nothing written — amend one plan, re-digest, ask again")
+            continue
         fails = plan_check_failures(where[0], feature)
         if fails:
             print(f"reef-approval: {feature}: REFUSED — reef-plan-check.py FAILS in {where[0]}: {fails[0][:200]} — fix, re-digest, ask again; nothing written")
             continue
         d = os.path.join(root, ".reef", "approvals")
         os.makedirs(d, exist_ok=True)
-        rec = {"digest16": digest16, "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        rec = {"digest16": digest16, "digest": full.pop(), "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         files = plan_files(where[0], feature)
         if files:
             rec["files"] = files   # 0.7: {file: sha12} — the next gate's summary names what changed since this approval

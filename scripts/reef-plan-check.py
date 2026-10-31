@@ -29,7 +29,7 @@ Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
   dispatched task's feature); without it every feature present must match. 0.6: a feature planned
   under 0.6 (the stamp records planned_under >= 0.6.0 — `.reef/version` existed when it was first
   stamped) must also have the human's approval record `.reef/approvals/<feature>.json` (written by
-  the AskUserQuestion hook, scripts/reef-approval.py) whose digest16 equals the digest's first 16 hex;
+  the AskUserQuestion hook, scripts/reef-approval.py) that carries the full digest (older records: its first 16 hex);
   a pre-0.6 feature only warns. The approvals live in the MAIN checkout's .reef/, never a worktree's.
 - --digest FEATURE: print `digest: <feature> <sha256>` — the same digest the stamp uses — and exit.
 - --summary --feature SLUG (0.7): one readable line for the owner's gate — tasks, criteria, draft ADRs, and the plan
@@ -312,15 +312,22 @@ def planned_under_06(stamp, feat):
     return bool(v) and tuple(int(x) for x in re.findall(r"\d+", v)[:3]) >= (0, 6, 0)
 
 
+def record_binds(rec, digest):
+    """A record binds the plan whose full digest it carries: 16 hex are a 64-bit prefix an agent writing both plans can
+    collide (~2^32 tries). A record without `digest` (written before 0.7.4) is read at its 16 hex for this release only."""
+    full = str(rec.get("digest") or "")
+    return full == digest if full else str(rec.get("digest16", "")) == digest[:16]
+
+
 def approval_state(root, feat, digest):
-    """(ok, line): the human's approval record must carry this digest's first 16 hex."""
+    """(ok, line): the human's approval record must bind this digest (record_binds)."""
     p = os.path.join(main_checkout(root), ".reef", "approvals", f"{feat}.json")
     try:
         with open(p, encoding="utf-8") as f:
             rec = json.load(f)
     except Exception:
         return False, f"approval: MISSING for {feat!r} ({os.path.relpath(p, root)}, plan is {digest[:16]}) — the human approves the plan in /reef-plan's gate; the hook writes the record"
-    if str(rec.get("digest16", "")) != digest[:16]:
+    if not record_binds(rec, digest):
         return False, f"approval: STALE for {feat!r} (approved {rec.get('digest16')}, plan is {digest[:16]}) — re-approve the current plan"
     return True, f"approval: OK for {feat!r} ({digest[:16]}, {rec.get('approved_at', '?')})"
 
@@ -420,7 +427,7 @@ def review_state(root, feat, digest, task_paths):
             rec = json.load(f)
     except Exception:
         return False, f"review: MISSING for {feat!r} ({os.path.relpath(p, root)}) — run /reef-plan-review; it records the verdict with scripts/reef-record plan-review", True
-    if str(rec.get("digest16", "")) != digest[:16]:
+    if not record_binds(rec, digest):
         return False, f"review: STALE for {feat!r} (reviewed {rec.get('digest16')}, plan is {digest[:16]}) — re-run /reef-plan-review", True
     if str(rec.get("verdict", "")).upper() != "PASS":
         return False, f"review: FAILED for {feat!r} ({rec.get('verdict')}, {rec.get('recorded_at', '?')}) — fix the findings and re-run /reef-plan-review", True

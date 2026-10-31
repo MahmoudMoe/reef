@@ -303,6 +303,46 @@ class HumanOnlyApproval(unittest.TestCase):
             json.dump({"digest16": digest[:16], "approved_at": "2026-10-19T00:00:00Z"}, f)
         self.assertIn("approved 2026-10-19, before this line recorded files: read the plan in full", line())
 
+    def test_the_record_binds_the_full_digest_not_its_16_hex(self):
+        # the security review of #259: a 16-hex binding is a 64-bit prefix — an agent writing both plans finds a collision
+        # in ~2^32 tries, so the record keeps the full digest; the owner still reads and types 16 hex
+        digest = plan_check(self.d, "--digest", "--feature", "demo").stdout.split()[-1]
+        rec = os.path.join(self.d, ".reef", "approvals", "demo.json")
+        self.assertEqual(self._hook(f"Approve plan demo at {digest[:16]}?", "Approve").returncode, 0)
+        with open(rec) as f:
+            self.assertEqual(json.load(f)["digest"], digest, "the record carries the full digest of the plan approved")
+        rr = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", self.d], capture_output=True, text=True)
+        self.assertEqual(rr.returncode, 0, rr.stderr)
+        with open(os.path.join(self.d, ".reef", "review", "plan-demo.json")) as f:
+            self.assertEqual(json.load(f)["digest"], digest, "so does the review record")
+        self.assertEqual(plan_check(self.d, "--verify-stamp", "--feature", "demo").returncode, 0)
+        collided = digest[:16] + ("0" if digest[16] != "0" else "1") + digest[17:]
+        with open(rec, "w") as f:
+            json.dump({"digest16": digest[:16], "digest": collided, "approved_at": "2026-10-31T00:00:00Z"}, f)
+        r = plan_check(self.d, "--verify-stamp", "--feature", "demo")
+        self.assertEqual(r.returncode, 1, "the same 16 hex with another full digest is another plan")
+        self.assertIn("approval: STALE", r.stdout)
+        with open(rec, "w") as f:
+            json.dump({"digest16": digest[:16], "approved_at": "2026-10-19T00:00:00Z"}, f)
+        self.assertEqual(plan_check(self.d, "--verify-stamp", "--feature", "demo").returncode, 0, "an older record (16 hex only) works for one release")
+
+    def test_two_plans_sharing_the_16_hex_approve_neither(self):
+        # the hook takes the owner's 16 hex: when two checkouts' plans share them, which plan the owner read is unknowable
+        import contextlib
+        import io
+        from _fixtures import load_script
+        mod = load_script("reef-approval.py")
+        a, b = os.path.join(self.d, "a"), os.path.join(self.d, "b")
+        mod.plan_digests = lambda cwd, feature: {a: "ab" * 8 + "0" * 48, b: "ab" * 8 + "1" * 48}
+        mod.plan_check_failures = lambda root, feature: []
+        mod.plan_files = lambda root, feature: {}
+        mod.clear_question = lambda *a: 0
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            mod.main(["--owner", f"Approve plan demo at {'ab' * 8}?", "--root", self.d])
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "approvals", "demo.json")), out.getvalue())
+        self.assertIn("two plans", out.getvalue())
+
     def test_hook_refuses_while_plan_check_fails(self):
         # 2026-10-17: five sentences over the word ceiling surfaced AFTER the owner approved; fixing them voided the approval
         tp = os.path.join(self.d, "tasks", "007-demo.md")
