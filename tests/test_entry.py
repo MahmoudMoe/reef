@@ -383,7 +383,7 @@ class TheScreen(unittest.TestCase):
         row4 = next(l for l in lines if l.lstrip().startswith("▶ 4")); self.assertIn("2/3", row4)
         row8 = next(l for l in lines if l.lstrip().startswith("⏸ 8")); self.assertIn("waits: row 7", row8)
         row10 = next(l for l in lines if l.lstrip().startswith("○ 10")); self.assertIn("can start now", row10)
-        self.assertIn("▶", lines[sel]); self.assertIn("7", lines[sel], "the selected row")
+        self.assertIn("7", lines[sel], "the selected row"); self.assertFalse(lines[sel].startswith("▶"), "the highlight alone marks the selection — no second arrow")
         self.assertTrue(any(l.startswith("┌─ row 7") for l in lines), "the selected row's details under the table")
         self.assertEqual(styles.get(0), "banner"); self.assertIn(styles.get(sel), ("sel",))
         self.assertTrue(any(v == "done" or v == "wait" or v == "blocked" for v in styles.values()), "states carry colors")
@@ -412,8 +412,20 @@ class TheScreen(unittest.TestCase):
         self.assertEqual(on(10, 1, 5, "plan"), ("open", 1), "PLAN shows rows: Enter never runs an inbox item the view does not show (the security review)")
         self.assertEqual(on(ord("q"), 0, 2, "log"), ("back",))
         self.assertEqual(on(27, 0, 3, "help"), ("view", "work")); self.assertEqual(on(ord("q"), 0, 3, "help"), ("view", "work"))
-        attrs = mod.style_attrs({"A_REVERSE": 1, "A_BOLD": 2, "A_NORMAL": 0}, colors=False)
-        self.assertEqual(attrs["sel"], 1); self.assertEqual(attrs["banner"], 2)
+        attrs = mod.style_attrs({"A_REVERSE": 1, "A_BOLD": 2, "A_NORMAL": 0, "A_DIM": 4}, colors=False)
+        self.assertEqual(attrs["sel"], 1); self.assertEqual(attrs["banner"], 2); self.assertEqual(attrs["done"], 4, "done is dim, not green: the eye goes to what can start")
+        class C:   # a curses with colors: the palette that reads at a glance
+            A_REVERSE, A_BOLD, A_NORMAL, A_DIM = 1, 2, 0, 4
+            COLOR_GREEN, COLOR_CYAN, COLOR_YELLOW, COLOR_RED, COLOR_WHITE = 10, 11, 12, 13, 14
+            pairs = {}
+            def has_colors(self): return True
+            def start_color(self): pass
+            def use_default_colors(self): pass
+            def init_pair(self, i, fg, bg): self.pairs[i] = fg
+            def color_pair(self, i): return 100 * i
+        c = C(); attrs = mod.style_attrs(c, colors=True)
+        self.assertEqual(c.pairs[1], 10); self.assertEqual(attrs["ready"], 100 | 2, "can start = green, bold"); self.assertEqual(attrs["blocked"], 400 | 2, "blocked = red")
+        self.assertEqual(attrs["banner"], 300 | 2, "the banner in color"); self.assertEqual(attrs["done"], 500 | 4, "done is dim")
         # 2026-10-31 02:08, the owner: "how do I know if the runner is working, doing something or dead?" — the log was silent
         # 20 minutes while a converge run ran under the session: the runner line names the live child and the silence
         tree = [(70418, 70417, "01:03:44", "claude -p /reef-loop …"), (72923, 70418, "22:54", "/bin/zsh -c source snapshot.sh && python3 scripts/reef-converge legacy-queue-to-issues"),
