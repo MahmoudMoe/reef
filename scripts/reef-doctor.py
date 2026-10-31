@@ -27,11 +27,11 @@ import os
 import re
 import subprocess
 import sys
+from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import git as _git, lint_state, read_hold  # noqa: E402
+from reef_common import lint_state, read_hold, git_rc, plugin_root, plugin_version  # noqa: E402
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 LINES = []
 
 
@@ -39,9 +39,7 @@ def say(level, what, fix=""):
     LINES.append(f"{level:<5}{what}" + (f" — {fix}" if fix else ""))
 
 
-def git(cwd, *args, timeout=20):
-    r = _git(cwd, *args, timeout=timeout)
-    return r.returncode, r.stdout.strip()
+git = partial(git_rc, timeout=20)
 
 
 def plugin_enabled():
@@ -63,21 +61,6 @@ def plugin_enabled():
     if re.search(r"Status:.*(disabled|✘)", block):
         return "FAIL", f"plugin enabled: NO — {name} is disabled: no guard in any session, the runner's probe fails", f"claude plugin enable {name}"
     return "OK", f"plugin enabled: {name}", ""
-
-
-def plugin_root(arg):
-    for cand in (arg, os.environ.get("CLAUDE_PLUGIN_ROOT"), os.path.dirname(HERE)):
-        if cand and os.path.isfile(os.path.join(cand, ".claude-plugin", "plugin.json")):
-            return os.path.abspath(cand)
-    return None
-
-
-def plugin_version(plugin):
-    try:
-        with open(os.path.join(plugin, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
-            return str(json.load(f).get("version") or "?")
-    except Exception:
-        return "?"
 
 
 def update_fix(root, plugin):

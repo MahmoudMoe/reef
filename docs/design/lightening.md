@@ -30,9 +30,12 @@ path), named in the test, which also checks that each named helper is still the 
 0. **The pins** (this PR). `tests/size-budget.json` gains `duplicate_defs` and `orphan_scripts` at today's numbers; the budget test
    measures them and names the offenders when one grows. Nothing else changes: the pins stop the debt from growing while the next
    steps pay it.
-1. **The shared helpers, finished.** `run`, `die`, `git`, `gh`, `plugin_root`, `plugin_version`, `worktrees`, `frontmatter`/
-   `read_frontmatter`, `say`, `fail` → one definition each in `reef_common.py`, imported where they are used; the copies go.
-   Expected: `duplicate_defs` −40, about −400 lines.
+1. **The shared helpers, finished** (shipped 2026-10-31: `run` ×8, `git` ×7, `die` ×13, `plugin_root` and `plugin_version` ×2 → one
+   shape each in `reef_common.py`, imported, the script's own defaults kept with `functools.partial`; five names that meant two things
+   renamed — reef-init's `run` → `render_tree`, reef-attempt's `run` → `run_attempt`, reef-approval's `worktrees` → `all_checkouts`,
+   reef-opencode's `frontmatter` → `split_frontmatter`, reef-factory's `say` → `note`; reef-merge-close's `fail` is `die` with its
+   prefix. `duplicate_defs` 64 → 30; `script_lines` +6 — one home for ten shapes costs a few lines more than the thirty adapters it
+   replaced. `gh` ×3 and `read_frontmatter` ×1 wait for step 2: three contracts under one name, and the guard's own copy.)
 2. **The same name in two scripts.** The remaining pairs: a true duplicate merges (`queue_rows`, `cmd_status`, `plan_check_module`,
    `release_hold`, `reef_dir`, `served_dirs`, `config_homes`); a false one — two different things under one name — is renamed so the
    pin stops counting it and a reader stops confusing them. Expected: `duplicate_defs` → under 10.

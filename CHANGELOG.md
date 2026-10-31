@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.7.4 (unreleased)
+- **Lightening step 1 — the shared helpers, finished** (`docs/design/lightening.md`). Every local `run` (eight scripts), `git`
+  (seven), `die` (thirteen), `plugin_root` and `plugin_version` (two each) was a two-to-four-line adapter over `reef_common`'s
+  `run()`/`git()` or a copy; each is one shared shape now — `run_rc`, `run_rc3`, `run_out`, `run_all`, `git_rc`, `git_out`,
+  `git_checked`, `git_text`, `die(msg, code, prefix)`, `plugin_root`, `plugin_version` in `scripts/reef_common.py` — imported, the
+  script's own defaults kept with `functools.partial`, every call site and every message unchanged. Five names that meant two
+  different things were renamed so a reader stops confusing them (reef-init's `run` → `render_tree`, reef-attempt's `run` →
+  `run_attempt`, reef-approval's `worktrees` → `all_checkouts`, reef-opencode's `frontmatter` → `split_frontmatter`, reef-factory's
+  `say` → `note`); reef-merge-close's `fail` is `die` with its prefix. `duplicate_defs` 64 → 30. tests/size-budget.json: unchanged (nothing grew).
 - **Lightening step 0 — the pins** (`docs/design/lightening.md`, new; the owner, 2026-10-31: "a comprehensive plan to wipe
   duplication, keep duplicate scripts from coming back, and remove what has no use"). `tests/size-budget.json` gains two numbers
   that ratchet like the other three: `duplicate_defs` — a function name defined in more than one script, each definition past the

@@ -22,16 +22,15 @@ import re
 import subprocess
 import sys
 import time
+from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout  # noqa: E402
+from reef_common import main_checkout, die as _die  # noqa: E402
 
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "20"))
 
 
-def die(msg):
-    print(f"reef-record: {msg}", file=sys.stderr)
-    sys.exit(2)
+die = partial(_die, prefix="reef-record")
 
 
 def gh(*args, cwd=None):

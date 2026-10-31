@@ -17,9 +17,10 @@ import os
 import re
 import subprocess
 import sys
+from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import git as _git  # noqa: E402
+from reef_common import git_text, plugin_version  # noqa: E402
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MOVES = {"docs/queue.md": "reef/queue.md", "docs/queue-archive.md": "reef/queue-archive.md", "docs/journal.md": "reef/journal.md",
@@ -33,23 +34,16 @@ def vt(v):
     return tuple(int(x) for x in re.findall(r"\d+", v)[:3])
 
 
-def git(root, *a):
-    r = _git(root, *a)
-    if r.returncode != 0:
-        print(f"reef-migrate: git {' '.join(a[:2])} failed: {r.stderr.strip()[:200]}", file=sys.stderr)
-        sys.exit(1)
-    return r.stdout
-
-
-def plugin_version(plugin):
-    with open(os.path.join(plugin, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
-        return json.load(f)["version"]
+git = partial(git_text, prefix="reef-migrate")
 
 
 def cmd_walk(root, plugin):
     vpath = os.path.join(root, ".reef", "version")
     have = open(vpath).read().strip() if os.path.isfile(vpath) else "0.5.0"
-    target = plugin_version(plugin)
+    target = plugin_version(plugin, default=None)
+    if target is None:   # the old strict read raised here; a "?" would compare below every version and migrate nothing, silently
+        print(f"reef-migrate: cannot read {plugin}/.claude-plugin/plugin.json — not a plugin clone, or a broken one; nothing migrated", file=sys.stderr)
+        return 1
     mdir = os.path.join(plugin, "migrations")
     steps = []
     for f in sorted(os.listdir(mdir)) if os.path.isdir(mdir) else []:

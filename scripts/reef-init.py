@@ -45,9 +45,10 @@ import shutil
 import stat
 import subprocess
 import sys
+from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import lint_gaps  # noqa: E402
+from reef_common import lint_gaps, die as _die  # noqa: E402
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = ["reef", "reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.py", "reef-graph.py",
@@ -118,9 +119,7 @@ VERSION = "0.7.3"   # written to .reef/version; absent = a 0.5 project (every 0.
 MAKEFILE_TARGET = "\nsetup: ## git hooks (once per clone) — reef\n\tgit config core.hooksPath .githooks\n\tchmod +x .githooks/*\n"
 
 
-def die(msg):
-    print(f"reef-init: {msg}", file=sys.stderr)
-    sys.exit(1)
+die = lambda msg, code=1: _die(msg, code, prefix="reef-init")   # the signature the script always had: a positional code, 1 by default
 
 
 # ---------------------------------------------------------------- stack
@@ -549,7 +548,7 @@ class Writer:
         self.written.append(f"{rel} (+{len(missing)} line(s))")
 
 
-def run(root, facts, dry):
+def render_tree(root, facts, dry):
     if not dry:
         carry_old_proposals(root)
     lay0 = LAYOUTS[facts["layout"]]
@@ -773,7 +772,7 @@ def main(argv):
     new = not os.path.isfile(os.path.join(root, ".reef", "config.json"))
     # a repository with tracked files is an existing project even on its first init (2026-10-24, AI coach)
     existing = bool(subprocess.run(["git", "-C", root, "ls-files"], capture_output=True, text=True).stdout.strip())
-    w = run(root, facts, dry)
+    w = render_tree(root, facts, dry)
     print(f"reef-init ({'dry run, ' if dry else ''}stack: {facts['stack']}, layout: {facts['layout']}, base: {base}, release: {release})")
     if facts.get("constitution"):
         print(f"  existing constitution: {facts['constitution']} — pointed at from AGENTS.md, not duplicated")

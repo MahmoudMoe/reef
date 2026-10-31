@@ -34,10 +34,11 @@ import os
 import re
 import subprocess
 import sys
+from functools import partial
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.dont_write_bytecode = True
-from reef_common import table_cells  # noqa: E402
+from reef_common import table_cells, die as _die  # noqa: E402
 
 CLAIM = re.compile(r"^(?P<sentence>.+?)\s+(?:—|--|-)\s*true at\s+(?P<path>[^\s:]+):(?P<a>\d+)(?:-(?P<b>\d+))?\s*$")
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
@@ -47,9 +48,7 @@ DOC_DIRS = ("docs/", "tasks/", "specs/", "evidence/")
 COMMENT_START = ("#", "//", "/*", "*", "*/", "--", "<!--", "-->", ";", '"""', "'''", "`")
 
 
-def die(msg, code=2):
-    print(f"reef-claims: {msg}", file=sys.stderr)
-    sys.exit(code)
+die = partial(_die, prefix="reef-claims")
 
 
 def git_diff(repo, rng):

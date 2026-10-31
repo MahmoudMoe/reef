@@ -26,21 +26,11 @@ import subprocess
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import run as _run  # noqa: E402
-
-HERE = os.path.dirname(os.path.abspath(__file__))
+from reef_common import run_all, plugin_root  # noqa: E402
 
 
-def run(args, cwd, timeout=300):
-    r = _run(args, cwd, timeout)
-    return r.returncode, (r.stdout + r.stderr).strip()
 
-
-def plugin_root(arg):
-    for cand in (arg, os.environ.get("CLAUDE_PLUGIN_ROOT"), os.path.dirname(HERE)):
-        if cand and os.path.isfile(os.path.join(cand, ".claude-plugin", "plugin.json")):
-            return os.path.abspath(cand)
-    return None
+run = lambda args, cwd, timeout=300: run_all(args, cwd, timeout, strip=True)
 
 
 MARKET = __import__("re").compile(r"[A-Za-z0-9._-]+")

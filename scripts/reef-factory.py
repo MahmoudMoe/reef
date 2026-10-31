@@ -23,17 +23,15 @@ import subprocess
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, run as _run  # noqa: E402
+from reef_common import main_checkout, run_rc3  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def run(args, cwd, timeout=7200, env=None):
-    r = _run(args, cwd, timeout, env, timeout_rc=1)   # `built = rc != 1`: a timeout was 1 and stays 1
-    return r.returncode, r.stdout, r.stderr
+run = lambda args, cwd, timeout=7200, env=None: run_rc3(args, cwd, timeout, env, timeout_rc=1)   # `built = rc != 1`: a timeout was 1 and stays 1
 
 
-def say(line):
+def note(line):
     print(f"reef-factory: {line}", flush=True)
 
 
@@ -51,7 +49,7 @@ def permission(root, login):
 
 def cmd_row(root, cfg, issue, row, actor, cap, mode):
     if (cfg.get("queue") or {}).get("home") != "issues":
-        say("the factory builds rows that are issues (queue.home: issues) — reef-queue.py migrate-to-issues first")
+        note("the factory builds rows that are issues (queue.home: issues) — reef-queue.py migrate-to-issues first")
         return 1
     base = str((cfg.get("branches") or {}).get("base", "main") or "main")
     prefix = str((cfg.get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
@@ -60,11 +58,11 @@ def cmd_row(root, cfg, issue, row, actor, cap, mode):
     if issue:
         rc, out, err = run([sys.executable, script("reef-queue.py"), "issue-row", issue, "--repo", root], root, timeout=120)
         if rc != 0:
-            say(f"issue #{issue} is not a row — {(err or out).strip().splitlines()[-1][:160] if (err or out).strip() else rc}; nothing built")
+            note(f"issue #{issue} is not a row — {(err or out).strip().splitlines()[-1][:160] if (err or out).strip() else rc}; nothing built")
             return 1
         row = out.strip().splitlines()[-1].strip()
     if not row or not row.isdigit():
-        say("a row id is digits")
+        note("a row id is digits")
         return 2
     rc, out, _ = run([sys.executable, script("reef-queue.py"), "row-issue", row, "--repo", root], root, timeout=120)
     issue = out.strip().splitlines()[-1].strip() if rc == 0 and out.strip() else ""
@@ -76,16 +74,16 @@ def cmd_row(root, cfg, issue, row, actor, cap, mode):
         author = ""
     for who, role in ((actor, "the actor"), (author, "the issue's author")):
         if not who:
-            say(f"{role} is unknown — nothing built (pass --actor; the issue must be a row)")
+            note(f"{role} is unknown — nothing built (pass --actor; the issue must be a row)")
             return 1
         perm = permission(root, who)
         if perm != "admin":
-            say(f"{role} @{who} has {perm or 'no'} permission on the repository, not admin — nothing built: only the owner starts the factory")
+            note(f"{role} @{who} has {perm or 'no'} permission on the repository, not admin — nothing built: only the owner starts the factory")
             return 1
     # 3. branch protection
     rc, out, err = run(["gh", "api", f"repos/{{owner}}/{{repo}}/branches/{base}/protection"], root, timeout=60)
     if rc != 0:
-        say(f"{base} is not a protected branch ({(err or out).strip().splitlines()[-1][:120] if (err or out).strip() else rc}) — the loop merges only under branch protection; nothing built")
+        note(f"{base} is not a protected branch ({(err or out).strip().splitlines()[-1][:120] if (err or out).strip() else rc}) — the loop merges only under branch protection; nothing built")
         return 1
     # 4. resume
     run(["git", "fetch", "-q", "origin"], root, timeout=600)
@@ -99,15 +97,15 @@ def cmd_row(root, cfg, issue, row, actor, cap, mode):
         slug = branch[len(prefix):]
         wt = os.path.join(root, wt_dir, slug)
         rc, _, err = run(["git", "worktree", "add", "-q", "--track", "-b", branch, wt, ref], root, timeout=120)
-        say(f"resumed {branch} in {os.path.relpath(wt, root)}" if rc == 0 else f"could not resume {branch}: {err.strip()[:160]}")
+        note(f"resumed {branch} in {os.path.relpath(wt, root)}" if rc == 0 else f"could not resume {branch}: {err.strip()[:160]}")
     # 5. the probe
     rc, out, err = run([sys.executable, script("reef-run.py"), "probe", "--permission-mode", mode, "--repo", root], root, timeout=1800)
     if rc != 0 or "GATE OK" not in out:
-        say(f"the guard does not reach a headless session here — nothing runs: {(out or err).strip().splitlines()[-1][:200] if (out or err).strip() else rc}")
+        note(f"the guard does not reach a headless session here — nothing runs: {(out or err).strip().splitlines()[-1][:200] if (out or err).strip() else rc}")
         return 1
     # 6. the approval from the issue
     rc, out, err = run([sys.executable, script("reef-approval.py"), "--from-issue", row], root, timeout=120)
-    say((out or err).strip().splitlines()[-1][:200] if (out or err).strip() else f"approval step exit {rc}")
+    note((out or err).strip().splitlines()[-1][:200] if (out or err).strip() else f"approval step exit {rc}")
     # 7. the build
     rc, out, err = run([sys.executable, script("reef-run.py"), "--row", row, "--max-iterations", str(cap), "--permission-mode", mode, "--repo", root],
                        root, timeout=6 * 3600)
@@ -115,15 +113,15 @@ def cmd_row(root, cfg, issue, row, actor, cap, mode):
         print(line)
     built = rc != 1
     if not built:
-        say(f"the runner refused: {(err or out).strip().splitlines()[-1][:200] if (err or out).strip() else rc}")
+        note(f"the runner refused: {(err or out).strip().splitlines()[-1][:200] if (err or out).strip() else rc}")
     # 8. the branches to the forge
     rc2, local, _ = run(["git", "for-each-ref", "--format=%(refname:short)", f"refs/heads/{prefix}"], root, timeout=30)
     for branch in local.split():
         rc3, _, err = run(["git", "push", "-q", "origin", branch], root, timeout=600)
-        say(f"pushed {branch}" if rc3 == 0 else f"push {branch} failed: {err.strip()[:160]}")
+        note(f"pushed {branch}" if rc3 == 0 else f"push {branch} failed: {err.strip()[:160]}")
     # 9. the label
     rc4, out, err = run([sys.executable, script("reef-queue.py"), "label-state", row, "--repo", root], root, timeout=120)
-    say((out or err).strip().splitlines()[-1][:200] if (out or err).strip() else f"label-state exit {rc4}")
+    note((out or err).strip().splitlines()[-1][:200] if (out or err).strip() else f"label-state exit {rc4}")
     return 0 if built else 1
 
 
@@ -145,7 +143,7 @@ def main(argv):
         print(__doc__.strip().splitlines()[2], file=sys.stderr)
         return 2
     if (issue and not issue.isdigit()) or (row and not row.isdigit()):
-        say("--issue and --row take digits")
+        note("--issue and --row take digits")
         return 2
     return cmd_row(root, cfg, issue, row, str(opt("--actor", "") or ""), int(opt("--max-iterations", "4")), str(opt("--permission-mode", "auto")))
 

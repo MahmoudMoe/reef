@@ -20,6 +20,10 @@ import os
 import re
 import sys
 import tempfile
+from functools import partial
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
+sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+from reef_common import die as _die  # noqa: E402
 
 ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "plan_reviewer", "loophole-hunter": "adversary",
            "mechanic": "mechanic", "security": "security", "planner": "planner", "mahmoud": "proxy", "acceptance": "reviewer"}
@@ -83,12 +87,10 @@ The skills are written in Claude Code's words. Here they mean:
 '''
 
 
-def die(msg):
-    print(f"reef-opencode: {msg}", file=sys.stderr)
-    sys.exit(2)
+die = partial(_die, prefix="reef-opencode")
 
 
-def frontmatter(text):
+def split_frontmatter(text):
     m = re.match(r"\A---\n(.*?)\n---\n?(.*)\Z", text, re.S)
     if not m:
         return {}, text
@@ -126,7 +128,7 @@ def install(repo, plugin):
         if not fn.endswith(".md"):
             continue
         name = fn[:-3]
-        fm, body = frontmatter(open(os.path.join(plugin, "agents", fn), encoding="utf-8").read())
+        fm, body = split_frontmatter(open(os.path.join(plugin, "agents", fn), encoding="utf-8").read())
         role = ROLE_OF.get(name)
         model = str(roles.get(role) or "").strip()
         lines = ["---", f"description: {fm.get('description', 'Reef ' + name)}", "mode: subagent"]

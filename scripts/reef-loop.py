@@ -21,7 +21,7 @@ import calendar
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import run as _run, read_config as config, read_replace as read, main_checkout, drop_hold, process_alive  # noqa: E402
+from reef_common import read_config as config, read_replace as read, main_checkout, drop_hold, process_alive, run_rc  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 MAX_LINES = 30
@@ -53,9 +53,7 @@ def save_state(root, st):
         f.write("\n")
 
 
-def run(cmd, cwd, timeout=20):
-    r = _run(cmd, cwd, timeout, timeout_rc=1)   # the readers know 1
-    return r.returncode, r.stdout
+run = lambda cmd, cwd, timeout=20: run_rc(cmd, cwd, timeout, timeout_rc=1)   # the readers know 1
 
 
 def all_roots(root):

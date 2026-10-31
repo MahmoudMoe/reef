@@ -44,7 +44,7 @@ def runner():
     return mod
 
 
-def worktrees(cwd):
+def all_checkouts(cwd):
     """Every checkout of this repository, the main one first."""
     out = []
     try:
@@ -124,7 +124,7 @@ def plan_digests(cwd, feature):
     .reef/worktrees/<slug>, develop had no feature files, and an 'Approve' wrote nothing — the digest was computed
     in the wrong tree). The RECORD still goes to the main checkout, where plan-check and the guard read it."""
     out = {}
-    for wt in worktrees(cwd):
+    for wt in all_checkouts(cwd):
         if feature_present(wt, feature):
             dg = current_digest(wt, feature)
             if dg:
@@ -397,7 +397,7 @@ def cmd_from_issue(argv):
         return 1
     features = str((cfg.get("paths") or {}).get("features", "reef/features") or "reef/features")
     slug = ""
-    for co in worktrees(cwd):
+    for co in all_checkouts(cwd):
         for spec in sorted(glob.glob(os.path.join(co, features, "*", "SPEC.md"))):
             try:
                 with open(spec, encoding="utf-8") as f:
