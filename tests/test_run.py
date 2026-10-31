@@ -759,6 +759,7 @@ class TheRunnerSyncsTheScripts(unittest.TestCase):
             shutil.copytree(os.path.join(ROOT, sub_), os.path.join(clone, sub_), ignore=shutil.ignore_patterns("__pycache__"))
         git(clone, "add", "-A"); git(clone, "commit", "-qm", "plugin")
         d = project()
+        git(d, "config", "user.email", "t@t"); git(d, "config", "user.name", "t")   # the runner's own commit reads it (CI has none)
         git(d, "add", "-A"); git(d, "commit", "-qm", "project")
         upd = subprocess.run([sys.executable, os.path.join(clone, "scripts", "reef-update.py"), "--repo", d, "--plugin", clone, "--dry-run"],
                              capture_output=True, text=True)
@@ -786,7 +787,7 @@ class TheRunnerSyncsTheScripts(unittest.TestCase):
         live = open(os.path.join(d, ".reef", "run", "live.log")).read()
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr + live)
         for name in ("reef-run.py", "reef-approval.py"):
-            self.assertEqual(open(os.path.join(d, "scripts", name), "rb").read(), open(os.path.join(clone, "scripts", name), "rb").read(), name)
+            self.assertEqual(open(os.path.join(d, "scripts", name), "rb").read(), open(os.path.join(clone, "scripts", name), "rb").read(), name + "\n" + live[-1500:])
         self.assertIn("# the owner's own line", open(os.path.join(d, "scripts", "reef-queue.py")).read(), "an edited copy is never overwritten")
         self.assertNotIn("the plugin's next release", open(os.path.join(d, "scripts", "reef-queue.py")).read())
         shown = git(d, "show", "--name-only", "--format=%s", "HEAD").stdout.split("\n")
