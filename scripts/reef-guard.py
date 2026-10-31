@@ -734,6 +734,7 @@ def check_segment(seg, depth=0, next_op=";", pipefail=False):
     check_reviewer_lock(seg, CTX)
     check_forge_merge(seg, CTX)
     check_approval_cli(seg)
+    check_record_writer(seg, CTX)
     check_runner_cli(seg)
     check_day_footnote(seg)
     check_release_pr(seg, CTX)
@@ -847,7 +848,7 @@ def check_release_pr(seg, ctx):
             if rec.get("kind") == "security" and str(rec.get("verdict", "")).upper() == "PASS" and rec.get("head") == head:
                 return
     deny(f"release PR into {release} at {head[:12]}: no PASS security record for that commit — dispatch reef:security on "
-         f"`git diff {release}...{base}`, then `scripts/reef-record security PASS --report <its report>` (a base that moved "
+         f"`git diff {release}...{base}`, then `{os.path.join(OWN_SCRIPTS, 'reef-record')} security PASS --report <its report>` (a base that moved "
          f"since the pass is audited again)")
 
 
@@ -861,7 +862,7 @@ def check_day_footnote(seg):
     if queue_write and any(re.search(r"\$[({A-Za-z_]", x) for x in seg[1:]):
         deny("a footnote, note or row carries the words themselves, never a shell variable or substitution (the guard reads the words)")
     if labelled and writer:
-        deny("a `Mahmoud (proxy, day …)` footnote is written by `python3 scripts/reef-approval.py --proxy --day --kind <kind> --row <id> "
+        deny(f"a `Mahmoud (proxy, day …)` footnote is written by `python3 {os.path.join(OWN_SCRIPTS, 'reef-approval.py')} --proxy --day --kind <kind> --row <id> "
              "--report .reef/ci-local/report-mahmoud-day-<row>.md` from his report, under the approved reef/proxy.md — never typed, "
              "into no footnote, note, row or issue")
 
@@ -906,17 +907,62 @@ def check_runner_cli(seg):
              "reef status, doctor, cost")                                                                                     # reef-approval.py --owner in a coat
 
 
-def check_approval_cli(seg):
-    """The plan and night approvals are the owner's: the AskUserQuestion hook, or `reef-approval.py --owner` in the owner's
-    own terminal (OpenCode). An agent runs the script only with --proxy (a delegated night); piping a made-up answered
-    question into it would approve a plan nobody approved (2026-10-21: allowed until now)."""
+def run_target(seg):
+    """The index of the script a segment runs: past env assignments, prefix words and flags, and a python interpreter's own flags
+    (`-X utf8`, `-W error` take the next word)."""
     i = 0
     while i < len(seg) and (ENV_ASSIGN.match(seg[i]) or seg[i] in PREFIX_WORDS or seg[i].startswith("-")):
         i += 1
     if i < len(seg) and re.match(r"python[0-9.]*$", os.path.basename(seg[i])):
         i += 1
         while i < len(seg) and seg[i].startswith("-"):
-            i += 1
+            i += 2 if seg[i] in ("-X", "-W", "-Q") else 1
+    return i
+
+
+OWN_SCRIPTS = os.path.dirname(os.path.realpath(__file__))
+RECORD_WRITERS = ("reef-approval.py", "reef-record")
+WRITER_LOADS = ("reef_common.py", "reef-plan-check.py", "reef-adversarial", "reef-evidence.py", "reef-run.py", "reef-queue.py")
+PYTHON_LOADERS = re.compile(r"^PYTHON(PATH|HOME|STARTUP|USERBASE|PLATLIBDIR|EXECUTABLE|SAFEPATH|INSPECT)=")   # what changes the code Python runs
+
+
+def same_file(a, b):
+    try:
+        with open(a, "rb") as x, open(b, "rb") as y:
+            return x.read() == y.read()
+    except OSError:
+        return False
+
+
+def check_record_writer(seg, ctx):
+    """reef-approval.py and reef-record write the records this guard trusts and load the scripts beside their own file (the plan
+    check first) — so the copy an agent runs, and every script it loads, is byte for byte the plugin's, beside this hook (the
+    security review after #261): a checkout's copy, older or edited, runs a plan check the plugin never shipped. A copy the
+    project keeps current passes; the denial names the plugin's. A guardrail on the documented commands, not a boundary: any
+    Python an agent starts can write a file, and the records are checked again where they are read."""
+    i = run_target(seg)
+    if ctx.get("plugin_root") or i >= len(seg) or os.path.basename(seg[i]) not in RECORD_WRITERS:
+        return
+    name, own = os.path.basename(seg[i]), os.path.join(OWN_SCRIPTS, os.path.basename(seg[i]))
+    fix = shlex.join([t for t in seg[:i] if not PYTHON_LOADERS.match(t)] + [own] + seg[i + 1:])
+    if any(PYTHON_LOADERS.match(t) for t in seg[:i]):
+        deny(f"{name} runs with Python's own environment (a PYTHONPATH or PYTHONSTARTUP of the command's runs inside the record "
+             f"writer) — run: {fix}")
+    here = os.path.join(ctx.get("cwd") or os.getcwd(), ctx.get("cd_hint") or "")
+    folder = os.path.dirname(os.path.realpath(os.path.join(here, os.path.expanduser(seg[i]))))
+    shadow = [] if folder == OWN_SCRIPTS or not os.path.isdir(folder) else [f for f in os.listdir(folder) if f.endswith(".pth")   # a module beside the copy that
+              or os.path.splitext(f)[0] in sys.stdlib_module_names and (f.endswith(".py") or os.path.isdir(os.path.join(folder, f)))]   # Python imports first
+    if shadow or not all(same_file(os.path.join(folder, n), os.path.join(OWN_SCRIPTS, n)) for n in (name,) + WRITER_LOADS):
+        deny(f"{seg[i]} is not the plugin's {name}: "
+             + (f"{shadow[0]} beside it would run inside it" if shadow else "it, or a script it loads (the plan check first), differs from the copy beside this guard")
+             + f" — run the plugin's: {fix} (or bring the project's scripts current: `reef update`)")
+
+
+def check_approval_cli(seg):
+    """The plan and night approvals are the owner's: the AskUserQuestion hook, or `reef-approval.py --owner` in the owner's
+    own terminal (OpenCode). An agent runs the script only with --proxy (a delegated night); piping a made-up answered
+    question into it would approve a plan nobody approved (2026-10-21: allowed until now)."""
+    i = run_target(seg)
     if i < len(seg) and os.path.basename(seg[i]) == "reef-approval.py" and "--proxy" not in seg[i + 1:]:
         deny("reef-approval.py records the OWNER's approval: the AskUserQuestion hook, or `reef-approval.py --owner "
              "\"<question>\"` run by the owner in their own terminal — an agent runs it only with --proxy (a night's plan "
@@ -1008,7 +1054,7 @@ def check_forge_merge(seg, ctx):
     if any(rec["sha"] == head for rec in records):
         return
     if not records:
-        deny(f"no PASS/GREEN review record under .reef/review/ for PR head {head[:12]} — run scripts/reef-record <feature> GREEN after the review")
+        deny(f"no PASS/GREEN review record under .reef/review/ for PR head {head[:12]} — run {os.path.join(OWN_SCRIPTS, 'reef-record')} <feature> GREEN after the review")
     owner, repo = m.group(1), m.group(2)
     for rec in records:
         anc = subprocess.run(["git", "merge-base", "--is-ancestor", rec["sha"], head], cwd=cwd, capture_output=True)
@@ -1515,7 +1561,7 @@ def _check_dispatch(tool_input, payload):
                 deny(f"plan review round {rounds + 1} > review.plan_rounds {cap_}: the plan gets no further reviewer round — the open "
                      f"findings are the owner's decision: python3 scripts/reef-queue.py ask \"<the finding, one line>\"{' --row ' + row_ if row_ else ''} "
                      f"--recommended \"<the reviewer's remedy>\"; his ruling is a queue footnote, then "
-                     f"scripts/reef-record plan-review {slug} PASS --report <the review> --decided <the footnote's mark>")
+                     f"{os.path.join(OWN_SCRIPTS, 'reef-record')} plan-review {slug} PASS --report <the review> --decided <the footnote's mark>")
     if "implementer" not in sub:
         if tier and any(t in sub for t in ("verifier", "loophole-hunter")):
             m = re.search(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", prompt, re.M)
@@ -1652,7 +1698,7 @@ def context_for(payload):
     main = main_checkout(cwd)
     roots = {main, task_root(os.path.join(cwd, "x"), cwd)}
     plugin = os.environ.get("CLAUDE_PLUGIN_ROOT") or ""
-    plugin_root = bool(plugin) and os.path.realpath(cwd).startswith(os.path.realpath(plugin))
+    plugin_root = bool(plugin) and (os.path.realpath(cwd) + os.sep).startswith(os.path.realpath(plugin).rstrip(os.sep) + os.sep)
     critical = False
     verifying = False
     for root in roots:
