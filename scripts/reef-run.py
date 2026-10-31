@@ -60,10 +60,10 @@ import shlex
 import subprocess
 import sys
 import time
-from functools import partial
+from functools import cache, partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question, merge_by, read_config, die as _die  # noqa: E402
+from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question, merge_by, read_config, load_sibling, die as _die  # noqa: E402
 
 RUN_DIR = os.path.join(".reef", "run")
 LIVE = os.path.join(RUN_DIR, "live.log")
@@ -726,15 +726,26 @@ def files_digest(root, rels):
     return h.hexdigest()
 
 
+_plan_check = cache(lambda: load_sibling("reef-plan-check.py", "reef_plan_check_for_run"))
+
+
+def binds(rec, digest):
+    """reef-plan-check.py's record_binds, from this script's own directory — the one comparison of a record with a digest
+    (0.7.4: 16 hex are a prefix an agent writing both contracts can collide). An empty digest binds nothing."""
+    return bool(digest) and isinstance(rec, dict) and _plan_check().record_binds(rec, digest)
+
+
 def record_ok(root, name, digest, what, hint):
-    """(ok, why): .reef/approvals/<name>.json carries the current digest of `what`."""
+    """(ok, why): .reef/approvals/<name>.json binds the current digest of `what` (binds)."""
     try:
         with open(os.path.join(root, ".reef", "approvals", f"{name}.json"), encoding="utf-8") as f:
             rec = json.load(f)
     except (OSError, ValueError):
         return None, f"no .reef/approvals/{name}.json — {hint}"
-    if not digest or rec.get("digest16") != digest[:16]:
-        return None, f"{what} changed since the owner approved it ({rec.get('digest16')} vs {digest[:16] or 'missing'}) — {hint}"
+    if not binds(rec, digest):
+        full = isinstance(rec, dict) and "digest" in rec
+        was = _plan_check().bound_to(rec) if isinstance(rec, dict) else None
+        return None, f"{what} changed since the owner approved it ({was} vs {(digest if full else digest[:16]) or 'missing'}) — {hint}"
     return rec, ""
 
 
@@ -821,6 +832,21 @@ def day_kinds(root):
     except OSError:
         return []
     return [k.strip().lower() for k in m.group(1).split(",") if k.strip()] if m else []
+
+
+def day_plan_refusal(root):
+    """Why a plan is not Mahmoud's by day, '' when it is: reef/proxy.md's `Decides:` names plan, under a day.json with the full
+    digest — one from before 0.7.4 binds 16 hex and never expires, so a twin naming plan (~2^32 tries) could match it."""
+    if "plan" not in day_kinds(root):
+        return "reef/proxy.md's `Decides:` line does not name `plan`"
+    try:
+        with open(os.path.join(root, ".reef", "approvals", "day.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+    except (OSError, ValueError):
+        rec = None
+    if not isinstance(rec, dict) or "digest" not in rec:
+        return "the day contract's approval predates 0.7.4 (16 hex, no `digest`) — `python3 scripts/reef-run.py contract --day`, the owner approves it once more"
+    return ""
 
 
 def day_ok(root):
@@ -1288,8 +1314,9 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
         with open(active, "w", encoding="utf-8") as f:
             f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": night_digest(root)[:16]}))
     if autopilot:
+        dg = day_digest(root)   # the full digest: --proxy reads the marker through binds (a 16-hex twin is not this contract)
         with open(os.path.join(root, AUTOPILOT), "w", encoding="utf-8") as f:
-            f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": day_digest(root)[:16]}))
+            f.write(json.dumps({"pid": os.getpid(), "started": started, "digest16": dg[:16], "digest": dg}))
     live = os.path.join(root, LIVE)
     open(live, "w", encoding="utf-8").close()
     drop_question(root, when=lambda line: NO_PROGRESS in line)   # the owner started the runner again: the no-progress notice has served

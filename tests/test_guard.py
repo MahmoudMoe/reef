@@ -325,6 +325,11 @@ class RoleModel(unittest.TestCase):
                          "plan-reviewer is not matched by 'planner'")
 
     def test_implementer_on_configured_model_allowed(self):
+        # an allowed dispatch in a Reef project needs a reef-init'd layout and a fresh stamp (a missing
+        # scripts/reef-plan-check.py denies since the review after #261), so this one runs in a planned repo
+        self.dir = plan_repo(tempfile.mkdtemp(prefix="reef-guard-roles-ok."))
+        write_config(self.dir, {"gates": {"test": "true"}, "roles": {"author": "opus"}})
+        plan_check(self.dir)
         r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement", model="opus")
         self.assertEqual(r.returncode, 0, r.stderr)
 
@@ -738,6 +743,203 @@ class FeatureStamp(unittest.TestCase):
         self.assertEqual(r.returncode, 2, "the newly arrived feature itself was never reviewed here")
 
 
+class TheCopyIsNoOffSwitch(unittest.TestCase):
+    """The security review after #261: scripts/reef-plan-check.py only MARKS a reef-init'd layout, and its absence skipped the
+    stamp, the review record and the approval together. `rm` of it was denied; `git rm`, `git mv`, `git restore --source` and
+    `git checkout <rev> --` were checked for the locked judges only, and a task file in a fresh folder with a `.git` marker
+    reached the same early return."""
+
+    def setUp(self):
+        self.d = plan_repo(tempfile.mkdtemp(prefix="reef-guard-copy."))
+        for sub in (".githooks", "src", "tools"):
+            os.makedirs(os.path.join(self.d, sub), exist_ok=True)
+        with open(os.path.join(self.d, ".githooks", "pre-commit"), "w") as f:
+            f.write("#!/bin/sh\n")
+        for rel in ("scripts/reef-plan-check.py", ".reef/config.json"):   # HEAD~1 holds other guard files than HEAD
+            with open(os.path.join(self.d, rel), "a") as f:
+                f.write("\n")
+        git(self.d, "add", "-A")
+        git(self.d, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "hooks")
+
+    def sh(self, cmd, **payload):
+        return run_guard({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": cmd}, **payload})
+
+    def test_git_forms_that_remove_or_replace_a_guard_file_are_denied(self):
+        for cmd in ("git rm scripts/reef-plan-check.py", "git rm -q --cached scripts/reef-plan-check.py", "git rm -r scripts",
+                    "git rm -rf scripts/", "git rm 'scripts/reef*'", "git rm -r .", "git -C . rm scripts/reef-plan-check.py",
+                    "git mv scripts/reef-plan-check.py scripts/old.py", "git mv scripts elsewhere",
+                    "git restore --source=HEAD~1 scripts/", "git restore -s HEAD~1 scripts/reef-plan-check.py",
+                    "git restore --source HEAD~1 .", "git checkout HEAD~3 -- scripts/",
+                    "git checkout HEAD~3 -- scripts/reef-plan-check.py", "git checkout HEAD~3 scripts/reef-guard.py",
+                    "git checkout HEAD~3 -- .githooks", "git checkout HEAD~3 -- .",   # a revision git cannot read denies too
+                    "git restore -s HEAD~1 .reef/config.json",
+                    # the reviews: a path resolved, not read by its shape
+                    f"git rm -r {self.d}/.reef", f"git rm -r {self.d}/.githooks", f"git checkout HEAD~5 -- {self.d}/.githooks",
+                    "git -C .githooks rm pre-commit", "git -C scripts rm reef-plan-check.py", "cd src && git checkout HEAD~5 -- ..",
+                    "cd src && git rm -r ../scripts", "git rm ':(top)scripts/reef-plan-check.py'", "git checkout HEAD~5 -- ':!README.md'",
+                    "git --config-env a=B rm .githooks/pre-commit", "git rm scripts/{reef-plan-check.py,x}", "git rm -r script{s,}",
+                    "git rm $(echo scripts/reef-plan-check.py)", "git rm 'scripts/reef\\-plan-check.py'",
+                    "echo scripts/reef-plan-check.py | xargs git rm", "find scripts -name 'reef-*' -exec git rm {} +",
+                    "git --icase-pathspecs rm SCRIPTS/REEF-PLAN-CHECK.PY", "GIT_ICASE_PATHSPECS=1 git rm Scripts/Reef-Plan-Check.py",
+                    "git -C /tmp --work-tree . rm -r scripts", "GIT_DIR=.git git rm -r scripts", "git -c alias.zap=rm zap scripts",
+                    "git reset HEAD~1 -- scripts/reef-plan-check.py", "git reset -q HEAD~1 .reef/config.json",
+                    "git rm --pathspec-from-file=list.txt", "git rm ':/scripts/reef-plan-check.py'", "git rm '.githooks/*'",
+                    "git mv src/x.py scripts/reef-plan-check.py", "git restore -Ws HEAD~1 .reef/config.json",
+                    "git restore -SWs HEAD~1 scripts/reef-plan-check.py", "git restore -sHEAD~1 .githooks",
+                    "timeout 9 git checkout HEAD~1 -- .reef/config.json", "env -u X git rm scripts/reef-plan-check.py",
+                    "sudo -u me git rm scripts/reef-plan-check.py"):
+            for who in ({}, {"agent_type": "reef:implementer", "agent_id": "a1"}):
+                with self.subTest(cmd=cmd, who=who):
+                    r = self.sh(cmd, **who)
+                    self.assertEqual(r.returncode, 2, f"NOT DENIED: {cmd!r}\nstderr: {r.stderr}")
+                    self.assertIn("guard's own files", r.stderr)
+
+    def test_git_forms_that_keep_the_guard_files_are_allowed(self):
+        for cmd in ("git checkout -- .", "git restore .", "git restore --staged .", "git checkout -- scripts/reef-plan-check.py",
+                    "git restore scripts/reef-plan-check.py", "git checkout main", "git checkout -b feat/x", "git checkout -",
+                    "git rm src/old.py", "git mv src/a.py src/b.py", "git checkout HEAD~1 -- src/a.py",
+                    "git restore --source=HEAD~1 src/", "git status scripts/",
+                    # the reviews' false positives: everyday moves that keep every guard file
+                    "git mv tools/x.sh scripts/", "git mv scripts/a.sh .", "git checkout HEAD -- .", "git restore -s HEAD -- .",
+                    "git checkout @ -- scripts/reef-plan-check.py", "git rm -r --cached .", "git rm --cached '*.log'",
+                    "git rm '*.log'", "git rm -r src", "git checkout -b feat/y HEAD~3",
+                    "git restore --staged -s HEAD~1 scripts/reef-plan-check.py",
+                    # git's answer: nothing a guard file holds would change
+                    "git checkout main -- .", "git restore --source=main .", "git checkout --theirs .",
+                    "git checkout --theirs .githooks/pre-commit", "git reset -- scripts/reef-plan-check.py", "git reset HEAD~1 -- src/",
+                    "git diff HEAD~1 -- scripts/"):
+            with self.subTest(cmd=cmd):
+                r = self.sh(cmd)
+                self.assertEqual(r.returncode, 0, f"FALSE POSITIVE: {cmd!r}\nstderr: {r.stderr}")
+
+    def test_a_critical_task_and_reefs_own_repository_may_still_remove_one(self):
+        os.makedirs(os.path.join(self.d, ".reef", "inflight"), exist_ok=True)
+        with open(os.path.join(self.d, ".reef", "inflight", "7"), "w") as f:
+            json.dump({"id": 7, "tier": "critical"}, f)
+        self.assertEqual(self.sh("git rm scripts/reef-plan-check.py").returncode, 0)
+        os.remove(os.path.join(self.d, ".reef", "inflight", "7"))
+        r = subprocess.run([sys.executable, GUARD], input=json.dumps({"tool_name": "Bash", "cwd": self.d, "tool_input": {
+            "command": "git rm scripts/reef-plan-check.py"}}), capture_output=True, text=True, env={**os.environ, "CLAUDE_PLUGIN_ROOT": self.d})
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_a_reef_layout_without_the_copy_denies_the_dispatch(self):
+        plan_check(self.d)
+        self.assertEqual(dispatch(self.d, "REEF-TASK: tasks/007-demo.md\nimplement").returncode, 0)
+        os.remove(os.path.join(self.d, "scripts", "reef-plan-check.py"))
+        r = dispatch(self.d, "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 2, "a missing copy opened the gate: " + r.stderr)
+        self.assertIn("scripts/reef-plan-check.py", r.stderr)
+        with open(os.path.join(self.d, "tasks", "007-demo.md")) as f:
+            self.assertIn("dispatches: 1", f.read(), "the denied dispatch did not move the odometer")
+
+    def test_a_task_file_in_a_fresh_folder_with_a_git_marker_is_denied_from_a_reef_project(self):
+        fresh = tempfile.mkdtemp(prefix="reef-guard-fresh.")
+        os.makedirs(os.path.join(fresh, ".git"))
+        task = make_task(fresh)
+        r = dispatch(self.d, f"REEF-TASK: {task}\nimplement")
+        self.assertEqual(r.returncode, 2, "an unreviewed task outside the project dispatched: " + r.stderr)
+        self.assertIn("scripts/reef-plan-check.py", r.stderr)
+
+    def test_a_linked_worktree_without_the_copy_or_the_config_is_judged_by_its_main_checkout(self):
+        wt = os.path.join(tempfile.mkdtemp(prefix="reef-guard-copy-wt."), "wt")
+        git(self.d, "worktree", "add", "-q", "-b", "feat", wt)
+        for rel in ("scripts/reef-plan-check.py", ".reef/config.json"):
+            os.remove(os.path.join(wt, rel))
+        elsewhere = tempfile.mkdtemp(prefix="reef-guard-elsewhere.")   # a session folder that is no Reef project
+        r = dispatch(elsewhere, f"REEF-TASK: {os.path.join(wt, 'tasks', '007-demo.md')}\nimplement")
+        self.assertEqual(r.returncode, 2, "the worktree's main checkout is a Reef project: " + r.stderr)
+        self.assertIn("scripts/reef-plan-check.py", r.stderr)
+
+    def commit(self, msg):
+        git(self.d, "add", "-A")
+        git(self.d, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", msg)
+
+    def test_a_stored_alias_is_read_as_what_it_stands_for(self):
+        for name, value in (("zap", "rm"), ("co", "checkout"), ("sh1", "!git rm")):
+            git(self.d, "config", f"alias.{name}", value)
+        for cmd in ("git zap scripts/reef-plan-check.py", "git co HEAD~1 -- .reef/config.json", "git sh1 x"):
+            with self.subTest(cmd=cmd):
+                r = self.sh(cmd)
+                self.assertEqual(r.returncode, 2, f"NOT DENIED: {cmd!r}\nstderr: {r.stderr}")
+        for cmd in ("git zap src/a.py", "git co main", "git -c core.worktree=. status", "git status"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.sh(cmd).returncode, 0, cmd)
+
+    def test_a_side_of_a_conflict_over_a_guard_file_is_denied(self):
+        git(self.d, "checkout", "-q", "-b", "side")
+        with open(os.path.join(self.d, ".githooks", "pre-commit"), "w") as f:
+            f.write("#!/bin/sh\nexit 0\n")
+        self.commit("side")
+        git(self.d, "checkout", "-q", "main")
+        with open(os.path.join(self.d, ".githooks", "pre-commit"), "w") as f:
+            f.write("#!/bin/sh\nexit 1\n")
+        self.commit("main")
+        subprocess.run(["git", "-C", self.d, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q", "side"], capture_output=True)
+        r = self.sh("git checkout --theirs .githooks/pre-commit")
+        self.assertEqual(r.returncode, 2, "taking their side of a conflicted hook: " + r.stderr)
+        self.assertEqual(self.sh("git checkout --ours .githooks/pre-commit").returncode, 0, "our side is HEAD's")
+        self.assertEqual(self.sh("git checkout --theirs src/").returncode, 0)
+
+    def test_a_guard_file_only_a_revision_holds_counts(self):
+        with open(os.path.join(self.d, ".githooks", "pre-push"), "w") as f:
+            f.write("#!/bin/sh\n")
+        self.commit("pre-push")
+        git(self.d, "rm", "-q", ".githooks/pre-push")
+        self.commit("drop pre-push")
+        r = self.sh("git checkout HEAD~1 -- .githooks")
+        self.assertEqual(r.returncode, 2, "HEAD~1 holds a hook the disk does not: " + r.stderr)
+        self.assertEqual(self.sh("git checkout HEAD~1 -- src/").returncode, 0)
+
+    def test_a_revision_that_reads_as_an_option_never_reaches_git(self):
+        hook = os.path.join(self.d, ".githooks", "pre-commit")
+        before = open(hook).read()
+        for cmd in ("git restore --source=--output=.githooks/pre-commit scripts/", "git restore -s--output=.githooks/pre-commit src/",
+                    "git checkout --output=.githooks/pre-commit -- src/"):
+            with self.subTest(cmd=cmd):
+                self.sh(cmd)
+                self.assertEqual(open(hook).read(), before, "the guard's own git diff wrote the hook")
+        self.assertEqual(self.sh("git restore --source=--output=x scripts/").returncode, 2)
+
+    def test_a_staged_guard_file_does_not_block_a_discard_that_keeps_it(self):
+        with open(os.path.join(self.d, ".reef", "config.json"), "a") as f:
+            f.write(" ")
+        git(self.d, "add", ".reef/config.json")   # the owner's staged edit; the tree matches the index
+        for cmd in ("git checkout -- .", "git restore .", "git checkout -- src/"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.sh(cmd).returncode, 0, cmd)
+
+    def test_paths_the_guard_cannot_read_say_so(self):
+        r = self.sh("git ls-files --deleted | xargs git rm")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("cannot read", r.stderr)
+        r = self.sh("git rm $(git ls-files --deleted)")
+        self.assertIn("name the paths as they are", r.stderr)
+
+    def test_a_restore_from_a_rewritten_index_is_denied(self):
+        self.assertEqual(self.sh("git checkout -- scripts/reef-plan-check.py").returncode, 0, "the index is HEAD's")
+        git(self.d, "reset", "-q", "HEAD~1", "--", "scripts/reef-plan-check.py")   # the index now holds HEAD~1's copy
+        for cmd in ("git checkout -- scripts/reef-plan-check.py", "git restore scripts/reef-plan-check.py", "git checkout -- .",
+                    "git checkout scripts/reef-plan-check.py"):
+            with self.subTest(cmd=cmd):
+                r = self.sh(cmd)
+                self.assertEqual(r.returncode, 2, f"NOT DENIED: {cmd!r}\nstderr: {r.stderr}")
+
+    def test_a_stray_git_marker_below_the_project_is_still_the_project(self):
+        feat = os.path.join(self.d, "reef", "features", "f")
+        os.makedirs(feat)
+        with open(os.path.join(feat, ".git"), "w") as f:
+            f.write("gitdir: /nowhere\n")
+        task = make_task(feat)
+        os.remove(os.path.join(self.d, "scripts", "reef-plan-check.py"))
+        r = dispatch(feat, f"REEF-TASK: {task}\nimplement")
+        self.assertEqual(r.returncode, 2, "a junk .git marker opened the gate: " + r.stderr)
+
+    def test_outside_a_reef_project_nothing_changes(self):
+        bare = tempfile.mkdtemp(prefix="reef-guard-bare.")
+        make_task(bare)
+        self.assertEqual(dispatch(bare, "REEF-TASK: tasks/007-demo.md\nimplement").returncode, 0)
+
+
 class HandoffIsRendered(unittest.TestCase):
     """v3 phase 5: HANDOFF.md is rendered whole by scripts/reef-handoff --write (the loop's wait and the guard's checkpoint
     run it); a hand-written one is a map drawn from memory — denied for the main session and every agent, in every tool."""
@@ -846,6 +1048,103 @@ class TaskFilesAreThePlan(unittest.TestCase):
         elsewhere = tempfile.mkdtemp(prefix="reef-elsewhere.")
         r = edit(os.path.join(elsewhere, "reef", "features", "x", "tasks", "101-a.md"))
         self.assertEqual(r.returncode, 0, "a look-alike path outside the project is nobody's: " + r.stderr)
+
+
+class TheRecordWritersAreThePlugins(unittest.TestCase):
+    """The security review after #261: reef-approval.py and reef-record load the scripts beside their own file (the plan check
+    first), so a checkout's copy ran the checkout's plan check — guard-protected, not plugin-owned, and an older copy writes
+    records this guard refuses. The copy an agent runs, and what it loads, is byte for byte the plugin's."""
+
+
+    def setUp(self):
+        import shutil
+        self.d = plan_repo(tempfile.mkdtemp(prefix="reef-guard-writers."))
+        for n in ("reef-approval.py", "reef-record"):   # the plan check and reef_common are plan_repo's; the rest is missing
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.d, "scripts", n))
+        self.own = os.path.join(ROOT, "scripts")
+
+    def sh(self, cmd, env=None):
+        return subprocess.run([sys.executable, GUARD], input=json.dumps({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": cmd}}),
+                              capture_output=True, text=True, env={**os.environ, **(env or {})})
+
+    def test_a_copy_that_is_not_the_plugins_is_denied_and_the_plugins_named(self):
+        for cmd in ("python3 scripts/reef-approval.py --proxy --feature demo --report r.md",
+                    "scripts/reef-record demo GREEN --report r.md", "python3 -u scripts/reef-record plan-review demo PASS --report r.md",
+                    f"python3 {self.d}/scripts/reef-record demo GREEN --report r.md", "cd scripts && python3 reef-record demo GREEN",
+                    "python3 /tmp/elsewhere/scripts/reef-approval.py --proxy --feature demo --report r.md",
+                    "env A=1 python3 $HOME/scripts/reef-record demo GREEN",
+                    "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/reef-record demo GREEN",   # the shell, not the guard, expands it
+                    f"PYTHONPATH=/tmp/evil python3 {self.own}/reef-record demo GREEN", "python3 -X utf8 scripts/reef-record demo GREEN",
+                    "python3 -W error scripts/reef-approval.py --proxy --feature demo --report r.md"):
+            with self.subTest(cmd=cmd):
+                r = self.sh(cmd)
+                self.assertEqual(r.returncode, 2, f"NOT DENIED: {cmd!r}\nstderr: {r.stderr}")
+                self.assertIn(self.own, r.stderr, "the denial names the plugin's own copy")
+
+    def test_the_plugins_copy_and_a_current_project_copy_run(self):
+        import shutil
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("reef_guard_under_test", GUARD)
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        for n in guard.RECORD_WRITERS + guard.WRITER_LOADS:
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.d, "scripts", n))
+        for cmd in (f"python3 {self.own}/reef-approval.py --proxy --feature demo --report r.md", f"{self.own}/reef-record demo GREEN",
+                    "python3 scripts/reef-approval.py --proxy --feature demo --report r.md", "scripts/reef-record demo GREEN",
+                    "cat scripts/reef-record", "grep -n proxy scripts/reef-approval.py", "echo $CLAUDE_PLUGIN_ROOT"):
+            with self.subTest(cmd=cmd):
+                r = self.sh(cmd)
+                self.assertEqual(r.returncode, 0, f"FALSE POSITIVE: {cmd!r}\nstderr: {r.stderr}")
+        self.assertEqual(self.sh("PYTHONUNBUFFERED=1 python3 scripts/reef-record demo GREEN").returncode, 0, "output buffering loads nothing")
+        with open(os.path.join(self.d, "scripts", "shutil.py"), "w") as f:   # Python imports the copy's folder first
+            f.write("print('planted')\n")
+        r = self.sh("python3 scripts/reef-approval.py --proxy --feature demo --report r.md")
+        self.assertEqual(r.returncode, 2, "a stdlib name beside a current copy: " + r.stderr)
+        self.assertIn("shutil.py", r.stderr)
+        os.remove(os.path.join(self.d, "scripts", "shutil.py"))
+        with open(os.path.join(self.d, "scripts", "reef-plan-check.py"), "a") as f:
+            f.write("\n# edited\n")
+        r = self.sh("python3 scripts/reef-approval.py --proxy --feature demo --report r.md")
+        self.assertEqual(r.returncode, 2, "an edited plan check beside the copy: " + r.stderr)
+
+    def test_a_link_to_the_plugins_writer_loads_the_plugins_scripts(self):
+        lnk = tempfile.mkdtemp(prefix="reef-guard-link.")
+        with open(os.path.join(lnk, "reef-plan-check.py"), "w") as f:
+            f.write("print('stamp: MATCH')\n")
+        os.symlink(os.path.join(self.own, "reef-record"), os.path.join(lnk, "reef-record"))
+        self.assertEqual(self.sh(f"python3 {lnk}/reef-record demo GREEN").returncode, 0, "the link resolves to the plugin's copy")
+        for n in ("reef-record", "reef-approval.py"):
+            with open(os.path.join(self.own, n), encoding="utf-8") as f:
+                self.assertNotIn("abspath(__file__)", f.read(), f"{n} loads beside its real file, not beside a link to it")
+
+    def test_every_sibling_a_writer_loads_is_compared(self):
+        import importlib.util
+        import re
+        spec = importlib.util.spec_from_file_location("reef_guard_under_test", GUARD)
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        for n in guard.RECORD_WRITERS:
+            with open(os.path.join(self.own, n), encoding="utf-8") as f:
+                text = f.read()
+            loads = set(re.findall(r'"(reef[-_][\w.-]+)"', text)) | ({"reef_common.py"} if "from reef_common import" in text else set())
+            loads = {x for x in loads if os.path.isfile(os.path.join(self.own, x)) and x not in guard.RECORD_WRITERS}
+            with self.subTest(writer=n):
+                self.assertLessEqual(loads, set(guard.WRITER_LOADS), "a script a writer loads is missing from WRITER_LOADS")
+
+    def test_reefs_own_repository_runs_its_own_scripts(self):
+        r = self.sh("python3 scripts/reef-record demo GREEN --report r.md", env={"CLAUDE_PLUGIN_ROOT": self.d})
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_the_skills_call_the_plugins_copies(self):
+        import glob
+        import re
+        bare = re.compile(r"(?<!\$\{CLAUDE_PLUGIN_ROOT\}/)scripts/(reef-approval\.py|reef-record)\b")
+        for f in glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md")) + glob.glob(os.path.join(ROOT, "agents", "*.md")) \
+                + glob.glob(os.path.join(ROOT, "commands", "*.md")):
+            with open(f, encoding="utf-8") as fh:   # the owner's own terminal command (--owner) is printed as the project's
+                hits = [h for line in fh for h in bare.findall(re.sub(r"`[^`]*--owner[^`]*`", "", line))]
+            with self.subTest(f=os.path.relpath(f, ROOT)):
+                self.assertEqual(hits, [], "a command an agent runs names the plugin's copy: ${CLAUDE_PLUGIN_ROOT}/scripts/…")
 
 
 class TheSharedModuleIsAGuardFile(unittest.TestCase):

@@ -984,7 +984,9 @@ class OneHomePerHelper(unittest.TestCase):
             name = os.path.basename(f)
             if "from reef_common import" in text:
                 importers += 1
-                self.assertLess(text.index("sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))"), text.index("from reef_common import"),
+                at = [text.index(line) for line in ("sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))",
+                                                    "sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))") if line in text]   # realpath: a record writer
+                self.assertTrue(at and min(at) < text.index("from reef_common import"),
                                 f"{name}: the sys.path line precedes the import (a script loaded from elsewhere, or run under -I)")
                 self.assertLess(text.index("sys.dont_write_bytecode = True"), text.index("from reef_common import"),
                                 f"{name}: no bytecode is written beside a project's scripts (CI, PR 215)")

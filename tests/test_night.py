@@ -423,6 +423,8 @@ class Autopilot(unittest.TestCase):
         live = open(os.path.join(self.d, ".reef", "run", "live.log")).read()
         self.assertIn("the next session decides it through Mahmoud", live)
         self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "night", "autopilot")), "the marker goes with the run")
+        marker = json.loads(open(os.path.join(self.d, ".fake-autopilot")).read())
+        self.assertEqual(marker["digest"], json.load(open(os.path.join(self.d, ".reef", "approvals", "day.json")))["digest"], "the marker binds the contract's full digest (--proxy reads it through binds)")
         rep = open(os.path.join(self.d, ".reef", "run", "autopilot.md")).read()
         self.assertIn("Sessions: 2", rep)
         self.assertIn("## Mahmoud's plan approvals\n- none", rep, "the night's report body, for the day")
@@ -454,7 +456,7 @@ class Autopilot(unittest.TestCase):
         dg = q.split(" at ")[1].rstrip("?")
         L.write(self.d, ".reef/night/autopilot", json.dumps({"pid": 1, "started": "x", "digest16": "0" * 16}))   # alive, wrong digest
         self.assertIn("no live autopilot", proxy(self.d, "share-links", rep).stdout)
-        L.write(self.d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": dg}))   # what reef-run --autopilot writes
+        L.write(self.d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": dg}))   # a 0.7.3 runner's marker: 16 hex
         r = proxy(self.d, "share-links", rep)
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn("does not name `plan`", r.stdout, "a plan approval by day needs the owner's word in Decides:")

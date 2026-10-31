@@ -4,6 +4,7 @@ guarding itself (1.5). Every DENY here is a defect shown red; every allow is a l
 keep working, including the whole 0.5 behaviour when no tier table is set."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -658,11 +659,38 @@ class Deadline(unittest.TestCase):
 
     def test_hang_exits_2_within_the_deadline(self):
         t0 = time.monotonic()
-        r = guard({"tool_name": "Bash", "tool_input": {"command": "ls"}}, env={"REEF_GUARD_TEST_HANG": "1", "REEF_GUARD_DEADLINE": "1"})
+        r = guard({"tool_name": "Bash", "tool_input": {"command": "ls"}}, env={"REEF_GUARD_TEST_HANG": "60", "REEF_GUARD_DEADLINE": "1"})
         dt = time.monotonic() - t0
         self.assertEqual(r.returncode, 2, r.stderr)
         self.assertIn("deadline", r.stderr)
         self.assertLess(dt, 5)
+
+    def test_a_dispatch_has_room_for_its_checks_and_a_bash_call_keeps_the_short_limit(self):
+        # 2026-10-31, the owner's project: four implementer dispatches for row 188 were denied by "guard deadline of 8s
+        # exceeded" — the dispatch checks (the plan stamp, the ready set, the context) outran 8 s on a large repository, and
+        # the denial did not say which one. A dispatch has its own limit under the host's longer hook timeout; Bash keeps 8 s.
+        with open(os.path.join(ROOT, "hooks", "hooks.json")) as f:
+            hooks = json.load(f)["hooks"]["PreToolUse"]
+        host = next(h for h in hooks if h["matcher"] == "Task|Agent")["hooks"][0]["timeout"]
+        self.assertGreaterEqual(host, 30)
+        with open(os.path.join(ROOT, "scripts", "reef-guard.py")) as f:
+            dispatch = float(re.search(r'DISPATCH_DEADLINE = .*or "([\d.]+)"', f.read()).group(1))
+        self.assertLess(dispatch, host, "the guard decides a slow dispatch, never the host's timeout")
+        with open(os.path.join(ROOT, "scripts", "reef-opencode.py")) as f:
+            opencode = int(re.search(r"const DISPATCH_TIMEOUT_MS = (\d+);", f.read()).group(1))
+        self.assertLess(dispatch * 1000, opencode, "OpenCode's dispatch timeout sits above the guard's limit too")
+        env = {"REEF_GUARD_TEST_HANG": "9", "REEF_GUARD_DEADLINE": ""}
+        d = tempfile.mkdtemp(prefix="reef-deadline.")
+        r = guard({"tool_name": "Task", "cwd": d, "tool_input": {"subagent_type": "Explore", "prompt": "look"}}, env=env)
+        self.assertNotIn("deadline", r.stderr, "nine seconds of checks fit a dispatch's limit")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        t0 = time.monotonic()
+        r = guard({"tool_name": "Bash", "cwd": d, "tool_input": {"command": "ls"}}, env=env)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertLess(time.monotonic() - t0, 12, "a Bash call keeps the 8 s limit")
+        self.assertRegex(r.stderr, r"deadline of 8s exceeded in test-hang after \d", "the denial names the step that overran")
+        r = guard({"tool_name": "Bash", "cwd": d, "tool_input": {"command": "ls"}}, env={"REEF_GUARD_TEST_HANG": "9", "REEF_GUARD_DEADLINE": "30"})
+        self.assertRegex(r.stderr, r"deadline of 8s exceeded", "the override only lowers a limit: Bash stays under the host's 10 s")
 
     def test_hooks_json_carries_timeout_and_block_on_every_guard_matcher(self):
         with open(os.path.join(ROOT, "hooks", "hooks.json")) as f:

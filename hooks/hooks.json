@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "timeout": 10,
+            "timeout": 30,
             "onFailure": "block",
             "command": "sh -c 'command -v python3 >/dev/null 2>&1 && exec python3 \"$0\"; echo \"reef-guard: python3 is required to check a dispatch \u2014 denied\" >&2; exit 2' \"${CLAUDE_PLUGIN_ROOT}/scripts/reef-guard.py\""
           }

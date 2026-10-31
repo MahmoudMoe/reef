@@ -192,7 +192,7 @@ class AnAgentNeverApproves(unittest.TestCase):
                 r = self.guard(cmd)
                 self.assertEqual(r.returncode, 2, cmd)
                 self.assertIn("the OWNER's approval", r.stderr)
-        for cmd in ("python3 scripts/reef-approval.py --proxy --feature x --report y", "cat scripts/reef-approval.py",
+        for cmd in (f"python3 {os.path.join(ROOT, 'scripts', 'reef-approval.py')} --proxy --feature x --report y", "cat scripts/reef-approval.py",   # the plugin's own copy
                     "grep -n owner scripts/reef-approval.py"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.guard(cmd).returncode, 0, cmd)

@@ -10,6 +10,18 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FLOOR = (3, 9)
+# 2026-11-01: the guard read `sys.stdlib_module_names` (3.10+); on the Mac's 3.9 the AttributeError failed the record-writer
+# check open — every copy ran. The macOS CI leg caught it only on main. Names newer than the floor, read only through getattr:
+NEWER_NAMES = ("sys.stdlib_module_names", "itertools.pairwise", "sys.orig_argv")
+
+
+class NoNameNewerThanTheFloor(unittest.TestCase):
+    def test_a_name_newer_than_the_floor_is_read_through_getattr(self):
+        for p in python_files():
+            with open(p, encoding="utf-8") as f:
+                src = f.read()
+            for name in NEWER_NAMES:
+                self.assertNotIn(name, src, f"{os.path.relpath(p, ROOT)} uses {name}, which Python {FLOOR[0]}.{FLOOR[1]} lacks: getattr with a fallback")
 
 
 def python_files():

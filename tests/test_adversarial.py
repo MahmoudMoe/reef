@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _fixtures import write  # noqa: E402  (the suites' shared fixtures, once)
+from _fixtures import stamped, write  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
@@ -35,6 +35,7 @@ def adv(*args):
 
 
 def dispatch(cwd, path):
+    stamped(cwd)   # the subject here is the graph/the plan pass, not the stamp
     return subprocess.run([sys.executable, GUARD], input=json.dumps(
         {"tool_name": "Task", "cwd": cwd,
          "tool_input": {"subagent_type": "reef:implementer", "prompt": f"REEF-TASK: {path}\nimplement"}}),
@@ -158,8 +159,7 @@ class GuardRequiresPlanPass(unittest.TestCase):
         r_path = os.path.join(os.path.dirname(self.t), "R01-t.md")
         with open(r_path, "w") as f:
             f.write(text.replace("id: 1\n", "id: R01\n").replace("# 1\n", "# R01\n"))
-        os.remove(self.t)
-        r = dispatch(self.d, r_path)
+        r = dispatch(self.d, r_path)   # the planned task stays: a rollup is never stamped, its feature's stamp is its tasks'
         self.assertNotIn("adversarial-plan", r.stderr, "a critical rollup is not held for the hunter's plan pass")
         self.assertEqual(r.returncode, 0, r.stderr)
 
