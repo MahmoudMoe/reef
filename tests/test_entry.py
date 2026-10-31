@@ -97,6 +97,12 @@ def project(**files):
     return d
 
 
+def boards_after_update(win, boards, mod):
+    """How many board readings were spawned once the update's exit frame was on the screen."""
+    first_exit = next(i for i, f in enumerate(win.frames) if any("exit 0" in r for r in f))
+    return sum(1 for n in boards if n > first_exit)
+
+
 def settle(limit=15.0):
     """A fake tick: wait until the screen's reader threads (reef-*) are done, so the next key finds its reading landed — keys no
     longer wait for a reading themselves (2026-10-31, the owner: "I press something and nothing happens")."""
@@ -327,10 +333,10 @@ class TheScreen(unittest.TestCase):
                 return k
         ran = []
         real_run = mod.run_captured
-        mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["ok"]))[1]
+        mod.run_captured = lambda root, argv, timeout=900, sink=None: (ran.append(argv), (0, ["ok"]))[1]
         mod.doctor_lines = lambda root, fetch=False: []
         d2 = project(**{".reef/questions.md": "- row 7: Keep it? — recommended: yes\n- row 8: Rename it? — recommended: no\n"})
-        win = FakeWin([-1, ord("i"), ord("2"), 10, 10, ord("x"), 10, 10, ord("q")])   # a tick (the readings land); i: the inbox (the screen opens on WORK since the fourth design); 2 selects; Enter runs it and opens the answer line; Enter keeps 'no'; x closes the panel; Enter, Enter again; q
+        win = FakeWin([-1, ord("i"), ord("2"), 10, 10, -1, ord("x"), 10, 10, -1, ord("q")])   # a tick (the readings land); i: the inbox (the screen opens on WORK since the fourth design); 2 selects; Enter runs it and opens the answer line; Enter keeps 'no'; x closes the panel; Enter, Enter again; q
         self.assertEqual(mod.screen_loop(win, d2, FakeCurses()), 0)
         self.assertEqual(len(ran), 2, "Enter ran the selected item twice (the second Enter, after the close): never the close key itself\n" + str(ran))
         self.assertIn("no", ran[0], "the recommendation kept with a plain Enter on the answer line")
@@ -465,8 +471,8 @@ class TheScreen(unittest.TestCase):
         open(os.path.join(d, ".reef", "approvals", "older.json"), "w").write('{"digest16": "x", "approved_at": "2026-10-01T00:00:00Z", "by": "mahmoud (proxy)"}')
         open(os.path.join(d, ".reef", "approvals", "mine.json"), "w").write('{"digest16": "y", "approved_at": "%sT09:00:00Z"}' % time.strftime("%Y-%m-%d", time.gmtime()))
         self.assertEqual(mod.autopilot_view(d)["decided_today"], 1, "his plan approval today counts; an older one and the owner's own do not")
-        # the loop on the board (a fake curses, as the inbox test below): Enter opens the selected row through the row machine, never an inbox item;
-        # Tab, Tab shows PLAN; q quits
+        # the loop on the board (a fake curses, as the inbox test below): Enter on a row that is yours opens INBOX on its item — no subprocess
+        # (the CLI review: reef-row.py ran on the UI thread to show what the box showed); Tab shows PLAN, Enter there does the same; q quits
         class FC:
             A_REVERSE, A_BOLD, A_NORMAL = 1, 2, 0
             error = Exception
@@ -487,13 +493,14 @@ class TheScreen(unittest.TestCase):
                     settle()
                 return k
         ran = []
-        mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["state: build"]))[1]
+        mod.run_captured = lambda root, argv, timeout=900, sink=None: (ran.append(argv), (0, ["state: build"]))[1]
         mod.doctor_lines = lambda root, fetch=False: []
         mod.inbox = lambda root, doctor=None, runner=None: [{"kind": "approve", "text": "x", "argv": [sys.executable, "-c", "pass"], "cmd": "approve x", "row": "7", "recommended": "", "issue": ""}]
-        win = FW([-1, ord("2"), 10, ord("x"), 9, 9, 10, ord("x"), ord("q")])   # a tick (the board lands); 2 selects row 7, Enter opens it; x closes; Tab Tab → PLAN; Enter there opens the row too; q
+        win = FW([-1, ord("2"), 10, 9, 10, ord("q")])   # a tick (the board lands); 2 selects row 7, Enter: INBOX on its item; Tab → PLAN; Enter there: INBOX again; q
         self.assertEqual(mod.screen_loop(win, d, FC()), 0)
-        self.assertEqual(len(ran), 2, str(ran)); self.assertTrue(all(os.path.basename(str(r[1])) == "reef-row.py" and r[2:4] == ["state", "7"] for r in ran), str(ran))
-        self.assertTrue(any(r.startswith("PLAN") for r in win.rows), "Tab, Tab reached PLAN")
+        self.assertEqual(ran, [], "Enter on a row runs nothing")
+        self.assertTrue(any("▶ 1  approve  x" in r for r in win.rows), "the row's item, selected on INBOX\n" + "\n".join(win.rows[-40:]))
+        self.assertTrue(any(r.startswith("PLAN") for r in win.rows), "Tab reached PLAN")
 
     def test_an_empty_project_has_only_the_doctors_fixes_in_its_inbox(self):
         d = project()
@@ -706,20 +713,20 @@ class TheUpdateIsReefs(unittest.TestCase):
         mod.doctor_lines = lambda root, fetch=False: (reads.append(fetch), ["WARN plugin: a new Reef, 2 commit(s) since your copy: Two fixes — python3 scripts/reef update"])[1]
         mod.work_model = lambda root, runner=None, states=True: {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()}
         ran = []
-        mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["reef update: done"]))[1]
+        mod.run_captured = lambda root, argv, timeout=900, sink=None: (ran.append(argv), (0, ["reef update: done"]))[1]
         restarted = []
         mod.restart_screen = lambda curses: restarted.append(1)   # a successful update restarts the screen (os.execv) — not inside a test
         def age_out():
             mod.UPDATE_SECONDS = 0.1   # fifteen minutes pass
-        mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["python3 scripts/reef-row.py state 7"]))[1]
+        mod.run_captured = lambda root, argv, timeout=900, sink=None: (ran.append(argv), (0, ["python3 scripts/reef-row.py state 7"]))[1]
         win = self.FW([-1, -1, -1, ord("g"), -1, -1, age_out, -1, -1, ord("i"), ord("q")])   # ticks; g (a command's re-read, no fetch); the reading ages; i the inbox; q
         self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
         self.assertEqual(reads[:2], [True, False], f"the first reading fetches; a re-read after g does not (the forge is asked minutes apart, not after every key): {reads}")
         self.assertIn(True, reads[2:], f"once the reading is UPDATE_SECONDS old, the doctor fetches again: {reads}")
         self.assertTrue(any("update" in r and "2 commit(s)" in r for r in win.rows), "the item is on the inbox\n" + "\n".join(win.rows[-30:]))
         mod.UPDATE_SECONDS = 900; ran.clear()
-        mod.run_captured = lambda root, argv, timeout=900: (ran.append(argv), (0, ["reef update: done"]))[1]
-        self.assertEqual(mod.screen_loop(self.FW([-1, -1, -1, ord("i"), 10, ord("q")]), d, self.FC()), 0)   # ticks: the doctor lands, then the inbox with its item
+        mod.run_captured = lambda root, argv, timeout=900, sink=None: (ran.append(argv), (0, ["reef update: done"]))[1]
+        self.assertEqual(mod.screen_loop(self.FW([-1, -1, -1, ord("i"), 10, -1, ord("x")]), d, self.FC()), 0)   # ticks: the doctor lands, then the inbox with its item; Enter, the update lands, a key restarts
         self.assertEqual(ran, [[sys.executable, "scripts/reef", "update"]], "Enter on the item runs the one verb\n" + str(ran))
         self.assertEqual(restarted, [1], "and a successful update restarts the screen; nothing after it runs in the old process")
         self.assertEqual(mod.on_key(ord("u"), 0, 0, "work"), ("verb", "update"))
@@ -1019,13 +1026,13 @@ class TheScreenRestartsAfterAnUpdate(unittest.TestCase):
         mod.work_model = lambda root, runner=None, states=True: {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()}
         restarted = []
         mod.restart_screen = lambda curses: restarted.append(curses)
-        mod.run_captured = lambda root, argv, timeout=900: (0, ["reef update: done"]) if argv[2:3] == ["update"] else (0, ["ok"])
+        mod.run_captured = lambda root, argv, timeout=900, sink=None: (0, ["reef update: done"]) if argv[2:3] == ["update"] else (0, ["ok"])
         fc = self.FC()
-        self.assertEqual(mod.screen_loop(self.FW([-1, ord("u")]), d, fc), 0)
+        self.assertEqual(mod.screen_loop(self.FW([-1, ord("u"), -1, ord("x")]), d, fc), 0)
         self.assertEqual(len(restarted), 1, "a successful update restarts the screen — the files on disk are new, the process is old")
         restarted.clear()
-        mod.run_captured = lambda root, argv, timeout=900: (1, ["reef update: stopped at that step"])
-        self.assertEqual(mod.screen_loop(self.FW([-1, ord("u"), ord("x"), ord("q")]), d, fc), 0)
+        mod.run_captured = lambda root, argv, timeout=900, sink=None: (1, ["reef update: stopped at that step"])
+        self.assertEqual(mod.screen_loop(self.FW([-1, ord("u"), -1, ord("x"), ord("q")]), d, fc), 0)
         self.assertEqual(restarted, [], "a failed update: the output stays on the screen, nothing restarts")
         src = open(ENTRY, encoding="utf-8").read()
         self.assertIn("def restart_screen", src)
@@ -1077,3 +1084,147 @@ class TheOwnersWalkThroughTheScreen(unittest.TestCase):
         self.assertIn("q back", help_lines[0]); self.assertTrue(any("t oldest" in l and "b newest" in l for l in help_lines), "\n".join(help_lines))
         self.assertTrue(any("Tab" in l and "every page" in l for l in help_lines), "the help says Tab works from every page")
         self.assertIn("w log", mod.KEYS, "the banner's keys line stays short (a 10x4 terminal wraps it to four rows); i and p are in the help")
+
+
+class TheScreenStaysSmooth(unittest.TestCase):
+    """The CLI review (2026-10-31 19:30), ranked first: `u` froze the screen for minutes (the update ran on the UI thread, 900 s cap, the
+    parent killed mid-step past it) and the restart fired before the owner saw the update's last word; Enter on a WORK row ran
+    `reef-row.py state` on the UI thread to show what the box already showed, and the next key was eaten; after every command the
+    doctor was dropped (`doctor = None`) so its items vanished for seconds and the selection could jump. The rules: a command runs in
+    a thread named reef-command and its lines stream into the panel as they come; after a successful update the panel stays with the
+    last line and `any key restarts`, no reading is spawned meanwhile, and the key restarts; Enter on a row that is yours (an inbox
+    item names it) opens INBOX on that item, on any other row shows the row's facts from the board in the panel — no subprocess;
+    the box says `yours: <the command>` or `the runner's next: …`; a command re-reads the doctor but keeps its lines until then."""
+
+    class FC:
+        A_REVERSE, A_BOLD, A_NORMAL = 1, 2, 0
+        error = Exception
+        def curs_set(self, *_): pass
+        def flushinp(self): pass
+        def update_lines_cols(self): pass
+        def has_colors(self): return False
+        def endwin(self): pass
+
+    class FW:
+        """Keys: -1 a tick that waits for every reading and the command; -2 a tick that waits for nothing (a frame mid-run);
+        -3 a tick that waits for the command alone."""
+        def __init__(self, keys): self.keys = list(keys); self.rows = []; self.frames = []
+        def getmaxyx(self): return (40, 120)
+        def timeout(self, *_): pass
+        def erase(self): self.frames.append([])
+        def refresh(self): pass
+        def move(self, *_): pass
+        def clrtoeol(self): pass
+        def addstr(self, y, x, text, *a): self.rows.append(text); self.frames[-1].append(text) if self.frames else None
+        def getch(self):
+            import threading
+            k = self.keys.pop(0) if self.keys else ord("q")
+            if k == -1:
+                settle()
+            if k == -3:
+                t0 = time.time()
+                while time.time() - t0 < 10 and any(t.name == "reef-command" and t.is_alive() for t in threading.enumerate()):
+                    time.sleep(0.02)
+            return -1 if k in (-2, -3) else k
+
+    def board(self, rows):
+        return {"rows": rows, "facts": ["x"] * 5, "progress": {"rows": (0, len(rows)), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time(), "batch": 3}
+
+    def row(self, id, mark, detail="", nxt="", state="plan"):
+        return {"id": id, "mark": mark, "tasks": (0, 0), "lane": "src", "state": state, "detail": detail, "next": nxt, "depends": [], "waits": [], "forge": "", "item": f"row {id} item", "slug": ""}
+
+    def test_a_command_streams_into_the_panel_from_a_thread(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        d = project()
+        mod.doctor_lines = lambda root, fetch=False: []
+        mod.work_model = lambda root, runner=None, states=True: self.board([])
+        win = self.FW([-1, ord("d"), -2, -2, -2, -2, -2, -3, -2, ord("x"), ord("q")])
+        seen = []
+        def slow(root, argv, timeout=900, sink=None):
+            sink.append("first line")
+            t0 = time.time()
+            while time.time() - t0 < 3 and not any("first line" in r for r in win.rows):
+                time.sleep(0.02)   # the screen draws while the command runs: the UI thread is free
+            seen.append(any("first line" in r for r in win.rows))
+            sink.append("done")
+            return 0, list(sink)
+        mod.run_captured = slow
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        self.assertEqual(seen, [True], "the first line was on the screen while the command still ran")
+        self.assertTrue(any("running" in r for r in win.rows), "the panel said running meanwhile")
+        self.assertTrue(any(r.startswith("OUTPUT") and "exit 0" in r for r in win.rows), "then the exit")
+
+    def test_a_successful_update_keeps_its_last_word_and_restarts_on_the_next_key(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        d = project()
+        mod.doctor_lines = lambda root, fetch=False: []
+        boards = []
+        mod.work_model = lambda root, runner=None, states=True: (boards.append(len(win.frames)), self.board([]))[1]   # each reading remembers how many frames were drawn
+        restarted = []
+        mod.restart_screen = lambda curses: restarted.append(1)
+        mod.run_captured = lambda root, argv, timeout=900, sink=None: (0, ["reef update: pulled", "reef update: done — /reload-plugins"]) if argv[2:3] == ["update"] else (0, ["ok"])
+        win = None
+        mod.BOARD_SECONDS = 0   # the board is due again at once: after the update it must NOT be read (work_model loads siblings)
+        try:
+            win = self.FW([-1, ord("u"), -3, -2, -2, -2, ord("x")])
+            self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        finally:
+            mod.BOARD_SECONDS = 120
+        self.assertEqual(len(restarted), 1, "the key after the update restarts the screen")
+        frames_after = [f for f in win.frames if any("exit 0" in r for r in f)]
+        self.assertTrue(frames_after, "the update's exit was drawn before the restart")
+        self.assertTrue(all(any("reef update: done" in r for r in f) for f in frames_after), "its last word stayed on the screen")
+        self.assertTrue(all(any("any key restarts" in r for r in f) for f in frames_after), "the panel says the key restarts")
+        before = len(boards)
+        self.assertLessEqual(before, 4, "the board was read before the update, a few times (BOARD_SECONDS is 0 here): " + str(before))
+        self.assertTrue(all(any("exit 0" in r for r in f) for f in win.frames[-3:]), "the last frames are the frozen panel")
+        self.assertEqual(boards_after_update(win, boards, mod), 0, "no board reading was spawned after the update (the old process must not load the new files)")
+
+    def test_enter_on_a_row_that_is_yours_opens_its_inbox_item_and_on_another_row_shows_the_row(self):   # noqa: E301
+        mod = load_script("reef", "reef_entry_under_test")
+        q = "Approve plan rate-limits at 0123456789abcdef?"
+        d = project(**{".reef/loop.json": '{"active": true, "wait": "owner: ' + q + '", "stop": null, "parked": null, "hashes": []}'})
+        mod.doctor_lines = lambda root, fetch=False: []
+        mod.work_model = lambda root, runner=None, states=True: self.board([self.row("9", "⧖", detail=q, state="approval", nxt="python3 scripts/reef-loop.py tick"),
+                                                                             self.row("10", "▶", detail="task 2 of 4", nxt="/reef-review invoices", state="build")])
+        ran = []
+        mod.run_captured = lambda root, argv, timeout=900, sink=None: (ran.append(argv), (0, ["ok"]))[1]
+        win = self.FW([-1, 10, -2, 9, 9, 9, ord("2"), 10, -2, ord("x"), ord("q")])   # Enter on row 9 (yours): INBOX, its item selected; Tab Tab Tab: back on WORK; 2 Enter: row 10 in the panel, from the board
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        self.assertEqual(ran, [], "Enter on a row runs nothing: the jump, or the row's facts from the board")
+        frame = next((f for f in win.frames if any(r == "INBOX  1 item(s) wait on you" for r in f)), None)   # the INBOX page (WORK's line says "· i opens it")
+        self.assertIsNotNone(frame, "Enter on the row that is yours opened the inbox\n" + "\n".join(win.frames[-1]))
+        self.assertTrue(any("▶ 1  approve" in r for r in frame), "its item is the selected one\n" + "\n".join(frame))
+        self.assertTrue(any("OUTPUT  $ row 10" in r for r in win.rows) and any("build · task 2 of 4" in r for r in win.rows), "row 10, from the board, in the panel")
+
+    def test_the_box_and_the_panel_say_whose_the_next_step_is(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        q = "Approve plan rate-limits at 0123456789abcdef?"
+        it = mod.approve_item(q)
+        rows = [self.row("9", "⧖", detail=q, state="approval", nxt="python3 scripts/reef-loop.py tick"), self.row("10", "▶", detail="task 2 of 4", nxt="/reef-review invoices", state="build")]
+        lines, _, _ = mod.render_work(self.board(rows), [it], width=120, height=40, selected=0)
+        self.assertTrue(any("yours: python3 scripts/reef-approval.py --owner" in l for l in lines), "the ⧖ row's box names the owner's own command, not the orchestrator's step\n" + "\n".join(lines))
+        self.assertFalse(any("reef-loop.py tick" in l for l in lines), "the orchestrator's step is not the owner's")
+        lines, _, _ = mod.render_work(self.board(rows), [it], width=120, height=40, selected=1)
+        self.assertTrue(any("the runner's next: /reef-review invoices" in l for l in lines), "a building row: the runner's step, named as such\n" + "\n".join(lines))
+        self.assertEqual(mod.row_panel(rows[1], [it])["lines"][:2], ["row 10 item", "build · task 2 of 4"])
+        self.assertEqual(mod.mine(rows[0], [it]), 0); self.assertIsNone(mod.mine(rows[1], [it]))
+
+    def test_a_command_keeps_the_doctor_until_the_new_reading_lands(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        d = project()
+        calls = []
+        def doctor(root, fetch=False):
+            calls.append(fetch)
+            if len(calls) > 1:
+                time.sleep(0.6)   # the second reading is slow (it fetches): the first one's lines must stay meanwhile
+            return ["WARN plugin: a new Reef, 2 commit(s) since your copy"]
+        mod.doctor_lines = doctor
+        mod.work_model = lambda root, runner=None, states=True: self.board([])
+        mod.run_captured = lambda root, argv, timeout=900, sink=None: (0, ["ok"])
+        win = self.FW([-1, -1, -1, ord("i"), ord("c"), -3, ord("x"), -1, -2, ord("q")])   # ticks: the doctor, then the model read with it; i; c runs; the command lands; x closes; the slow doctor lands; a frame
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        self.assertGreaterEqual(len(calls), 2, "a command re-reads the doctor")
+        frames = [f for f in win.frames if any(r.startswith("RUNNER  the last steps") for r in f)]   # the INBOX page, by its RUNNER header (the DOCTOR section is what may vanish)
+        self.assertGreaterEqual(len(frames), 3)
+        self.assertTrue(all(any("WARN plugin" in r for r in f) for f in frames), "the doctor's line never left the inbox page\n" + "\n".join(next((f for f in frames if not any("WARN plugin" in r for r in f)), [])))
