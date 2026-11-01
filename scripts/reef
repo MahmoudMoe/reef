@@ -706,7 +706,7 @@ def mine(r, items):
 def row_lines(r, items):
     """The row's facts as the box and the panel show them: the item, the state and detail, whose the next step is, what it waits on, the counts."""
     i = mine(r, items)
-    step = f"yours: {items[i]['cmd']}" if i is not None else (f"the runner's next: {r['next']}" if r["next"] else "")
+    step = (f"yours: {items[i]['text']} — i opens it" if items[i]["kind"] == "answer" else f"yours: {items[i]['cmd']}") if i is not None else (f"the runner's next: {r['next']}" if r["next"] else "")
     return [x for x in (r["item"], f"{r['state']}" + (f" · {r['detail']}" if r["detail"] else ""), step,
                         f"depends: {', '.join(r['depends'])}" if r["depends"] else "",
                         f"tasks {r['tasks'][0]}/{r['tasks'][1]} · lane {r['lane']}" + (f" · {r['forge']}" if r["forge"] else "")) if x]
@@ -727,7 +727,7 @@ def panel_block(panel, w):
     the panel says `keep: head` (the doctor's, FAIL and WARN first). One text, one count, for the three pages (the review)."""
     if not panel:
         return "", []
-    head = (f"OUTPUT  $ {panel.get('shown', '')} · " + ("running … (Ctrl-C leaves the screen)" if panel.get("rc") is None else f"exit {panel['rc']} · {panel.get('after') or 'any key closes'}"))[:w]
+    head = clip(f"OUTPUT  $ {panel.get('shown', '')} · " + ("running … (Ctrl-C leaves the screen)" if panel.get("rc") is None else f"exit {panel['rc']} · {panel.get('after') or 'any key closes'}"), w)
     lines = list(panel.get("lines") or ["(no output)"])
     return head, (lines[:PANEL_LINES] if panel.get("keep") == "head" else lines[-PANEL_LINES:])
 
@@ -837,7 +837,7 @@ def tabs_line(view, n_items, w, age=None):
     row = "  ".join(f"[{t}]" if v == view else f" {t} " for t, v in cells) + "    Tab switches · ? keys"
     if age is not None and age > BOARD_SECONDS + BOARD_GRACE:   # overdue: a reading is late (the CLI review: `N s old` showed 96% of every cycle)
         row += f" · board {int(age // 60)} min old (g reads it now)"
-    return row[:w]
+    return clip(row, w)
 
 
 def render_work(wm, items, width=120, height=None, selected=None, panel=None, note="", log=None, keys=True):
@@ -855,19 +855,19 @@ def render_work(wm, items, width=120, height=None, selected=None, panel=None, no
         facts[0] += " · a new Reef waits (u)"   # the board is the first view: said here as on the inbox (hands-off step 6)
     if wm and wm.get("partial") and len(facts) > 1:
         facts[1] = f"{facts[1]} · {reading_line()}"
-    head = [(row + "   " + fact)[:w] for row, fact in zip(BLOCK, facts)] + ["─" * w] + ([tabs_line("work", len(items or []), w, (time.time() - wm["at"]) if wm and wm.get("at") else None)] if keys else [])   # keys False: text for a log, no key hints
+    head = [clip(row + "   " + fact, w) for row, fact in zip(BLOCK, facts)] + ["─" * w] + ([tabs_line("work", len(items or []), w, (time.time() - wm["at"]) if wm and wm.get("at") else None)] if keys else [])   # keys False: text for a log, no key hints
     styles = {i: "banner" for i in range(len(BLOCK))}
     styles[len(head) - 1] = "tabs"
-    col = f"      row  tasks  {'lane':<16} {'what':<24} {'forge':<14} item"[:w]
+    col = clip(f"      row  tasks  {'lane':<16} {'what':<24} {'forge':<14} item", w)
     table = []
     for r in rows:
         t = f"{r['tasks'][0]}/{r['tasks'][1]}" if r["tasks"][1] else "-"
-        table.append((f"  {r['mark']} {r['id']:<4} {t:>5}  {r['lane'][:16]:<16} {row_what(r)[:24]:<24} {r['forge'][:14]:<14} {r['item']}"[:w],
+        table.append((clip(f"  {r['mark']} {r['id']:<4} {t:>5}  {tail_clip(r['lane'], 16):<16} {clip(row_what(r), 24):<24} {clip(r['forge'], 14):<14} {r['item']}", w),
                       MARK_STYLE.get(r["mark"], "ready")))
     box = []
     if sel is not None:
-        for text in row_lines(rows[sel], items):
-            box += wrap(text, w - 4)[:2]
+        for i, text in enumerate(row_lines(rows[sel], items)):
+            box += wrap_upto(text, w - 4, 4 if i == 0 else 2)   # the row's item whole up to four lines, the rest two; a cut marked
     panel_head, panel_lines = panel_block(panel, w)
     key_rows = wrap_cells(KEYS, w) if keys else []
     log_lines = list(log or [])[-BOARD_LOG_LINES:]
@@ -881,23 +881,23 @@ def render_work(wm, items, width=120, height=None, selected=None, panel=None, no
             line, style = table[i]
             if i == sel:
                 sel_line = len(out)
-            out.append(line[:w]); st[len(out) - 1] = "sel" if i == sel else style   # the selection is the highlight alone: no second arrow beside the mark
+            out.append(clip(line, w)); st[len(out) - 1] = "sel" if i == sel else style   # the selection is the highlight alone: no second arrow beside the mark
         if n == 0:
-            out.append("  (no rows in the current batch — add one: python3 scripts/reef-queue.py add-row \"<item>\")"[:w])
+            out.append(clip("  (no rows in the current batch — add one: python3 scripts/reef-queue.py add-row \"<item>\")", w))
         if hi < n or lo > 0:
-            out.append(f"       … {lo + (n - hi)} more ({'↑' if lo else ''}{'↓' if hi < n else ''})"[:w])
+            out.append(clip(f"       … {lo + (n - hi)} more ({'↑' if lo else ''}{'↓' if hi < n else ''})", w))
         if box and sel is not None:
             title = f"┌─ row {rows[sel]['id']} "
-            out += [(title + "─" * (w - len(title) - 1) + "┐")[:w]] + ["│ " + b.ljust(w - 4)[:w - 4] + " │" for b in box] + ["└" + "─" * (w - 2) + "┘"]
+            out += [clip(title + "─" * (w - len(title) - 1) + "┐", w)] + ["│ " + clip(b, w - 4).ljust(w - 4) + " │" for b in box] + ["└" + "─" * (w - 2) + "┘"]
         if panel:
-            out += [panel_head] + ["  " + l[:w - 2] for l in panel_lines]
-        out.append((f"LOG  the runner's last {len(log_lines)} line(s)" + (" · w opens it" if keys else "") if log_lines else "LOG  no live log yet" + (" · w opens it" if keys else ""))[:w]); st[len(out) - 1] = "head"
+            out += [panel_head] + ["  " + clip(l, w - 2) for l in panel_lines]
+        out.append(clip(f"LOG  the runner's last {len(log_lines)} line(s)" + (" · w opens it" if keys else "") if log_lines else "LOG  no live log yet" + (" · w opens it" if keys else ""), w)); st[len(out) - 1] = "head"
         for l in log_lines:
-            out.append("  " + l[:w - 2])
+            out.append("  " + clip(l, w - 2))
             style = log_style(l)
             if style:
                 st[len(out) - 1] = style
-        out.append((f"INBOX  {len(items)} item(s) wait on you" + (" · i opens it" if keys else "") if items else "INBOX  nothing waits on you")[:w])
+        out.append(clip(f"INBOX  {len(items)} item(s) wait on you" + (" · i opens it" if keys else "") if items else "INBOX  nothing waits on you", w))
         if keys:
             out += ["─" * w] + key_rows
         return out, st, sel_line
@@ -941,22 +941,22 @@ def render_plan(wm, items, width=120, height=None, selected=None, panel=None):
     n = len(rows)
     sel = None if selected is None or not n else min(max(int(selected), 0), n - 1)
     head = [tabs_line("plan", len(items or []), w),
-            f"PLAN  batch {wm['batch'] or '-'} · {pr[0]}/{pr[1]} rows · {pt[0]}/{pt[1]} tasks · ${wm['cost_today']:.2f} today · order: {'what can start first' if wm.get('order') == 'start' else 'the queue'} (o)"[:w], ""]
+            clip(f"PLAN  batch {wm['batch'] or '-'} · {pr[0]}/{pr[1]} rows · {pt[0]}/{pt[1]} tasks · ${wm['cost_today']:.2f} today · order: {'what can start first' if wm.get('order') == 'start' else 'the queue'} (o)", w), ""]
     table = []
     for r in rows:
         d, t = r["tasks"]
         k = round(20 * d / t) if t else 0
         bar = "█" * k + "░" * (20 - k)
-        table.append((f"  {r['mark']} row {r['id']:<4} {bar} {f'{d}/{t}' if t else '  -':>5}  {row_what(r)[:22]:<22} {r['item']}"[:w], MARK_STYLE.get(r["mark"], "ready")))
+        table.append((clip(f"  {r['mark']} row {r['id']:<4} {bar} {f'{d}/{t}' if t else '  -':>5}  {clip(row_what(r), 22):<22} {r['item']}", w), MARK_STYLE.get(r["mark"], "ready")))
     panel_head, panel_lines = panel_block(panel, w)
-    tail = [("AUTOPILOT  " + (f"on · pid {ap.get('pid')} · since {ap.get('since')} · {ap.get('decided_today', 0)} decided by Mahmoud today" if ap.get("on") else "off · a opens the start panel"))[:w]]
+    tail = [clip("AUTOPILOT  " + (f"on · pid {ap.get('pid')} · since {ap.get('since')} · {ap.get('decided_today', 0)} decided by Mahmoud today" if ap.get("on") else "off · a opens the start panel"), w)]
     lanes = {}
     for r in rows:
         if r["mark"] != "✓":
             lanes.setdefault(r["lane"], []).append(r["id"])
-    tail.append(f"LANES  {len(lanes)} lane(s) · up to {wm.get('cap') or '∞'} row(s) in flight (loop.rows_in_flight) · one lane, one row at a time"[:w])
-    tail += [f"  {lane[:20]:<20} rows {' → '.join(ids)}"[:w] for lane, ids in lanes.items()]
-    tail += ["", (f"INBOX  {len(items)} item(s) wait on you · i opens it" if items else "INBOX  nothing waits on you")[:w]]
+    tail.append(clip(f"LANES  {len(lanes)} lane(s) · up to {wm.get('cap') or '∞'} row(s) in flight (loop.rows_in_flight) · one lane, one row at a time", w))
+    tail += [clip(f"  {tail_clip(lane, 20):<20} rows {' → '.join(ids)}", w) for lane, ids in lanes.items()]
+    tail += ["", clip(f"INBOX  {len(items)} item(s) wait on you · i opens it" if items else "INBOX  nothing waits on you", w)]
     keys = wrap_cells(KEYS, w)
 
     def frame(lo, hi, panel_lines):
@@ -967,11 +967,11 @@ def render_plan(wm, items, width=120, height=None, selected=None, panel=None):
             st[len(out)] = "sel" if i == sel else table[i][1]
             out.append(table[i][0])
         if hi < n or lo > 0:
-            out.append(f"       … {lo + (n - hi)} more ({'↑' if lo else ''}{'↓' if hi < n else ''})"[:w])
+            out.append(clip(f"       … {lo + (n - hi)} more ({'↑' if lo else ''}{'↓' if hi < n else ''})", w))
         out.append("")
         if panel:
             st[len(out)] = "head"
-            out += [panel_head] + ["  " + l[:w - 2] for l in panel_lines] + [""]
+            out += [panel_head] + ["  " + clip(l, w - 2) for l in panel_lines] + [""]
         st[len(out)] = "head"; st[len(out) + 1] = "head"
         out += tail + ["─" * w] + keys
         return out, st, sel_line
@@ -1002,12 +1002,12 @@ def render_autopilot(wm, contract, width=120, height=None):
     will be worked (o toggles), which forge items it will close, and the one key that starts it. Returns (lines, styles)."""
     w = max(60, int(width))
     decides = ", ".join(contract.get("decides") or []) or "-"
-    lines = [f"AUTOPILOT  start · the contract at {contract.get('digest16') or 'NOT APPROVED'} · Mahmoud decides: {decides}"[:w],
-             f"  never: {contract.get('never') or '-'}"[:w], ""]
+    lines = [clip(f"AUTOPILOT  start · the contract at {contract.get('digest16') or 'NOT APPROVED'} · Mahmoud decides: {decides}", w),
+             clip(f"  never: {contract.get('never') or '-'}", w), ""]
     styles = {0: "tabs", 1: "wait"}
     if not contract.get("approved"):
-        lines.append((f"  no approved contract: Enter records the approval — {contract['question']} — then a, Enter starts it" if contract.get("question")
-                      else "  no contract to approve: python3 scripts/reef-run.py contract --day seeds reef/proxy.md (reef/owner.md is yours); Enter runs `reef autopilot`, which says so")[:w])
+        lines.append(clip(f"  no approved contract: Enter records the approval — {contract['question']} — then a, Enter starts it" if contract.get("question")
+                      else "  no contract to approve: python3 scripts/reef-run.py contract --day seeds reef/proxy.md (reef/owner.md is yours); Enter runs `reef autopilot`, which says so", w))
         lines.append("")
     lines.append(f"  the order it works ({'what can start first' if wm.get('order') == 'start' else 'the queue'} · o toggles):")
     closes = []
@@ -1026,14 +1026,14 @@ def render_autopilot(wm, contract, width=120, height=None):
         else:
             what = "can start now" + (f" · {r['tasks'][1]} task(s)" if r["tasks"][1] else " · to plan")
         styles[len(lines)] = MARK_STYLE.get(r["mark"], "ready")
-        lines.append(f"  {i}. row {r['id']:<4} {r['item'][:36]:<36} — {what}"[:w])
+        lines.append(clip(f"  {i}. row {r['id']:<4} {clip(r['item'], 36):<36} — {what}", w))
         closes += [x for x in r["forge"].split(" · ") if x]
     if i == 0:
         lines.append("  (nothing to work: the batch is done or empty)")
     lines.append("")
     if closes:
-        lines.append(f"  it merges or closes: {', '.join(closes)}"[:w])
-    lines.append("  Enter starts `reef autopilot` (detached; the screen keeps showing it) · q or Esc back"[:w])
+        lines.append(clip(f"  it merges or closes: {', '.join(closes)}", w))
+    lines.append(clip("  Enter starts `reef autopilot` (detached; the screen keeps showing it) · q or Esc back", w))
     styles[len(lines) - 1] = "head"
     if height is not None and len(lines) > int(height):
         lines = lines[:int(height) - 1] + [lines[-1]]
@@ -1051,7 +1051,7 @@ def render_help(view, width=120, height=None):
              "  on the log: ↑↓ a line · [ ] a page (PgUp/PgDn) · t oldest (Home) · b newest (End), following · / find a line, n the next older",
              "  q / Esc    q quits on WORK, INBOX, PLAN · on LOG, help, the autopilot panel both go back · Esc never quits", "", "  marks: ✓ done · ▶ building · ○ can start now · ⏸ waits on open rows · ⧖ yours (a gate or a question)",
              "  lanes: rows of one module go one at a time; different modules run beside each other (loop.rows_in_flight caps them)"]
-    return [l[:w] for l in lines][:int(height)] if height is not None else [l[:w] for l in lines], {0: "tabs"}
+    return [clip(l, w) for l in lines][:int(height)] if height is not None else [clip(l, w) for l in lines], {0: "tabs"}
 
 
 def style_attrs(c, colors=True):
@@ -1092,6 +1092,13 @@ def wrap_cells(text, width):
     return out
 
 
+def clip(text, width):
+    """A line cut to `width` characters, the cut marked with "…" — never a silent cut (2026-11-01, the owner's screen: an inbox
+    item ended mid-word at "--env <yo" and nothing said more was there)."""
+    text, width = str(text), max(1, int(width))
+    return text if len(text) <= width else text[:width - 1] + "…"
+
+
 def wrap(text, width):
     """Words onto lines of at most `width` characters; a word longer than the width is cut."""
     out, line = [], ""
@@ -1107,6 +1114,40 @@ def wrap(text, width):
     return out + [line] if line or not out else out
 
 
+def tail_clip(text, width):
+    """A path cut from the left, its file name kept: `…/check-audit.ts`, not `scripts/check-au` (the owner's WORK page)."""
+    text, width = str(text), max(1, int(width))
+    return text if len(text) <= width else "…" + text[-(width - 1):]
+
+
+def wrap_upto(text, width, most):
+    """Words on at most `most` lines; what does not fit ends the last line with "…"."""
+    ws = wrap(text, width)
+    return ws if len(ws) <= most else ws[:most - 1] + [clip(" ".join(ws[most - 1:]), width)]
+
+
+def two_lines(text, w):
+    """A warning on up to two lines, the second indented and its cut marked."""
+    ws = wrap(text, w - 2)
+    return ["  " + ws[0]] + (["    " + clip(" ".join(ws[1:]), w - 4)] if len(ws) > 1 else [])
+
+
+def selected_box(it, width):
+    """What the selected item says, whole: its words wrapped, then for an answer the answer as you would write it (Enter edits
+    it), for anything else the command Enter runs — at most four lines, a cut marked (2026-11-01, the owner: "I can't see the
+    item whole, and I can't see my answer" — the box held only `reef-queue.py answered 280 '…'`, the answer inside shell quotes)."""
+    text = str(it.get("text") or "")
+    rec = str(it.get("recommended") or "")
+    if it.get("kind") == "answer":
+        text = text[:-len(f" (recommended: {rec})")] if rec and text.endswith(f" (recommended: {rec})") else text
+        return wrap(text, width) + ["", "your answer — Enter opens it to edit, then Enter sends · Esc cancels:"] + \
+            wrap(rec or "(no recommendation: Enter to write one)", width)
+    cmd = wrap(it.get("cmd") or "", width)
+    if len(cmd) > 4:
+        cmd = cmd[:3] + [clip(cmd[3], width - 2) + " …"]
+    return wrap(text, width) + ["", "Enter runs:"] + cmd
+
+
 def render(model, width=120, height=None, selected=None, panel=None, keys=True, banner=True):
     """The screen as lines for a terminal of `width` and, when known, `height`: the banner with the facts beside it, the inbox
     as a list — with `selected` an index, the chosen row marked and its command boxed under the list (wrapped; a command past
@@ -1120,16 +1161,14 @@ def render(model, width=120, height=None, selected=None, panel=None, keys=True, 
     items, warns = model["items"], model["warns"]
     n = len(items)
     sel = None if selected is None or not n else min(max(int(selected), 0), n - 1)
-    head = ([(row + "   " + fact)[:w] for row, fact in zip(BLOCK, model["facts"])] + ["─" * w]) if banner else []   # banner False: the page under another page's banner (--once)
-    head.append((f"INBOX  {n} item(s) wait on you" if n else "INBOX  nothing waits on you")[:w])   # the keys have one home: the last line
+    head = ([clip(row + "   " + fact, w) for row, fact in zip(BLOCK, model["facts"])] + ["─" * w]) if banner else []   # banner False: the page under another page's banner (--once)
+    head.append(clip(f"INBOX  {n} item(s) wait on you" if n else "INBOX  nothing waits on you", w))   # the keys have one home: the last line
     rows = []   # one entry per item: its lines
     for idx, it in enumerate(items):
         mark = "▶" if idx == sel else " "
-        first = f"  {mark} {str(idx + 1) if idx < 9 else ' ':>1}  {it['kind']:<8} {it['text']}"[:w]
+        first = clip(f"  {mark} {str(idx + 1) if idx < 9 else ' ':>1}  {it['kind']:<8} {it['text']}", w)
         rows.append([first] + (["       " + b for b in wrap(it["cmd"], w - 7)] if sel is None else []))
-    box = wrap(items[sel]["cmd"], w - 4) if sel is not None else []
-    if len(box) > 4:
-        box = box[:3] + [box[3][:w - 6] + " …"]
+    box = selected_box(items[sel], w - 4) if sel is not None else []
     steps = list(model["steps"]) or ["(no steps recorded)"]
     warn_rows = warns[:3]
     key_rows = wrap_cells(KEYS, w) if keys else []   # measured, never assumed: two rows under 96 columns, three under 50; a row breaks between keys, never inside one
@@ -1144,15 +1183,15 @@ def render(model, width=120, height=None, selected=None, panel=None, keys=True, 
                 sel_line = len(out)
             out += rows[idx]
         if hi < n or lo > 0:
-            out.append(f"       … {lo + (n - hi)} more ({'↑' if lo else ''}{'↓' if hi < n else ''})"[:w])
+            out.append(clip(f"       … {lo + (n - hi)} more ({'↑' if lo else ''}{'↓' if hi < n else ''})", w))
         if box:
             out += ["┌─ selected " + "─" * (w - 13) + "┐"] + ["│ " + b.ljust(w - 4) + " │" for b in box] + ["└" + "─" * (w - 2) + "┘"]
         if panel:
-            out += [panel_head] + ["  " + l[:w - 2] for l in panel_lines]
-        out += ["", "RUNNER  the last steps · w for the log"] + ["  " + st[:w - 2] for st in steps]
+            out += [panel_head] + ["  " + clip(l, w - 2) for l in panel_lines]
+        out += ["", "RUNNER  the last steps · w for the log"] + ["  " + clip(st, w - 2) for st in steps]
         if model["doctor"]:
             out.append(f"DOCTOR  {len(warns)} warning(s) · d for the whole report" if warns else "DOCTOR  nothing wrong")
-            out += ["  " + l[:w - 2] for l in warn_rows]
+            out += [x for l in warn_rows for x in two_lines(l, w)]
         if keys:
             out += ["─" * w] + key_rows
         return out, sel_line
@@ -1173,7 +1212,7 @@ def render(model, width=120, height=None, selected=None, panel=None, keys=True, 
         panel_lines, dropped = shed_panel(panel_lines, dropped, (panel or {}).get("keep") == "head")
         lines, sel_line = frame(box, steps, warn_rows, lo, hi, panel_lines)
     while len(lines) > h and len(box) > 1:                        # 4. the box's tail
-        box = box[:-2] + [box[-2][:w - 6] + " …"] if len(box) > 1 else box
+        box = box[:-2] + [clip(box[-2], w - 6).rstrip("…") + " …"] if len(box) > 1 else box
         lines, sel_line = frame(box, steps, warn_rows, lo, hi, panel_lines)
     while len(lines) > h and hi - lo > 1:                         # 5. the items farthest from the selection
         anchor = sel if sel is not None else 0
@@ -1236,7 +1275,7 @@ def render_log(steps, width=120, height=24, offset=0, found="", matched=True):
     what = (f" · found {shown!r}" if matched else f" · no match for {shown!r}") if found else ""
     head = f"LOG  {len(steps)} lines · {where}{what} · ↑↓ [ ] scroll · t oldest · b newest · / search · q back · Tab views"
     styles = {i + 1: log_style(l) for i, l in enumerate(body) if log_style(l)}
-    return [head[:w]] + ["  " + l[:w - 2] for l in body] + ["─" * w], styles, most
+    return [clip(head, w)] + ["  " + clip(l, w - 2) for l in body] + ["─" * w], styles, most
 
 
 def on_key(k, sel, n, view):
@@ -1298,6 +1337,33 @@ def on_key(k, sel, n, view):
 
 KEY_UP, KEY_DOWN, KEY_ENTER, KEY_BACKSPACE, KEY_RESIZE = 259, 258, 343, 263, 410   # curses' codes, named here so on_key needs no curses
 KEY_PPAGE, KEY_NPAGE, KEY_HOME, KEY_END = 339, 338, 262, 360
+KEY_LEFT, KEY_RIGHT, KEY_DC = 260, 261, 330
+
+
+def edit_key(buf, pos, k):
+    """One key into an answer with a cursor at `pos`: (the buffer, the cursor, "done" | "cancel" | None). ← → move, Home and
+    End (Ctrl-A, Ctrl-E) jump, Backspace and Delete remove beside the cursor, a printable character goes in AT the cursor —
+    2026-11-01, the owner: "a place to edit" (the line only appended and deleted at its end)."""
+    pos = max(0, min(int(pos), len(buf)))
+    if k in ("\n", "\r", KEY_ENTER):
+        return buf, pos, "done"
+    if k == "\x1b":
+        return buf, pos, "cancel"
+    if k in ("\x7f", "\b", KEY_BACKSPACE):
+        return (buf[:pos - 1] + buf[pos:], pos - 1, None) if pos else (buf, pos, None)
+    if k == KEY_DC or k == "\x04":
+        return buf[:pos] + buf[pos + 1:], pos, None
+    if k == KEY_LEFT or k == "\x02":
+        return buf, max(0, pos - 1), None
+    if k == KEY_RIGHT or k == "\x06":
+        return buf, min(len(buf), pos + 1), None
+    if k == KEY_HOME or k == "\x01":
+        return buf, 0, None
+    if k == KEY_END or k == "\x05":
+        return buf, len(buf), None
+    if isinstance(k, str) and k.isprintable():
+        return buf[:pos] + k + buf[pos:], pos + len(k), None
+    return buf, pos, None
 
 
 def edit_step(buf, k):
@@ -1336,6 +1402,61 @@ def read_key(stdscr):
                 return ""
             raw += bytes([nxt])
     return raw.decode("utf-8", "replace")
+
+
+def edit_layout(prompt, buf, pos, width):
+    """The answer box's text rows and the cursor's (row, column): the prompt then the answer, cut into rows of `width`
+    characters — every character shown, none cut (2026-11-01, the owner: "I don't see my answer")."""
+    whole = prompt + buf
+    width = max(1, int(width))
+    rows = [whole[i:i + width] for i in range(0, len(whole), width)] or [""]
+    r, c = divmod(len(prompt) + pos, width)
+    if r == len(rows):
+        rows.append("")
+    return rows, (r, c)
+
+
+def edit_box(stdscr, curses, h, w, title, prompt, text):
+    """An answer typed on the screen in a box at the screen's foot, as tall as the answer: the title (what Enter and Esc do),
+    the answer whole, the cursor where the next key lands. Returns the text, or None on Esc."""
+    buf, pos = text, len(text)
+    try:
+        curses.curs_set(1)
+    except Exception:
+        pass
+    try:
+        while True:
+            inner = max(10, w - 5)
+            rows, (cr, cc) = edit_layout(prompt, buf, pos, inner)
+            shown = rows[max(0, cr - (h - 4)):][:max(1, h - 3)]   # a very long answer: the rows around the cursor
+            off = max(0, cr - (h - 4))
+            top = max(0, h - len(shown) - 2)
+            head = clip("┌─ " + title + " ", w - 2)
+            frame = [head + "─" * (w - 2 - len(head)) + "┐"] + ["│ " + r.ljust(inner) + " │" for r in shown] + ["└" + "─" * (w - 3) + "┘"]
+            for y, line in enumerate(frame):
+                try:
+                    stdscr.move(top + y, 0); stdscr.clrtoeol()
+                    stdscr.addstr(top + y, 0, line[:w - 1], curses.A_BOLD)
+                except curses.error:
+                    pass
+            try:
+                stdscr.move(top + 1 + cr - off, 2 + cc)
+            except curses.error:
+                pass
+            stdscr.refresh()
+            k = read_key(stdscr)
+            if k == -1 or k == "":
+                continue
+            buf, pos, state = edit_key(buf, pos, k)
+            if state == "done":
+                return buf.strip()
+            if state == "cancel":
+                return None
+    finally:
+        try:
+            curses.curs_set(0)
+        except Exception:
+            pass
 
 
 def edit_line(stdscr, curses, y, w, prompt, text):
@@ -1655,8 +1776,8 @@ def screen_loop(stdscr, root, curses):
             target = cur["items"][act[1]]
             argv, shown = target["argv"], target["cmd"]
             if target["kind"] == "answer":   # the answer typed on the screen, the recommendation prefilled
-                text = edit_line(stdscr, curses, min(h - 1, (sel_line or 0) + 1), w, f"your answer for row {target['row']}: ",
-                                 "".join(c for c in (target.get("recommended") or "") if c.isprintable()))   # agent text on the owner's line: printable only
+                text = edit_box(stdscr, curses, h, w, f"your answer for row {target['row']} · Enter sends · Esc cancels · ← → Home End move", "",
+                                "".join(c for c in (target.get("recommended") or "") if c.isprintable()))   # agent text on the owner's line: printable only
                 if not text:
                     continue
                 key = f"#{target['issue']}" if target.get("issue") else target["row"]

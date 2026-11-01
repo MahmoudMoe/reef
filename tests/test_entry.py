@@ -114,6 +114,72 @@ def settle(limit=15.0):
     assert not stuck, f"a reading did not land in {limit} s: {stuck}"
 
 
+class EveryWordIsReachable(unittest.TestCase):
+    """2026-11-01, the owner's screen at 211 columns: the inbox item ended at "--env <yo" with nothing saying more was there; the
+    selected box held `reef-queue.py answered 280 '…'` — his answer inside shell quotes, the question nowhere; the answer line
+    showed only its tail and edited only at its end; WORK cut the lane to `scripts/check-au` and every row's item at the edge.
+    Every cut is marked, the selected item says itself whole, an answer is words, and the answer box edits anywhere."""
+
+    QUESTION = ("Row 36 task 364: your KEY GATE yes is logged (028f538c on feat/judge-brief-without-key). Please run the side-by-side "
+                "from your shell: npx tsx scripts/side-by-side-664.ts --env <your env> and paste the verdict here")
+    ANSWER = "Run it now. Accept 664a if the unsurfaced session's withheld criterion is not scored as surfaced (what you already said on #259)."
+
+    def test_the_inbox_says_the_item_and_the_answer_whole_and_marks_every_cut(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        d = project(**{".reef/questions.md": f"- row 36: {self.QUESTION} — recommended: {self.ANSWER}\n",
+                       ".reef/run/live.log": "09:04 s2 job gate-188-merged: running 0 min — sh -c cd " + "/very/long/path" * 20 + "\n"})
+        model = dict(mod.screen_model(d), doctor=True, warns=["WARN worktree: .reef/worktrees/18901 [task/18901-product-roots-list] (task) — 9 script(s) "
+                                                              "behind the plugin — the loop rebases it on develop; or git -C " + "/x" * 80 + " merge develop"])
+        for width in (80, 120, 211):
+            lines, sel = mod.render(model, width=width, height=57, selected=0)
+            self.assertTrue(all(len(l) <= width for l in lines), f"{width}: a line wider than the screen")
+            box = " ".join(l[2:-2].strip() for l in lines if l.startswith("│"))
+            self.assertIn(" ".join(self.QUESTION.split()), " ".join(box.split()), f"{width}: the question whole in the box\n" + "\n".join(lines))
+            self.assertIn(" ".join(self.ANSWER.split()), " ".join(box.split()), f"{width}: the answer whole, as words")
+            self.assertNotIn("answered 280 '", box, "never the shell command with the answer in quotes")
+            cut = [l for l in lines if l.rstrip().endswith("…")]
+            self.assertTrue(cut, f"{width}: the item's row, the long step and the warning are cut — and say so\n" + "\n".join(lines))
+            for l in lines:
+                if l.startswith("  ▶") or "gate-188-merged" in l:
+                    self.assertTrue(len(l) < width or l.endswith("…"), f"{width}: a silent cut: {l!r}")
+            warn = [i for i, l in enumerate(lines) if "WARN worktree" in l]
+            self.assertTrue(warn and lines[warn[0] + 1].startswith("    "), f"{width}: a warning gets a second line\n" + "\n".join(lines))
+
+    def test_work_keeps_the_file_name_and_the_row_box_says_the_item(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        item = ("audit gate accepts a package when any one of its advisory ids is allowlisted (scripts/check-audit.ts:68-73): judge each "
+                "advisory, so an unlisted one fails — found in PR #22's review, and the release gate reads it again before the tag")
+        d = project(**{"docs/queue.md": "# Queue\nCurrent batch: 2\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n"
+                                        f"| 13 | {item} | | found | 2 | |\n"})
+        mod.row_state = lambda root, row: {"row": str(row), "state": "queued", "next": "", "detail": "queue status queued"}
+        wm = mod.work_model(d)
+        for width in (80, 120, 211):
+            lines, _, sel = mod.render_work(wm, [], width=width, height=57, selected=0)
+            self.assertTrue(all(len(l) <= width for l in lines), f"{width}: a line wider than the screen")
+            row = lines[sel]
+            self.assertIn("…/check-audit.ts", row, f"{width}: a lane keeps its file name\n{row}")
+            self.assertTrue(len(row) < width or row.endswith("…"), f"{width}: the item's cut is marked\n{row}")
+            box = " ".join(l[2:-2].strip() for l in lines if l.startswith("│"))
+            self.assertIn(" ".join(item.split()[:30]), " ".join(box.split()), f"{width}: the row's item in its box\n" + "\n".join(lines))
+
+    def test_the_answer_box_edits_anywhere_and_shows_every_character(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        key = mod.edit_key
+        buf, pos, st = "Run it now", 10, None
+        buf, pos, st = key(buf, pos, mod.KEY_HOME); self.assertEqual(pos, 0)
+        buf, pos, st = key(buf, pos, "Y"); buf, pos, st = key(buf, pos, "e"); buf, pos, st = key(buf, pos, "s"); buf, pos, st = key(buf, pos, ".")
+        buf, pos, st = key(buf, pos, " "); self.assertEqual(buf, "Yes. Run it now", "a character goes in at the cursor")
+        buf, pos, st = key(buf, pos, mod.KEY_END); buf, pos, st = key(buf, pos, mod.KEY_LEFT); buf, pos, st = key(buf, pos, "\x7f")
+        self.assertEqual(buf, "Yes. Run it nw", "Backspace removes left of the cursor, not the last character")
+        buf, pos, st = key(buf, pos, mod.KEY_LEFT); buf, pos, st = key(buf, pos, mod.KEY_DC); self.assertEqual(buf, "Yes. Run it w")
+        self.assertEqual(key(buf, pos, "\n")[2], "done"); self.assertEqual(key(buf, pos, "\x1b")[2], "cancel")
+        self.assertEqual(key("نعم", 3, "،")[0], "نعم،", "Arabic, whole characters")
+        rows, (r, c) = mod.edit_layout("", self.ANSWER, len(self.ANSWER), 40)
+        self.assertEqual("".join(rows), self.ANSWER, "every character of the answer is on the box's rows")
+        self.assertTrue(all(len(x) <= 40 for x in rows)); self.assertEqual(r * 40 + c, len(self.ANSWER), "the cursor at the answer's end")
+        self.assertEqual(mod.edit_step("Batch 9", "!"), ("Batch 9!", None), "the one-line prompts keep their contract")
+
+
 class TheScreen(unittest.TestCase):
     """docs/design/consolidation.md step 5 (2026-10-30): `reef` alone opens a live screen — the status line, THE INBOX (every
     wait Reef recorded, numbered, each carrying the exact command the row machine names, so one key runs it), the runner's
@@ -205,10 +271,13 @@ class TheScreen(unittest.TestCase):
         self.assertTrue(keys_rows and keys_rows[0].startswith("keys: q quit") and "↑↓" in keys_rows[0] and "Enter" in keys_rows[0], "quit first, whatever the width wraps\n" + "\n".join(lines[-3:]))
         self.assertIn("▶", lines[sel]); self.assertIn("2  answer", lines[sel])
         box = " ".join(l.strip("│ ") for l in lines if l.startswith("│"))
-        self.assertIn("python3 scripts/reef-queue.py footnote 'Batch 9' --row 4", box, "the selected item's command, whole, in the box")
+        self.assertIn("row 4: Where do the 125 rows land?", box, "the selected item's words, whole, in the box")
+        self.assertIn("your answer", box); self.assertIn("Batch 9", box, "the answer as words (2026-11-01: not a shell command)")
+        self.assertNotIn("'Batch 9'", box, "no shell quotes around the owner's answer")
         lines, sel = mod.render(model, width=100, height=34, selected=0)
         box = " ".join(l.strip("│ ").strip() for l in lines if l.startswith("│"))
-        self.assertIn("the class has 31 members and a later row re-takes them' --row 7", box, "a long command wraps inside the box, never cut")
+        self.assertIn(long_q, box, "a long question wraps inside the box, never cut")
+        self.assertIn("(a) count it as stale; the class has 31 members and a later row re-takes them", box, "the long answer too")
         lines, sel = mod.render(model, width=100, height=16, selected=2)
         self.assertLessEqual(len(lines), 16, "a short terminal: still fits\n" + "\n".join(lines))
         self.assertTrue(any(l.startswith("keys:") for l in lines[-2:]), "the keys are last even when short (one row or two)")
@@ -223,10 +292,11 @@ class TheScreen(unittest.TestCase):
             self.assertIn("q quit", " ".join(lines[-4:]), f"{height}x{width}: the keys end the screen (on one row, or up to four when narrow)\n" + "\n".join(lines))
             if height >= 16:
                 self.assertIsNotNone(sel, f"{height}x{width}: the selection is on screen"); self.assertIn("▶", lines[sel])
-        huge = dict(model, items=[dict(model["items"][0], cmd="python3 scripts/reef-queue.py footnote " + " ".join(f"word{i}" for i in range(80)) + " --row 7")])
+        huge = dict(model, items=[dict(model["items"][0], kind="approve", cmd="python3 scripts/reef-queue.py footnote " + " ".join(f"word{i}" for i in range(80)) + " --row 7")])
         lines, sel = mod.render(huge, width=100, height=34, selected=0)
         box = [l for l in lines if l.startswith("│")]
-        self.assertEqual(len(box), 4, "the box is at most four lines")
+        box = box[box.index(next(l for l in box if "Enter runs:" in l)) + 1:]
+        self.assertEqual(len(box), 4, "the command in the box is at most four lines")
         self.assertTrue(box[-1].rstrip("│ ").endswith("…"), "a cut is marked, never silent (the review)\n" + box[-1])
         self.assertEqual(reef("answer", "7", "-h", "--repo", d, "--dry-run").returncode, 2, "`-h` is not an answer")
         once = mod.screen_text(d, width=100)
