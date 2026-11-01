@@ -34,6 +34,26 @@ def pass_gate(d):
 
 
 class Gate(unittest.TestCase):
+    def test_a_probe_run_in_a_worktree_writes_the_main_checkouts_gate(self):
+        # the owner's project, 2026-11-01: `reef-graph-run.py probe` run inside a feature worktree wrote probe.js there,
+        # while the tick reads the gate from the main checkout — the probe and its check now write where the gate is read
+        d = graph_project()
+        subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "scripts"], check=True, capture_output=True)
+        wt = os.path.join(d, ".reef", "worktrees", "feat")
+        subprocess.run(["git", "-C", d, "worktree", "add", "-q", "-b", "feat/x", wt], check=True, capture_output=True)
+        r = g(wt, "probe")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(d, ".reef", "graph", "probe.js")), r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(wt, ".reef", "graph", "probe.js")))
+        self.assertIn("main checkout", r.stdout); self.assertIn("without the Workflow tool cannot finish", r.stdout)
+        with open(os.path.join(d, ".reef", "graph", "probe-results.json"), "w") as f:
+            json.dump({"denied": True, "output": "reef-guard DENY: writing under .reef/approvals/"}, f)
+        r = g(wt, "probe-check", ".reef/graph/probe-results.json")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(json.load(open(os.path.join(d, ".reef", "graph", "gate.json")))["ok"])
+        self.assertFalse(os.path.exists(os.path.join(wt, ".reef", "graph", "gate.json")))
+
     def test_generate_refuses_until_the_probe_proves_the_hooks_reach_workflow_agents(self):
         d = graph_project()
         r = g(d, "generate")

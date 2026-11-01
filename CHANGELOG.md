@@ -2,6 +2,8 @@
 
 ## 0.7.5 (unreleased)
 
+- **No GATE OK names the step that gives one** (the owner's project, 2026-11-01: the tick said `no GATE OK — reef-graph-run.py probe`; the owner ran it inside a feature worktree, where probe.js landed and no tick reads it, and the session had no Workflow tool to finish it). The tick's hint and its BROKEN line now say `/reef-graph once, in a session with the Workflow tool, from the main checkout`, and that chat keeps every guarantee. `reef-graph-run.py probe` and `probe-check` write the main checkout's `.reef/graph/`, where `graph_mode` reads the gate, wherever they are run; `probe` says so, and that a session without the Workflow tool cannot finish it. Pinned by `test_a_probe_run_in_a_worktree_writes_the_main_checkouts_gate`. tests/size-budget.json raised: `script_lines` 18,696 → 18,699 (the probe's main checkout).
+
 - **The doctor's version line reads the layout.** `.reef/version` holds the layout version, reef-init's `VERSION`, not the plugin's. The doctor compared it with the plugin version and warned forever on a -dev plugin. In the live Node run, 0.7.3 against 0.7.4-dev.21 warned on a fresh init, and `reef update` rendered 0.7.3 again. Now a project at the plugin's layout version is OK, and the line shows the layout when it differs from the plugin's version. The size budget rises by 14 script lines.
 
 - **NO REMOTE pushes the release branch too.** `gh repo create … --push` pushes only the current branch (`develop`). In the live runs, `main` stayed local, and the release needed it on origin. Now, when the release branch exists locally, init's and the doctor's command ends with `&& git push -u origin <release>`. The size budget rises by 4 script lines.

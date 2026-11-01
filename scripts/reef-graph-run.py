@@ -135,9 +135,10 @@ return r
     p = os.path.join(d, "probe.js")
     with open(p, "w", encoding="utf-8") as f:
         f.write(js)
-    print(f"probe: {p}")
+    print(f"probe: {p} (the main checkout's: the tick reads the gate there)")
     print("next: call the Workflow tool with scriptPath set to that file; save its return value as JSON to .reef/graph/probe-results.json; "
-          "then `reef-graph-run.py probe-check .reef/graph/probe-results.json`")
+          "then `reef-graph-run.py probe-check .reef/graph/probe-results.json`. A session without the Workflow tool cannot finish this: "
+          "chat mode (/reef-task) keeps every guarantee meanwhile")
     return 0
 
 
