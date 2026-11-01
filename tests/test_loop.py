@@ -476,7 +476,7 @@ class VerifyNow(unittest.TestCase):
         d = project()
         t = lambda *a: subprocess.run([sys.executable, LOOP, "tick", *a, "--repo", d], capture_output=True, text=True)
         out = t().stdout
-        self.assertIn("dispatch (chat): 101 — /reef-task (no GATE OK — reef-graph-run.py probe)", out, "auto without a gate: chat, with the reason")
+        self.assertIn("dispatch (chat): 101 — /reef-task (no GATE OK — /reef-graph once, in a session with the Workflow tool, from the main checkout; chat keeps every guarantee)", out, "auto without a gate: chat, with the reason")
         self.assertNotIn("BROKEN", out)
         write(d, ".reef/graph/gate.json", json.dumps({"ok": True, "denied": True, "file_existed": False}))
         out = t().stdout

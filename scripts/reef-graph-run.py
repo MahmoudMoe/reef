@@ -58,7 +58,7 @@ import time
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import run_rc3, die as _die, load_sibling, git_root  # noqa: E402
+from reef_common import run_rc3, die as _die, load_sibling, git_root, main_checkout  # noqa: E402
 
 GRAPH_DIR = os.path.join(".reef", "graph")
 
@@ -120,9 +120,10 @@ return r
     p = os.path.join(d, "probe.js")
     with open(p, "w", encoding="utf-8") as f:
         f.write(js)
-    print(f"probe: {p}")
+    print(f"probe: {p} (the main checkout's: the tick reads the gate there)")
     print("next: call the Workflow tool with scriptPath set to that file; save its return value as JSON to .reef/graph/probe-results.json; "
-          "then `reef-graph-run.py probe-check .reef/graph/probe-results.json`")
+          "then `reef-graph-run.py probe-check .reef/graph/probe-results.json`. A session without the Workflow tool cannot finish this: "
+          "chat mode (/reef-task) keeps every guarantee meanwhile")
     return 0
 
 
@@ -777,6 +778,8 @@ def main(argv):
         i = argv.index("--repo")
         argv = argv[:i] + argv[i + 2:]
     root = git_root(repo)
+    if argv and argv[0] in ("probe", "probe-check"):   # the gate is read from the MAIN checkout (reef-loop.py graph_mode): a probe run in a
+        root = main_checkout(root)                       # feature worktree wrote it there, where no tick reads it (the owner's project, 2026-11-01)
     if not argv:
         die("usage: reef-graph-run.py probe | probe-check <results.json> | generate [--tasks a,b] | row <row-id|slug> | settle <results.json>  [--repo DIR]")
     cmd = argv[0]
