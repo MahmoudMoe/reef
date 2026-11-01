@@ -291,6 +291,22 @@ class WaitWritesTheHandoff(unittest.TestCase):
     """Workflow v3, phase 5: every wait renders HANDOFF.md from measured state — `reef-loop.py wait` does it, so no
     session ends on a hand-written handoff or on none."""
 
+    def test_an_owner_wait_is_one_line(self):
+        """2026-11-01, the owner reads waits on a phone: row 189's and row 36's were one 600-character line repeated in the log,
+        the status and the handoff, and the status cut it mid-sentence. An owner wait is at most 200 characters — the row, what
+        is needed; the commands come from the filed questions — and a longer one is refused, nothing recorded."""
+        d = project()
+        long = "owner: (1) Row 189: run 'python3 scripts/reef-run.py contract --day' and answer yes to 'Approve proxy by day at 11a6d568580789c5?' " * 5
+        r = loop(d, "wait", long)
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("one line", r.stderr); self.assertIn("200", r.stderr); self.assertIn("reef-queue.py ask", r.stderr)
+        lp = os.path.join(d, ".reef", "loop.json")
+        self.assertIsNone(json.load(open(lp)).get("wait") if os.path.exists(lp) else None, "nothing recorded")
+        r = loop(d, "wait", "owner: #305 row 189 — approve the day contract; #306 row 36 — the side-by-side run")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = loop(d, "wait", "job: gate-189 — " + "the full gate on the row's head, its log in .reef/run/jobs " * 6)
+        self.assertEqual(r.returncode, 0, "a job wait is the runner's, not the owner's: any length")
+
     def test_wait_renders_the_handoff_before_recording(self):
         d = project()
         self.assertEqual(open(os.path.join(d, "HANDOFF.md")).read(), "# Handoff\nline 1\n")
