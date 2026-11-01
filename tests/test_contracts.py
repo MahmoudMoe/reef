@@ -75,6 +75,13 @@ class ConfigTemplate(unittest.TestCase):
             self.assertEqual(roles[role], front, f"roles.{role} default must equal the agent's frontmatter")
 
 
+    def test_mahmoud_runs_on_opus_at_high_effort(self):
+        # 2026-11-01, the owner: fable has usage limits for now; the proxy runs on opus (Opus 5.5) at high effort
+        front = read("agents", "mahmoud.md")
+        self.assertEqual(re.search(r"^model:\s*(\S+)", front, re.M).group(1), "opus")
+        self.assertRegex(front, r"(?m)^effort:\s*high$")
+        self.assertEqual(self.cfg["roles"]["proxy"], "opus")
+
 class SecurityPassIsReefs(unittest.TestCase):
     """0.7 (2026-10-19): the release's security pass named `code-security`, an agent that lived in the author's own
     ~/.claude/agents and nowhere in Reef; for anyone else the step did nothing and nothing recorded that it ran."""

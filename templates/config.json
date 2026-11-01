@@ -22,7 +22,7 @@
     "adversary": "opus",
     "reviewer": "opus",
     "security": "opus",
-    "proxy": "fable",
+    "proxy": "opus",
     "mechanic": "sonnet"
   },
   "ci": {
