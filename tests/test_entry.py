@@ -1084,6 +1084,29 @@ class TheScreenAnswersAtOnce(unittest.TestCase):
                 time.sleep(self.tick)
             return k
 
+    def test_q_asks_before_leaving_the_screen(self):
+        """2026-11-01, the owner: q that leaves the screen (not q that goes back from a page) asks Yes / No first; No is chosen
+        until he moves to Yes, so a stray q or Enter never closes it. q again or y leaves at once; n or Esc stays."""
+        mod = load_script("reef", "reef_entry_under_test")
+        d = project()
+        mod.doctor_lines = lambda root, fetch=False: []
+        mod.work_model = lambda root, runner=None, states=True: {"rows": [], "facts": ["x"] * 5, "progress": {"rows": (0, 0), "tasks": (0, 0)}, "cost_today": 0, "autopilot": {}, "order": "queue", "cap": 2, "at": time.time()}
+        stayed = []
+        keys = [ord("q"), ord("n"), lambda: stayed.append("n"), ord("q"), 27, lambda: stayed.append("esc"), ord("q"), 10, lambda: stayed.append("enter"),
+                ord("w"), ord("q"), lambda: stayed.append("log q is back"), ord("q"), mod.KEY_LEFT, 10]
+        win = self.FW(keys)
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0)
+        self.assertEqual(stayed, ["n", "esc", "enter", "log q is back"], "n, Esc and Enter on No stay; q on the log goes back, unasked")
+        self.assertFalse(win.keys, "← Yes, Enter left the screen")
+        asks = [r for r in win.rows if "Leave the Reef screen?" in r]
+        self.assertEqual(len([r for r in asks if "[ No ]" in r]), 4, "asked four times, No chosen first\n" + "\n".join(asks))
+        self.assertTrue(any("[ Yes ]" in r for r in asks), "← moves to Yes")
+        self.assertTrue(all(len(r) < 120 for r in asks))
+        win = self.FW([ord("q"), ord("q"), -1, -1])
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0); self.assertEqual(len(win.keys), 2, "q q: the second q is Yes")
+        win = self.FW([ord("q"), ord("y"), -1, -1])
+        self.assertEqual(mod.screen_loop(win, d, self.FC()), 0); self.assertEqual(len(win.keys), 2, "q y leaves")
+
     def test_a_key_never_waits_for_a_reading(self):
         mod = load_script("reef", "reef_entry_under_test")
         d = project()

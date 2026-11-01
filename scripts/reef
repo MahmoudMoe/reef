@@ -1053,7 +1053,8 @@ def render_help(view, width=120, height=None):
              f"  g          refresh now (by itself: the inbox every {INBOX_SECONDS} s, the board every {BOARD_SECONDS // 60} min, the doctor every {UPDATE_SECONDS // 60} min)", "  r n s d c u  reef run · night · stop · doctor · cost · update (s asks first)",
              "  on the log: [ ] a page (PgUp/PgDn) · t oldest (Home) · b newest (End), following · / find a line, n the next older",
              "  under the log, FILES: what each row in flight is changing · ↑↓ a file (no files: ↑↓ scroll the log) · Enter its diff, q back",
-             "  q / Esc    q quits on WORK, INBOX, PLAN · on LOG, help, the autopilot panel both go back · Esc never quits", "", "  marks: ✓ done · ▶ building · ○ can start now · ⏸ waits on open rows · ⧖ yours (a gate or a question)",
+             "  q / Esc    q quits on WORK, INBOX, PLAN · on LOG, help, the autopilot panel both go back · Esc never quits",
+             "  q to quit  asks Yes / No first, No chosen: q again or y leaves · n or Esc stays", "", "  marks: ✓ done · ▶ building · ○ can start now · ⏸ waits on open rows · ⧖ yours (a gate or a question)",
              "  lanes: rows of one module go one at a time; different modules run beside each other (loop.rows_in_flight caps them)"]
     return [clip(l, w) for l in lines][:int(height)] if height is not None else [clip(l, w) for l in lines], {0: "tabs"}
 
@@ -1663,6 +1664,29 @@ def edit_box(stdscr, curses, h, w, title, prompt, text):
             pass
 
 
+def ask_leave(stdscr, curses, y, w):
+    """q on WORK, INBOX or PLAN asks first (2026-11-01, the owner): Yes / No on the last line, No chosen, so a stray q or Enter never
+    closes the screen. ← → Tab choose, Enter takes the choice; y or q again leaves at once; n or Esc stays. True: leave."""
+    yes = False
+    while True:
+        a, b = ("[ Yes ]", "  No  ") if yes else ("  Yes  ", "[ No ]")
+        line = clip(f"Leave the Reef screen?  {a} {b}   ← → choose · Enter · y yes · n or Esc no", max(1, w - 1))
+        try:
+            stdscr.addstr(y, 0, line.ljust(max(1, w - 1)), curses.A_BOLD)
+        except curses.error:
+            pass
+        stdscr.refresh()
+        k = stdscr.getch()
+        if k in (KEY_LEFT, KEY_RIGHT, 9):
+            yes = not yes
+        elif k in (10, 13, KEY_ENTER):
+            return yes
+        elif 0 < k < 256 and chr(k).lower() in ("y", "q"):
+            return True
+        elif k == 27 or 0 < k < 256 and chr(k).lower() == "n":
+            return False
+
+
 def edit_line(stdscr, curses, y, w, prompt, text):
     """An answer typed on the screen: the prompt, the recommendation prefilled; Enter keeps or takes the edit, Esc cancels (None)."""
     buf = text
@@ -1910,6 +1934,8 @@ def screen_loop(stdscr, root, curses):
         if act is None:
             continue
         if act[0] == "quit":   # q never waits for a reading: the readers stop at QUIT
+            if not ask_leave(stdscr, curses, h - 1, w):
+                continue
             QUIT.set()
             return 0
         if act[0] == "back" and view == "diff":   # a diff goes back to the log, scrolled as it was left
