@@ -388,7 +388,7 @@ def tick(root):
         "returned_unmerged": [m["id"] for m in returned], "parked": blocked, "building": [r[0] for r in building],
         "worktrees": len(worktrees), "wait": st.get("wait"), "active": bool(st.get("active")), "stop": stop, "over_growth": over, "triage": triage_line,
         "broken": ([] if rc_g == 0 else ["task graph broken or unreadable (reef-graph ready failed)"])
-                  + (["graph.mode is `graph` but this machine has no GATE OK — python3 scripts/reef-graph-run.py probe (chat mode meanwhile)"] if (mode == "graph" and not gate and dispatch_now) else []),
+                  + (["graph.mode is `graph` but this machine has no GATE OK — /reef-graph once, in a session with the Workflow tool, from the main checkout (chat mode meanwhile)"] if (mode == "graph" and not gate and dispatch_now) else []),
         "graph_mode": mode, "graph_gate": gate, "dispatch_mode": dispatch_mode, "counters": counters,
     }
     h = hashlib.sha1(json.dumps({k: state[k] for k in ("rows_to_plan", "dispatch_now", "verify_now", "awaiting", "prs_to_review", "rows_to_close", "in_flight", "returned_unmerged", "parked", "building", "counters")}, sort_keys=True).encode()).hexdigest()[:12]
@@ -425,7 +425,7 @@ def render_status_page(state):
     dm = state.get("dispatch_mode") or {}
     g_ids = [i for i in state["dispatch_now"] if dm.get(i) == "graph"]
     c_ids = [i for i in state["dispatch_now"] if dm.get(i) != "graph"]
-    why = "" if state.get("graph_mode") == "chat" else ("" if state.get("graph_gate") else " (no GATE OK — reef-graph-run.py probe)")
+    why = "" if state.get("graph_mode") == "chat" else ("" if state.get("graph_gate") else " (no GATE OK — /reef-graph once, in a session with the Workflow tool, from the main checkout; chat keeps every guarantee)")
     disp = " · ".join(([f"dispatch (graph): {', '.join(g_ids)} — python3 scripts/reef-graph-run.py generate"] if g_ids else [])
                       + ([f"dispatch (chat): {', '.join(c_ids)} — /reef-task{why}"] if c_ids else []))
     v_graph = [i for i in state.get("verify_now") or [] if dm.get(i) == "graph"]
