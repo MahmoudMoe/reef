@@ -430,18 +430,49 @@ class Autopilot(unittest.TestCase):
         self.assertIn("## Mahmoud's plan approvals\n- none", rep, "the night's report body, for the day")
         self.assertIn("## Merges into develop", rep, "what the owner reads: what landed")
 
-    def test_the_same_wait_twice_is_the_owners(self):
+    def start(self, plan):
+        open(os.path.join(self.d, ".fake-plan"), "w").write("\n".join(plan))
+        env = dict(os.environ, PATH=os.path.join(self.d, ".bin") + os.pathsep + os.environ["PATH"], REEF_NOTIFY="0", CLAUDE_PLUGIN_ROOT=R.ROOT, REEF_WAIT_POLL="0.2")
+        env.pop("REEF_CLAUDE", None)
+        return subprocess.Popen([sys.executable, R.RUN, "--autopilot", "--repo", self.d], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+
+    def asleep(self, p):
+        live = os.path.join(self.d, ".reef", "run", "live.log")
+        for _ in range(100):
+            if os.path.exists(live) and "asleep until you answer" in open(live).read():
+                return True
+            if p.poll() is not None:
+                return False
+            time.sleep(0.1)
+        return False
+
+    def test_the_same_wait_twice_is_the_owners_and_the_runner_sleeps_until_the_answer_lands(self):
+        """2026-11-01, the owner's morning: nine sessions (06:37–07:03, $3.30) each re-read the handoff to find the same owner
+        wait unanswered — the runner ended on it, was started again, and spent its Mahmoud rounds once more. Now an owner wait the
+        contract does not cover puts the runner to SLEEP: no session until the base's head, .reef/questions.md, the approvals or
+        the reef-question issues move; then ONE session reads the answer. The owner's stop ends the sleep."""
         L.write(self.d, "reef/proxy.md", PROXY_MD)
         approve_day(self, self.d)
-        r = R.run(self.d, ["wait:owner: a hard limit: the release", "wait:owner: a hard limit: the release"], "--autopilot")
-        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
-        self.assertIn("the same wait twice", r.stdout)
-        self.assertEqual(len(R.calls(self.d)), 2)
-        open(os.path.join(self.d, ".fake-calls"), "w").write("")
-        r = R.run(self.d, ["wait:owner: one", "wait:owner: two", "wait:owner: three", "stop:x"], "--autopilot")
-        self.assertEqual(r.returncode, 2, "three different owner waits in a row: the contract does not cover them\n" + r.stdout)
-        self.assertIn("three owner waits in a row", r.stdout)
+        p = self.start(["wait:owner: a hard limit: the release", "wait:owner: a hard limit: the release", "stop:done"])
+        self.assertTrue(self.asleep(p), "the runner sleeps on the wait\n" + (p.stdout.read() if p.poll() is not None else ""))
+        live = open(os.path.join(self.d, ".reef", "run", "live.log")).read()
+        self.assertIn("the same wait twice", live)
+        self.assertIn("reef-approval.py --owner" if "Approve" in live else "a hard limit: the release", live, "the wait and its command, as before")
+        time.sleep(1.0)
+        self.assertIsNone(p.poll(), "asleep, not ended"); self.assertEqual(len(R.calls(self.d)), 2, "no session reads an unanswered wait")
+        r = subprocess.run([sys.executable, R.RUN, "resume", "--repo", self.d], capture_output=True, text=True, env=dict(os.environ, CLAUDE_PLUGIN_ROOT=R.ROOT))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr); self.assertIn("wakes by itself", r.stdout, "a decision's resume finds it asleep: no second runner")
+        with open(os.path.join(self.d, ".reef", "questions.md"), "a") as f:
+            f.write("- row 1: answered\n")   # the owner's answer lands
+        out, _ = p.communicate(timeout=30)
+        self.assertEqual(p.returncode, 0, out); self.assertEqual(len(R.calls(self.d)), 3, "one session read the answer")
+        open(os.path.join(self.d, ".fake-calls"), "w").write(""); open(os.path.join(self.d, ".reef", "run", "live.log"), "w").write("")
+        p = self.start(["wait:owner: one", "wait:owner: two", "wait:owner: three", "stop:x"])
+        self.assertTrue(self.asleep(p)); self.assertIn("three owner waits in a row", open(os.path.join(self.d, ".reef", "run", "live.log")).read())
         self.assertEqual(len(R.calls(self.d)), 3)
+        open(os.path.join(self.d, ".reef", "run", "stop-request"), "w").write("x")
+        out, _ = p.communicate(timeout=30)
+        self.assertEqual(p.returncode, 0, out); self.assertIn("stopped on the owner's request", out); self.assertEqual(len(R.calls(self.d)), 3)
 
     def test_mahmoud_approves_a_plan_by_day_when_the_contract_names_plan(self):
         rep = os.path.join(self.d, ".reef", "ci-local", "report-mahmoud-share-links.md")
