@@ -2,6 +2,7 @@
 reef-converge (2.4), the path-class rails and touches (2.5), the hand-back and report checks (2.7).
 Every FAIL here is a defect shown red; a 0.5-shaped plan keeps passing."""
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -554,6 +555,25 @@ class HandbackAndReport(unittest.TestCase):
         round1 = good.replace("round=2", "round=1")
         r = self.claims("report", write(self.d, "r5.md", round1), "--task", self.task)
         self.assertNotIn("carried from round 1", r.stdout, "round 1 carries nothing: REJUDGE is read on round >= 2 only")
+
+    def test_the_report_starts_from_its_skeleton_and_a_mark_left_is_refused(self):
+        """2026-11-01, row 189: a right verdict was rejected for its layout (the evidence was not on each AC's verdict line) and
+        sent back for a rewrite. `reef-claims.py skeleton --task` prints the report's shape — the RUN line, a RULE and a verdict
+        line per criterion, the VERDICT — with <<fill …>> where the verifier writes; a mark left unfilled is refused."""
+        r = self.claims("skeleton", "--task", self.task)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        sk = r.stdout
+        self.assertIn("RUN: agent=verifier task=1201", sk)
+        self.assertEqual(len([l for l in sk.splitlines() if l.startswith("RULE AC")]), 2, sk)
+        self.assertEqual(len([l for l in sk.splitlines() if l.startswith(("AC1 ", "AC2 "))]), 2, sk)
+        self.assertIn("VERDICT: <<fill", sk)
+        r = self.claims("report", write(self.d, "sk.md", sk), "--task", self.task)
+        self.assertEqual(r.returncode, 1); self.assertIn("<<fill", r.stdout, "an unfilled mark is named")
+        filled = re.sub(r"RULE (AC\d): <<fill[^>]*>>", r"RULE \1: PASS iff its test is green; FAIL otherwise", sk)
+        filled = re.sub(r"^(AC\d) <<fill[^>]*>> — <<fill[^>]*>>", r"\1 PASS — `pytest tests/test_export.py` 3 passed", filled, flags=re.M)
+        filled = filled.replace("VERDICT: <<fill: PASS or FAIL>>", "VERDICT: PASS")
+        r = self.claims("report", write(self.d, "sk2.md", filled), "--task", self.task)
+        self.assertEqual(r.returncode, 0, r.stdout + "\n" + filled)
 
     def test_report_needs_rules_citing_proof_rows_and_evidence(self):
         good = ("RUN: agent=verifier task=1201\nRULE AC1: PASS iff test_csv_header_and_rows is green; FAIL otherwise\n"

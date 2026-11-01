@@ -17,6 +17,7 @@ Usage:
       (citing its Proof row's test or command when the task has a ## Proof table), evidence per AC
       (a path:line, a test name or a command) on every PASS/FAIL line, and writing.report_words when set
       (0 = unmeasured: warn only). Exit 1 names what is missing.
+  reef-claims.py skeleton --task <task-file>                    (0.7.4) the verifier's report to fill: a RULE and a verdict line per criterion
   reef-claims.py verdict <report>                               (0.7.2) what the orchestrator reads of a judge's report:
       RUN, VERDICT, every BLOCKER, failed criterion, NEW-ROW and NOTED line; exit 0 PASS/GREEN · 1 FAIL · 2 no verdict
   reef-claims.py claims-only <base>..<head> [--repo DIR]
@@ -199,15 +200,8 @@ def cmd_verdict(path):
     return 2 if not v else 0 if v.group(1).upper() in ("PASS", "GREEN") else 1
 
 
-def cmd_report(repo, path, task_path):
-    cfg = read_cfg(repo)
-    try:
-        with open(path, encoding="utf-8") as f:
-            text = f.read()
-        with open(task_path, encoding="utf-8") as f:
-            task = f.read()
-    except OSError as e:
-        die(f"cannot read: {e}")
+def task_criteria(task):
+    """The task's criteria ids, in order, and {id: its Proof row's test or command}."""
     body = re.search(r"^##\s+Acceptance Criteria\s*$(.*?)(?=^##\s|\Z)", task, re.M | re.S)
     acs = [l for l in (body.group(1) if body else "").splitlines() if re.match(r"^\s*[-*+]\s+|^\s*\d+[.)]\s+", l)]
     acs = [l for l in acs if "HUMAN AC" not in l]
@@ -223,7 +217,38 @@ def cmd_report(repo, path, task_path):
             m = re.match(r"^\**AC-?(\d+)\**$", cells[0]) if len(cells) >= 2 else None
             if m and not re.match(r"^-+$", cells[1]):
                 proof_rows[m.group(1)] = cells[1].strip("`")
-    bad = []
+    return ids, proof_rows
+
+
+def cmd_skeleton(task_path):
+    """The verifier's report as reef-claims `report` reads it, a line per criterion, <<fill …>> where the verifier writes
+    (2026-11-01, row 189: a right verdict rejected for its layout and rewritten)."""
+    try:
+        task = open(task_path, encoding="utf-8").read()
+    except OSError as e:
+        die(f"cannot read: {e}")
+    ids, proof_rows = task_criteria(task)
+    tid = (re.search(r"^id:\s*(\S+)", task, re.M) or re.search(r"(\d+)", os.path.basename(task_path)))
+    print(f"RUN: agent=verifier task={tid.group(1) if tid else '?'} round=1")
+    for n in ids:
+        print(f"RULE AC{n}: <<fill: PASS iff …; FAIL otherwise>>" + (f" — `{proof_rows[n]}`" if n in proof_rows else ""))
+    for n in ids:
+        print(f"AC{n} <<fill: PASS or FAIL>> — <<fill: evidence on this line: a path:line, a test name, or a command in backticks and its exit>>")
+    print("VERDICT: <<fill: PASS or FAIL>>")
+    return 0
+
+
+def cmd_report(repo, path, task_path):
+    cfg = read_cfg(repo)
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        with open(task_path, encoding="utf-8") as f:
+            task = f.read()
+    except OSError as e:
+        die(f"cannot read: {e}")
+    ids, proof_rows = task_criteria(task)
+    bad = [f"a <<fill>> mark is left: {l.strip()[:80]}" for l in text.splitlines() if "<<fill" in l]
     if not re.search(r"^RUN:\s*agent=(verifier|loophole-hunter)\b.*\btask=", text, re.M):
         bad.append("no `RUN: agent=verifier|loophole-hunter task=<id>` header")
     hunter = bool(re.search(r"^RUN:\s*agent=loophole-hunter\b", text, re.M))
@@ -453,6 +478,8 @@ def main(argv):
         return cmd_report(repo, argv[1], argv[3])
     if argv[0] == "check" and len(argv) == 3:
         return cmd_check(repo, argv[1], argv[2])
+    if argv[0] == "skeleton" and len(argv) == 3 and argv[1] == "--task":
+        return cmd_skeleton(argv[2])
     if argv[0] == "verdict" and len(argv) == 2:
         return cmd_verdict(argv[1])
     if argv[0] == "claims-only" and len(argv) == 2:
