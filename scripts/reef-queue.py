@@ -994,6 +994,10 @@ def cmd_ask(root, question, row_id, recommended):
         die("ask: the question, one line")
     if row_id and not re.fullmatch(r"\d+", str(row_id)):   # the row is digits: a `--row "7 #42"` must not read as issue 42 (the security review)
         die(f"ask: --row is a queue row's number, not {row_id!r}")
+    hole = re.search(r"<(?:[a-z][^<>\n]{0,40}|[A-Z][A-Z0-9_]+)>", q)   # `<your .env>`, `<id>`, `<YOUR_KEY>` — not `<CallRoom>`, not `x < 3`
+    if hole:   # the owner's screen, 2026-11-01 (row 36, #306): a command he could not run as written
+        die(f"ask: the question holds a placeholder, {hole.group(0)} — every command that reaches the owner has its real values: "
+            "find each (the seeds, the config, ls), or ask for the value itself")
     line = question_line(row_id, q, recommended.strip())
     p = os.path.join(root, ".reef", "questions.md")
     os.makedirs(os.path.dirname(p), exist_ok=True)

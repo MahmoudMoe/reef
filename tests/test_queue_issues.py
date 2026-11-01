@@ -530,6 +530,17 @@ class QuestionsAsIssues(Base):
     """The owner's questions (the owner's go, 2026-10-24, item 7): `ask` writes the line the runner and the handoff read
     and, on issues, opens an issue labelled reef-question assigned to the owner; `answered` closes it with the answer."""
 
+    def test_a_question_with_a_placeholder_never_reaches_the_owner(self):
+        """2026-11-01, the owner's screen (row 36, #306): `--env <your .env> … --session <id>:surfaced` — a command he could not run
+        as written. Every command that reaches the owner has its real values; ask refuses a <placeholder> and writes nothing."""
+        for q in ("run: npx tsx scripts/x.ts --env <your .env> --session <id>:surfaced", "commit <path> then reply", "set <YOUR_KEY>"):
+            r = self.q("ask", q, "--row", "36", "--recommended", "yes")
+            self.assertEqual(r.returncode, 2, q)   # die: refused, nothing written
+            self.assertIn("placeholder", r.stderr); self.assertIn("real value", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "questions.md")), "nothing written")
+        r = self.q("ask", "does <CallRoom> keep its a11y label when x < 3 and y > 2?", "--row", "36", "--recommended", "yes")
+        self.assertEqual(r.returncode, 0, "a component's name and a comparison are not placeholders: " + r.stderr)
+
     def test_ask_and_answered(self):
         r = self.q("ask", "share links in host logs?", "--row", "12", "--recommended", "accept")
         self.assertEqual(r.returncode, 0, r.stderr)
