@@ -333,6 +333,9 @@ VIEWS = ("work", "inbox", "plan", "log")   # Tab's cycle (2026-10-31, the fourth
 MARK_ORDER = {"○": 0, "▶": 1, "⧖": 2, "⏸": 3, "…": 4, "✓": 5}   # what can start first, then what runs, then yours, then blocked, then unknown yet, then done
 MARK_STYLE = {"✓": "done", "▶": "build", "○": "ready", "⧖": "wait", "⏸": "blocked", "…": ""}   # …: the row machine has not answered yet
 INBOX_SECONDS = 10   # the inbox reading asks the row machine about the rows a wait names: seconds apart, not every tick (2026-10-31 12:30, the owner: "heavy")
+FILES_SECONDS = 10   # the LOG page's file list: each row's worktree read again seconds apart, only while LOG or a diff is open
+FILES_PER_ROW = 8   # a row's newest files on the LOG page; the rest counted on one line
+FILES_NOISE = ("package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock", "Cargo.lock", "uv.lock")   # lockfiles: a thousand lines nobody reads
 BOARD_SECONDS = 120   # the work board costs a subprocess per row (the row machine, which may ask the forge): minutes apart; any command reads it again
 BOARD = {"done": 0, "total": 0, "rows": {}}   # the rows read so far and each finished row as it lands, for the board drawn while the row machine answers
 BOARD_LOCK = threading.Lock()
@@ -1044,11 +1047,12 @@ def render_help(view, width=120, height=None):
     """Every key, one line each (?)."""
     w = max(60, int(width))
     lines = [f"KEYS  (you are on {view.upper()}) · q back · Esc or ? closes this too",
-             "  Tab        next view, from every page: WORK → INBOX → PLAN → LOG → WORK", "  i / p / w  INBOX / PLAN / LOG, from every page", "  ↑↓ j k     move the selection (LOG: scroll)",
+             "  Tab        next view, from every page: WORK → INBOX → PLAN → LOG → WORK", "  i / p / w  INBOX / PLAN / LOG, from every page", "  ↑↓ j k     move the selection (LOG: the file under it)",
              "  1-9        select the row or item", "  Enter      WORK, PLAN: open the row (its state and next step) · INBOX: run the item (an answer is typed on the screen)",
              "  o          order: the queue's, or what can start first", "  a          the autopilot's start panel (Enter there starts it)",
              f"  g          refresh now (by itself: the inbox every {INBOX_SECONDS} s, the board every {BOARD_SECONDS // 60} min, the doctor every {UPDATE_SECONDS // 60} min)", "  r n s d c u  reef run · night · stop · doctor · cost · update (s asks first)",
-             "  on the log: ↑↓ a line · [ ] a page (PgUp/PgDn) · t oldest (Home) · b newest (End), following · / find a line, n the next older",
+             "  on the log: [ ] a page (PgUp/PgDn) · t oldest (Home) · b newest (End), following · / find a line, n the next older",
+             "  under the log, FILES: what each row in flight is changing · ↑↓ a file (no files: ↑↓ scroll the log) · Enter its diff, q back",
              "  q / Esc    q quits on WORK, INBOX, PLAN · on LOG, help, the autopilot panel both go back · Esc never quits", "", "  marks: ✓ done · ▶ building · ○ can start now · ⏸ waits on open rows · ⧖ yours (a gate or a question)",
              "  lanes: rows of one module go one at a time; different modules run beside each other (loop.rows_in_flight caps them)"]
     return [clip(l, w) for l in lines][:int(height)] if height is not None else [clip(l, w) for l in lines], {0: "tabs"}
@@ -1278,10 +1282,208 @@ def render_log(steps, width=120, height=24, offset=0, found="", matched=True):
     return [clip(head, w)] + ["  " + clip(l, w - 2) for l in body] + ["─" * w], styles, most
 
 
+def git_read(wt, *args):
+    """A git reading that never writes, so an agent committing in that worktree at that moment never meets the screen's index.lock:
+    plumbing only (`git diff HEAD` rewrites a stat-dirty index even under --no-optional-locks, git 2.54; `diff-index` does not). Its stdout, or "" when git fails or takes over 5 s."""
+    try:
+        r = subprocess.run(["git", "--no-optional-locks", "-C", wt, *args], capture_output=True, text=True, timeout=5,
+                           env=dict(os.environ, GIT_OPTIONAL_LOCKS="0"))
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return r.stdout if r.returncode == 0 else ""
+
+
+def diff_counts(text):
+    """`git diff --numstat` → {path: (added, deleted)}; a binary file counts (-1, -1)."""
+    out = {}
+    for line in text.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) == 3:
+            out[parts[2]] = tuple(int(x) if x.isdigit() else -1 for x in parts[:2])
+    return out
+
+
+def files_model(root):
+    """What each row in flight is changing (2026-11-01, the owner: show the files being worked on and their diff). Every worktree on a
+    feat/ or task/ branch: its files against where the branch left the base — commits and edits together, since the implementer never
+    commits — each with its +/- counts, whether it is not committed yet, and its mtime, newest first. .reef/ and lockfiles are skipped.
+    Read-only: git_read never takes the index lock."""
+    cfg = read_json(os.path.join(root, ".reef", "config.json"))
+    base = str((cfg.get("branches") or {}).get("base") or "main")
+    feats = str((cfg.get("paths") or {}).get("features") or "reef/features")
+    blocks, wt, branch = [], None, None
+    for line in git_read(root, "worktree", "list", "--porcelain").splitlines() + [""]:
+        if line.startswith("worktree "):
+            wt, branch = line[9:], None
+        elif line.startswith("branch refs/heads/"):
+            branch = line[18:]
+        elif not line and wt and branch and branch.startswith(("feat/", "task/")):
+            blocks.append(files_block(wt, branch, base, feats))
+            wt = branch = None
+    blocks.sort(key=lambda b: -max([f["mtime"] for f in b["files"]] or [0]))
+    return {"blocks": blocks, "at": time.time()}
+
+
+def files_block(wt, branch, base, feats):
+    row = ""
+    fdir = os.path.join(wt, feats)
+    names = sorted(os.listdir(fdir)) if os.path.isdir(fdir) else []
+    tid = branch[5:].split("-")[0] if branch.startswith("task/") else ""
+    def builds(n):   # the feature this branch builds: its name is in the branch's, or (a task branch) it holds the task's file
+        return n in branch or bool(tid) and any(fn.startswith(tid + "-") for _, _, fns in os.walk(os.path.join(fdir, n, "tasks")) for fn in fns)
+    for name in sorted((n for n in names if builds(n)), key=len, reverse=True):
+        m = re.search(r"^Row:\s*(\S+)", open_text(os.path.join(fdir, name, "SPEC.md")), re.M)
+        if m:
+            row = m.group(1); break
+    mb = git_read(wt, "merge-base", "HEAD", base).strip() or base
+    changed = diff_counts(git_read(wt, "diff-index", "--no-renames", "--numstat", mb))
+    loose = set(diff_counts(git_read(wt, "diff-index", "--no-renames", "--numstat", "HEAD")))
+    new = [p for p in git_read(wt, "ls-files", "--others", "--exclude-standard").splitlines() if p]
+    for p in new:
+        text = open_text(os.path.join(wt, p))
+        changed[p] = (text.count("\n") + (1 if text and not text.endswith("\n") else 0), 0) if "\0" not in text else (-1, -1)
+    files = []
+    for p, (a, d) in changed.items():
+        if p.startswith(".reef/") or os.path.basename(p) in FILES_NOISE:
+            continue
+        try:
+            mtime = os.stat(os.path.join(wt, p)).st_mtime
+        except OSError:
+            mtime = 0.0   # deleted
+        files.append({"path": p, "add": a, "del": d, "uncommitted": p in loose or p in new, "untracked": p in new, "mtime": mtime,
+                      "wt": wt, "base": mb, "row": row, "label": branch})
+    files.sort(key=lambda f: -f["mtime"])
+    return {"row": row, "label": branch, "wt": wt, "files": files}
+
+
+def open_text(path, most=2_000_000):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read(most)
+    except OSError:
+        return ""
+
+
+def flat_files(fm):
+    """The files the LOG page can select, in the page's order: each row's newest FILES_PER_ROW."""
+    return [f for b in (fm or {}).get("blocks") or [] for f in b["files"][:FILES_PER_ROW]]
+
+
+def ago(t):
+    s = max(0, int(time.time() - t))
+    return "now" if s < 60 else f"{s // 60} min ago" if s < 3600 else f"{s // 3600} h ago" if s < 86400 else f"{s // 86400} d ago"
+
+
+def counts(a, d):
+    return "binary" if a < 0 else f"+{a} −{d}"
+
+
+def split_heights(h, fm):
+    """(the log's body lines, the files' lines, compact): the log keeps at least half the page; a short terminal (under 20 lines)
+    shows one line per row."""
+    h = max(8, int(h))
+    room = h - 3   # the log's header, the rule, the FILES header
+    blocks = (fm or {}).get("blocks") or []
+    compact = h < 20
+    if not blocks:
+        need = 1
+    elif compact:
+        need = len(blocks)
+    else:
+        need = sum(1 + min(len(b["files"]), FILES_PER_ROW) + (len(b["files"]) > FILES_PER_ROW) for b in blocks)
+    files_h = max(1, min(need, room - max(3, room // 2)))
+    return room - files_h, files_h, compact
+
+
+def render_log_files(steps, fm, width=120, height=24, offset=0, found="", matched=True, fsel=0, found_at=None):
+    """The LOG page split: the runner's log on top (as render_log), and under it what each row in flight is changing (files_model) —
+    a block per row, its files newest first, the selected one highlighted, Enter its diff. Returns (lines, styles, the log's largest
+    offset, the selected file's line or None)."""
+    w = max(40, int(width)); h = max(8, int(height))
+    log_h, files_h, compact = split_heights(h, fm)
+    top = max(0, len(steps) - log_h - int(offset))
+    body = steps[top:top + log_h]
+    most = max(0, len(steps) - log_h)
+    where = "following" if int(offset) <= 0 else f"{int(offset)} back"
+    shown = found if len(found) <= 12 else found[:11] + "…"
+    what = (f" · found {shown!r}" if matched else f" · no match for {shown!r}") if found else ""
+    head = f"LOG  {len(steps)} lines · {where}{what} · [ ] scroll · t oldest · b newest · / search · q back · Tab views"
+    lines = [clip(head, w)] + ["  " + clip(l, w - 2) for l in body] + [""] * (log_h - len(body)) + ["─" * w]
+    styles = {i + 1: log_style(l) for i, l in enumerate(body) if log_style(l)}
+    if found and found_at is not None and top <= found_at < top + log_h:
+        styles[found_at - top + 1] = "sel"
+    blocks = (fm or {}).get("blocks") or []
+    read = f" · read {ago(fm['at'])}" if fm and fm.get("at") else " · reading …"
+    flat = flat_files(fm)
+    fsel = min(max(0, int(fsel)), max(0, len(flat) - 1))
+    lines.append(clip(f"FILES  what each row in flight is changing{read}" + (" · ↑↓ a file · Enter its diff" if flat else ""), w))
+    styles[len(lines) - 1] = "tabs"
+    rows, sel_at = [], None   # (text, style)
+    if not blocks:
+        rows.append(("  nothing in flight — no row has a worktree" if fm is not None else "  reading the worktrees …", "done"))
+    for b in blocks:
+        name = f"row {b['row']}" if b["row"] else b["label"]
+        k = sum(1 for f in b["files"] if f["uncommitted"])
+        if compact:
+            a = sum(max(0, f["add"]) for f in b["files"]); d = sum(max(0, f["del"]) for f in b["files"])
+            task = f" · {b['label']}" if b["row"] and b["label"].startswith("task/") else ""   # a task's worktree beside its row's
+            rows.append((f"  ▶ {name}{task} · {len(b['files'])} files · +{a} −{d}" + (f" · {k} not committed" if k else ""), "build"))
+            continue
+        label = f"  {b['label']}" if b["row"] else ""
+        rows.append((f"  ▶ {name}{label} · {len(b['files'])} files" + (f", {k} not committed" if k else ""), "build"))
+        for f in b["files"][:FILES_PER_ROW]:
+            tail = f"  {counts(f['add'], f['del'])}" + ("  not committed" if f["uncommitted"] else "") + f" · {ago(f['mtime'])}" if f["mtime"] else "  deleted"
+            path = tail_clip(f["path"], max(8, w - 4 - len(tail)))
+            if flat and f is flat[fsel]:
+                sel_at = len(rows)
+            rows.append((clip(f"    {path}{tail}", w), "wait" if f["uncommitted"] else ""))
+        if len(b["files"]) > FILES_PER_ROW:
+            rows.append((f"    … {len(b['files']) - FILES_PER_ROW} more, older", "done"))
+    start = 0 if sel_at is None or sel_at < files_h else min(sel_at - files_h + 1, len(rows) - files_h)   # the selection stays on the page
+    sel_line = None
+    for i, (text, st) in enumerate(rows[start:start + files_h]):
+        lines.append(clip(text, w))
+        if start + i == sel_at:
+            sel_line = len(lines) - 1; styles[sel_line] = "sel"
+        elif st:
+            styles[len(lines) - 1] = st
+    return lines[:h], styles, most, sel_line
+
+
+def file_diff(f):
+    """One file's diff against where its branch left the base, as lines; a file git does not know yet is all additions."""
+    if f.get("untracked"):
+        text = open_text(os.path.join(f["wt"], f["path"]))
+        return [f"new file {f['path']} · not committed"] + (["(binary)"] if "\0" in text else ["+" + l for l in text.splitlines()])
+    out = git_read(f["wt"], "diff-index", "-p", "--no-renames", f["base"], "--", f["path"]).splitlines()
+    return out or [f"(no diff for {f['path']}: the worktree moved since the list was read — q, then Enter again)"]
+
+
+def render_diff(diff, f, width=120, height=24, offset=0):
+    """A file's diff as a page, read from the top: + lines green, - lines red, @@ hunks dim. Returns (lines, styles, the largest offset)."""
+    w = max(40, int(width)); h = max(5, int(height))
+    body_h = h - 2
+    most = max(0, len(diff) - body_h)
+    off = min(max(0, int(offset)), most)
+    name = f"row {f['row']}" if f.get("row") else f.get("label", "")
+    state = "  not committed" if f.get("uncommitted") else ""
+    head = f"DIFF  {name} · {f['path']} · {counts(f['add'], f['del'])}{state} · line {off + 1}/{max(1, len(diff))} · ↑↓ [ ] scroll · t top · b end · q back"
+    body = diff[off:off + body_h]
+    styles = {}
+    for i, l in enumerate(body):
+        if l.startswith("@@"):
+            styles[i + 1] = "head"
+        elif l.startswith("+") and not l.startswith("+++"):
+            styles[i + 1] = "ready"
+        elif l.startswith("-") and not l.startswith("---"):
+            styles[i + 1] = "blocked"
+    return [clip(head, w)] + [clip(l, w) for l in body] + ["─" * w], styles, most
+
+
 def on_key(k, sel, n, view):
     """The screen's keys as one table → an action, or None. WORK, PLAN and INBOX: a digit SELECTS, Enter opens the row (WORK, PLAN) / runs the item (INBOX),
     ↑↓/j/k move, Tab cycles the views, i/p/w jump, a opens the autopilot panel, o toggles the order, ? the help, the verb letters
-    run a verb, g refreshes, q quits (Esc never). LOG: ↑↓ scroll, w/q/Esc back. Help: q/Esc/? back. Autopilot panel: Enter starts, o, q/Esc back.
+    run a verb, g refreshes, q quits (Esc never). LOG: ↑↓ a file (the log scrolls with [ ] t b), Enter its diff, w/q/Esc back; DIFF: ↑↓ scroll, q back. Help: q/Esc/? back. Autopilot panel: Enter starts, o, q/Esc back.
     (2026-10-31, the owner: a digit should select, a command should run without leaving the screen; the fourth screen: see the work first.)"""
     ch = chr(k).lower() if 0 < k < 256 else ""   # one case: a caps lock is not silence
     # the views a key reaches from ANY page (2026-10-31, the owner: "Tab stops at a certain page and I cannot get back")
@@ -1291,7 +1493,7 @@ def on_key(k, sel, n, view):
         return ("view", "inbox")
     if ch == "p":
         return ("view", "plan")
-    if ch == "w" and view != "log":   # the log; on the log itself w is back (below)
+    if ch == "w" and view not in ("log", "diff"):   # the log; on the log itself w is back (below)
         return ("log",)
     if view == "help":
         return ("back",) if ch in ("q", "?") or k == 27 else None   # to the page it was opened from (its own header says so)
@@ -1303,9 +1505,11 @@ def on_key(k, sel, n, view):
         if k in (10, 13, KEY_ENTER):
             return ("start",)
         return ("order",) if ch == "o" else None
-    if view == "log":
+    if view in ("log", "diff"):
         if ch in ("q", "w") or k == 27:
-            return ("back",)   # to the view the log was opened from
+            return ("back",)   # to the view the log was opened from; from a diff, to the log
+        if view == "log" and k in (10, 13, KEY_ENTER):
+            return ("diff",)   # the selected file's diff
         if k in (KEY_UP, ord("k")):
             return ("up",)
         if k in (KEY_DOWN, ord("j")):
@@ -1579,12 +1783,13 @@ def screen_loop(stdscr, root, curses):
 
     empty = {"facts": [f"{os.path.basename(root)} · reading …", "", "", "", ""], "items": [], "steps": [], "log": [], "warns": [], "doctor": False}
     model_at = 0.0
+    fm, fsel, diff, dfile, log_offset = None, 0, [], None, 0   # the LOG page's files (files_model), the selected one, the open diff and its file
 
     def take():
         """The readings that landed, swapped in: the inbox (the selection follows its item), the board (the order kept), the doctor.
         A reading that raised is shown on the screen (never a silent "reading …" forever — the review) and not retried until g."""
-        nonlocal model, model_at, wm, wm_at, doctor, doctor_at, sel, wsel
-        for name in ("model", "board", "doctor", "queue"):
+        nonlocal model, model_at, wm, wm_at, doctor, doctor_at, sel, wsel, fm, fsel
+        for name in ("model", "board", "doctor", "queue", "files"):
             if name in results and isinstance(results[name], Exception):
                 e = results.pop(name)
                 failed[name] = f"{name}: {type(e).__name__}: {str(e)[:120]}"
@@ -1593,6 +1798,11 @@ def screen_loop(stdscr, root, curses):
             chosen = model["items"][sel]["cmd"] if model and model["items"] and sel < len(model["items"]) else None
             model, model_at = res, time.time()
             sel = reanchor(model["items"], sel, chosen) if chosen else sel
+        if "files" in results:   # the selection follows its file
+            flat = flat_files(fm)
+            chosen = (flat[fsel]["wt"], flat[fsel]["path"]) if fsel < len(flat) else None
+            fm = results.pop("files")
+            fsel = next((i for i, f in enumerate(flat_files(fm)) if (f["wt"], f["path"]) == chosen), fsel)
         if "queue" in results:
             got = results.pop("queue")
             if wm is None:   # the full board may have landed first
@@ -1635,6 +1845,8 @@ def screen_loop(stdscr, root, curses):
             if wm is None:
                 spawn("queue", lambda: work_model(root, states=False))   # the rows at once, every open one `…`
             spawn("board", lambda: work_model(root))
+        if not frozen and view in ("log", "diff") and (fm is None or time.time() - fm["at"] > FILES_SECONDS):
+            spawn("files", lambda: files_model(root))
         if wm is not None and wm.get("partial"):
             with BOARD_LOCK:
                 landed = dict(BOARD["rows"])
@@ -1658,12 +1870,13 @@ def screen_loop(stdscr, root, curses):
         wsel = min(wsel, max(nrows - 1, 0))
         sel_line, styles = None, None
         log_all = cur.get("log") or []
-        if view == "log":
-            lines, styles, most = render_log(log_all, width=w - 1, height=h, offset=offset, found=found, matched=found_at is not None)
+        if view == "log":   # the log on top, the files under it; the hit of / highlighted in the log, the selected file in the files
+            fsel = min(fsel, max(0, len(flat_files(fm)) - 1))
+            lines, styles, most, sel_line = render_log_files(log_all, fm, width=w - 1, height=h, offset=offset, found=found, matched=found_at is not None, fsel=fsel, found_at=found_at)
             offset = min(offset, most)
-            top = max(0, len(log_all) - (h - 2) - offset)
-            if found and found_at is not None and top <= found_at < top + h - 2:
-                sel_line = found_at - top + 1   # the hit, highlighted
+        elif view == "diff":
+            lines, styles, most = render_diff(diff, dfile, width=w - 1, height=h, offset=offset)
+            offset = min(offset, most)
         elif view == "work" or (view in ("plan", "autopilot") and wm is None):
             lines, styles, sel_line = render_work(wm, cur["items"], width=w - 1, height=h, selected=wsel, panel=panel, note=note, log=log_all)
         elif view == "plan":
@@ -1699,6 +1912,18 @@ def screen_loop(stdscr, root, curses):
         if act[0] == "quit":   # q never waits for a reading: the readers stop at QUIT
             QUIT.set()
             return 0
+        if act[0] == "back" and view == "diff":   # a diff goes back to the log, scrolled as it was left
+            view, offset = "log", log_offset; continue
+        if act[0] == "diff":
+            flat = flat_files(fm)
+            if flat:
+                dfile = flat[min(fsel, len(flat) - 1)]
+                diff, view, log_offset, offset = file_diff(dfile), "diff", offset, 0
+            continue
+        if view == "diff" and act[0] in ("page_up", "page_down", "top", "bottom", "up", "down"):   # a diff reads from the top: offset is lines from the top
+            page = max(1, h - 2)
+            offset = {"page_up": offset - page, "page_down": offset + page, "top": 0, "bottom": len(diff), "up": offset - 1, "down": offset + 1}[act[0]]
+            offset = max(0, offset); continue
         if act[0] == "back":   # from the log, the help, the autopilot panel: the page they were opened from
             view = (help_from if help_from in VIEWS + ("autopilot",) else "work") if view == "help" else (back if back in VIEWS else "work"); continue
         if act[0] == "view":
@@ -1722,10 +1947,12 @@ def screen_loop(stdscr, root, curses):
                 if not q:
                     continue
                 found = q
-            offset, found_at = log_nav(act[0], log_all, max(1, h - 2), offset, found, found_at)
+            offset, found_at = log_nav(act[0], log_all, max(1, split_heights(h, fm)[0]), offset, found, found_at)
             continue
         if act[0] == "up":
-            if view == "log":
+            if view == "log" and flat_files(fm):
+                fsel = max(0, fsel - 1)
+            elif view == "log":
                 offset += 1
             elif view in ("work", "plan"):
                 wsel = max(0, wsel - 1)
@@ -1733,7 +1960,9 @@ def screen_loop(stdscr, root, curses):
                 sel = max(0, sel - 1)
             continue
         if act[0] == "down":
-            if view == "log":
+            if view == "log" and flat_files(fm):
+                fsel = min(len(flat_files(fm)) - 1, fsel + 1)
+            elif view == "log":
                 offset = max(0, offset - 1)
             elif view in ("work", "plan"):
                 wsel = min(max(nrows - 1, 0), wsel + 1)

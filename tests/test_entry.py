@@ -114,6 +114,93 @@ def settle(limit=15.0):
     assert not stuck, f"a reading did not land in {limit} s: {stuck}"
 
 
+class TheLogShowsTheFiles(unittest.TestCase):
+    """2026-11-01, the owner: the screen shows the process, not the product. The LOG page keeps the runner's log on top and, under it,
+    what each row in flight is changing — per worktree, the files against where the branch left the base, committed or not, with
+    their +/- counts, newest first; Enter opens a file's diff. The reading never takes git's index lock (an agent committing in that
+    worktree at that moment would fail on index.lock), skips .reef/ and lockfiles, and runs off the screen's thread."""
+
+    def worktree(self):
+        d = git_repo(prefix="reef-files.", branch="main", identity=True)
+        os.makedirs(os.path.join(d, ".reef"), exist_ok=True)
+        open(os.path.join(d, ".reef", "config.json"), "w").write('{"branches": {"base": "main"}}')
+        open(os.path.join(d, "app.py"), "w").write("a = 1\n")
+        open(os.path.join(d, "keep.py"), "w").write("k = 1\n")
+        subprocess.run(["git", "-C", d, "add", "-A"], check=True); subprocess.run(["git", "-C", d, "commit", "-qm", "base"], check=True)
+        wt = os.path.join(d, ".reef", "worktrees", "demo")
+        subprocess.run(["git", "-C", d, "worktree", "add", "-q", "-b", "feat/demo", wt], check=True, capture_output=True)
+        os.makedirs(os.path.join(wt, "reef", "features", "demo"))
+        open(os.path.join(wt, "reef", "features", "demo", "SPEC.md"), "w").write("# demo\n\nRow: 189\n")
+        open(os.path.join(wt, "app.py"), "w").write("a = 2\nb = 3\n")
+        subprocess.run(["git", "-C", wt, "add", "-A"], check=True); subprocess.run(["git", "-C", wt, "commit", "-qm", "row 189 work"], check=True)
+        open(os.path.join(wt, "lib.py"), "w").write("x = 1\ny = 2\nz = 3\n")             # new, not committed (the implementer never commits)
+        open(os.path.join(wt, "app.py"), "a").write("c = 4\n")                              # committed, then edited again
+        open(os.path.join(wt, "package-lock.json"), "w").write("{}\n")                     # noise
+        os.makedirs(os.path.join(wt, ".reef", "ci-local"), exist_ok=True)
+        open(os.path.join(wt, ".reef", "ci-local", "report.md"), "w").write("r\n")          # Reef's own
+        return d, wt
+
+    def test_each_row_in_flight_lists_its_files_committed_or_not(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        d, wt = self.worktree()
+        fm = mod.files_model(d)
+        self.assertEqual(len(fm["blocks"]), 1, fm)
+        b = fm["blocks"][0]
+        self.assertEqual(b["row"], "189", "the row from the feature's SPEC.md"); self.assertIn("feat/demo", b["label"])
+        by = {f["path"]: f for f in b["files"]}
+        self.assertEqual(set(by), {"app.py", "lib.py", "reef/features/demo/SPEC.md"}, "no .reef/, no lockfile, nothing of the base")
+        self.assertEqual((by["lib.py"]["add"], by["lib.py"]["del"]), (3, 0)); self.assertTrue(by["lib.py"]["uncommitted"])
+        self.assertEqual((by["app.py"]["add"], by["app.py"]["del"]), (3, 1), "against where the branch left the base: commits and edits together")
+        self.assertTrue(by["app.py"]["uncommitted"], "edited since its commit")
+        self.assertFalse(by["reef/features/demo/SPEC.md"]["uncommitted"])
+        tw = os.path.join(d, ".reef", "worktrees", "demo-t1")   # a task's worktree: its branch names the task, not the feature
+        subprocess.run(["git", "-C", wt, "worktree", "add", "-q", "-b", "task/18902-sweeps", tw], check=True, capture_output=True)
+        os.makedirs(os.path.join(tw, "reef", "features", "demo", "tasks"))
+        open(os.path.join(tw, "reef", "features", "demo", "tasks", "18902-sweeps.md"), "w").write("t\n")
+        rows = {b["label"]: b["row"] for b in mod.files_model(d)["blocks"]}
+        self.assertEqual(rows.get("task/18902-sweeps"), "189", "a task's worktree finds its row through the task's file")
+
+    def test_the_reading_never_takes_the_index_lock(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        d, wt = self.worktree()
+        index = subprocess.run(["git", "-C", wt, "rev-parse", "--path-format=absolute", "--git-path", "index"], capture_output=True, text=True).stdout.strip()
+        time.sleep(1.1); os.utime(os.path.join(wt, "keep.py"))   # a stat change only: a plain diff or status rewrites the index to refresh it
+        before = os.stat(index).st_mtime_ns
+        mod.files_model(d)
+        self.assertEqual(os.stat(index).st_mtime_ns, before, "the screen wrote the worktree's index: an agent's commit there could meet index.lock")
+        subprocess.run(["git", "-C", wt, "status", "--porcelain"], capture_output=True)
+        self.assertNotEqual(os.stat(index).st_mtime_ns, before, "the test has teeth: a plain status does refresh (write) the index")
+
+    def test_the_split_page_fits_keeps_the_log_and_opens_a_diff(self):
+        mod = load_script("reef", "reef_entry_under_test")
+        d, wt = self.worktree()
+        fm = mod.files_model(d)
+        log = [f"09:{i:02d} s4 → step {i}" for i in range(60)]
+        for h, w in ((57, 211), (40, 120), (24, 80), (14, 80)):
+            lines, styles, most, sel_line = mod.render_log_files(log, fm, width=w, height=h, fsel=1)
+            self.assertLessEqual(len(lines), h, f"{h}x{w}"); self.assertTrue(all(len(l) <= w for l in lines), f"{h}x{w}: a line wider than the screen")
+            self.assertGreaterEqual(sum(1 for l in lines if " s4 " in l), max(3, h // 3), f"{h}x{w}: the log keeps a third of the page\n" + "\n".join(lines))
+            self.assertTrue(any(l.startswith("FILES") for l in lines), f"{h}x{w}")
+            if h >= 24:
+                self.assertIn("lib.py", "\n".join(lines)); self.assertEqual(styles.get(sel_line), "sel")
+                self.assertIn(mod.flat_files(fm)[1]["path"], lines[sel_line], "the selected file is the highlighted line")
+            else:
+                self.assertTrue(any("row 189" in l and "3 files" in l for l in lines), "short: one line per row\n" + "\n".join(lines))
+        lines, _, _, _ = mod.render_log_files(log, {"blocks": []}, width=100, height=30)
+        self.assertTrue(any("nothing in flight" in l for l in lines), "an empty board says so")
+        on = mod.on_key
+        self.assertEqual(on(10, 0, 0, "log"), ("diff",), "Enter on the LOG page opens the selected file's diff")
+        self.assertEqual(on(ord("q"), 0, 0, "diff"), ("back",)); self.assertEqual(on(mod.KEY_DOWN, 0, 0, "diff"), ("down",))
+        f = next(x for x in mod.flat_files(fm) if x["path"] == "lib.py")
+        diff = mod.file_diff(f)
+        self.assertTrue(any(l == "+x = 1" for l in diff), "a new file is all additions\n" + "\n".join(diff))
+        f = next(x for x in mod.flat_files(fm) if x["path"] == "app.py")
+        lines, styles, most = mod.render_diff(mod.file_diff(f), f, width=100, height=20, offset=0)
+        self.assertIn("row 189", lines[0]); self.assertIn("app.py", lines[0])
+        self.assertIn("+b = 3", "\n".join(lines)); self.assertIn("-a = 1", "\n".join(lines))
+        self.assertEqual(styles[next(i for i, l in enumerate(lines) if "+b = 3" in l)], "ready"); self.assertEqual(styles[next(i for i, l in enumerate(lines) if "-a = 1" in l)], "blocked")
+
+
 class EveryWordIsReachable(unittest.TestCase):
     """2026-11-01, the owner's screen at 211 columns: the inbox item ended at "--env <yo" with nothing saying more was there; the
     selected box held `reef-queue.py answered 280 '…'` — his answer inside shell quotes, the question nowhere; the answer line
@@ -952,7 +1039,7 @@ class TheLogIsOnTheScreen(unittest.TestCase):
         logs = [f for f in win.frames if f and f[0][0].startswith("LOG")]
         self.assertGreaterEqual(len(logs), 5, "the log page was drawn after each key")
         after_pgup, after_home, after_end = logs[1], logs[2], logs[3]
-        self.assertIn("18 back", after_pgup[0][0], "PgUp scrolls a page (the body's height)")
+        self.assertIn("16 back", after_pgup[0][0], "PgUp scrolls a page: the log body, 20 lines less its header, the rule and the FILES header and line")
         self.assertIn("21:00", after_home[1][0], "Home: the oldest line first")
         self.assertIn("following", after_end[0][0], "End: the newest lines, following")
         found = [f for f in logs if "found 'green'" in f[0][0]]
