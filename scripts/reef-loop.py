@@ -574,6 +574,11 @@ def main(argv):
         print("loop: inactive")
         return 0
     if cmd == "wait":
+        text = " ".join(" ".join(argv[1:]).split())
+        if len(text) > 200 and not text.startswith(("/clear", "job:")):   # 2026-11-01: a 600-character wait, cut mid-sentence on the owner's phone
+            print(f"reef-loop: an owner wait is one line, at most 200 characters ({len(text)} given): the row and what it needs — the commands come "
+                  "from the questions filed with `reef-queue.py ask`; nothing recorded", file=sys.stderr)
+            return 2
         # v3 phase 5: every wait renders HANDOFF.md from measured state first — a session never ends on a hand-written
         # handoff (the guard refuses one) or on none
         hs = os.path.join(root, "scripts", "reef-handoff")
