@@ -3,7 +3,7 @@
 """Reef eval — a frozen corpus for every judging agent (decision 4: no agent prompt change without it).
 
   reef-eval run <agent> [--k N] [--entry ID] [--model M] [--budget USD] [--out DIR] [--plugin DIR]   live, never in CI
-  reef-eval score <agent> <dir> [--json]        VERDICT / BLOCKER / AC<n> FAIL lines vs tests/eval/corpus/<agent>.json
+  reef-eval score <agent> <dir> [--json]        VERDICT / BLOCKER / AC<n> FAIL / NIT lines vs tests/eval/corpus/<agent>.json
   (a test tool: lives in tests/eval/ beside its corpus since consolidation step 2, 2026-10-30; run as python3 tests/eval/reef-eval …)
   reef-eval compare <baseline.json> <cand.json>  exit 0 iff catch-rate and approve-precision did not drop
 """
@@ -17,8 +17,9 @@ import sys
 import tempfile
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/eval/ → the plugin root
-AGENTS = {"verifier": "verifier", "hunter": "loophole-hunter", "plan-reviewer": "plan-reviewer"}
-VERDICT = re.compile(r"^[\s`*#_>-]*VERDICT[`*_]*:[\s`*_]*(PASS|FAIL)\b", re.M | re.I)
+AGENTS = {"verifier": "verifier", "hunter": "loophole-hunter", "plan-reviewer": "plan-reviewer", "acceptance": "acceptance"}
+VERDICT = re.compile(r"^[\s`*#_>-]*VERDICT[`*_]*:[\s`*_]*(PASS|FAIL|GREEN)\b", re.M | re.I)   # GREEN: acceptance's PASS
+NIT_LINE = re.compile(r"^\s*(?:[-*|]\s*)?\**NIT\b", re.I)
 SECTION = re.compile(r"^[\s`*#_]*(BLOCKING|ADVISORY|NEW-ROW|NOTED|NONE|VERDICT)\b", re.I)
 # a finding line; a "RULE AC<n>: PASS iff …; FAIL if …" line names FAIL but is a rule, never a finding
 BLOCKING_LINE = re.compile(r"^\s*(?:[-*|]\s*)?\**(?!RULE\b)(BLOCKER:|BLOCKING\b|HALT\b|AC-?\s*\d+\b.*\bFAIL\b|FAIL\b.*\bAC-?\s*\d+\b)", re.I)
@@ -63,7 +64,8 @@ def parse(report):
             blocking.append(l.strip())
         elif in_section and l.strip() and l.strip().lower() not in ("none", "none.", "- none", "- none."):
             blocking.append(l.strip())
-    return (vs[-1].upper() if vs else None), blocking
+    verdict = vs[-1].upper() if vs else None
+    return ("PASS" if verdict == "GREEN" else verdict), blocking
 
 
 def judge(entry, report):
@@ -72,18 +74,24 @@ def judge(entry, report):
     want = truth["verdict"].upper()
     hay = "\n".join(blocking)
     caught = want == "FAIL" and verdict == "FAIL" and all(re.search(rx, hay, re.I | re.S) for rx in truth.get("blockers", []))
-    return {"entry": entry["id"], "truth": want, "verdict": verdict, "caught": caught,
+    # a truth NIT (an over-built but correct diff) is caught on a PASS whose NIT lines name every one of them
+    nits = "\n".join(l for l in report.splitlines() if NIT_LINE.match(l))
+    nit_caught = (bool(truth.get("nits")) and verdict == "PASS" and all(re.search(rx, nits, re.I | re.S) for rx in truth["nits"])) \
+        if truth.get("nits") else None
+    return {"entry": entry["id"], "truth": want, "verdict": verdict, "caught": caught, "nit_caught": nit_caught,
             "false_fail": want == "PASS" and verdict == "FAIL", "approved": verdict == "PASS"}
 
 
 def metrics(rows):
     fails = [r for r in rows if r["truth"] == "FAIL"]
     approved = [r for r in rows if r["approved"]]
+    nitted = [r for r in rows if r.get("nit_caught") is not None]
     return {"runs": len(rows),
             "catch_rate": (sum(r["caught"] for r in fails) / len(fails)) if fails else None,
             "approve_precision": (sum(r["truth"] == "PASS" for r in approved) / len(approved)) if approved else None,
             "false_fail_rate": (sum(r["false_fail"] for r in rows if r["truth"] == "PASS")
                                 / max(1, sum(r["truth"] == "PASS" for r in rows))),
+            "nit_rate": (sum(bool(r.get("nit_caught")) for r in nitted) / len(nitted)) if nitted else None,
             "unparsed": sum(r["verdict"] is None for r in rows)}
 
 
@@ -106,7 +114,7 @@ def cmd_score(agent, directory, as_json):
     else:
         fmt = lambda v: "n/a" if v is None else f"{v:.2f}"
         print(f"{agent}: runs={m['runs']} catch_rate={fmt(m['catch_rate'])} approve_precision={fmt(m['approve_precision'])} "
-              f"false_fail_rate={fmt(m['false_fail_rate'])} unparsed={m['unparsed']}")
+              f"false_fail_rate={fmt(m['false_fail_rate'])} nit_rate={fmt(m['nit_rate'])} unparsed={m['unparsed']}")
         for r in rows:
             print(f"  {r['entry']}: truth={r['truth']} verdict={r['verdict']} {'caught' if r['caught'] else ''}{'FALSE-FAIL' if r['false_fail'] else ''}")
     return 0
@@ -118,14 +126,14 @@ def cmd_compare(base_path, cand_path):
     with open(cand_path) as f:
         cand = json.load(f)
     bad = []
-    for key in ("catch_rate", "approve_precision"):
+    for key in ("catch_rate", "approve_precision", "nit_rate"):
         b, c = base.get(key), cand.get(key)
         if b is not None and c is not None and c < b - 1e-9:
             bad.append(f"{key} dropped {b:.2f} -> {c:.2f}")
     if bad:
-        print("REFUSED (decision 4: catch-rate and precision must not drop): " + "; ".join(bad))
+        print("REFUSED (decision 4: catch-rate, precision and the NIT rate must not drop): " + "; ".join(bad))
         return 1
-    print("ok: catch-rate and approve-precision did not drop")
+    print("ok: catch-rate, approve-precision and the NIT rate did not drop")
     return 0
 
 
@@ -136,13 +144,16 @@ def build_worktree(entry, agent):
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
             f.write(content)
-    for name in ("reef-gate.sh", "reef-ci-local.sh"):
+    # acceptance reads the suite's one result through reef-evidence.py (and its helpers) for its GATE: line
+    for name in ("reef-gate.sh", "reef-ci-local.sh") + (("reef-evidence.py", "reef_common.py", "reef-snapshot.sh") if agent == "acceptance" else ()):
         os.makedirs(os.path.join(d, "scripts"), exist_ok=True)
         shutil.copy(os.path.join(PLUGIN, "scripts", name), os.path.join(d, "scripts", name))
     g = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=e@e", "-c", "user.name=eval", *a], check=True, capture_output=True)
     g("init", "-q", "-b", "main")
     g("add", "-A")
     g("commit", "-qm", "base")
+    if agent == "acceptance":    # the reviewer judges a PR: the feature committed on its branch, `git diff main...HEAD`
+        g("switch", "-qc", entry.get("branch", "feat/feature"))
     for rel, content in (entry.get("after") or {}).items():
         p = os.path.join(d, rel)
         if content is None:
@@ -151,6 +162,9 @@ def build_worktree(entry, agent):
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
             f.write(content)
+    if agent == "acceptance":
+        g("add", "-A")
+        g("commit", "-qm", "feature")
     return d
 
 

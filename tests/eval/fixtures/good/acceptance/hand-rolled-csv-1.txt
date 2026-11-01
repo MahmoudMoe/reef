@@ -1,0 +1,9 @@
+HEAD: 0123456789ab
+RUN: agent=acceptance feature=csv-export
+GATE: evidence: 0123456789ab exit 0 (local gate)
+FR-1 PASS — test_export_sorted_two_decimals
+FR-2 PASS — test_export_empty
+AC-1 PASS — tests/test_export.py:9
+AC-2 PASS — tests/test_export.py:13
+NIT: hand-rolled _quote/_line where the stdlib csv module (csv.writer) does the quoting
+VERDICT: GREEN
