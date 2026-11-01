@@ -793,7 +793,9 @@ def main(argv):
             path = json.load(sys.stdin).get("transcript_path")
         except Exception:
             path = None
-    if not path or not os.path.isfile(path):
+    if not path:   # 2026-11-01: a bare call said `transcript not found: None` and the session gave up on the numbers
+        die("no transcript given — `reef-cost.py rows --since <ISO date>` is the pipeline per merged row, `growth --feature <slug>` a feature's share")
+    if not os.path.isfile(path):
         die(f"transcript not found: {path!r}")
     if mode == "--live":
         n = live_context(path)

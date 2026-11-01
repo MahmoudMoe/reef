@@ -1129,7 +1129,7 @@ def pipeline_numbers(root, since):
             "owner_questions": b.get("owner_questions"), "proxy_day": b.get("proxy_day_decisions")}
 
 
-def numbers_table(now, prev):
+def numbers_table(now, prev, mode="night"):
     def cells(n):
         if not n:
             return ["–"] * 14
@@ -1147,8 +1147,24 @@ def numbers_table(now, prev):
              "Lead time per merged row, plan → merge (median)", "Of it after the approval (median)", "Tokens per merged row (median)",
              "Full-suite runs per merged row (median)", "Rework: rollups + reverts", "Process : product commits",
              "Owner questions (the owner's footnotes)", "Decisions by the proxy by day"]
-    return ["## The night in numbers", "", "| | Tonight | Last night |", "|---|---|---|",
+    head = "| | Tonight | Last night |" if mode == "night" else "| | Today | The last day |"
+    return [f"## The {'night' if mode == 'night' else 'day'} in numbers", "", head, "|---|---|---|",
             *[f"| {k} | {a} | {b} |" for k, a, b in zip(names, cells(now), cells(prev))], ""]
+
+
+def autopilot_day_start(root, started):
+    """The day's first autopilot start, kept across restarts in .reef/run/autopilot-day.json (2026-11-01: a restart at 06:57Z
+    rewrote the report from its own start — six minutes, `Rows merged 0` on a morning that finished four tasks)."""
+    p, today = os.path.join(root, RUN_DIR, "autopilot-day.json"), time.strftime("%Y-%m-%d")
+    try:
+        rec = json.load(open(p, encoding="utf-8"))
+        if rec.get("day") == today and str(rec.get("since") or "~") <= started:
+            return rec["since"]
+    except (OSError, ValueError, AttributeError, KeyError):
+        pass
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump({"day": today, "since": started}, f)
+    return started
 
 
 def morning_report(root, started, log, mode="night"):
@@ -1158,6 +1174,7 @@ def morning_report(root, started, log, mode="night"):
     import glob
     label, path = (("Mahmoud (proxy, night", os.path.join(NIGHT_DIR, "report.md")) if mode == "night"
                    else ("Mahmoud (proxy, day", os.path.join(RUN_DIR, "autopilot.md")))
+    started = started if mode == "night" else autopilot_day_start(root, started)
     lines = [f"# {'Night' if mode == 'night' else 'Autopilot'} report — {time.strftime('%Y-%m-%d %H:%M')} (since {started})", ""]
     appr = []
     for p in sorted(glob.glob(os.path.join(root, ".reef", "approvals", "*.json"))):
@@ -1175,7 +1192,8 @@ def morning_report(root, started, log, mode="night"):
         cfg = {}
     queue = os.path.join(root, (cfg.get("paths") or {}).get("queue", "docs/queue.md"))
     try:
-        foot = [f"- {l.strip()}" for l in open(queue, encoding="utf-8") if label in l]   # the night's list or the day's, never mixed
+        foot = [f"- {l.strip()}" for l in open(queue, encoding="utf-8") if label in l   # the night's list or the day's, never mixed
+                and (re.search(r"\d{4}-\d{2}-\d{2}", l) or [started[:10]])[0] >= started[:10]]   # and this run's, not every one before it
     except OSError:
         pass
     lines += ["## Mahmoud's other decisions (queue footnotes — undo: edit the footnote)", *(foot or ["- none"]), ""]
@@ -1205,16 +1223,19 @@ def morning_report(root, started, log, mode="night"):
     tonight = [x for x in sessions if str(x.get("at", "")) >= started]
     cost = sum(float(x.get("cost_usd") or 0) for x in tonight)
     hist = os.path.join(root, NIGHT_DIR, "history.jsonl")
-    try:
-        prev = json.loads(open(hist, encoding="utf-8").read().splitlines()[-1])
-    except (OSError, ValueError, IndexError):
-        prev = None
+    today = time.strftime("%Y-%m-%d")
+    try:   # beside the last night, or the last DAY of the autopilot (its runs of today are this report)
+        past = [json.loads(l) for l in open(hist, encoding="utf-8").read().splitlines() if l.strip()]
+    except (OSError, ValueError):
+        past = []
+    past = [x for x in past if x.get("mode", "night") == mode and (mode == "night" or x.get("day") != today)]
+    prev = past[-1] if past else None
     nums = night_numbers(root, started, tonight, base)
-    lines += numbers_table(nums, prev)
+    lines += numbers_table(nums, prev, mode)
     if nums.get("pipeline_error"):
         lines += [f"Pipeline numbers unavailable this night: {nums['pipeline_error']}", ""]
     with open(hist, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"started": started, **nums}) + "\n")
+        f.write(json.dumps({"started": started, "mode": mode, "day": today, **nums}) + "\n")
     lines += [f"Sessions: {len(tonight)} · cost: ${cost:.2f} · log: {os.path.relpath(log, root)}"]
     with open(os.path.join(root, path), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
