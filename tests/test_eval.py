@@ -75,6 +75,10 @@ class Parser(unittest.TestCase):
         entry = {"id": "x", "truth": {"verdict": "PASS", "blockers": [], "nits": ["abstract|registry"]}}
         self.assertTrue(self.ev.judge(entry, "NIT: unused Exporter abstract base\nVERDICT: GREEN\n")["nit_caught"])
         self.assertFalse(self.ev.judge(entry, "NIT: README typo\nVERDICT: GREEN\n")["nit_caught"], "the wrong NIT")
+        self.assertTrue(self.ev.judge(entry, "NIT: unrequested\n- an abstract base for one format\n\nVERDICT: GREEN\n")["nit_caught"],
+                        "a NIT's bullets are part of it (live baseline 2026-11-01, hand-rolled-csv-2)")
+        self.assertFalse(self.ev.judge(entry, "NIT: typo\nFR-1 PASS\n- the abstract base is fine\nVERDICT: GREEN\n")["nit_caught"],
+                         "a bullet under another line is not the NIT's")
         self.assertFalse(self.ev.judge(entry, "BLOCKER: abstract base unused\nVERDICT: FAIL\n")["nit_caught"], "a blocker is a false FAIL, not a NIT")
         self.assertIsNone(self.ev.metrics([self.ev.judge({"id": "y", "truth": {"verdict": "PASS", "blockers": []}}, "VERDICT: PASS")])["nit_rate"],
                           "no entry asks for a NIT: no rate")

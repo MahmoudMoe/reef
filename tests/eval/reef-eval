@@ -68,6 +68,19 @@ def parse(report):
     return ("PASS" if verdict == "GREEN" else verdict), blocking
 
 
+def nit_lines(report):
+    """Every NIT line, with the bullets under it: `NIT: unrequested` then `- _quote in export.py …` is one NIT."""
+    out, in_nit = [], False
+    for l in report.splitlines():
+        if NIT_LINE.match(l):
+            out.append(l); in_nit = True
+        elif in_nit and re.match(r"^\s*[-*]\s", l):
+            out.append(l)
+        elif l.strip():
+            in_nit = False
+    return out
+
+
 def judge(entry, report):
     verdict, blocking = parse(report)
     truth = entry["truth"]
@@ -75,7 +88,7 @@ def judge(entry, report):
     hay = "\n".join(blocking)
     caught = want == "FAIL" and verdict == "FAIL" and all(re.search(rx, hay, re.I | re.S) for rx in truth.get("blockers", []))
     # a truth NIT (an over-built but correct diff) is caught on a PASS whose NIT lines name every one of them
-    nits = "\n".join(l for l in report.splitlines() if NIT_LINE.match(l))
+    nits = "\n".join(nit_lines(report))
     nit_caught = (bool(truth.get("nits")) and verdict == "PASS" and all(re.search(rx, nits, re.I | re.S) for rx in truth["nits"])) \
         if truth.get("nits") else None
     return {"entry": entry["id"], "truth": want, "verdict": verdict, "caught": caught, "nit_caught": nit_caught,

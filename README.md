@@ -525,6 +525,9 @@ Every claim above has a number behind it, and the numbers live in `docs/perf/`:
   shown red first. `scripts/reef-cost.py` reports per-feature growth (`rows`), a feature Reef built on itself.
 - **`baseline-2026-10-16.md`** — the 0.5 session the 0.6 targets were set against: first turn 91k tokens, 43% of
   context attachments, 31% raw Bash output.
+- **`eval-acceptance-2026-11-01.md`** — the row's one reviewer gets its corpus (one feature, six PR heads: two blockers,
+  three correct-but-over-built diffs scored as NITs): opus and sonnet both at catch-rate, precision and NIT rate 1.00,
+  sonnet at 43% of the cost; the corpus is at the ceiling and says so.
 - **`eval-baseline-2026-10-16.md`** — `tests/eval/reef-eval` on the frozen corpus, k=3: every true blocker caught by every
   agent; the verifier's false-FAIL 0.33 → 0.00 (0.6), the hunter's 0.33 → 0.17 (0.7), nothing dropped; the corpus's own
   PASS fixtures were wrong three times and the agents were right each time.
