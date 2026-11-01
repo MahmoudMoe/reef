@@ -564,6 +564,23 @@ class VerifyNow(unittest.TestCase):
         st = json.loads(loop(d, "tick", "--json").stdout)
         self.assertEqual(st["verify_now"], ["101"])
 
+    def test_a_failure_in_the_task_worktrees_copy_sends_the_task_back_to_the_implementer(self):
+        # 2026-11-01 (the owner's project, task 19101): the round's FAIL lines land in the task worktree's copy of the task
+        # file; the copy the tick read held only a failure older than the hand-back, so it said `verify` — the judges ran
+        # again on the same code, the gate went red again and an attempt was spent with no implementer
+        d = project()
+        w = os.path.join(d, ".reef", "worktrees", "101")
+        subprocess.run(["git", "-C", d, "worktree", "add", "-q", "-b", "task/101", w], check=True, capture_output=True)
+        write(w, ".reef/ci-local/handback-101.md", "RUN: agent=implementer task=101\nclaims\n")
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["verify_now"], ["101"], "handed back in the task worktree, not yet judged")
+        time.sleep(1.1)   # the Log line carries whole seconds
+        t = read_file(os.path.join(w, "tasks", "101-a.md")).replace("attempts: 0", "attempts: 1")
+        write(w, "tasks/101-a.md", t.rstrip("\n") + "\n- attempt 1 FAIL: gate exit 1: FAIL modules.test.ts · at " + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + "\n")
+        st = json.loads(loop(d, "tick", "--json").stdout)
+        self.assertEqual(st["verify_now"], [], "the failure after the hand-back is in a copy the tick must read too")
+        self.assertIn("101", st["dispatch_now"], "back to the implementer")
+
 
 class StopHook(unittest.TestCase):
     def test_ready_undispatched_refused_once_then_allowed(self):
