@@ -433,6 +433,40 @@ class ApprovalInAWorktree(unittest.TestCase):
         self.assertIn("matches no checkout", r.stdout)
 
 
+    def test_the_owners_approval_checks_the_plan_in_the_feature_worktree_not_a_task_worktree_mid_edit(self):
+        """2026-11-01, the owner's screen (row 189): `reef-approval.py --owner` ran plan-check in the first checkout whose plan
+        matched — the task worktree 18902, where the implementer had already edited the files the plan's Read first cites, so
+        `sourceFiles is not in src/lib/bidi.test.ts:74-78` refused a plan that passes in its feature worktree."""
+        body = "x\n\n## Read first\n- `src/a.py:1-2` (thing) — the line the task changes"
+        d = project({"gates": {"test": "true"}}, {"007-demo.md": task_text(7, "demo", "full", "design").replace("## Scope\nx", "## Scope\n" + body)})
+        os.makedirs(os.path.join(d, "src"))
+        with open(os.path.join(d, "src", "a.py"), "w") as f:
+            f.write("x = 1\nthing = 2\n")
+        with open(os.path.join(d, ".gitignore"), "a") as f:
+            f.write(".reef/worktrees/\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "code")
+        self.assertEqual(plan_check(d, "--feature", "demo").returncode, 0, plan_check(d, "--feature", "demo").stdout)
+        feat = os.path.join(d, ".reef", "worktrees", "demo")
+        git(d, "worktree", "add", "-q", "-b", "feat/demo", feat)
+        tp = os.path.join(feat, "tasks", "007-demo.md")
+        with open(tp) as f:
+            t = f.read()
+        with open(tp, "w") as f:
+            f.write(t.replace("## Scope\nx", "## Scope\nx, amended in the feature worktree"))
+        git(feat, "commit", "-qam", "amend")
+        task = os.path.join(d, ".reef", "worktrees", "007")   # listed before the feature's worktree
+        git(feat, "worktree", "add", "-q", "-b", "task/007-demo", task)
+        with open(os.path.join(task, "src", "a.py"), "w") as f:
+            f.write("import os\nx = 1\nthing = 2\n")   # the implementer's edit moves the cited line
+        dg = plan_check(feat, "--digest", "--feature", "demo").stdout.split()[-1]
+        self.assertEqual(plan_check(task, "--digest", "--feature", "demo").stdout.split()[-1], dg, "the same plan in both")
+        self.assertNotEqual(plan_check(task, "--feature", "demo").returncode, 0, "the test has teeth: the task worktree fails the check")
+        r = subprocess.run([sys.executable, APPROVAL, "--owner", f"Approve plan demo at {dg[:16]}?"], cwd=d, capture_output=True, text=True)
+        rec = os.path.join(d, ".reef", "approvals", "demo.json")
+        self.assertTrue(os.path.exists(rec), r.stdout + r.stderr)
+        with open(rec) as f:
+            self.assertEqual(json.load(f)["digest16"], dg[:16])
+
 class PlanReviewVerdictIsARecord(unittest.TestCase):
     """0.7: the deterministic stamp never meant the semantic review passed. For a feature with a task above light the
     guard's check needs `scripts/reef-record plan-review <slug> PASS` at the current digest."""

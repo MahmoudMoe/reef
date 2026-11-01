@@ -591,6 +591,8 @@ def main(argv):
             print(f"reef-approval: {feature}: two plans share the fingerprint {digest16} ({', '.join(where)}) — which one was read is "
                   "unknowable; nothing written — amend one plan, re-digest, ask again")
             continue
+        first = [os.path.realpath(x) for x in (os.path.join(root, ".reef", "worktrees", feature), root)]   # the plan of record (plan_of_record):
+        where.sort(key=lambda wt: first.index(os.path.realpath(wt)) if os.path.realpath(wt) in first else len(first))   # never a task worktree mid-edit (row 189, 2026-11-01)
         fails = plan_check_failures(where[0], feature)
         if fails:
             print(f"reef-approval: {feature}: REFUSED — reef-plan-check.py FAILS in {where[0]}: {fails[0][:200]} — fix, re-digest, ask again; nothing written")

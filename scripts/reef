@@ -731,8 +731,14 @@ def panel_block(panel, w):
     if not panel:
         return "", []
     head = clip(f"OUTPUT  $ {panel.get('shown', '')} · " + ("running … (Ctrl-C leaves the screen)" if panel.get("rc") is None else f"exit {panel['rc']} · {panel.get('after') or 'any key closes'}"), w)
-    lines = list(panel.get("lines") or ["(no output)"])
+    lines = [row for l in (panel.get("lines") or ["(no output)"]) for row in wrap_output(l, w - 2)]   # a long line wraps, never cut (row 189's refusal, 2026-11-01)
     return head, (lines[:PANEL_LINES] if panel.get("keep") == "head" else lines[-PANEL_LINES:])
+
+
+def wrap_output(line, w):
+    """One output line onto rows of at most `w` characters: the first as it is, the rest indented by two."""
+    rows = [line] if len(line) <= max(10, int(w)) else wrap(line, max(10, int(w)) - 2)
+    return rows[:1] + ["  " + r for r in rows[1:]]
 
 
 def shed_panel(panel_lines, dropped, keep_head=False):

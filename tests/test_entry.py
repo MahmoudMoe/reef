@@ -114,6 +114,24 @@ def settle(limit=15.0):
     assert not stuck, f"a reading did not land in {limit} s: {stuck}"
 
 
+class TheOutputSaysItselfWhole(unittest.TestCase):
+    def test_a_long_output_line_wraps_instead_of_being_cut(self):
+        """2026-11-01, the owner's screen: the approval's refusal ended at `tasks/18902-screen-sweeps-rea…` — the reason itself was
+        past the edge. The panel wraps a long line onto the next rows, indented, so every word of a command's output is there."""
+        mod = load_script("reef", "reef_entry_under_test")
+        why = ("reef-approval: guard-roots-one-list: REFUSED — reef-plan-check.py FAILS in /Users/x/ai-coach-master/.reef/worktrees/18902: "
+               "FAIL: reef/features/guard-roots-one-list/tasks/18902-screen-sweeps-read-roots.md: read first — sourceFiles is not in "
+               "src/lib/bidi.test.ts:74-78 (cite the range you read) — fix, re-digest, ask again; nothing written")
+        for w in (80, 120, 211):
+            head, lines = mod.panel_block({"shown": "x", "rc": 1, "lines": [why]}, w)
+            self.assertTrue(all(len(l) <= w - 2 for l in lines), f"{w}: a row wider than the panel")
+            self.assertFalse(any(l.endswith("…") for l in lines), f"{w}: cut\n" + "\n".join(lines))
+            self.assertEqual(" ".join(l.strip() for l in lines).split(), why.split(), f"{w}: every word, in order")
+            self.assertTrue(all(l.startswith("  ") for l in lines[1:]), "the rows after the first are indented")
+        head, lines = mod.panel_block({"shown": "x", "rc": 0, "lines": [f"line {i}" for i in range(40)]}, 120)
+        self.assertEqual(lines[-1], "line 39"); self.assertEqual(len(lines), mod.PANEL_LINES, "the last rows, as before")
+
+
 class TheLogShowsTheFiles(unittest.TestCase):
     """2026-11-01, the owner: the screen shows the process, not the product. The LOG page keeps the runner's log on top and, under it,
     what each row in flight is changing — per worktree, the files against where the branch left the base, committed or not, with
