@@ -252,6 +252,26 @@ class AssessNeedsInit(unittest.TestCase):
         self.assertLess(skill.index("run /reef-init first"), skill.index("## 1. Understand"), "the prerequisite is step 0, before any reading")
 
 
+class LeastCodeLadder(unittest.TestCase):
+    """Step 2 of docs/review/squid-adoption-plan-2026-11-01.md (Squid agents/software-engineer.md:92-105 and
+    agents/pr-reviewer.md:115): the implementer stops at the first rung that holds, and the one reviewer names code the
+    task did not need as a NIT — never a blocker, so the four blocker kinds stay as they are."""
+
+    def test_the_implementer_climbs_the_ladder_without_cutting_safety(self):
+        text = read("agents", "implementer.md")
+        rungs = ["not needed", "already in this codebase", "the stdlib", "a platform feature", "an installed dependency", "one line"]
+        at = [text.find(r) for r in rungs]
+        self.assertNotIn(-1, at, f"every rung, in order: {dict(zip(rungs, at))}")
+        self.assertEqual(at, sorted(at), "the rungs are climbed in order")
+        self.assertIn("Never cut validation, error handling or a test", text)
+        self.assertIn("each deliberate trade-off with its ceiling", text)
+
+    def test_the_reviewer_names_unneeded_code_as_a_nit(self):
+        text = read("agents", "acceptance.md")
+        self.assertIn("code the task did not need — an abstraction with one implementation, a re-implemented helper or "
+                      "stdlib function, a dependency for a few lines — a NIT naming what to use instead", text)
+        self.assertIn("A BLOCKER is one of four kinds only", text, "the blocker kinds are unchanged")
+
 class InitKeepsYours(unittest.TestCase):
     def test_on_an_existing_project_the_skill_recommends_the_projects_files_and_measures_before_an_accept(self):
         # 0.7.2 (ai-coach, 2026-10-24, item 8): Reef's renderings, accepted, broke 62 tests in 11 files
