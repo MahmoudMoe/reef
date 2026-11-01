@@ -103,8 +103,39 @@ PROMPT = ("/reef-loop — a reef-run iteration: headless, AskUserQuestion does n
           "answered when the row's state moved past it (`reef-row.py state <row>`): clear it, never re-record it. "
           "LONG WORK IS THE RUNNER'S: a command that may run longer than two minutes (the full gate, reef-converge, a CI wait) is a runner job — "
           "`python3 scripts/reef-run.py job <name> -- <command…>` (letters, digits, dashes) — then `python3 scripts/reef-loop.py wait \"job: <name> — <what it proves>\"` "
-          "and END the turn; never a background shell here (it keeps this process alive and the runner waiting). The runner waits for the job and "
-          "starts the next session with JOBS DONE and its rc; the log is .reef/run/jobs/<name>.log.")
+          "and END the turn; never a background shell here (it keeps this process alive and the runner waiting). The runner waits for the job, then resumes "
+          "this conversation (a short job) or starts the next session, with JOBS DONE and its rc; the log is .reef/run/jobs/<name>.log.")
+
+RESUME_PROMPT = (" The runner job(s) you ended your turn on have finished — continue the loop from where you stopped, under the same "
+                 "rules (/reef-loop; long work is the runner's). Your context still holds the handoff and the tick: read the jobs' logs "
+                 "and what they changed, not the rest again.")
+RESUME_SECONDS = 300   # the prompt cache's five minutes: a resumed conversation inside it costs a fraction of a fresh start's re-read
+RESUME_CHAIN = 4       # resumes in a row before a fresh session: the context ceiling is the real bound, this one is a backstop
+
+
+def resume_limit(root):
+    """The context under which a conversation may be resumed: caps.context_warn, else 60% of caps.context_tokens, else 120k."""
+    caps = read_config(root).get("caps") or {}
+    try:
+        return int(caps.get("context_warn") or 0) or int(0.6 * int(caps.get("context_tokens") or 0)) or 120000
+    except (TypeError, ValueError):
+        return 120000
+
+
+def resume_of(last, done_jobs, root, mode):
+    """The session id to resume, or None (2026-11-01, the owner's project: four sessions in twenty minutes, each re-reading the
+    handoff and the tick for 1-2 minutes and $0.30-0.60 after a job). Only the conversation that ended on a runner job, once its
+    jobs are done, within RESUME_SECONDS of its end, with a context the runner read and under resume_limit — a Claude Code one."""
+    if mode == "opencode" or not done_jobs or not last or not last.get("id") or not last.get("job_wait"):
+        return None
+    try:
+        window = float(os.environ.get("REEF_RESUME_SECONDS") or RESUME_SECONDS)
+    except ValueError:
+        window = RESUME_SECONDS
+    ctx = last.get("context") or 0
+    if not ctx or ctx >= resume_limit(root) or time.time() - float(last.get("ended") or 0) > window or last.get("chain", 0) >= RESUME_CHAIN:
+        return None
+    return str(last["id"])
 
 
 die = lambda msg, code=1: _die(msg, code, prefix="reef-run")   # the signature the script always had: a positional code, 1 by default
@@ -265,7 +296,7 @@ def session_record(root):
         return 0, ""
 
 
-def session(root, prompt, mode, say=None):
+def session(root, prompt, mode, say=None, resume=None):
     """One headless Claude Code session in the project, streamed: each event's live lines go to `say`; returns the last
     `result` event (session_id, total_cost_usd, result), or {"result": <raw output>}. Mode `opencode`: an OpenCode one."""
     if mode == "opencode":
@@ -279,7 +310,7 @@ def session(root, prompt, mode, say=None):
         extra += ["--allowedTools", "Bash(gh pr merge:*)"]   # the guard still gates it on the GREEN record; nothing else is pre-allowed (a job line would have pre-allowed any command)
     t0 = time.time()
     try:
-        p = subprocess.Popen([claude, "-p", prompt, "--permission-mode", mode, "--output-format", "stream-json", "--verbose", *extra],
+        p = subprocess.Popen([claude, "-p", prompt, *(["--resume", resume] if resume else []), "--permission-mode", mode, "--output-format", "stream-json", "--verbose", *extra],
                              cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True,
                              env=dict(os.environ, REEF_RUNNER="1",
                                       CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=os.environ.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", BG_WAIT_MS)))
@@ -288,7 +319,7 @@ def session(root, prompt, mode, say=None):
     SESSION["p"] = p
     with open(os.path.join(root, SESSION_PID), "w", encoding="utf-8") as f:   # pid + its ps start time: the identity stop checks
         json.dump({"pid": p.pid, "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "lstart": ps_start(p.pid)}, f)
-    out, raw, names, verdicts = None, [], {}, {}
+    out, raw, names, verdicts, context = None, [], {}, {}, 0
     try:
         for line in p.stdout:
             try:
@@ -298,6 +329,13 @@ def session(root, prompt, mode, say=None):
                 continue
             if not isinstance(ev, dict):
                 continue
+            msg = ev.get("message")
+            if ev.get("type") == "assistant" and not ev.get("parent_tool_use_id") and isinstance(msg, dict) and isinstance(msg.get("usage"), dict):
+                u = msg["usage"]   # the session's own last turn (a sub-agent's is its own context): what a resume would carry
+                try:
+                    context = sum(int(u.get(k) or 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")) or context
+                except (TypeError, ValueError):
+                    pass
             if ev.get("type") == "result":
                 out = ev
             try:
@@ -314,7 +352,7 @@ def session(root, prompt, mode, say=None):
         except OSError:
             pass
     out = dict(out) if out else {"result": "".join(raw)[-2000:]}
-    out["_rc"], out["_seconds"] = p.returncode, round(time.time() - t0, 1)
+    out["_rc"], out["_seconds"], out["_context"] = p.returncode, round(time.time() - t0, 1), context
     return out
 
 
@@ -1479,6 +1517,7 @@ def run_loop(root, mode, cap, night, row, autopilot, carried):
     stop_req = os.path.join(root, RUN_DIR, "stop-request")
     i, prev_sig, prev_wait, owner_waits = carried.get("i", 0), carried.get("prev_sig"), carried.get("prev_wait"), carried.get("owner_waits", 0)
     tried = set(carried.get("tried") or [])
+    last = None   # the session before: its id, its end, its context, whether it ended on a runner job — what a resume needs
 
     def record(text):
         """A line the owner sees everywhere — live.log (watch, status, the status page) first, the terminal after: the
@@ -1526,7 +1565,17 @@ def run_loop(root, mode, cap, night, row, autopilot, carried):
             if done_jobs:
                 say("jobs done: " + ", ".join(f"{j['name']} rc={j.get('rc')}" for j in done_jobs) + " — this session continues their rows")
             prompt = (f"/reef-loop {row}" + PROMPT[len("/reef-loop"):]) if row else PROMPT
-            out = session(root, prompt + (NIGHT_PROMPT if night else AUTOPILOT_PROMPT if autopilot else "") + note, mode, say)
+            resume = resume_of(last, done_jobs, root, mode)
+            out = None
+            if resume:
+                say(f"resumes the session that ended on the job ({int(time.time() - last['ended'])} s ago, context {last['context'] // 1000}k "
+                    f"of {resume_limit(root) // 1000}k) — no fresh re-read")
+                out = session(root, RESUME_PROMPT + note, mode, say, resume=resume)
+                if not out.get("session_id"):   # gone, or refused: a fresh session takes the step, as before
+                    say(f"resume refused ({str(out.get('result') or '').strip()[:120]}) — a fresh session")
+                    out = None
+            if out is None:
+                out = session(root, prompt + (NIGHT_PROMPT if night else AUTOPILOT_PROMPT if autopilot else "") + note, mode, say)
             drop_session_hold(root, out.get("session_id"))
             mark_reported(root, done_jobs)   # the session read the note: now the job is reported
             st = loop_state(root)
@@ -1539,6 +1588,8 @@ def run_loop(root, mode, cap, night, row, autopilot, carried):
                                     "wait": wait, "stop": stop, "parked": parked, "in_flight": flying,
                                     "mode": "night" if night else "autopilot" if autopilot else "loop",
                                     "stop_requested": os.path.exists(stop_req)}) + "\n")   # the owner's stop: `resume` never undoes it
+            last = {"id": out.get("session_id"), "ended": time.time(), "context": out.get("_context") or 0,
+                    "job_wait": wait.startswith("job:"), "chain": (last or {}).get("chain", 0) + 1 if resume and out.get("session_id") == resume else 0}
             cost = out.get("total_cost_usd")
             say("session ended: " + (f"wait {wait!r}" if wait else f"stop {stop!r}" if stop else f"parked {parked!r}" if parked
                                      else f"in flight {flying}" if flying else "no wait recorded")
