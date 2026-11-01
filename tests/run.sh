@@ -15,7 +15,7 @@ export REEF_NO_RESUME=1   # a typed approval or answer in a test must not start 
 #   test_init.py        reef-init: idempotent, never overwrites, one home per fact, release-only CI
 #   test_tier_queue.py  reef-tier (a tier only gets heavier); reef-queue (derived status, ready rows, check, ADR numbering)
 #   test_cost.py        reef-cost: known counts, a compaction counts once, --live reads only the tail
-#   test_eval.py        tests/eval/reef-eval: verdict parser, comparison rule, fixture replay (trusting the hand-off drops the catch-rate), corpus builds green
+#   test_eval.py        tests/eval/reef-eval: verdict parser (GREEN = PASS), the NIT rate, comparison rule, fixture replay (trusting the hand-off drops the catch-rate), corpus builds green
 #   test_tiers_lock.py  0.6 phase 1: four tiers at dispatch, digest-bound approval, reviewer lock, guard deadline, the guard guards itself
 #   test_record.py      0.6 phase 1: review records bound to the forge SHA (fake gh): push after GREEN, rebase, slow gh all DENY
 #   test_feature_spec.py 0.6 phase 2: feature folder + SPEC keys, proof split, rails/touches, hand-back/report checks, reef-converge

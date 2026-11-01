@@ -19,7 +19,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EVAL = os.path.join(ROOT, "tests", "eval", "reef-eval")
 FIX = os.path.join(ROOT, "tests", "eval", "fixtures")
-AGENTS = ("verifier", "hunter", "plan-reviewer")
+AGENTS = ("verifier", "hunter", "plan-reviewer", "acceptance")
 
 
 def load_eval():
@@ -65,6 +65,25 @@ class Parser(unittest.TestCase):
         self.assertFalse(self.ev.judge(entry, "BLOCKER: short -n passes\nBLOCKER: nohup\nVERDICT: PASS\n")["caught"], "a PASS verdict never counts as a catch")
 
 
+    def test_green_is_the_acceptance_reviewers_pass(self):
+        # agents/acceptance.md ends its report `VERDICT: GREEN | FAIL`; GREEN scores as PASS
+        verdict, _ = self.ev.parse("HEAD: 0123456789ab\nFR-1 PASS — test_x\nVERDICT: GREEN\n")
+        self.assertEqual(verdict, "PASS")
+
+    def test_a_nit_is_caught_only_on_a_pass_naming_every_truth_nit(self):
+        # step 2 of docs/review/squid-adoption-plan-2026-11-01.md: an over-built but correct diff is a NIT, never a blocker
+        entry = {"id": "x", "truth": {"verdict": "PASS", "blockers": [], "nits": ["abstract|registry"]}}
+        self.assertTrue(self.ev.judge(entry, "NIT: unused Exporter abstract base\nVERDICT: GREEN\n")["nit_caught"])
+        self.assertFalse(self.ev.judge(entry, "NIT: README typo\nVERDICT: GREEN\n")["nit_caught"], "the wrong NIT")
+        self.assertTrue(self.ev.judge(entry, "NIT: unrequested\n- an abstract base for one format\n\nVERDICT: GREEN\n")["nit_caught"],
+                        "a NIT's bullets are part of it (live baseline 2026-11-01, hand-rolled-csv-2)")
+        self.assertFalse(self.ev.judge(entry, "NIT: typo\nFR-1 PASS\n- the abstract base is fine\nVERDICT: GREEN\n")["nit_caught"],
+                         "a bullet under another line is not the NIT's")
+        self.assertFalse(self.ev.judge(entry, "BLOCKER: abstract base unused\nVERDICT: FAIL\n")["nit_caught"], "a blocker is a false FAIL, not a NIT")
+        self.assertIsNone(self.ev.metrics([self.ev.judge({"id": "y", "truth": {"verdict": "PASS", "blockers": []}}, "VERDICT: PASS")])["nit_rate"],
+                          "no entry asks for a NIT: no rate")
+
+
 class FixtureReplay(unittest.TestCase):
     def test_good_fixtures_score_perfectly(self):
         for agent in AGENTS:
@@ -81,6 +100,14 @@ class FixtureReplay(unittest.TestCase):
                 good = json.loads(run("score", agent, os.path.join(FIX, "good", agent), "--json").stdout)
                 bad = json.loads(run("score", agent, os.path.join(FIX, "trusting", agent), "--json").stdout)
                 self.assertLess(bad["catch_rate"], good["catch_rate"], f"{agent}: trusting the hand-off must lose catches")
+                if good["nit_rate"] is not None:
+                    self.assertEqual(good["nit_rate"], 1.0, f"{agent}: the good fixtures name every truth NIT")
+                    self.assertLess(bad["nit_rate"], good["nit_rate"], f"{agent}: a trusting reviewer names no NIT")
+                    lost = dict(good, nit_rate=0.0)
+                    with open(os.path.join(d, "lost.json"), "w") as f:
+                        json.dump(lost, f)
+                    self.assertEqual(run("compare", os.path.join(d, "good.json"), os.path.join(d, "lost.json")).returncode, 1,
+                                     "a candidate that names fewer truth NITs is refused")
                 for name, m in (("good.json", good), ("bad.json", bad)):
                     with open(os.path.join(d, name), "w") as f:
                         json.dump(m, f)
@@ -117,8 +144,16 @@ class Corpus(unittest.TestCase):
                         g = subprocess.run(["sh", "scripts/reef-gate.sh", "full"], cwd=wt, capture_output=True, text=True)
                         self.assertEqual(g.returncode, 0, f"the defect must hide behind a GREEN gate: {g.stderr[-300:]}")
                         if e.get("after"):
-                            diff = subprocess.run(["git", "diff", "--stat"], cwd=wt, capture_output=True, text=True).stdout
+                            rng = ["main...HEAD"] if agent == "acceptance" else []
+                            diff = subprocess.run(["git", "diff", "--stat", *rng], cwd=wt, capture_output=True, text=True).stdout
                             self.assertTrue(diff.strip(), "the agent judges a non-empty diff")
+                        if agent == "acceptance":
+                            st = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=wt, capture_output=True, text=True).stdout
+                            self.assertEqual(st, "", "the reviewer reads a committed PR head, not a dirty tree")
+                            ev_ = subprocess.run([sys.executable, "scripts/reef-evidence.py", "HEAD"], cwd=wt, capture_output=True, text=True)
+                            self.assertIn(ev_.returncode, (0, 2), "the reviewer's GATE line comes from reef-evidence.py: " + ev_.stderr[-300:])
+                            for k in e["truth"].get("nits", []):
+                                self.assertEqual(e["truth"]["verdict"], "PASS", "a NIT entry is a correct diff")
                         if agent == "plan-reviewer":
                             pc = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-plan-check.py"), wt],
                                                 capture_output=True, text=True)
