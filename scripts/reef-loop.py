@@ -278,12 +278,18 @@ def tick(root):
     by_id = {str(t["id"]): t for t in dispatch_now}
     for t in list(dispatch_now):
         tid = str(t["id"])
+        # the newest FAIL in ANY checkout's copy of the task file (2026-11-01, task 19101: the round's FAIL lines were in the
+        # task worktree's copy, the copy read here held an older one, and the judges re-ran with no implementer)
+        path = os.path.realpath(str(t.get("path") or ""))
+        home = next((os.path.realpath(c) for c in sorted([root] + worktrees, key=len, reverse=True) if path.startswith(os.path.realpath(c) + os.sep)), "")
         failed_at = 0.0
-        try:
-            for m in re.finditer(r"^\s*-\s*attempt \d+ FAIL:.*· at (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)\s*$", read(str(t.get("path") or "")), re.M):
-                failed_at = max(failed_at, calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%SZ")))
-        except (OSError, ValueError):
-            failed_at = 0.0
+        for c in ([root] + worktrees if home else [""]):
+            try:
+                text = read(os.path.join(c, os.path.relpath(path, home)) if home else path)
+                for m in re.finditer(r"^\s*-\s*attempt \d+ FAIL:.*· at (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)\s*$", text, re.M):
+                    failed_at = max(failed_at, calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%SZ")))
+            except (OSError, ValueError):
+                continue
         for d_ in [root] + worktrees:
             hb = os.path.join(d_, ".reef", "ci-local", f"handback-{tid}.md")
             rp = os.path.join(d_, ".reef", "ci-local", f"report-{tid}.md")
