@@ -28,6 +28,11 @@ WORKFLOW = ".github/workflows/reef-factory.yml"
 # the forge's fake gains an issue's comments (with their edit time), a collaborator's permission and a branch's protection
 FAKE_GH = QI.FAKE_GH.replace('''    path = next(x for x in a[1:] if x.startswith("repos/"))
 ''', '''    path = next(x for x in a[1:] if x.startswith("repos/"))
+    if path.split("?")[0].endswith("/issues/comments"):   # every issue's comments, newest first (the day contract's approval)
+        cs = [(i["number"], k, c) for i in s["issues"] for k, c in enumerate(i.get("forge_comments", []))]
+        cs = [{"id": 1000 * n + k, "issue_url": f"https://api.github.com/repos/o/r/issues/{n}", "user": {"login": c.get("login", "owner")}, "body": c["body"], "created_at": f"2026-10-26T01:{j:02d}:00Z",
+               "updated_at": c.get("updated_at") or f"2026-10-26T01:{j:02d}:00Z"} for j, (n, k, c) in enumerate(cs)]
+        print(json.dumps(cs[::-1])); save(); sys.exit(0)
     if "/issues/" in path and path.endswith("/comments"):
         n = int(path.split("/issues/")[1].split("/")[0])
         cs = [{"id": k + 1, "user": {"login": c.get("login", "owner")}, "body": c["body"], "created_at": f"2026-10-26T00:0{k}:00Z",
@@ -247,6 +252,63 @@ class FromIssue(_Forge):
         r = self.approval("--from-issue", "4")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("nothing to approve", r.stdout)
+
+
+class DayFromIssue(_Forge):
+    """2026-11-01, the owner away from the terminal: the day contract's question, posted as a comment on any issue by an admin,
+    unedited, at the contract's current digest, is the approval `--owner` would have written; the sleeping runner reads it."""
+
+    def setUp(self):
+        super().setUp()
+        TR.write(self.d, "reef/owner.md", "# owner\nShips small.\n")
+        r = subprocess.run([sys.executable, RUN, "contract", "--day", "--repo", self.d], capture_output=True, text=True, env=self.env(), cwd=self.d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.question = next(l.split("question: ", 1)[1] for l in r.stdout.splitlines() if l.startswith("question: "))
+        self.rec = os.path.join(self.d, ".reef", "approvals", "day.json")
+
+    def test_only_the_owners_unedited_comment_at_the_current_digest_approves_the_day(self):
+        r = self.approval("--from-issue", "day")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(self.question, r.stdout, "the exact line the owner posts")
+        self.assertFalse(os.path.exists(self.rec))
+        self.comment(self.question, login="bob")
+        r = self.approval("--from-issue", "day")
+        self.assertIn("not by an admin", r.stdout); self.assertFalse(os.path.exists(self.rec))
+        self.comment("Approve proxy by day at 0123456789abcdef?")
+        r = self.approval("--from-issue", "day")
+        self.assertIn("stale", r.stdout); self.assertFalse(os.path.exists(self.rec))
+        self.comment(self.question, updated_at="2026-10-27T09:00:00Z")
+        r = self.approval("--from-issue", "day")
+        self.assertIn("edited", r.stdout); self.assertFalse(os.path.exists(self.rec))
+        self.comment(self.question)
+        r = self.approval("--from-issue", "day")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        got = json.load(open(self.rec))
+        self.assertEqual(got["digest16"], self.question.split(" at ")[1][:16])
+        self.assertEqual(len(got["digest"]), 64, "the full digest, so day_plan_refusal takes it")
+        self.assertEqual(got["by"], "owner (issue #12, @mahmoud)")
+
+    def test_the_sleeping_runner_wakes_on_the_owners_comment(self):
+        import importlib.util
+        import threading
+        spec = importlib.util.spec_from_file_location("reef_run_day", RUN)
+        rr = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rr)
+        self.comment(self.question)
+        os.makedirs(os.path.join(self.d, ".reef", "run"), exist_ok=True)
+        stop = os.path.join(self.d, ".reef", "run", "stop-request")
+        t = threading.Timer(20, lambda: open(stop, "w").close())
+        t.start()
+        saved = dict(os.environ)
+        try:
+            os.environ.update(self.env(REEF_WAIT_POLL="0.1"))
+            got = rr.sleep_until_answered(self.d, stop)
+        finally:
+            os.environ.clear(); os.environ.update(saved); t.cancel()
+        self.assertEqual(got, "answered", "the comment is read on the forge poll, not after a restart")
+        self.assertTrue(rr.day_ok(self.d)[0])
+        lines = rr.owner_wait_lines(self.d, f"plan approval for row 3 is outside the day contract — {self.question}", "claude")
+        self.assertIn("as a comment on any issue", lines, "the wait says the owner can answer from the phone")
 
 
 class FactoryRun(_Forge):

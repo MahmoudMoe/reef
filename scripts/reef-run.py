@@ -980,6 +980,8 @@ def sleep_until_answered(root, stop_req):
             if answer_signature(root) != files:
                 return "answered"
             if issues and n % 3 == 0:
+                if not day_ok(root)[0] and read_day_comment(root):
+                    return "answered"
                 now = issues_signature(root)
                 if now is not None and forge is not None and now != forge:
                     return "answered"
@@ -989,6 +991,17 @@ def sleep_until_answered(root, stop_req):
             os.unlink(os.path.join(root, ASLEEP))
         except OSError:
             pass
+
+
+def read_day_comment(root):
+    """An issues queue (2026-11-01): the owner's `Approve proxy by day at <digest16>?` posted on any issue becomes day.json
+    (reef-approval.py --from-issue day) — the day contract approved from the phone."""
+    ap = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-approval.py")
+    try:
+        subprocess.run([sys.executable, ap, "--from-issue", "day"], cwd=root, capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return day_ok(root)[0]
 
 
 def owner_wait_lines(root, wait, mode):
@@ -1022,6 +1035,9 @@ def owner_wait_lines(root, wait, mode):
     if cmds:
         lines.append("  answer in the terminal:")
         lines += [f"    {c}" for c in cmds]
+        day = re.search(r"Approve proxy by day at [0-9a-f]{16}\?", wait)
+        if day and (read_config(root).get("queue") or {}).get("home") == "issues":
+            lines.append(f"  away from the terminal: post `{day.group(0)}` as a comment on any issue — the runner reads it within a minute")
         lines.append(f"  the runner starts again by itself once you decide — any command above, or the reef screen — or answer in /reef-loop in {host}")
     else:
         lines.append(f"  answer in /reef-loop in {host}")
@@ -1528,9 +1544,11 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
                 f.write(DAY_DEFAULT)
             print(f"autopilot: seeded {DAY_FILES[0]} from Reef's default — edit its Decides: line, commit it, then approve once", flush=True)
         ok, why = day_ok(root)
+        if not ok and (read_config(root).get("queue") or {}).get("home") == "issues":
+            ok = read_day_comment(root)
         if not ok:
             die(f"autopilot needs the standing contract approved — {why}. To approve reef/proxy.md as it is, once: python3 scripts/reef-approval.py "
-                f"--owner \"{day_question(root)}\" — to widen it first, edit its Decides: line (plan, question, hole, triage for the whole day), "
+                f"--owner \"{day_question(root)}\" (on an issues queue, that line as a comment on any issue too) — to widen it first, edit its Decides: line (plan, question, hole, triage for the whole day), "
                 "then `python3 scripts/reef-run.py contract --day` prints the fresh question")
     try:
         with open(os.path.join(root, RUN_DIR, "gate.json"), encoding="utf-8") as f:
