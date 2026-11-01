@@ -716,6 +716,10 @@ def resume_reason(root):
 def cmd_resume(root):
     """`resume` (step 1 of owner-hands-off, 2026-10-31): the decision was recorded — start the runner again, detached, in the
     mode of its last run (autopilot or the plain loop). 0 started · 3 not, with the reason — the child's own when it refused."""
+    pid = runner_pid(root)
+    if pid and os.path.exists(os.path.join(root, ASLEEP)):
+        print(f"reef-run: the runner (pid {pid}) is asleep on this wait and wakes by itself within {int(float(os.environ.get('REEF_WAIT_POLL') or 20))} s of the answer")
+        return 0
     why, mode = resume_reason(root)
     if why:
         print(f"reef-run: not resuming — {why}")
@@ -930,6 +934,61 @@ def progress_signature(root, wait):
         except OSError:
             parts.append("-")
     return "|".join(parts)
+
+
+ASLEEP = os.path.join(RUN_DIR, "asleep")   # while the runner sleeps on an owner wait: its pid; `resume` finds it and starts no second runner
+
+
+def answer_signature(root):
+    """What the owner's answer moves on disk: the base's head (a footnote), .reef/questions.md, the approvals."""
+    import hashlib
+    base = str((read_config(root).get("branches") or {}).get("base", "main") or "main")
+    parts = [subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", base], capture_output=True, text=True).stdout.strip()]
+    try:
+        parts.append(hashlib.sha256(open(os.path.join(root, ".reef", "questions.md"), "rb").read()).hexdigest())
+    except OSError:
+        parts.append("-")
+    d = os.path.join(root, ".reef", "approvals")
+    return "|".join(parts + [f"{n}:{os.stat(os.path.join(d, n)).st_mtime_ns}" for n in (sorted(os.listdir(d)) if os.path.isdir(d) else [])])
+
+
+def issues_signature(root):
+    """The reef-question issues' state and last update (an answer as a comment), or None when the forge cannot be read."""
+    try:
+        r = subprocess.run(["gh", "issue", "list", "--label", "reef-question", "--state", "all", "--limit", "50", "--json", "number,state,updatedAt"],
+                           cwd=root, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def sleep_until_answered(root, stop_req):
+    """The runner on an owner wait the contract does not cover: asleep — no session, no model — until the answer lands
+    ("answered") or the owner stops it ("stop"). The files every REEF_WAIT_POLL seconds (20), the forge every third look
+    (2026-11-01: nine sessions, $3.30, 06:37–07:03, each re-read the handoff to find the same wait unanswered)."""
+    poll = float(os.environ.get("REEF_WAIT_POLL") or 20)
+    issues = (read_config(root).get("queue") or {}).get("home") == "issues"
+    with open(os.path.join(root, ASLEEP), "w", encoding="utf-8") as f:
+        json.dump({"pid": os.getpid(), "since": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f)
+    try:
+        files, forge, n = answer_signature(root), issues_signature(root) if issues else None, 0
+        while True:
+            time.sleep(poll)
+            n += 1
+            if os.path.exists(stop_req):
+                return "stop"
+            if answer_signature(root) != files:
+                return "answered"
+            if issues and n % 3 == 0:
+                now = issues_signature(root)
+                if now is not None and forge is not None and now != forge:
+                    return "answered"
+                forge = forge if forge is not None else now
+    finally:
+        try:
+            os.unlink(os.path.join(root, ASLEEP))
+        except OSError:
+            pass
 
 
 def owner_wait_lines(root, wait, mode):
@@ -1620,8 +1679,15 @@ def run_loop(root, mode, cap, night, row, autopilot, carried):
                     prev_wait = key
                     say(f"autopilot: the session waited on the owner — {wait[:140]} — the next session decides it through Mahmoud, or files it")
                     continue
-                return end(2, owner_wait_lines(root, wait, mode) + ("\n  autopilot: the same wait twice — outside reef/proxy.md's Decides:, or a hard limit: yours"
-                                                                    if key == prev_wait else "\n  autopilot: three owner waits in a row — the contract does not cover them: yours"))
+                end(2, owner_wait_lines(root, wait, mode) + ("\n  autopilot: the same wait twice — outside reef/proxy.md's Decides:, or a hard limit: yours"
+                                                             if key == prev_wait else "\n  autopilot: three owner waits in a row — the contract does not cover them: yours"))
+                say("asleep until you answer — no session runs until the answer lands (a commit on the base, .reef/questions.md, an approval, a reef-question issue)")
+                if sleep_until_answered(root, stop_req) == "stop":
+                    os.unlink(stop_req)
+                    return end(0, "reef-run: stopped on the owner's request (reef-run.py stop)")
+                say("your answer landed — one session reads it")
+                prev_wait, owner_waits, prev_sig = key, 1, None   # a new wait gets one Mahmoud round; this one again sleeps at once
+                continue
             if wait:
                 return end(2, owner_wait_lines(root, wait, mode) + "\n  every wait at once, one key each: python3 scripts/reef")
             if flying:
