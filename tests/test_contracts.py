@@ -262,6 +262,15 @@ class InitKeepsYours(unittest.TestCase):
                       "when its AGENTS.md lacks the `.reef/**` exclusions, say so.", skill)
 
 
+class GrillAsksTheLoadBearingQuestionFirst(unittest.TestCase):
+    def test_a_question_set_opens_with_the_answer_that_settles_the_most_others(self):
+        # 2026-11-01, docs/review/squid-adoption-plan-2026-11-01.md step 4 (from Squid's grilling: the frontier, most
+        # load-bearing first): an answer that settles other questions removes them from the row's two-set budget
+        skill = read("skills", "reef-plan", "SKILL.md")
+        grill = skill[skill.index("## 1. Grill"):skill.index("## 1a.")]
+        self.assertIn("lead with the one that settles most others", grill)
+
+
 
 class ProposalsUnderTheGitDir(unittest.TestCase):
     def test_every_reader_facing_text_names_the_git_dir_never_the_work_tree(self):
