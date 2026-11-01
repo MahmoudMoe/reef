@@ -263,6 +263,38 @@ class NightNumbers(unittest.TestCase):
     rows merged into the base, tasks finished on any branch, the first-pass share, the stalls, the cost and the cost per
     merged row, beside the previous night's (.reef/night/history.jsonl)."""
 
+    def test_the_autopilot_report_covers_the_day_across_restarts_and_lists_the_days_decisions_only(self):
+        """2026-11-01, the owner's report: `Rows merged 0 / Tasks finished 0` for a morning that finished four tasks — the runner
+        had restarted at 06:57Z and each run rewrote .reef/run/autopilot.md from its own start (six minutes, three sessions); and
+        its decisions list carried every `proxy, day` footnote ever written. The autopilot's report covers the day: since the
+        day's first run, whatever restarted it; its footnotes are the day's."""
+        import importlib.machinery, importlib.util
+        loader = importlib.machinery.SourceFileLoader("reef_run_day", RUN)
+        run = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader)); loader.exec_module(run)
+        iso = lambda secs_ago: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - secs_ago))
+        d = tempfile.mkdtemp(prefix="reef-autoday.")
+        env = dict(os.environ, GIT_AUTHOR_DATE=iso(3600), GIT_COMMITTER_DATE=iso(3600))
+        g = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True, env=env)
+        for sub in ("night", "run", "approvals"):
+            os.makedirs(os.path.join(d, ".reef", sub))
+        json.dump({"branches": {"base": "develop"}, "paths": {"queue": "reef/queue.md"}}, open(os.path.join(d, ".reef", "config.json"), "w"))
+        os.makedirs(os.path.join(d, "reef"))
+        today = time.strftime("%Y-%m-%d")
+        open(os.path.join(d, "reef", "queue.md"), "w").write(f"¹ Mahmoud (proxy, day 2000-01-01, question): an old ruling\n² Mahmoud (proxy, day {today}, question): today's ruling\n")
+        g("init", "-q", "-b", "develop"); g("commit", "-q", "--allow-empty", "-m", "start"); g("commit", "-q", "--allow-empty", "-m", "Feature x (#5)")
+        log = os.path.join(d, ".reef", "run", "run.log")
+        with open(log, "w") as f:
+            f.write(json.dumps({"at": iso(5400), "cost_usd": 5}) + "\n" + json.dumps({"at": iso(300), "cost_usd": 1}) + "\n")
+        run.morning_report(d, iso(7200), log, mode="autopilot")   # the day's first run
+        run.morning_report(d, iso(1800), log, mode="autopilot")   # restarted after the merge
+        rep = open(os.path.join(d, ".reef", "run", "autopilot.md")).read()
+        self.assertIn("| | Today | The last day |", rep)
+        self.assertIn("| Rows merged | 1 |", rep, "the merge before the restart is the day's\n" + rep)
+        self.assertIn("| Cost | $6.00 |", rep, "both runs' sessions")
+        self.assertIn("today's ruling", rep); self.assertNotIn("an old ruling", rep, "the day's decisions, not every day's")
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-cost.py")], stdin=subprocess.DEVNULL, capture_output=True, text=True)
+        self.assertIn("rows --since", r.stderr, "a bare call names the per-row numbers, not `transcript not found: None`")
+
     def test_the_report_counts_the_night_beside_the_last_one(self):
         import importlib.machinery, importlib.util
         loader = importlib.machinery.SourceFileLoader("reef_run_n", RUN)
