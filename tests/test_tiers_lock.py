@@ -832,5 +832,43 @@ class PlanReviewRounds(unittest.TestCase):
         self.assertEqual((rec["verdict"], rec["decided"]), ("PASS", "68"))
 
 
+
+class SonnetReviewsTheFastTiers(unittest.TestCase):
+    """Step 3 of docs/review/squid-adoption-plan-2026-11-01.md, the owner's go (2026-11-01: Sonnet if it holds and saves
+    money and time). docs/perf/eval-acceptance-2026-11-01.md: sonnet held catch-rate, precision and NIT rate at 1.00 at
+    $0.14 against $0.32 a review and 20 s against 30 s. The template's reviewer is sonnet on light and full; design and
+    critical keep opus; the guard holds each dispatch to its feature's heaviest tier."""
+
+    def setUp(self):
+        with open(os.path.join(ROOT, "templates", "config.json")) as f:
+            cfg = json.load(f)
+        self.cfg = cfg
+        self.d = project({"gates": {"test": "true"}, "roles": cfg["roles"], "tiers": cfg["tiers"]},
+                         {"011-a.md": task_text(11, "plain", "full", "mech"),
+                          "012-b.md": task_text(12, "risky", "critical", "design")})
+
+    def tearDown(self):
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_the_template_puts_the_reviewer_on_sonnet_below_design(self):
+        t = self.cfg["tiers"]
+        self.assertEqual(self.cfg["roles"]["reviewer"], "sonnet")
+        self.assertEqual(t["full"]["roles"]["reviewer"], "sonnet")
+        self.assertNotIn("reviewer", t["light"]["roles"], "light falls back to roles.reviewer: no key of its own")
+        self.assertEqual((t["design"]["roles"]["reviewer"], t["critical"]["roles"]["reviewer"]), ("opus", "opus"))
+
+    def test_the_guard_holds_the_reviewer_to_its_features_tier(self):
+        self.assertEqual(dispatch(self.d, "reef:acceptance", "REEF-FEATURE: plain\nreview", model="sonnet").returncode, 0)
+        r = dispatch(self.d, "reef:acceptance", "REEF-FEATURE: plain\nreview", model="opus")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("tiers.full.roles.reviewer", r.stderr)
+        self.assertEqual(dispatch(self.d, "reef:acceptance", "REEF-FEATURE: risky\nreview", model="opus").returncode, 0)
+        r = dispatch(self.d, "reef:acceptance", "REEF-FEATURE: risky\nreview", model="sonnet")
+        self.assertEqual(r.returncode, 2, "a critical feature's one reviewer stays on opus")
+
+    def test_the_review_skill_dispatches_on_the_tier_tables_reviewer(self):
+        with open(os.path.join(ROOT, "skills", "reef-review", "SKILL.md")) as f:
+            self.assertIn("dispatch `reef:acceptance` (model `tiers.<heaviest>.roles.reviewer`, else `roles.reviewer`)", f.read())
+
 if __name__ == "__main__":
     unittest.main()

@@ -20,7 +20,7 @@
     "plan_reviewer": "opus",
     "planner": "opus",
     "adversary": "opus",
-    "reviewer": "opus",
+    "reviewer": "sonnet",
     "security": "opus",
     "proxy": "opus",
     "mechanic": "sonnet"
@@ -118,7 +118,7 @@
         "plan_reviewer": "opus",
         "adversary": "opus",
         "verifier": "opus",
-        "reviewer": "opus",
+        "reviewer": "sonnet",
         "security": "opus",
         "author": "opus"
       },
