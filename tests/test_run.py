@@ -19,6 +19,9 @@ RUN = os.path.join(ROOT, "scripts", "reef-run.py")
 FAKE = r"""#!/usr/bin/env python3
 import json, os, sys
 plan = os.path.join(os.getcwd(), ".fake-plan")
+open(os.path.join(os.getcwd(), ".fake-argvs"), "a").write(json.dumps(sys.argv) + "\n")
+if "--resume" in sys.argv and os.path.isfile(os.path.join(os.getcwd(), ".fake-noresume")):   # the conversation is gone: claude says so, no result
+    print("No conversation found with session ID: " + sys.argv[sys.argv.index("--resume") + 1], flush=True); sys.exit(1)
 open(os.path.join(os.getcwd(), ".fake-prompt"), "a").write((sys.argv[sys.argv.index("-p") + 1] if "-p" in sys.argv else "") + "\n")
 lines = open(plan).read().splitlines()
 step, rest = (lines[0] if lines else "none"), lines[1:]
@@ -87,6 +90,11 @@ ev(type="system", subtype="task_notification", tool_use_id="t1", status="complet
 ev(type="assistant", parent_tool_use_id=None, message={"content": [{"type": "text", "text": "Row 12: the hunter found one hole.\nmore"},
    {"type": "tool_use", "name": "Bash", "input": {"command": "python3 scripts/reef-approval.py --proxy --feature f --report r", "description": "Record Mahmoud's approval of row 12"}},
    {"type": "tool_use", "name": "Bash", "input": {"command": "ls -la", "description": "noise"}}]})
+if os.path.isfile(os.path.join(os.getcwd(), ".fake-context")):   # the context the session's last own turn held
+    n_ = int(open(os.path.join(os.getcwd(), ".fake-context")).read())
+    ev(type="assistant", parent_tool_use_id=None, message={"content": [{"type": "text", "text": "ok"}],
+       "usage": {"input_tokens": 10, "cache_read_input_tokens": n_ - 1010, "cache_creation_input_tokens": 1000, "output_tokens": 50}})
+    ev(type="assistant", parent_tool_use_id="t1", message={"content": [], "usage": {"input_tokens": 900000}})   # a sub-agent's own context is not the session's
 ev(type="result", result="partial", session_id="early", total_cost_usd=0.05)
 ev(type="result", result=result, session_id="s-" + str(len(open(os.path.join(os.getcwd(), ".fake-calls")).read().splitlines())), total_cost_usd=0.1)
 """
@@ -818,6 +826,67 @@ class TheWaitAsksTheRow(unittest.TestCase):
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn('python3 scripts/reef-approval.py --owner "Approve plan kit-redesign at 0123456789abcdef?"', r.stdout)
         self.assertNotIn("reef-queue.py footnote", r.stdout, "an approval is not answered by a footnote")
+
+
+class TheSessionResumesAfterAShortJob(unittest.TestCase):
+    """2026-11-01, the owner's project: four sessions in twenty minutes — each handed a job to the runner and ended, and the
+    next spent 1-2 minutes and $0.30-0.60 re-reading the handoff and the tick before doing anything. When the jobs a session
+    ended on are done within the prompt cache's five minutes and its context is under caps.context_warn, the runner resumes
+    THAT conversation with the jobs' results; otherwise, or when the resume is refused, a fresh session as before."""
+
+    def setUp(self):
+        import shutil
+        self.d = project()
+        os.makedirs(os.path.join(self.d, "scripts"))
+        for n in ("reef-run.py", "reef_common.py"):
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.d, "scripts", n))
+        open(os.path.join(self.d, ".reef", "config.json"), "w").write('{"gates": {"full": "true"}, "caps": {"context_warn": 120000}}')
+        self.assertEqual(run(self.d, ["probe-deny"], "probe").returncode, 0)
+        for f in (".fake-calls", ".fake-prompt", ".fake-argvs"):
+            open(os.path.join(self.d, f), "w").write("")
+
+    def argvs(self):
+        return [json.loads(l) for l in open(os.path.join(self.d, ".fake-argvs")).read().splitlines() if l]
+
+    def test_a_short_job_resumes_the_same_conversation_with_its_result(self):
+        open(os.path.join(self.d, ".fake-context"), "w").write("60000")
+        r = run(self.d, ["job:gate-4:1", "stop:done"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        a = self.argvs()
+        self.assertNotIn("--resume", a[0])
+        self.assertEqual(a[1][a[1].index("--resume") + 1], "s-1", "the conversation that ended on the job, by its session id")
+        prompt = open(os.path.join(self.d, ".fake-prompt")).read().splitlines()[1]
+        self.assertIn("gate-4 rc=0", prompt); self.assertIn("jobs/gate-4.log", prompt)
+        self.assertNotIn("/reef-loop — a reef-run iteration", prompt, "no fresh start: the conversation already holds the loop's rules")
+        live = open(os.path.join(self.d, ".reef", "run", "live.log")).read()
+        self.assertIn("resumes the session that ended on the job", live, live)
+
+    def test_a_full_context_or_a_late_job_starts_fresh(self):
+        open(os.path.join(self.d, ".fake-context"), "w").write("130000")   # over caps.context_warn: the room is for work, not for the past
+        self.assertEqual(run(self.d, ["job:gate-4:1", "stop:done"]).returncode, 0)
+        self.assertNotIn("--resume", self.argvs()[-1])
+        self.assertIn("/reef-loop — a reef-run iteration", open(os.path.join(self.d, ".fake-prompt")).read().splitlines()[-1])
+        open(os.path.join(self.d, ".fake-context"), "w").write("60000"); open(os.path.join(self.d, ".fake-argvs"), "w").write("")
+        env_ = dict(os.environ); os.environ["REEF_RESUME_SECONDS"] = "1"   # the job outlives the window: the cache is cold, a fresh read costs the same
+        try:
+            self.assertEqual(run(self.d, ["job:gate-5:3", "stop:done"]).returncode, 0)
+        finally:
+            os.environ.clear(); os.environ.update(env_)
+        self.assertNotIn("--resume", self.argvs()[-1])
+        os.remove(os.path.join(self.d, ".fake-context")); open(os.path.join(self.d, ".fake-argvs"), "w").write("")
+        self.assertEqual(run(self.d, ["job:gate-6:1", "stop:done"]).returncode, 0)
+        self.assertNotIn("--resume", self.argvs()[-1], "a context the runner could not read is never resumed")
+
+    def test_a_refused_resume_falls_back_to_a_fresh_session(self):
+        open(os.path.join(self.d, ".fake-context"), "w").write("60000")
+        open(os.path.join(self.d, ".fake-noresume"), "w").write("x")
+        r = run(self.d, ["job:gate-4:1", "stop:done"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        a = self.argvs()
+        self.assertEqual(len(a), 3); self.assertIn("--resume", a[1]); self.assertNotIn("--resume", a[2])
+        self.assertEqual(calls(self.d), ["job:gate-4:1", "stop:done"], "the fresh session took the step the resume could not")
+        self.assertIn("JOBS DONE since the last session", open(os.path.join(self.d, ".fake-prompt")).read().splitlines()[-1])
+        self.assertIn("resume refused", open(os.path.join(self.d, ".reef", "run", "live.log")).read())
 
 
 class RunnerJobs(unittest.TestCase):
