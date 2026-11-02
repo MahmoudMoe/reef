@@ -228,6 +228,11 @@ def main(argv):
     wts = worktrees(root)
     for w in wts[1:]:
         kind = "feature" if w["branch"].startswith(prefix) else ("task" if w["branch"].startswith("task/") else "other")
+        if not os.path.isdir(w["path"]):
+            # deleted by hand, still registered: git refuses `branch -d` on its branch until pruned (2026-11-02, the stress suite)
+            say("WARN", f"worktree: {os.path.relpath(w['path'], root)} [{w['branch'] or 'detached'}] ({kind}) — its directory is gone",
+                f"git -C {root} worktree prune")
+            continue
         note = ""
         if plugin:
             bw = behind_scripts(w["path"], plugin)

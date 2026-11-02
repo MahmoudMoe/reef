@@ -60,7 +60,6 @@ class InterruptedClose(_Close):
     """reef-merge-close docstring: "In order, each step skipped when already done" and "the rest resumes" — a re-run after a
     half-way stop finishes the close."""
 
-    @unittest.expectedFailure   # open: M2 (docs/review/stress-2026-11-02.md)
     def test_a_close_killed_during_worktree_setup_resumes_on_one_rerun(self):
         # a real crash mid-merge: `npm ci` killed / the runner's session ends while worktree.setup runs (step 2). The
         # merge is left in progress (MERGE_HEAD, staged files). The docstring promises each step is skipped when done.
@@ -76,7 +75,6 @@ class InterruptedClose(_Close):
         self.assertFalse(self.merging())
         self.assertIn("status: done", git(self.feat, "show", f"HEAD:{DONE_REL}").stdout)
 
-    @unittest.expectedFailure   # open: M2 (docs/review/stress-2026-11-02.md)
     def test_a_stale_done_copy_refuses_before_the_merge_starts(self):
         # step 3's `git mv` fails when tasks/done/<name> already exists (an earlier half-close, a hand copy). The fast path
         # checks this first ("already exists — nothing changed"); the critical path must leave no merge in progress either

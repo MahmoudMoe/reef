@@ -188,7 +188,6 @@ class WorktreesGoneOrOrphaned(unittest.TestCase):
         self.assertEqual(st["dispatch_now"], ["101"])
         self.assertEqual(st["broken"], [])
 
-    @unittest.expectedFailure   # open: M2 (docs/review/stress-2026-11-02.md)
     def test_the_doctor_names_a_worktree_whose_directory_is_gone(self):
         # contract silent. reef-doctor SKILL: "One screen on what is wrong ... worktrees ... and the command that fixes each
         # thing". A worktree deleted by hand stays registered (git refuses `branch -d` on its branch until it is pruned).
@@ -212,7 +211,6 @@ class WorktreesGoneOrOrphaned(unittest.TestCase):
         st = tick(d)
         self.assertNotIn("1", st["rows_to_plan"], st)
 
-    @unittest.expectedFailure   # open: M2 (docs/review/stress-2026-11-02.md)
     def test_merge_close_finishes_after_the_task_worktree_was_deleted_by_hand(self):
         # reef-merge-close: "In order, each step skipped when already done ... (4) `git worktree remove`, `git branch -d`,
         # `git worktree prune`". The merge commit landed (steps 1-3); the task worktree's directory was then deleted by hand.
