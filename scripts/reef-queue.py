@@ -121,8 +121,9 @@ def structure_errors(root, cfg):
 die = partial(_die, prefix="reef-queue")
 
 
-def parse_table(text):
-    """Rows of the first markdown table whose header has Id and Depends, as dicts keyed by header."""
+def parse_table(text, rejected=None):
+    """Rows of the first markdown table whose header has Id and Depends, as dicts keyed by header. An Id that is not
+    `\\d+[a-z]?` (`R7`, `8¹`) is no row: it goes to `rejected` when given, so `check` names it (2026-11-02, stress M5)."""
     lines = text.splitlines()
     rows, header = [], None
     for i, line in enumerate(lines):
@@ -141,6 +142,8 @@ def parse_table(text):
         row = dict(zip(header, cells))
         if re.fullmatch(r"\d+[a-z]?", row.get("Id", "")):
             rows.append(row)
+        elif row.get("Id") and rejected is not None:
+            rejected.append(row["Id"])
     return rows
 
 
@@ -410,6 +413,8 @@ def load(root):
         st = states.get(r["Id"], [])
         r["_status"] = "queued" if not st else ("done" if all(s == "done" for s in st) else "building")
         r["_depends"] = [d for d in re.split(r"[,\s]+", r.get("Depends", "")) if d]
+        b = re.match(r"\s*(\d+)", r.get("Batch") or "")   # a footnote mark on the cell (`1³`) is read away, as current_batch does
+        r["Batch"] = b.group(1) if b else r.get("Batch", "")
     return cfg, text, rows, archived, states
 
 
@@ -862,6 +867,16 @@ def cmd_check(root):
         if i in archived:
             bad.append(f"row {i} is in the queue AND the archive")
     known = set(ids) | archived
+    rejected = []
+    parse_table(text, rejected)
+    bad += [f"row id {i!r} is unreadable (an Id is digits and one optional letter) — status and ready skip it" for i in rejected]
+    # a Depends cycle: peel the rows whose dependencies are all outside the queue; what is left waits on itself forever
+    left = {r["Id"]: set(r["_depends"]) & set(ids) for r in rows}
+    while any(not v for v in left.values()):
+        free = {k for k, v in left.items() if not v}
+        left = {k: v - free for k, v in left.items() if k not in free}
+    if left:
+        bad.append(f"rows {', '.join(sorted(left))} are in or behind a Depends cycle — never ready")
     for r in rows:
         for d in r["_depends"]:
             if d not in known:

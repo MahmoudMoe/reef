@@ -15,13 +15,14 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import calendar
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_config as config, read_replace as read, main_checkout, drop_hold, process_alive, run_rc, git_root, checkouts, task_copies, task_frontmatter, report_verdict  # noqa: E402
+from reef_common import read_config as config, read_replace as read, main_checkout, drop_hold, process_alive, run_rc, run_rc3, git_root, checkouts, task_copies, task_frontmatter, report_verdict  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 MAX_LINES = 30
@@ -284,20 +285,28 @@ def tick(root):
     roots_all = all_roots(root)
     inflight = markers(roots_all, "inflight", stale)
     verifying = markers(roots_all, "verifying", stale)
+    # a failed read is named, never read as an empty answer (2026-11-02, stress H4); `ready` and `status` are two syncs, so a
+    # row is to plan only when the status read agrees it is queued
+    failed = [f"{what} failed (exit {rc}) — its answer is not read as empty" for what, rc in (("reef-queue.py ready", rc_q), ("reef-queue.py status", rc_s)) if rc]
     rows = [l.split("\t") for l in q_status.splitlines() if "\t" in l]
-    to_plan = [l.split("\t") for l in q_ready.splitlines() if "\t" in l and l.split("\t")[1] == "queued"]
+    live = {r[0] for r in rows if len(r) > 1 and r[1] == "queued"}
+    to_plan = [l.split("\t") for l in q_ready.splitlines() if "\t" in l and l.split("\t")[1] == "queued" and l.split("\t")[0] in live]
     if night is not None:
         to_plan = [r for r in to_plan if r[0] in night]
     to_close = [r for r in rows if len(r) > 1 and r[1] == "done"]
     building = [r for r in rows if len(r) > 1 and r[1] == "building"]
-    prs = []
     base = str((cfg.get("branches") or {}).get("base", "main") or "main")
-    rc_p, out = run(["gh", "pr", "list", "--base", base, "--json", "number,headRefName,title,reviewDecision", "--limit", "20"], root, timeout=GH_TIMEOUT)
-    if rc_p == 0 and out.strip():
-        try:
-            prs = json.loads(out)
-        except ValueError:
-            prs = []
+    rc_p, out, err = run_rc3(["gh", "pr", "list", "--base", base, "--json", "number,headRefName,title,reviewDecision", "--limit", "20"], root, GH_TIMEOUT, timeout_rc=1)
+    try:
+        prs = json.loads(out.strip() or "[]") if rc_p == 0 else None
+    except ValueError:
+        prs = None
+    if not isinstance(prs, list):
+        prs = []
+        # the PR read is optional where there is no GitHub to read: no gh at all, or gh saying the repo has no GitHub remote
+        if shutil.which("gh") and not re.search(r"no git remotes found|known GitHub host", err):
+            failed.append(f"gh pr list failed (exit {rc_p}) or answered no list — the loop's PRs are unknown")
+    prs = [p for p in prs if isinstance(p, dict)]
     # the loop reviews ITS PRs: heads under branches.feature_prefix (default feat/). Dependabot's and anyone else's
     # into the base are the owner's (first contact: three dependabot PRs sat in "PRs to review")
     prefix = str((cfg.get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
@@ -311,6 +320,7 @@ def tick(root):
     feats = {b: w for b, w in checkouts(root, prefix).items() if os.path.isdir(w)}   # a worktree deleted by hand reads as none
     cos = [root] + list(feats.values())
     ready_by, lines, broken = graph_reads(root, scripts, py, cos)
+    broken = failed + broken
     in_queue = {r[0]: r for r in rows if len(r) > 1}
     done_rows = {r[0] for r in to_close}
     heads = {str(p.get("headRefName", "")) for p in prs}
@@ -528,7 +538,8 @@ def render_status_page(state):
           (f"review: row {state['rows_to_review'][0]} — /reef-review {state['review_slugs'][state['rows_to_review'][0]]} (every task done on its branch, no PR)") if state.get("rows_to_review") else \
           ("close: " + ", ".join(state["rows_to_close"])) if state["rows_to_close"] else \
           ("plan: " + ", ".join(state["rows_to_plan"])) if state["rows_to_plan"] else \
-          ("awaiting: " + "; ".join(state.get("awaiting") or [])) if state.get("awaiting") else "nothing ready — stop or wait"
+          ("awaiting: " + "; ".join(state.get("awaiting") or [])) if state.get("awaiting") else \
+          ("BROKEN: " + state["broken"][0]) if state.get("broken") else "nothing ready — stop or wait"
     lines = [f"tick {state['hash']}  loop={'active' if state['active'] else 'inactive'}" + (f"  wait={state['wait']!r}" if state["wait"] else "") + (f"  STOP={state['stop']}" if state["stop"] else ""),
              f"rows to plan: {', '.join(state['rows_to_plan']) or '-'}"
              + (f" (held by loop.rows_in_flight {state['rows_cap']}: {', '.join(state['rows_held'])}; in flight: {', '.join(state['rows_in_flight'])})" if state.get("rows_held") else ""),
