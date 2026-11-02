@@ -303,8 +303,8 @@ def tick(root):
         prs = None
     if not isinstance(prs, list):
         prs = []
-        # the PR read is optional where there is no GitHub to read: no gh at all, or gh saying the repo has no GitHub remote
-        if shutil.which("gh") and not re.search(r"no git remotes found|known GitHub host", err):
+        # the PR read is optional where there is no GitHub to read: no gh, gh not logged in (exit 4), or no GitHub remote
+        if shutil.which("gh") and rc_p != 4 and not re.search(r"no git remotes found|known GitHub host", err):
             failed.append(f"gh pr list failed (exit {rc_p}) or answered no list — the loop's PRs are unknown")
     prs = [p for p in prs if isinstance(p, dict)]
     # the loop reviews ITS PRs: heads under branches.feature_prefix (default feat/). Dependabot's and anyone else's
