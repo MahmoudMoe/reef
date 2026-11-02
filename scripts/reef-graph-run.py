@@ -58,7 +58,7 @@ import time
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import run_rc3, die as _die, load_sibling, git_root, report_verdict  # noqa: E402
+from reef_common import run_rc3, die as _die, load_sibling, git_root, report_verdict, main_checkout, task_frontmatter, task_tier, bump_dispatches  # noqa: E402
 
 GRAPH_DIR = os.path.join(".reef", "graph")
 
@@ -228,29 +228,36 @@ def last_failure(task_path):
 
 
 def mark_dispatched(root, task_path, tid, implementer=True):
-    """What the guard does on an allowed Task dispatch (reef-guard check_dispatch): the task becomes in-progress, its
-    dispatch odometer moves, and .reef/inflight/<id> is written in the main checkout — so the tick, the Stop hook
-    and the reviewer lock see a graph-mode task exactly as a chat-mode one. The status goes to the plan's home copy."""
-    task_path = load_sibling("reef-graph.py").plan_home(task_path)
-    with open(task_path, encoding="utf-8", newline="") as f:
-        text = f.read()
-    m = re.match(r"\A---\r?\n(.*?\r?\n)---\r?\n", text, re.S)
-    fm = m.group(1) if m else ""
-    feature = (re.search(r"^feature:[ \t]*(\S+)", fm, re.M) or [None, ""])[1]
-    tier = (re.search(r"^tier:[ \t]*(\S+)", fm, re.M) or [None, "full"])[1]
-    if m and implementer:
-        new_fm = re.sub(r"^status:.*$", "status: in-progress", fm, count=1, flags=re.M)
-        dm = re.search(r"^dispatches:[ \t]*(\d+)", new_fm, re.M)
-        if dm:
-            new_fm = new_fm[:dm.start()] + f"dispatches: {int(dm.group(1)) + 1}" + new_fm[dm.end():]
-        if new_fm != fm:
-            with open(task_path, "w", encoding="utf-8", newline="") as f:
-                f.write(text[:m.start(1)] + new_fm + text[m.end(1):])
-    d = os.path.join(root, ".reef", "inflight")
-    os.makedirs(d, exist_ok=True)
-    with open(os.path.join(d, str(tid)), "w", encoding="utf-8") as f:
-        json.dump({"id": tid, "task": os.path.abspath(task_path), "feature": feature, "tier": tier, "agent": "reef:implementer (workflow)",
-                   "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f)
+    """What the guard does on an allowed Task dispatch (reef-guard check_dispatch), with its helpers and under its graph lock:
+    the status and the marker re-read, a task already in flight or at the runaway backstop skipped (the reason is returned),
+    then the task becomes in-progress, its dispatch odometer moves, and .reef/inflight/<id> is written in the main checkout — so the tick, the Stop hook and the reviewer lock see a graph-mode task exactly as a chat-mode one, and two
+    generates at once dispatch it once (the stress test M1). The status goes to the plan's home copy."""
+    import fcntl
+    graph = load_sibling("reef-graph.py")
+    task_path = graph.plan_home(task_path)
+    troot = git_root(os.path.dirname(os.path.abspath(task_path)))
+    tcfg = graph.read_config(troot)
+    marker = os.path.join(root, ".reef", "inflight", str(tid))
+    stale = int((graph.read_config(root).get("loop") or {}).get("inflight_stale_minutes", 90) or 90)
+    with open(graph.graph_lock_path(graph.lock_key(troot, tcfg)), "a") as glock:
+        fcntl.flock(glock, fcntl.LOCK_EX)
+        with open(task_path, encoding="utf-8", newline="") as f:
+            text = f.read()
+        fm = task_frontmatter(text)
+        if os.path.isfile(marker) and time.time() - os.path.getmtime(marker) < stale * 60:
+            return f"{tid}: already in flight (.reef/inflight/{tid}, written by another dispatch)"
+        if fm is not None and implementer:
+            cap = graph.cfg_int(tcfg, ["caps", "attempts"], graph.DEFAULT_CAP)
+            n = int(fm.get("dispatches") or 0) if str(fm.get("dispatches") or "0").isdigit() else 0
+            if n >= 2 * cap:
+                return (f"{tid}: dispatched {n}x against cap {cap} without enough recorded failures — runaway-loop backstop; "
+                        "record failures via scripts/reef-attempt or stop")
+            bump_dispatches(task_path, text, n, mark_in_progress=(fm.get("status", "pending") != "in-progress"))
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        with open(marker, "w", encoding="utf-8") as f:
+            json.dump({"id": tid, "task": os.path.abspath(task_path), "feature": (fm or {}).get("feature", ""), "tier": task_tier(fm or {}),
+                       "agent": "reef:implementer (workflow)", "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f)
+    return None
 
 
 def attempt_lines(root, task_path):
@@ -310,7 +317,9 @@ def task_item(root, tid, path, verify_only, report_dir):
         attempt = int((re.search(r"attempt=(\d+)/", get("dispatch")) or [None, "1"])[1])
         verify_only = verify_only or rejected
         rejudge = "" if rejected else get("rejudge")
-        mark_dispatched(root, path, tid, implementer=not verify_only)
+        busy = mark_dispatched(root, path, tid, implementer=not verify_only)
+        if busy:
+            return busy
         judge = "model=" in get("verifier")   # v3: `verifier: none (fast path …)` is no judge
         hunter = bool(get("adversary"))
         items = {
@@ -413,8 +422,9 @@ def findings(report_path, tid):
 
 def cmd_settle(root, results_path):
     try:
-        with open(results_path, encoding="utf-8") as f:
-            res = json.load(f)
+        with open(results_path, "rb") as f:
+            raw = f.read()
+        res = json.loads(raw.decode("utf-8"))
     except Exception as e:
         die(f"cannot read the results: {e}", 1)
     # the completion notice's output file holds the return value under "result" — settle it as it is, nothing typed
@@ -430,8 +440,25 @@ def cmd_settle(root, results_path):
     if isinstance(res, dict) and res.get("row"):
         return settle_row(root, res)
     failed, filed = 0, False
+    # one results file settles once (the stress test M3: a re-run after a crash counted the round's attempt twice)
+    sha, book = hashlib.sha256(raw).hexdigest(), os.path.join(root, GRAPH_DIR, "settled.json")
+    try:
+        with open(book, encoding="utf-8") as f:
+            settled = json.load(f)
+    except (OSError, ValueError):
+        settled = {}
     for r in tasks:
+        tid = str(r.get("task") if isinstance(r, dict) else "")
+        prev = settled.get(tid) if isinstance(settled.get(tid), dict) else {}
+        if prev.get("settled") == sha:
+            print(f"{'FAIL' if prev.get('failed') else 'READY TO MERGE'} {tid}: settled already from this results file — nothing counted again")
+            failed += 1 if prev.get("failed") else 0
+            continue
         f, found = settle_task(root, r)
+        settled[tid] = {"settled": sha, "failed": f}
+        os.makedirs(os.path.dirname(book), exist_ok=True)
+        with open(book, "w", encoding="utf-8") as fh:
+            json.dump(settled, fh, indent=1)
         failed += f
         for line in found:
             print(line)
@@ -775,7 +802,7 @@ def main(argv):
     if "--repo" in argv:
         i = argv.index("--repo")
         argv = argv[:i] + argv[i + 2:]
-    root = git_root(repo)
+    root = main_checkout(git_root(repo))   # machine state (the gate record, the markers) is the main checkout's (the stress test M2)
     if not argv:
         die("usage: reef-graph-run.py probe | probe-check <results.json> | generate [--tasks a,b] | row <row-id|slug> | settle <results.json>  [--repo DIR]")
     cmd = argv[0]

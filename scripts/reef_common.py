@@ -12,6 +12,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import time
 
 _ROOT = object()
@@ -438,6 +439,40 @@ def task_frontmatter(text):
         k, _, v = line.partition(":")
         fm.setdefault(k.strip(), v.strip().strip('"').strip("'"))
     return fm
+
+
+def task_tier(fm):
+    """A task's tier as the guard reads it: `tier:`, else light for complexity mech, else full."""
+    return fm.get("tier") or ("light" if fm.get("complexity") == "mech" else "full")
+
+
+def bump_dispatches(path, text, current, mark_in_progress=False):
+    """Increment dispatches: (and set status: in-progress — the task now holds its resources and a parallel slot) inside the
+    frontmatter only; unique temp + atomic replace. One writer for the guard's Task dispatch and graph mode's (reef-graph-run)."""
+    m = TASK_FENCE.match(text)
+    fm_body = m.group(1)
+    nl = "\r\n" if fm_body.endswith("\r\n") else "\n"   # a CRLF file keeps its line endings ([^\r\n]*, not .*)
+    if re.search(r"^dispatches:", fm_body, re.M):
+        new_fm = re.sub(r"^dispatches:[^\r\n]*", f"dispatches: {current + 1}", fm_body, count=1, flags=re.M)
+    else:
+        new_fm = fm_body + f"dispatches: {current + 1}{nl}"
+    if mark_in_progress:
+        if re.search(r"^status:", new_fm, re.M):
+            new_fm = re.sub(r"^status:[^\r\n]*", "status: in-progress", new_fm, count=1, flags=re.M)
+        else:
+            new_fm = new_fm + f"status: in-progress{nl}"
+    new_text = text[:m.start(1)] + new_fm + text[m.end(1):]
+    fd, tmp = tempfile.mkstemp(prefix=".reef-guard-", dir=os.path.dirname(path) or ".")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(new_text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def report_verdict(text):

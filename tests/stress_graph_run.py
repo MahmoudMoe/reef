@@ -66,7 +66,6 @@ class Bookkeeping(unittest.TestCase):
     """mark_dispatched's docstring: "What the guard does on an allowed Task dispatch (reef-guard check_dispatch): the task becomes
     in-progress, its dispatch odometer moves, and .reef/inflight/<id> is written in the main checkout"."""
 
-    @unittest.expectedFailure   # open: M1 (docs/review/stress-2026-11-03.md)
     def test_a_task_file_without_a_dispatches_key_still_has_its_odometer_moved(self):
         # the plan check does not require `dispatches:` (reef-plan-check.py REQUIRED, :55); the guard's bump_dispatches adds the
         # key when it is missing (reef-guard.py:1238-1241) — graph mode must move the same odometer (docstring above)
@@ -80,7 +79,6 @@ class Bookkeeping(unittest.TestCase):
         self.assertRegex(read(task_file(d)), r"(?m)^dispatches: 1$",
                          "the dispatch odometer moves on a graph dispatch as on a chat one; without it the runaway backstop never counts")
 
-    @unittest.expectedFailure   # open: M1 (docs/review/stress-2026-11-03.md)
     def test_the_runaway_backstop_refuses_a_task_dispatched_twice_the_cap_without_failures(self):
         # the guard: `dispatches >= 2 * cap` → deny, "runaway-loop backstop" (reef-guard.py:1653-1655). graph-run's docstring:
         # "Dispatch-time checks the guard makes on a Task call ... happen here at generation instead" — a crashed workflow records
@@ -94,7 +92,6 @@ class Bookkeeping(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(d, ".reef", "inflight", "101")), r.stdout)
         self.assertRegex(read(task_file(d)), r"(?m)^dispatches: 6$")
 
-    @unittest.expectedFailure   # open: M1 (docs/review/stress-2026-11-03.md)
     def test_a_crlf_task_file_keeps_its_line_endings_when_dispatched(self):
         # contract silent; the reader in reef-attempt keeps `[^\r\n]*` (stress round one, M1); a dispatch must not leave a
         # file with mixed line endings (the next digest and every `^status:` reader read a different line than the writer)
@@ -108,7 +105,6 @@ class Bookkeeping(unittest.TestCase):
         self.assertIn("status: in-progress\r\n", after)
         self.assertNotRegex(after, r"[^\r]\n", "every line still ends in CRLF")
 
-    @unittest.expectedFailure   # open: M1 (docs/review/stress-2026-11-03.md)
     def test_the_markers_tier_is_the_guards_reading_of_a_quoted_critical_tier(self):
         # the guard reads frontmatter with quotes stripped (reef-guard.py:1229) and its critical_inflight lock reads the marker's
         # `tier` == "critical" (reef-guard.py:1720-1724); the plan check accepts a quoted value. The marker must carry the same word
@@ -120,7 +116,6 @@ class Bookkeeping(unittest.TestCase):
         self.assertEqual(rec["tier"], "critical")
         self.assertEqual(rec["feature"], "1")
 
-    @unittest.expectedFailure   # open: M1 (docs/review/stress-2026-11-03.md)
     def test_a_mech_task_without_a_tier_key_is_marked_light_as_the_guard_marks_it(self):
         # reef-guard.py:1402 task_tier: no tier → light for complexity mech, else full; mark_dispatched defaults to full always
         mod = load_script("reef-graph-run.py")
@@ -157,7 +152,6 @@ class ReRuns(unittest.TestCase):
         self.assertRegex(read(task_file(d)), r"(?m)^dispatches: 2$")
         self.assertIn("101", tick(d)["in_flight"], "the fresh marker holds it again")
 
-    @unittest.expectedFailure   # open: M3 (docs/review/stress-2026-11-03.md)
     def test_settling_the_same_output_file_twice_counts_one_attempt(self):
         # contract silent on a re-run; SKILL reef-graph §3: "`FAIL <id>: <why>` → the attempt is already counted" — one round,
         # one attempt. The orchestrator re-runs a step whose session died after it printed (the class "a step that crashed
@@ -171,7 +165,6 @@ class ReRuns(unittest.TestCase):
         r = G.g(d, "settle", p)
         self.assertRegex(read(task_file(d)), r"(?m)^attempts: 1$", "the same round settled twice burns one attempt, not two:\n" + r.stdout)
 
-    @unittest.expectedFailure   # open: M2 (docs/review/stress-2026-11-03.md)
     def test_settle_from_the_feature_worktree_clears_the_marker_generate_wrote_in_main(self):
         # mark_dispatched writes the marker "in the main checkout"; SKILL reef-graph Rules: "`settle` clears every marker it sees
         # in the results". settle removes it at os.path.join(<the caller's checkout>, ...) only
@@ -187,7 +180,6 @@ class ReRuns(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(d, ".reef", "inflight", "101")),
                          "the task was handed back: its marker in main is gone, or the tick holds it in flight for 90 minutes")
 
-    @unittest.expectedFailure   # open: M2 (docs/review/stress-2026-11-03.md)
     def test_generate_from_inside_a_feature_worktree_reads_this_machines_gate(self):
         # the tick reads the gate from the main checkout (reef-loop.py graph_mode: "this machine's probe recorded GATE OK
         # (`.reef/graph/gate.json`)" in `first`, the main checkout) and names the task `dispatch (graph)`; generate must agree
@@ -217,7 +209,6 @@ class TwoAtOnce(unittest.TestCase):
         self.assertEqual(sorted(st["in_flight"]), ["101", "103"])
         self.assertEqual(st["dispatch_now"], [])
 
-    @unittest.expectedFailure   # open: M1 (docs/review/stress-2026-11-03.md)
     def test_two_generates_at_once_dispatch_a_task_once(self):
         # reef-graph.py:23 "two dispatches racing for the last parallel slot cannot both win" (the guard's graph lock,
         # reef-guard.py:1630-1636); graph-run's docstring puts the guard's dispatch-time checks at generation. Two generates
@@ -271,7 +262,6 @@ class DoneOrCapped(unittest.TestCase):
 
 
 class MeetsTheTick(unittest.TestCase):
-    @unittest.expectedFailure   # open: H5 (docs/review/stress-2026-11-03.md)
     def test_a_report_settle_rejected_is_never_closed_by_the_next_tick(self):
         # settle copies the verifier's report into the worktree, then reef-claims rejects it and reef-attempt records the FAIL
         # (graph-run settle_task). The tick: "a PASS newer than both [hand-back, FAIL] → merge-close" (reef-loop.py:340-343).
