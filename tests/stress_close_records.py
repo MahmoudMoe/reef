@@ -364,7 +364,7 @@ class AttemptLog(unittest.TestCase):
         fails = [l for l in t.splitlines() if "FAIL:" in l]
         self.assertEqual(len(fails), 1, fails)
         import re
-        stamps = re.findall(r"^\s*-\s*attempt \d+ FAIL:.*· at (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)\s*$", t, re.M)
+        stamps = re.findall(r"^\s*-\s*attempt \d+ FAIL:.*· at (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)\s*$", t, re.M)
         self.assertEqual(len(stamps), 1)
         self.assertTrue(stamps[0].startswith(time.strftime("%Y-", time.gmtime())), stamps)
         self.assertIn("status: in-progress", t.split("---")[1])
