@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://mahmoudmoe.github.io/reef/"><img alt="website" src="https://img.shields.io/badge/website-mahmoudmoe.github.io%2Freef-0E7C7B?style=flat-square"></a>
-  <img alt="version" src="https://img.shields.io/badge/version-0.7.3-D94F35?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-0.7.4-D94F35?style=flat-square">
   <img alt="claude code" src="https://img.shields.io/badge/claude_code-plugin-182B33?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-4A5E66?style=flat-square">
   <a href="https://github.com/MahmoudMoe/reef/actions/workflows/ci.yml"><img alt="selftests" src="https://github.com/MahmoudMoe/reef/actions/workflows/ci.yml/badge.svg?branch=main"></a>

@@ -2154,6 +2154,7 @@ def cmd_update(root, args):
     market = upd.marketplace_name(plugin) if upd else None
     reloaded = refresh_marketplace(market)
     if reloaded:
+        reinstall_plugin(market)
         plugin_still_enabled()
     print(update_done_line(market, reloaded))
     return 0
@@ -2173,6 +2174,18 @@ def refresh_marketplace(market):
     if r.returncode != 0:
         print(f"reef update: claude plugin marketplace update {market} exited {r.returncode}: {(r.stderr or r.stdout).strip()[-200:]}", flush=True)
     return r.returncode == 0
+
+
+def reinstall_plugin(market):
+    """`claude plugin update reef@<market>` after the refresh: the refresh moves the marketplace clone, the sessions run Claude Code's
+    cache, re-installed only on a new version (2026-11-02: the cache sat 84 commits behind a current clone)."""
+    try:
+        r = subprocess.run(["claude", "plugin", "update", f"reef@{market}"], capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"reef update: claude plugin update reef@{market} did not run ({type(e).__name__})", flush=True)
+        return
+    if r.returncode != 0:
+        print(f"reef update: claude plugin update reef@{market} exited {r.returncode}: {(r.stderr or r.stdout).strip()[-200:]}", flush=True)
 
 
 def plugin_still_enabled():

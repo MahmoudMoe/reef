@@ -440,6 +440,26 @@ class NormalRoundChecks(unittest.TestCase):
         self.assertIn("plugin enabled:", out, "the plugin's on/off state is a doctor line (it flipped to disabled after a marketplace update)")
 
 
+class TheInstalledCopyIsTheClones(unittest.TestCase):
+    """2026-11-02: every session ran the guard, the skills and the agents from Claude Code's cache at 0.7.3 (e7f701b, 84 commits
+    behind main); the marketplace clone was current and the doctor said nothing — Claude Code re-installs only on a new version."""
+
+    def installed(self, version, sha="e7f701b9c2fcbba86fb9971fc5e74d31435700b8"):
+        home = tempfile.mkdtemp(prefix="reef-home.")
+        os.makedirs(os.path.join(home, ".claude", "plugins"))
+        with open(os.path.join(home, ".claude", "plugins", "installed_plugins.json"), "w") as f:
+            json.dump({"version": 2, "plugins": {"reef@mymarket": [{"scope": "user", "version": version, "gitCommitSha": sha}]}}, f)
+        env = dict(os.environ, HOME=home, PATH="/nonexistent-gh:" + os.environ["PATH"])
+        return subprocess.run([sys.executable, DOCTOR, "--repo", project(), "--plugin", ROOT], capture_output=True, text=True, env=env).stdout
+
+    def test_an_installed_copy_older_than_the_clone_fails_with_the_command_that_updates_it(self):
+        out = self.installed("0.7.0")
+        self.assertRegex(out, r"FAIL.*installed: Claude Code runs reef@mymarket 0\.7\.0 \(e7f701b\)", out)
+        self.assertIn("claude plugin update reef@mymarket", out)
+        mine = json.load(open(os.path.join(ROOT, ".claude-plugin", "plugin.json")))["version"]
+        self.assertRegex(self.installed(mine), r"OK.*installed: Claude Code runs reef@mymarket " + re.escape(mine))
+
+
 class TheUpdateIsOneVerb(unittest.TestCase):
     """docs/design/owner-hands-off.md step 6 (2026-10-31): the doctor's three lines about a new Reef — the clone behind its upstream,
     the version, the scripts — named `reef-update.py --commit` and `reef-init.py --root`, two commands for one thing, and the owner's
