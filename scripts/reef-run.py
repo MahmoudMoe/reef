@@ -1012,7 +1012,8 @@ def owner_wait_lines(root, wait, mode):
     lines = [f"reef-run: waiting on you — {wait}"]
     cmds = [f'python3 scripts/reef-approval.py --owner "{q}"' for q in dict.fromkeys(APPROVE_Q.findall(wait))]
     q = os.path.join(root, ".reef", "questions.md")
-    rows = list(dict.fromkeys(re.findall(r"\brow (\d+)", wait)))
+    # "Row 7", "rows 7, 8" and "rows 7 and 8" name rows too (2026-11-02, the stress suite: only "row 7" did)
+    rows = list(dict.fromkeys(n for g in re.findall(r"\brows?\s+(\d+(?:\s*(?:,|and)\s*\d+)*)", wait, re.I) for n in re.findall(r"\d+", g)))
     filed = questions(root)
     if os.path.isfile(q):
         lines.append(f"  your questions: {q}")
@@ -1023,13 +1024,13 @@ def owner_wait_lines(root, wait, mode):
     approvals = {r: row_approval_question(root, r, row_py if os.path.isfile(row_py) else None) for r in rows}
     cmds += [f'python3 scripts/reef-approval.py --owner "{q_}"' for q_ in approvals.values() if q_ and f'python3 scripts/reef-approval.py --owner "{q_}"' not in cmds]
     for r, issue, _, rec in filed:   # every filed question, a row-less one too — never a wait that names no command (the review)
-        a = answer_command(root, r, issue, rec or "<your answer>")
+        a = answer_command(root, r, issue, rec or wait)   # never a placeholder: the owner copies the line (he typed `<date>` once)
         cmd = a[1] if a else f'gh issue list --label reef-question --search "row {r}"   # this question\'s issue, which its line does not name'
         if cmd not in cmds:
             cmds.append(cmd)
     for r in rows:   # a row the wait names with no approval and no filed question: the footnote is the one way to tell it anything
         if not approvals.get(r) and not any(row_ == r for row_, _, _, _ in filed):
-            cmd = f'python3 scripts/reef-queue.py footnote "<your answer>" --row {r}'
+            cmd = f"python3 scripts/reef-queue.py footnote {shlex.quote(wait)} --row {r}"   # the wait's own words, for the owner to edit
             if cmd not in cmds:
                 cmds.append(cmd)
     if cmds:
@@ -1558,8 +1559,6 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
     if not gate.get("ok") or gate.get("mode") != mode:
         die(f"no GATE OK for --permission-mode {mode} on this machine — run `python3 scripts/reef-run.py probe --permission-mode {mode}` first")
     lock = os.path.join(root, RUN_DIR, "lock")
-    with open(os.path.join(root, LAST_MODE), "w", encoding="utf-8") as f:   # what `resume` restarts, under the guarded dir (never run.log, which an agent can write)
-        json.dump({"mode": "night" if night else "autopilot" if autopilot else "loop", "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f)
     try:
         with open(lock, encoding="utf-8") as f:
             other = int(f.read().strip() or 0)
@@ -1580,6 +1579,9 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
                   f"{'alive, idle ' + str(int(age_min)) + ' min' if alive else 'dead'}) — the runner the owner starts is the orchestrator", flush=True)
     if detached:
         detach(root)   # every refusal above printed to the caller; from here on the runner is on its own
+    # after the refusals (2026-11-02, the stress suite: a refused `reef run` turned the autopilot's resume into a plain loop)
+    with open(os.path.join(root, LAST_MODE), "w", encoding="utf-8") as f:   # what `resume` restarts, under the guarded dir (never run.log, which an agent can write)
+        json.dump({"mode": "night" if night else "autopilot" if autopilot else "loop", "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f)
     with open(lock, "w", encoding="utf-8") as f:
         f.write(str(os.getpid()))
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

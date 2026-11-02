@@ -237,7 +237,6 @@ class StopAndCaps(unittest.TestCase):
         write(d, ".reef/cost/tasks.json", json.dumps({"101": {"s1": {"growth": 20000}}}))
         self.assertEqual(tick(d)["over_growth"], [])
 
-    @unittest.expectedFailure   # open: L2 (docs/review/stress-2026-11-02.md)
     def test_context_warn_without_a_ceiling_does_not_claim_zero_room(self):
         # contract silent: reef-guard check_context_ceiling with caps.context_warn set and no caps.context_tokens
         # tells the model "0 tokens of room … /clear BEFORE the ceiling" — there is no ceiling; it reads as "stop now"

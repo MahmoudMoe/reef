@@ -1962,7 +1962,9 @@ def check_context_ceiling(payload, tool_input=None):
              f"the fresh orchestrator resumes there")
     if warn and n > warn:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                                 "additionalContext": f"reef: context at {n} tokens (> caps.context_warn {warn}, ceiling {ceiling or 'unset'}): {max(0, (ceiling or 0) - n)} tokens of room. Finish the step in hand, then stop and /clear BEFORE the ceiling; sub-agent dispatches are refused at it, Bash is not — do not spend the room on reading."}}))
+                                                 "additionalContext": f"reef: context at {n} tokens (> caps.context_warn {warn}, ceiling {ceiling or 'unset'})" + (
+                                                     f": {max(0, ceiling - n)} tokens of room. Finish the step in hand, then stop and /clear BEFORE the ceiling; sub-agent dispatches are refused at it, Bash is not — do not spend the room on reading."
+                                                     if ceiling else ". Finish the step in hand, then stop and /clear; do not spend the context on reading.")}}))   # no ceiling, no room to claim (2026-11-02)
 
 
 def step(name):

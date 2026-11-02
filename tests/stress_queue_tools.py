@@ -302,13 +302,11 @@ class OwnerWaitLines(unittest.TestCase):
         self.assertIn("python3 scripts/reef-queue.py footnote 'two decimals' --row 7", text)
         self.assertFalse(any("<" in c for c in self.cmds(text)), text)
 
-    @unittest.expectedFailure   # open: M3 (docs/review/stress-2026-11-02.md)
     def test_a_wait_that_writes_Row_capitalised_still_names_a_command(self):
         # reef-run.py:1008 "a stop that names no command is a bug": the loop's agent wrote the wait; "Row 7" is the same row
         text = self.rr.owner_wait_lines(self.d, "Row 7: the owner decides the rounding", "claude")
         self.assertIn("answer in the terminal", text, "no terminal command for a wait naming Row 7:\n" + text)
 
-    @unittest.expectedFailure   # open: M3 (docs/review/stress-2026-11-02.md)
     def test_a_row_with_nothing_filed_prints_no_placeholder(self):
         # the brief / the owner (memory, 2026-10-28): "exact values, no placeholders (he typed `<date>` literally once)"
         text = self.rr.owner_wait_lines(self.d, "row 7 needs the owner", "claude")
@@ -334,7 +332,6 @@ class RunnerStart(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "run", "lock")))
         self.assertEqual(json.load(open(os.path.join(self.d, ".reef", "night", "last-mode.json")))["mode"], "autopilot")
 
-    @unittest.expectedFailure   # open: M4 (docs/review/stress-2026-11-02.md)
     def test_a_start_refused_by_a_live_runner_leaves_the_last_mode_alone(self):
         # reef-run.py:670 LAST_MODE is "the mode of the last run ... what `resume` restarts". A refused start ran nothing: a
         # plain `reef run` typed while the autopilot runs must not turn the autopilot's resume into a plain loop

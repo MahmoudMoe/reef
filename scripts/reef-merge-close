@@ -7,7 +7,7 @@ In order, each step skipped when already done: (1) in the task's worktree stage 
 or `.key` file refused) and commit `<subject>` with the trailer `Closes-task: <id>-<slug>` — the gate tests the index;
 (2) here, `git merge --no-ff --no-commit task/<id>-<slug>`; a lockfile among the merged files runs `worktree.setup` here
 first; (3) in that same merge commit `status: done`, the journal file's text between `<!-- journal -->` markers under the
-task's `## Log`, the task file `git mv`ed to `tasks/done/`; (4) `git worktree remove`, `git branch -d`, `git worktree prune`.
+task's `## Log`, the task file `git mv`ed to `tasks/done/`; (4) `git worktree remove`, `git worktree prune`, `git branch -d`.
 A conflict or a gate refusal aborts the merge and leaves the tree as it was. Exit 0 closed · 1 usage · 2 refused.
 Why: the orchestrator ran these eight commands by hand at every close, each a chance to skip one (2026-10-17: 103 under
 done/ still in-progress; 2026-10-18: a Prisma client older than its migration failed 28 tests until `npm ci`).
@@ -91,16 +91,17 @@ def main(argv):
         pth, folder = "critical", False
     fast_row = pth == "fast" and folder   # v3 phase 3b: the row's one worktree, no task branch
     main_ck = main_checkout(root)
+    dest = task if in_done else os.path.join(os.path.dirname(task), "done", name)
+    if fast_row and in_done and fm.get("status") == "done":
+        print(f"merge-close: {name} is already closed (under done/, status done; fast path, no task branch)")
+        return 0
+    if not in_done and os.path.exists(dest):
+        # on both paths, before anything moves (2026-11-02, the stress suite: on the critical path `git mv` failed after the merge)
+        fail(f"{os.path.relpath(dest, root)} already exists — nothing changed; remove or rename it, then re-run", 2)
     if fast_row:
         # the fast path, decided by the path alone (the review, 2026-10-26: the `worktree:` key names the FEATURE worktree
         # here, and read as a task worktree it made the merge flow run and remove the feature worktree): the work is here,
         # in the row's one worktree — commit it in place with the trailer, mark done, move; a task branch is never looked for
-        if in_done and fm.get("status") == "done":
-            print(f"merge-close: {name} is already closed (under done/, status done; fast path, no task branch)")
-            return 0
-        dest = task if in_done else os.path.join(os.path.dirname(task), "done", name)
-        if not in_done and os.path.exists(dest):
-            fail(f"{os.path.relpath(dest, root)} already exists — nothing changed; remove or rename it, then re-run", 2)
         git(root, "add", "-A")
         staged = git(root, "diff", "--cached", "--name-only").stdout.split()
         bad = [p for p in staged if SECRET.search(p)]
@@ -140,11 +141,16 @@ def main(argv):
     tbranch = "task/{}-{}".format(tid, re.sub(r"^R?\d+-", "", name)[:-3])   # not an f-string: a backslash there needs 3.12
     if os.path.isdir(wt):
         tbranch = git(wt, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    git(root, "worktree", "prune")   # a task worktree deleted by hand stays registered, and git refuses `branch -d` on its branch
     has_branch = git(root, "rev-parse", "-q", "--verify", f"refs/heads/{tbranch}", check=False).returncode == 0
+    mhead = git(root, "rev-parse", "-q", "--verify", "MERGE_HEAD", check=False).stdout.strip()
+    if has_branch and mhead and mhead == git(root, "rev-parse", tbranch).stdout.strip():
+        # an earlier close stopped mid-merge (2026-11-02, the stress suite: killed while worktree.setup ran); start the merge again
+        git(root, "merge", "--abort")
+        print(f"merge-close: an interrupted merge of {tbranch} was in progress — aborted it; merging again")
     dirty = os.path.isdir(wt) and bool(git(wt, "status", "--porcelain").stdout.strip())   # uncommitted work: not merged yet
     merged = has_branch and not dirty and git(root, "merge-base", "--is-ancestor", tbranch, "HEAD", check=False).returncode == 0
     if not has_branch and in_done and fm.get("status") == "done":
-        git(root, "worktree", "prune")
         print(f"merge-close: {name} is already closed (under done/, status done, no branch {tbranch})")
         return 0
     if not has_branch:
@@ -201,7 +207,6 @@ def main(argv):
             body = body + f"\n<!-- journal -->\n{block}\n<!-- /journal -->\n"
         with open(task, "w", encoding="utf-8", newline="") as f:
             f.write(text[:m.start(1)] + head + text[m.end(1):m.end()] + body)
-        dest = task if in_done else os.path.join(os.path.dirname(task), "done", name)
         if not in_done:
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             git(root, "mv", task, dest)
@@ -219,8 +224,8 @@ def main(argv):
         r = git(root, "worktree", "remove", wt, check=False)
         if r.returncode != 0:
             fail(f"{tbranch} is merged but its worktree stays: {r.stderr.strip()[:300]} — fix that and re-run (the rest resumes)", 2)
-    git(root, "branch", "-d", tbranch)
     git(root, "worktree", "prune")
+    git(root, "branch", "-d", tbranch)
     print(f"merge-close: {tbranch} merged into {branch} at {git(root, 'rev-parse', '--short', 'HEAD').stdout.strip()}; "
           f"{os.path.relpath(task, root)} done; worktree and branch removed")
     return 0
