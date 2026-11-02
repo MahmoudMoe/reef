@@ -337,15 +337,14 @@ class AttemptLog(unittest.TestCase):
         self.assertIn("attempts: 4", t)
         self.assertEqual(len([l for l in t.splitlines() if " FAIL: " in l]), 4)
 
-    @unittest.expectedFailure   # open: H6 (docs/review/stress-2026-11-02.md)
     def test_the_lock_holds_for_a_task_named_through_a_symlinked_path(self):
         # contract: lock_path_for "Shared with reef-guard.py" — one task file, one lock. The same file reached through a
         # symlinked folder (macOS /tmp -> /private/tmp; a project folder symlinked into ~) gets another lock: a writer
         # through one path does not wait for a writer through the other, and one update is lost.
         alias = os.path.join(tempfile.mkdtemp(prefix="reef-alias."), "proj")
         os.symlink(self.d, alias)
-        import hashlib   # reef-attempt lock_path_for, as written: sha1 of the abspath in the temp dir
-        lock = os.path.join(tempfile.gettempdir(), f"reef-lock-{hashlib.sha1(os.path.abspath(self.task).encode()).hexdigest()}")
+        import hashlib   # reef-attempt lock_path_for: sha1 of the real path in the temp dir
+        lock = os.path.join(tempfile.gettempdir(), f"reef-lock-{hashlib.sha1(os.path.realpath(self.task).encode()).hexdigest()}")
         with open(lock, "a") as mod_lock:
             fcntl.flock(mod_lock, fcntl.LOCK_EX)
             p = subprocess.Popen([sys.executable, ATTEMPT, os.path.join(alias, "tasks", "101-slice.md"), "boom"], cwd=self.d,

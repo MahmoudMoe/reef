@@ -21,7 +21,7 @@ import calendar
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_config as config, read_replace as read, main_checkout, drop_hold, process_alive, run_rc, git_root  # noqa: E402
+from reef_common import read_config as config, read_replace as read, main_checkout, drop_hold, process_alive, run_rc, git_root, checkouts, task_copies, task_frontmatter, report_verdict  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 MAX_LINES = 30
@@ -98,14 +98,14 @@ def runner_alive(root):
 
 
 def markers(root, kind, stale_minutes=None):
-    roots = root if isinstance(root, list) else [root]
-    out, seen = [], set()
-    for r in roots:
+    """One marker per id across the checkouts: the freshest (2026-11-02, the stress test H2: the first found won, so round 1's
+    stale marker in main shadowed round 2's fresh one in the feature worktree and the task read as returned)."""
+    best = {}
+    for r in (root if isinstance(root, list) else [root]):
         for rec in _markers(r, kind, stale_minutes):
-            if rec["id"] not in seen:
-                seen.add(rec["id"])
-                out.append(rec)
-    return out
+            if rec["id"] not in best or rec["mtime"] > best[rec["id"]]["mtime"]:
+                best[rec["id"]] = rec
+    return list(best.values())
 
 
 def _markers(root, kind, stale_minutes=None):
@@ -118,8 +118,86 @@ def _markers(root, kind, stale_minutes=None):
             rec = json.loads(read(p))
         except Exception:
             rec = {}
-        rec.update(id=f, age_min=int(age), stale=bool(stale_minutes) and age > stale_minutes)
+        rec.update(id=f, mtime=os.path.getmtime(p), age_min=int(age), stale=bool(stale_minutes) and age > stale_minutes)
         out.append(rec)
+    return out
+
+
+FAIL_AT = re.compile(r"^\s*-\s*attempt \d+ FAIL:.*· at (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(\.\d+)?Z\s*$", re.M)   # a sub-second stamp read too (M6)
+
+
+def task_evidence(roots, tid, path):
+    """The newest of each record of one task across every checkout (2026-11-02, the stress test H2: a hand-back and its report
+    were paired inside one checkout, and a PASS fell back to `dispatch now`): the hand-back, the report and its last VERDICT,
+    the newest FAIL in any copy of the task file, and the status and attempts of its newest copy (H6: a copy blocked in the
+    task worktree bound none of the others)."""
+    ev = {"handback": 0.0, "report": 0.0, "verdict": "", "failed": 0.0, "status": "", "attempts": 0}
+    for r in roots:
+        for k in ("handback", "report"):
+            p = os.path.join(r, ".reef", "ci-local", f"{k}-{tid}.md")
+            try:
+                if os.path.getmtime(p) > ev[k]:
+                    ev[k] = os.path.getmtime(p)
+                    ev["verdict"] = report_verdict(read(p)) if k == "report" else ev["verdict"]
+            except OSError:
+                continue
+    newest = -1.0
+    for c in (task_copies(path, roots) if path else []):
+        try:
+            text, mt = read(c), os.path.getmtime(c)
+            for m in FAIL_AT.finditer(text):
+                ev["failed"] = max(ev["failed"], calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S")) + float(m.group(2) or 0))
+        except (OSError, ValueError):
+            continue
+        if mt > newest:
+            fm = task_frontmatter(text) or {}
+            newest, ev["status"] = mt, fm.get("status", "")
+            ev["attempts"] = int(fm["attempts"]) if str(fm.get("attempts") or "").isdigit() else 0
+    return ev
+
+
+def graph_reads(root, scripts, py, cos):
+    """The task graph of every checkout that holds a plan, read once each — the main checkout and each feature worktree
+    (2026-11-02, the stress test H1: a feature worktree only added its `ready` list, so its broken graph, its blocked task and a
+    task done on its branch were invisible). Returns ({checkout: ready tasks}, {id: (checkout, status, state)}, broken): a
+    feature worktree's line for an id overrides main's when it differs — the copy that moved is the plan's home."""
+    ready, lines, broken, base = {}, {}, [], {}
+    for co in cos:
+        rc, out = run([py, os.path.join(scripts, "reef-graph.py"), "ready", "--json", "--root", co], co)
+        _, status = run([py, os.path.join(scripts, "reef-graph.py"), "status", "--root", co], co)
+        try:
+            ready[co] = json.loads(out) if rc == 0 and out.strip() else []
+        except ValueError:
+            rc = 1
+        if rc != 0:
+            ready[co] = []
+            broken.append("task graph broken or unreadable (reef-graph ready failed" + (f" in {os.path.relpath(co, root)}" if co != root else "") + ")")
+            continue
+        for l in status.splitlines():
+            p = l.split("\t")
+            if len(p) < 5:
+                continue
+            if co == root:
+                base[p[0]] = l
+            if co == root or base.get(p[0]) != l:
+                lines[p[0]] = (co, p[1], p[4])
+    return ready, lines, broken
+
+
+def orphan_rows(root, cfg, prefix, base, feats):
+    """{row: (branch, re-attach command)} for a feature branch that carries a plan and has no worktree (2026-11-02, the stress
+    test H1: the tick said `plan: 1` over feat/first, which held an approved plan, and /reef-plan would cut the branch afresh).
+    A branch already in the base is a leftover, not a plan."""
+    out = {}
+    fpath = str((cfg.get("paths") or {}).get("features", "reef/features") or "reef/features")
+    wtdir = str((cfg.get("worktree") or {}).get("dir") or ".reef/worktrees")
+    for b in run(["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"], root)[1].split():
+        if not b.startswith(prefix) or b in feats or run(["git", "merge-base", "--is-ancestor", b, base], root)[0] == 0:
+            continue
+        for f in run(["git", "ls-tree", "-r", "--name-only", b, "--", fpath], root)[1].splitlines():
+            m = re.search(r"^Row:\s*(\d+)", run(["git", "show", f"{b}:{f}"], root)[1], re.M) if f.endswith("/SPEC.md") else None
+            if m:
+                out[m.group(1)] = (b, f"git worktree prune && git worktree add {wtdir}/{b[len(prefix):]} {b}")
     return out
 
 
@@ -203,21 +281,9 @@ def tick(root):
             night = set()
     rc_q, q_ready = run([py, os.path.join(scripts, "reef-queue.py"), "ready", "--repo", root] + (["--with-found"] if night is not None else []), root)
     rc_s, q_status = run([py, os.path.join(scripts, "reef-queue.py"), "status", "--repo", root], root)
-    rc_g, g_ready = run([py, os.path.join(scripts, "reef-graph.py"), "ready", "--json", "--root", root], root)
-    try:
-        ready_tasks = json.loads(g_ready) if rc_g == 0 and g_ready.strip() else []
-    except ValueError:
-        ready_tasks = []
     roots_all = all_roots(root)
     inflight = markers(roots_all, "inflight", stale)
     verifying = markers(roots_all, "verifying", stale)
-    inflight_ids = {str(m.get("id")) for m in inflight if not m["stale"]}
-    returned = [m for m in inflight if m["stale"]]
-    dispatch_now = [t for t in ready_tasks if str(t["id"]) not in inflight_ids and not t["id"].startswith("R")]
-    # a READY task is not a DISPATCHABLE task: its plan must carry the human's approval record at the current digest
-    # and a fresh review stamp (the same `--verify-stamp --feature` the guard runs at dispatch). First contact,
-    # 2026-10-16: the handoff said "dispatch now: 101" for a plan nobody had approved or reviewed yet.
-    dispatch_now, awaiting = plan_gate(root, scripts, py, dispatch_now)
     rows = [l.split("\t") for l in q_status.splitlines() if "\t" in l]
     to_plan = [l.split("\t") for l in q_ready.splitlines() if "\t" in l and l.split("\t")[1] == "queued"]
     if night is not None:
@@ -239,64 +305,85 @@ def tick(root):
     prs = [p for p in prs if str(p.get("headRefName", "")).startswith(prefix)]
     _, wt = run(["git", "worktree", "list", "--porcelain"], root)
     worktrees = [l[len("worktree "):] for l in wt.splitlines() if l.startswith("worktree ")][1:]
-    # a feature's plan lives on its branch, in its worktree, until the row closes: the main checkout's graph does not
-    # see it (first contact: "rows to plan: 1 · tasks: none" while 101 was being built). Feature worktrees (branch
-    # under the prefix) contribute their ready tasks and claim their rows; task worktrees (task/…) are copies and skipped
-    planned_elsewhere, extra_ready = set(), []
-    entry, branch = None, None
-    for l in wt.splitlines() + [""]:
-        if l.startswith("worktree "):
-            entry, branch = l[len("worktree "):].strip(), None
-        elif l.startswith("branch "):
-            branch = l[len("branch "):].strip()
-        elif not l and entry and entry != root and branch and branch.startswith("refs/heads/" + prefix):
-            fdir = os.path.join(entry, (cfg.get("paths") or {}).get("features", "reef/features"))
-            for spec in glob.glob(os.path.join(fdir, "*", "SPEC.md")):
-                m = re.search(r"^Row:\s*(\d+)", read(spec), re.M)
-                if m:
-                    planned_elsewhere.add(m.group(1))
-            rc_w, g_w = run([py, os.path.join(scripts, "reef-graph.py"), "ready", "--json", "--root", entry], entry)
-            try:
-                ready_w = json.loads(g_w) if rc_w == 0 and g_w.strip() else []
-            except ValueError:
-                ready_w = []
-            ready_w = [x for x in ready_w if str(x["id"]) not in inflight_ids and not str(x["id"]).startswith("R")]
-            go_w, held_w = plan_gate(entry, scripts, py, ready_w)
-            seen = {str(x["id"]) for x in dispatch_now}
-            extra_ready += [x for x in go_w if str(x["id"]) not in seen]
-            awaiting += [h for h in held_w if h not in awaiting]
-            entry = None
-    dispatch_now = dispatch_now + extra_ready
-    # a ready task whose implementer already handed back (handback-<id>.md in any checkout's .reef/ci-local, with no
-    # report newer than it) is not to DISPATCH but to VERIFY: first contact (2026-10-17) the fresh session's tick said
-    # "dispatch now: 103" over an uncommitted, handed-back worktree — a second implementer would have burnt a dispatch
-    # … unless a failure was recorded AFTER that hand-back (reef-attempt's `- attempt N FAIL: … · at <UTC>` line under
-    # ## Log, written by settle on a red gate or by the orchestrator on a verdict): the work was judged and failed, the
-    # next step is the implementer, not the judges again (2026-10-18, qassimha 1103: a red gate counted as attempt 1
-    # and the tick still said `verify now`, so graph mode could not re-dispatch and the gate would have run red again)
-    verify_now = []
-    by_id = {str(t["id"]): t for t in dispatch_now}
-    for t in list(dispatch_now):
-        tid = str(t["id"])
-        # the newest FAIL in ANY checkout's copy of the task file (2026-11-01, task 19101: the round's FAIL lines were in the
-        # task worktree's copy, the copy read here held an older one, and the judges re-ran with no implementer)
-        path = os.path.realpath(str(t.get("path") or ""))
-        home = next((os.path.realpath(c) for c in sorted([root] + worktrees, key=len, reverse=True) if path.startswith(os.path.realpath(c) + os.sep)), "")
-        failed_at = 0.0
-        for c in ([root] + worktrees if home else [""]):
-            try:
-                text = read(os.path.join(c, os.path.relpath(path, home)) if home else path)
-                for m in re.finditer(r"^\s*-\s*attempt \d+ FAIL:.*· at (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)\s*$", text, re.M):
-                    failed_at = max(failed_at, calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%SZ")))
-            except (OSError, ValueError):
+    # ONE read per checkout that holds a plan (graph_reads): a feature's plan lives on its branch, in its worktree, until the
+    # row closes (first contact: "rows to plan: 1 · tasks: none" while 101 was being built). Task worktrees (task/…) are
+    # copies: their records count (task_evidence), their graphs do not
+    feats = {b: w for b, w in checkouts(root, prefix).items() if os.path.isdir(w)}   # a worktree deleted by hand reads as none
+    cos = [root] + list(feats.values())
+    ready_by, lines, broken = graph_reads(root, scripts, py, cos)
+    in_queue = {r[0]: r for r in rows if len(r) > 1}
+    done_rows = {r[0] for r in to_close}
+    heads = {str(p.get("headRefName", "")) for p in prs}
+    names = lambda d: [f for f in (os.listdir(d) if os.path.isdir(d) else []) if re.match(r"R?\d+-.*\.md$", f)]
+    fpath = str((cfg.get("paths") or {}).get("features", "reef/features") or "reef/features")
+    row_of, planned_elsewhere, to_review = {}, set(), {}
+    for co in cos:
+        for spec in sorted(glob.glob(os.path.join(co, fpath, "*", "SPEC.md"))):
+            m = re.search(r"^Row:\s*(\d+)", read(spec), re.M)
+            slug, rid = os.path.basename(os.path.dirname(spec)), (m.group(1) if m else "")
+            row_of[slug] = rid or row_of.get(slug, "")
+            # a feature worktree is a full checkout, so it also carries every CLOSED row's SPEC (2026-10-17: "building rows:
+            # 1, 11, 13, 2" with row 1 archived), and a merged row's: only rows still in the queue and not done in the base count
+            if co == root or rid not in in_queue or rid in done_rows:
                 continue
-        for d_ in [root] + worktrees:
-            hb = os.path.join(d_, ".reef", "ci-local", f"handback-{tid}.md")
-            rp = os.path.join(d_, ".reef", "ci-local", f"report-{tid}.md")
-            if os.path.isfile(hb) and (not os.path.isfile(rp) or os.path.getmtime(rp) < os.path.getmtime(hb)) and failed_at < os.path.getmtime(hb):
-                verify_now.append(tid)
-                dispatch_now.remove(t)
-                break
+            planned_elsewhere.add(rid)
+            tdir = os.path.join(os.path.dirname(spec), "tasks")
+            if names(os.path.join(tdir, "done")) and not names(tdir) and next(b for b, w in feats.items() if w == co) not in heads:
+                to_review[rid] = slug   # every task done on its branch and no PR: the review is next (2026-11-02, H1; reef-loop §2.3)
+    # per ready task, the newest of each record across every checkout decides (task_evidence): handed back → VERIFY, not a second
+    # implementer (first contact, 2026-10-17: "dispatch now: 103" over an uncommitted, handed-back worktree) — unless a FAIL or a
+    # report is newer: the work was judged (2026-10-18, qassimha 1103; 2026-11-01, task 19101's FAIL in the task worktree's copy);
+    # a PASS newer than both → merge-close, never a second implementer; blocked or at the cap in its newest copy → parked (2026-11-02, H2/H6)
+    mk = {str(m["id"]): m for m in inflight}
+    cap = int((cfg.get("caps") or {}).get("attempts", 3) or 3)
+    by_id, home_of, verify_now, close_now, dispatch_now, capped = {}, {}, [], [], [], []
+    for co in cos:
+        for t in ready_by[co]:
+            tid = str(t["id"])
+            if tid in by_id or tid.startswith("R") or lines.get(tid, (co,))[0] != co:
+                continue
+            by_id[tid], home_of[tid] = t, co
+            ev = task_evidence(roots_all, tid, str(t.get("path") or ""))
+            m = mk.get(tid)
+            live_m = bool(m) and not m["stale"]
+            hb = ev["handback"]
+            if ev["status"] == "blocked" or ev["attempts"] >= cap:
+                capped.append(tid)
+            elif hb and hb > max(ev["report"], ev["failed"]) and not (live_m and m["mtime"] > hb):
+                verify_now.append(tid)   # handed back after its marker: the session died before the `rm` (H2)
+            elif live_m:
+                continue
+            elif ev["report"] > max(hb, ev["failed"]) and ev["verdict"] == "PASS":
+                close_now.append(tid)
+            else:
+                dispatch_now.append(t)
+    # a READY task is not a DISPATCHABLE task: its row's Depends must be merged (2026-11-02, H1: row 2, planned early in its own
+    # worktree, was offered while row 1 still built), and its plan must carry the human's approval record at the current digest
+    # and a fresh review stamp (the same `--verify-stamp --feature` the guard runs at dispatch). First contact, 2026-10-16: the
+    # handoff said "dispatch now: 101" for a plan nobody had approved or reviewed yet.
+    awaiting, ok = [], set()
+    for co in cos:
+        go, held = plan_gate(co, scripts, py, [by_id[i] for i in verify_now + close_now + [str(t["id"]) for t in dispatch_now] if home_of[i] == co])
+        ok |= {str(t["id"]) for t in go}
+        awaiting += [h for h in held if h not in awaiting]
+    deps = {r[0]: re.findall(r"'([^']+)'", r[2]) for r in rows if len(r) > 2}
+    for tid in sorted(ok):
+        feat = task_feature(str(by_id[tid].get("path") or ""))
+        undone = [d for d in deps.get(row_of.get(feat, feat), []) if d in in_queue and in_queue[d][1] != "done"]
+        if undone:
+            ok.discard(tid)
+            note = f"{feat} (row {row_of.get(feat, feat)} Depends on {', '.join(undone)}, not merged)"
+            awaiting += [note] if note not in awaiting else []
+    verify_now, close_now = [i for i in verify_now if i in ok], [i for i in close_now if i in ok]
+    dispatch_now = [t for t in dispatch_now if str(t["id"]) in ok]
+    for rid, (b, cmd) in sorted(orphan_rows(root, cfg, prefix, base, feats).items()):
+        if rid in in_queue and rid not in done_rows:
+            planned_elsewhere.add(rid)
+            awaiting.append(f"row {rid}: {b} carries its plan and has no worktree — {cmd}")
+    # a marker of a task done in its home is history, and one older than its hand-back came back (2026-11-02, H2)
+    status_of = {i: v[1] for i, v in lines.items()}
+    inflight_ids = {i for i, m in mk.items() if not m["stale"] and status_of.get(i) != "done" and i not in verify_now}
+    returned = [m for m in inflight if m["stale"] and status_of.get(str(m["id"])) != "done"]
     # 0.7: fresh tasks run in the graph when the mode and the gate say so; fix rounds stay in chat
     mode, gate = graph_mode(root, cfg)
     dispatch_mode = {}
@@ -314,7 +401,7 @@ def tick(root):
     # (2026-10-19, qassimha 1302, row 70: a graph run dispatched, ran and failed 1302 between two ticks that hashed the
     # same, and the loop parked itself for "no progress")
     counters = {}
-    for tid in [str(t["id"]) for t in dispatch_now] + verify_now:
+    for tid in [str(t["id"]) for t in dispatch_now] + verify_now + close_now:
         try:
             fm = read(str((by_id.get(tid) or {}).get("path") or ""))[:4000]
             counters[tid] = "/".join((re.search(rf"^{k}:[ \t]*(\d+)", fm, re.M) or [None, "0"])[1] for k in ("attempts", "dispatches"))
@@ -323,7 +410,7 @@ def tick(root):
     # the files behind the ids, for the session-start text: 2026-10-18, after every /clear the fresh orchestrator ran
     # `find . -name "202*"` over the repository and listed .reef/hunt to locate what the tick had just named
     files = {}
-    for tid in [str(t["id"]) for t in dispatch_now] + verify_now:
+    for tid in [str(t["id"]) for t in dispatch_now] + verify_now + close_now:
         t = by_id.get(tid) or {}
         tpath = str(t.get("path") or "")
         rec = {"task": os.path.relpath(tpath, root) if tpath else "?", "worktree": "", "evidence": []}
@@ -338,9 +425,10 @@ def tick(root):
                 if os.path.isfile(fp):
                     rec["evidence"].append(os.path.relpath(fp, root))
         files[tid] = rec
-    parked = [l.split("\t")[0] for l in q_status.splitlines()] and []   # rows park through their tasks: status blocked
-    rc_gs, g_status = run([py, os.path.join(scripts, "reef-graph.py"), "status", "--root", root], root)
-    blocked = [l.split("\t")[0] for l in g_status.splitlines() if "\tblocked\t" in l]
+    # rows park through their tasks: blocked or at the retry cap in any checkout that holds a plan, or in a ready task's newest
+    # copy (2026-11-02, H1/H6: blocked in a feature worktree, or pending at the cap, the tick said nothing and no one was asked)
+    blocked = sorted({i for i, (_, s, why) in lines.items() if s == "blocked" or "at the retry cap" in why} | set(capped),
+                     key=lambda x: (x.startswith("R"), len(x), x))
     stop = st.get("stop")
     # 5.3 budgets through reef-cost
     caps = cfg.get("caps") or {}
@@ -355,10 +443,6 @@ def tick(root):
             if n > ceiling:
                 stop = stop or f"budget: {n} tokens > caps ceiling {ceiling} — the feature/batch parks (5.3)"
                 budget_note = stop
-    # a feature worktree is a full checkout, so it also carries every CLOSED row's SPEC (2026-10-17: "building rows:
-    # 1, 11, 13, 2" with row 1 archived): only rows still in the queue count
-    live = {r[0] for r in rows if len(r) > 1}
-    planned_elsewhere = {r for r in planned_elsewhere if r in live}
     to_plan = [r for r in to_plan if r[0] not in planned_elsewhere]
     building = building + [[r] for r in sorted(planned_elsewhere) if r not in {b[0] for b in building}]
     # v3 phase 4 — finish before starting: at most loop.rows_in_flight rows (default 2; 0 = no cap) between plan and close
@@ -387,17 +471,18 @@ def tick(root):
             pass
     state = {
         "rows_to_plan": [r[0] for r in to_plan], "rows_held": held_rows, "rows_in_flight": rows_in_flight, "rows_cap": cap_rows,
-        "dispatch_now": [t["id"] for t in dispatch_now], "verify_now": verify_now, "awaiting": awaiting, "files": files,
+        "dispatch_now": [t["id"] for t in dispatch_now], "verify_now": verify_now, "close_now": close_now, "awaiting": awaiting, "files": files,
         "prs_to_review": [f"#{p['number']} {p['headRefName']}" for p in prs], "other_prs": len(other_prs),
+        "rows_to_review": sorted(to_review, key=lambda x: (len(x), x)), "review_slugs": to_review,
         "rows_to_close": [r[0] for r in to_close],
         "in_flight": sorted(inflight_ids) + [f"verifying:{m['id']}" for m in verifying if not m["stale"]],
         "returned_unmerged": [m["id"] for m in returned], "parked": blocked, "building": [r[0] for r in building],
         "worktrees": len(worktrees), "wait": st.get("wait"), "active": bool(st.get("active")), "stop": stop, "over_growth": over, "triage": triage_line,
-        "broken": ([] if rc_g == 0 else ["task graph broken or unreadable (reef-graph ready failed)"])
+        "broken": broken
                   + (["graph.mode is `graph` but this machine has no GATE OK — python3 scripts/reef-graph-run.py probe (chat mode meanwhile)"] if (mode == "graph" and not gate and dispatch_now) else []),
         "graph_mode": mode, "graph_gate": gate, "dispatch_mode": dispatch_mode, "counters": counters,
     }
-    h = hashlib.sha1(json.dumps({k: state[k] for k in ("rows_to_plan", "dispatch_now", "verify_now", "awaiting", "prs_to_review", "rows_to_close", "in_flight", "returned_unmerged", "parked", "building", "counters")}, sort_keys=True).encode()).hexdigest()[:12]
+    h = hashlib.sha1(json.dumps({k: state[k] for k in ("rows_to_plan", "dispatch_now", "verify_now", "close_now", "awaiting", "prs_to_review", "rows_to_review", "rows_to_close", "in_flight", "returned_unmerged", "parked", "building", "counters")}, sort_keys=True).encode()).hexdigest()[:12]
     state["hash"] = h
     # no-progress parking (5.3): K identical ticks with nothing in flight
     k = int((cfg.get("loop") or {}).get("no_progress_ticks", 3) or 3)
@@ -423,7 +508,7 @@ def next_command(state):
     """The one command the owner runs next. 2026-10-18: with 204 handed back (`verify now: 204`) the session-start text
     said `/reef-plan <row> or /reef-assess` — it looked only at rows to plan, dispatches and PRs — and the orchestrator
     echoed it as the status line's `next:` after every reply."""
-    busy = any(state.get(k) for k in ("rows_to_plan", "dispatch_now", "verify_now", "prs_to_review", "rows_to_close", "returned_unmerged", "awaiting"))
+    busy = any(state.get(k) for k in ("rows_to_plan", "dispatch_now", "verify_now", "close_now", "prs_to_review", "rows_to_review", "rows_to_close", "returned_unmerged", "awaiting"))
     return "/reef-loop" if busy else "/reef-plan <row> or /reef-assess"
 
 
@@ -437,8 +522,10 @@ def render_status_page(state):
     v_graph = [i for i in state.get("verify_now") or [] if dm.get(i) == "graph"]
     nxt = (f"verify (graph): {', '.join(v_graph)} — python3 scripts/reef-graph-run.py generate") if v_graph else \
           ("verify: " + ", ".join(state["verify_now"])) if state.get("verify_now") else \
+          (f"merge-close: {', '.join(state['close_now'])} — the PASS is on record (reef-task step 4, scripts/reef-merge-close)") if state.get("close_now") else \
           disp if state["dispatch_now"] else \
           ("review: " + state["prs_to_review"][0]) if state["prs_to_review"] else \
+          (f"review: row {state['rows_to_review'][0]} — /reef-review {state['review_slugs'][state['rows_to_review'][0]]} (every task done on its branch, no PR)") if state.get("rows_to_review") else \
           ("close: " + ", ".join(state["rows_to_close"])) if state["rows_to_close"] else \
           ("plan: " + ", ".join(state["rows_to_plan"])) if state["rows_to_plan"] else \
           ("awaiting: " + "; ".join(state.get("awaiting") or [])) if state.get("awaiting") else "nothing ready — stop or wait"
@@ -447,7 +534,8 @@ def render_status_page(state):
              + (f" (held by loop.rows_in_flight {state['rows_cap']}: {', '.join(state['rows_held'])}; in flight: {', '.join(state['rows_in_flight'])})" if state.get("rows_held") else ""),
              f"dispatch now: {', '.join(state['dispatch_now']) or '-'}" + (f"  verify now: {', '.join(state['verify_now'])} (handed back, uncommitted — gate + verifier, no implementer)" if state.get("verify_now") else ""),
              f"awaiting: {'; '.join(state.get('awaiting') or []) or '-'}",
-             f"PRs to review: {', '.join(state['prs_to_review']) or '-'}" + (f"  ({state['other_prs']} other PR(s) into the base, not the loop's)" if state.get("other_prs") else ""),
+             f"PRs to review: {', '.join(state['prs_to_review']) or '-'}" + (f"  ({state['other_prs']} other PR(s) into the base, not the loop's)" if state.get("other_prs") else "")
+             + (f"  rows to review (no PR yet): {', '.join(state['rows_to_review'])}" if state.get("rows_to_review") else ""),
              f"rows to close: {', '.join(state['rows_to_close']) or '-'}",
              f"in flight: {', '.join(state['in_flight']) or '-'}",
              f"returned, unmerged: {', '.join(state['returned_unmerged']) or '-'}",
@@ -562,7 +650,7 @@ def main(argv):
         i = argv.index("--repo")
         repo = argv[i + 1]
         argv = argv[:i] + argv[i + 2:]
-    root = git_root(repo)
+    root = main_checkout(git_root(repo))   # the loop's ONE state, whichever checkout the caller stands in (2026-11-02, the stress test H5)
     if not argv:
         print("usage: reef-loop.py tick [--json|--assert-no-idle|--session-start|--hash] | start | stop [<reason>] | wait <reason> | clear-wait", file=sys.stderr)
         return 1
@@ -640,12 +728,12 @@ def main(argv):
         return 0
     sys.stdout.write(render_status_page(state))
     if "--assert-no-idle" in argv:
-        idle = (state["active"] and not state["wait"] and (state["dispatch_now"] or state.get("verify_now")) and not state["in_flight"]
+        idle = (state["active"] and not state["wait"] and (state["dispatch_now"] or state.get("verify_now") or state.get("close_now")) and not state["in_flight"]
                 and not state["stop"] and not st.get("parked") and not state["broken"])
         if idle and st.get("refused") != state["hash"]:
             st["refused"] = state["hash"]
             save_state(root, st)
-            print(f"IDLE: ready task(s) {', '.join(state['dispatch_now'] + state.get('verify_now', []))} undispatched while the loop is active — dispatch them (reef-task step 2) or record a wait (reef-loop.py wait \"<reason>\")", file=sys.stderr)
+            print(f"IDLE: ready task(s) {', '.join(state['dispatch_now'] + state.get('verify_now', []) + state.get('close_now', []))} undispatched while the loop is active — dispatch them (reef-task step 2) or record a wait (reef-loop.py wait \"<reason>\")", file=sys.stderr)
             return 2
     return 0
 

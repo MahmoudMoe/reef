@@ -470,6 +470,37 @@ def load_sibling(name, modname=None):
     return mod
 
 
+def checkouts(main, prefix):
+    """{branch name: worktree} for every feature worktree (branch under branches.feature_prefix) — one walk for the row, the
+    tick and the queue (2026-11-02, the stress test H1: the tick and `reef-queue.py status` read only the main checkout)."""
+    out, entry, branch = {}, None, None
+    for l in git_out(main, "worktree", "list", "--porcelain", timeout=60).splitlines() + [""]:
+        if l.startswith("worktree "):
+            entry, branch = l[len("worktree "):].strip(), None
+        elif l.startswith("branch "):
+            branch = l[len("branch "):].strip()
+        elif not l and entry and os.path.realpath(entry) != os.path.realpath(main) and branch and branch.startswith("refs/heads/" + prefix):
+            out[branch[len("refs/heads/"):]] = entry
+            entry = None
+    return out
+
+
+def task_copies(path, roots=None):
+    """Every checkout's copy of a task file (the same path under each checkout of its repository), the file itself first
+    (2026-11-02, the stress test H2/H6: a FAIL, a block or a status written in one copy bound none of the others). `roots`:
+    every checkout, when the caller has listed them already."""
+    real = os.path.realpath(path)
+    if roots is None:
+        wt = git_out(os.path.dirname(real), "worktree", "list", "--porcelain", timeout=10)
+        roots = [l[len("worktree "):].strip() for l in wt.splitlines() if l.startswith("worktree ")]
+    homes = sorted({os.path.realpath(r) for r in roots}, key=len, reverse=True)
+    home = next((h for h in homes if real.startswith(h + os.sep)), "")   # the deepest: a task worktree lives under the main checkout
+    out = [path] if os.path.isfile(path) else []
+    if home:
+        out += [c for c in (os.path.join(h, os.path.relpath(real, home)) for h in homes) if c != real and os.path.isfile(c)]
+    return out
+
+
 def git_root(repo):
     """The repository's top level from inside it (`git rev-parse --show-toplevel`), else the directory itself."""
     r = git(repo, "rev-parse", "--show-toplevel")
