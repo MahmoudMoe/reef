@@ -83,6 +83,14 @@ class Parser(unittest.TestCase):
         self.assertIsNone(self.ev.metrics([self.ev.judge({"id": "y", "truth": {"verdict": "PASS", "blockers": []}}, "VERDICT: PASS")])["nit_rate"],
                           "no entry asks for a NIT: no rate")
 
+    def test_a_blockers_bullets_are_part_of_it(self):
+        # live run 2026-11-02, sign-dropped-in-shared-helper-2 (opus): `BLOCKER: correctness bug / regression — util.py`
+        # with the dropped sign named only in the bullets under it
+        entry = {"id": "x", "truth": {"verdict": "FAIL", "blockers": ["negative|sign"]}}
+        self.assertTrue(self.ev.judge(entry, "BLOCKER: regression — util.py:16\n- drops the sign of negative values\n\nVERDICT: FAIL\n")["caught"])
+        self.assertFalse(self.ev.judge(entry, "BLOCKER: regression — util.py:16\nNIT: doc\n- the sign is fine\nVERDICT: FAIL\n")["caught"],
+                         "a bullet under a NIT is not the blocker's")
+
 
 class FixtureReplay(unittest.TestCase):
     def test_good_fixtures_score_perfectly(self):
