@@ -234,7 +234,7 @@ class RowSettle(_Row):
         write(self.co, "tests/test_a.py", "def test_it_works(): pass\ndef test_second_works(): pass\n")   # the named proofs exist
         self.close("101-slice.md", journal)
         if close_102:
-            self.close("102-second.md", journal)
+            self.close("102-second.md", write(self.tmp, "journal-102.md", "| 102 | opus | - | 0 | gate green | AC-1 | - |\n"))
         r = subprocess.run(["sh", "scripts/reef-gate.sh", "full"], cwd=self.co, capture_output=True, text=True, env=self.env)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return git(self.co, "rev-parse", "HEAD").stdout.strip()
