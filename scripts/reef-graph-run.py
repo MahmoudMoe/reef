@@ -58,7 +58,7 @@ import time
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import run_rc3, die as _die, load_sibling, git_root  # noqa: E402
+from reef_common import run_rc3, die as _die, load_sibling, git_root, report_verdict  # noqa: E402
 
 GRAPH_DIR = os.path.join(".reef", "graph")
 
@@ -654,10 +654,9 @@ def verdict_of(path):
     """The last `VERDICT:` line of a report file, or ''."""
     try:
         with open(path, encoding="utf-8") as f:
-            found = re.findall(r"^VERDICT:\s*([A-Z]+)", f.read(), re.M)
+            return report_verdict(f.read())
     except OSError:
         return ""
-    return found[-1] if found else ""
 
 
 def settle_row(root, res):

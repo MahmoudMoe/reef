@@ -28,6 +28,23 @@ jobs:
       - name: run sabotage suites
         run: python3 --version && sh tests/run.sh
 
+  stress:
+    # the stress suites (tests/stress_*.py, docs/review/stress-2026-11-02.md) beside the selftests, not inside them: the macOS
+    # selftests already take ~13 of their 15 minutes
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: on macOS, the Python a Mac ships (/usr/bin/python3, 3.9)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p "$RUNNER_TEMP/py" && ln -sf /usr/bin/python3 "$RUNNER_TEMP/py/python3"
+          echo "$RUNNER_TEMP/py" >> "$GITHUB_PATH"
+      - name: run the stress suites
+        run: REEF_NO_RESUME=1 python3 -m unittest discover -s tests -p 'stress_*.py' -q
+
   shipped-change-bumps-the-version:
     # 2026-11-02: Claude Code re-installs a plugin only on a new version; a shipped change with the same version never reaches
     # a session (the cache ran 84 commits behind main). `python3 .github/bump-version.py` writes the next one.

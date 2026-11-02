@@ -421,6 +421,42 @@ def die(msg, code=2, *, prefix):
     sys.exit(code)
 
 
+TASK_FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
+
+
+def task_frontmatter(text):
+    """A task file's frontmatter as {key: value}, or None without a fence — the one reader (the stress test, 2026-11-02: seven
+    private copies, and the close's kept the quotes, so `verify: "judge"` closed with no verifier). Values lose their quotes and
+    any CR; indented, comment and key-less lines are skipped; the first of a repeated key wins."""
+    m = TASK_FENCE.match(text)
+    if not m:
+        return None
+    fm = {}
+    for line in m.group(1).splitlines():
+        if line[:1] in (" ", "\t", "#") or ":" not in line:
+            continue
+        k, _, v = line.partition(":")
+        fm.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+    return fm
+
+
+def report_verdict(text):
+    """A report's verdict: its LAST `VERDICT:` line, upper-cased, or '' (the stress test, 2026-11-02: three readers took the
+    first, so a report quoting a PASS and ending FAIL closed the task and recorded GREEN)."""
+    found = re.findall(r"^VERDICT:[ \t]*([A-Za-z]+)", text, re.M)
+    return found[-1].upper() if found else ""
+
+
+def report_head(text):
+    """The commit a review report names on its `HEAD:` line (the first one), or ''."""
+    m = re.search(r"^HEAD:[ \t]*([0-9a-f]{7,40})\b", text, re.M)
+    return m.group(1) if m else ""
+
+
+BLOCKER_LINE = re.compile(r"^\W*BLOCKER\b", re.M)   # `BLOCKER:` and `- **BLOCKER**` alike (the shape reef-eval's scorer reads)
+JOURNAL_BLOCK_RE = re.compile(r"(?:^|\n)<!-- journal -->\r?\n(.*?)\r?\n?<!-- /journal -->", re.S)   # a block on lines of its own
+
+
 def load_sibling(name, modname=None):
     """A sibling script (reef-plan-check.py, reef-graph.py, reef-row.py) as a module, from this module's own directory — one loader
     shape (lightening step 2: four scripts carried it). No bytecode is written beside a project's scripts."""

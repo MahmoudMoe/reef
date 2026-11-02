@@ -20,7 +20,7 @@ import sys
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, git_checked, die as _die, load_sibling  # noqa: E402
+from reef_common import main_checkout, git_checked, die as _die, load_sibling, task_frontmatter, report_verdict, JOURNAL_BLOCK_RE  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 LOCKFILES = {"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "prisma/schema.prisma", "requirements.txt",
@@ -82,10 +82,7 @@ def main(argv):
     m = FENCE.match(text)
     if not m:
         fail(f"{task}: no frontmatter fence — not a reef task file", 1)
-    fm = {}
-    for line in m.group(1).splitlines():
-        if line[:1] not in (" ", "\t", "#") and ":" in line:
-            fm.setdefault(line.split(":", 1)[0].strip(), line.split(":", 1)[1].strip())
+    fm = task_frontmatter(text) or {}
     tid = fm.get("id") or re.match(r"R?\d+", name).group()
     slug = re.sub(r"^R?\d+-", "", name)[:-3]
     try:
@@ -111,9 +108,9 @@ def main(argv):
             git(root, "reset", "-q")
             fail(f"refusing to commit {', '.join(bad)}: a secret-shaped file in the worktree — remove it, then re-run", 2)
         head = m.group(1)
-        head = re.sub(r"^status:.*$", "status: done", head, count=1, flags=re.M) if re.search(r"^status:", head, re.M) else head + "status: done\n"
+        head = re.sub(r"^status:[^\r\n]*", "status: done", head, count=1, flags=re.M) if re.search(r"^status:", head, re.M) else head + "status: done" + ("\r\n" if "\r\n" in head else "\n")
         body = text[m.end():]
-        if block and "<!-- journal -->" not in body:
+        if block and not JOURNAL_BLOCK_RE.search(body):
             # after the body's own last bytes, whatever they are: the digest strips exactly this (the review of #211)
             body = body + f"\n<!-- journal -->\n{block}\n<!-- /journal -->\n"
         with open(task, "w", encoding="utf-8", newline="") as f:
@@ -158,7 +155,7 @@ def main(argv):
         rep = os.path.join(wt if os.path.isdir(wt) else root, ".reef", "ci-local", f"report-{tid}.md")
         try:
             with open(rep, encoding="utf-8") as f:
-                passed = re.search(r"^VERDICT:[ \t]*PASS\b", f.read(), re.M)
+                passed = report_verdict(f.read()) == "PASS"
         except OSError:
             passed = None
         if not passed:
@@ -197,9 +194,9 @@ def main(argv):
                 git(root, "merge", "--abort", check=False)
                 fail("worktree.setup failed; merge aborted, nothing changed", 2)
         head = m.group(1)
-        head = re.sub(r"^status:.*$", "status: done", head, count=1, flags=re.M) if re.search(r"^status:", head, re.M) else head + "status: done\n"
+        head = re.sub(r"^status:[^\r\n]*", "status: done", head, count=1, flags=re.M) if re.search(r"^status:", head, re.M) else head + "status: done" + ("\r\n" if "\r\n" in head else "\n")
         body = text[m.end():]
-        if block and "<!-- journal -->" not in body:
+        if block and not JOURNAL_BLOCK_RE.search(body):
             # after the body's own last bytes, whatever they are: the digest strips exactly this (the review of #211)
             body = body + f"\n<!-- journal -->\n{block}\n<!-- /journal -->\n"
         with open(task, "w", encoding="utf-8", newline="") as f:
