@@ -28,6 +28,25 @@ jobs:
       - name: run sabotage suites
         run: python3 --version && sh tests/run.sh
 
+  shipped-change-bumps-the-version:
+    # 2026-11-02: Claude Code re-installs a plugin only on a new version; a shipped change with the same version never reaches
+    # a session (the cache ran 84 commits behind main). `python3 .github/bump-version.py` writes the next one.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: agents/ skills/ hooks/ scripts/ templates/ commands/ changed => a new version
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          shipped=$(git diff --name-only "$base" HEAD | grep -E '^(agents|skills|hooks|scripts|templates|commands|schemas|migrations)/' || true)
+          [ -z "$shipped" ] && { echo "nothing shipped changed"; exit 0; }
+          v() { python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])'; }
+          old=$(git show "$base:.claude-plugin/plugin.json" | v); new=$(v < .claude-plugin/plugin.json)
+          [ "$old" != "$new" ] && { echo "ok: $old -> $new"; exit 0; }
+          echo "FAIL: shipped files changed and the version is still $old — run: python3 .github/bump-version.py"; exit 1
+
   code-change-needs-a-test:
     # 1.6: a change to a CLASS: code script is a change to a mechanism; a mechanism without a test
     # that shows it red is decoration. This repository has no git hooks, so the rule is a CI job.

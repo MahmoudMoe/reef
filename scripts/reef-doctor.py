@@ -63,6 +63,26 @@ def plugin_enabled():
     return "OK", f"plugin enabled: {name}", ""
 
 
+def installed_copy(plugin):
+    """(level, what, fix): the copy Claude Code's sessions run — the cache installed_plugins.json names — against the clone
+    (2026-11-02: the cache sat at 0.7.3, 84 commits behind; Claude Code re-installs only on a new version)."""
+    try:
+        with open(os.path.expanduser("~/.claude/plugins/installed_plugins.json"), encoding="utf-8") as f:
+            inst = json.load(f)
+    except (OSError, ValueError):
+        return "WARN", "installed: cannot tell (no ~/.claude/plugins/installed_plugins.json)", ""
+    plugins = inst.get("plugins", {}) if isinstance(inst, dict) else {}
+    key = next((k for k in plugins if isinstance(k, str) and k.startswith("reef@")), None)
+    rec = (plugins.get(key) or [{}])[0] if key else {}
+    if not key or not isinstance(rec, dict):
+        return "WARN", "installed: no reef@… in installed_plugins.json", ""
+    iv, sha, pv = str(rec.get("version") or "?"), str(rec.get("gitCommitSha") or "")[:7], plugin_version(plugin)
+    what = f"installed: Claude Code runs {key} {iv}" + (f" ({sha})" if sha else "")
+    if iv != pv:
+        return "FAIL", f"{what}, the clone is {pv} — sessions run the older guard, skills and agents", f"claude plugin update {key}, then restart Claude Code"
+    return "OK", what, ""
+
+
 def update_fix(root, plugin):
     """The fix for a new Reef — the clone behind its upstream, the version, the scripts, a missing script: ONE command. The project's
     own verb where it has scripts/reef (`reef update`: pull, copies, one commit pushed, the setup re-proved, the marketplace refreshed;
@@ -286,6 +306,8 @@ def main(argv):
     else:
         say("WARN", "setup: scripts/reef-setup.py is missing (the proof that a fresh worktree passes the gate)", update_fix(root, plugin))
     say(*plugin_enabled())
+    if plugin:
+        say(*installed_copy(plugin))
     page = os.path.join(root, ".reef", "status.html")
     say("OK" if os.path.isfile(page) else "WARN", f"status page: {page}" if os.path.isfile(page) else "status page: not written yet",
         "" if os.path.isfile(page) else "the next tick writes it (python3 scripts/reef-loop.py tick)")

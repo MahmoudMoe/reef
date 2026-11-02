@@ -30,9 +30,38 @@ class Version(unittest.TestCase):
         plugin = json.loads(read(".claude-plugin", "plugin.json"))["version"]
         market = json.loads(read(".claude-plugin", "marketplace.json"))
         badge = re.search(r"badge/version-([0-9.]+)-", read("README.md")).group(1)
-        versions = {plugin, market["metadata"]["version"], market["plugins"][0]["version"], badge}
-        # pinned on purpose: a version bump edits this line too, in the same commit
-        self.assertEqual(versions, {"0.7.3"})
+        # 2026-11-02: Claude Code re-installs a plugin only on a new version, so every shipped change carries one (`X.Y.Z-dev.N`
+        # between releases; .github/bump-version.py writes it, the `shipped-change-bumps-the-version` CI job refuses a PR without it)
+        self.assertEqual({market["metadata"]["version"], market["plugins"][0]["version"]}, {plugin})
+        self.assertRegex(plugin, r"^\d+\.\d+\.\d+(-dev\.\d+)?$")
+        self.assertEqual(badge, plugin.split("-")[0])
+        top = re.search(r"^## (\d+\.\d+\.\d+)", read("CHANGELOG.md"), re.M).group(1)
+        self.assertEqual(top, plugin.split("-")[0], "the CHANGELOG's top section is the version being built")
+
+    def test_the_bump_writes_the_next_dev_version_in_every_manifest(self):
+        import shutil
+        import subprocess
+        import tempfile
+        d = tempfile.mkdtemp(prefix="reef-bump.")
+        shutil.copytree(os.path.join(ROOT, ".claude-plugin"), os.path.join(d, ".claude-plugin"))
+        def bump():
+            subprocess.run([sys.executable, os.path.join(ROOT, ".github", "bump-version.py"), d], check=True, capture_output=True)
+            p = json.load(open(os.path.join(d, ".claude-plugin", "plugin.json")))["version"]
+            m = json.load(open(os.path.join(d, ".claude-plugin", "marketplace.json")))
+            self.assertEqual({m["metadata"]["version"], m["plugins"][0]["version"]}, {p})
+            return p
+        json.dump({"name": "reef", "version": "0.7.3"}, open(os.path.join(d, ".claude-plugin", "plugin.json"), "w"))
+        self.assertEqual(bump(), "0.7.4-dev.1")
+        self.assertEqual(bump(), "0.7.4-dev.2")
+
+    def test_ci_refuses_a_shipped_change_without_a_new_version(self):
+        ci = read(".github", "workflows", "ci.yml")
+        self.assertIn("shipped-change-bumps-the-version:", ci)
+        job = ci.split("shipped-change-bumps-the-version:", 1)[1]
+        job = job.split("\n  ", 1)[0] if "\n  " in job[:1] else job[:3000]
+        for path in ("agents/", "skills/", "hooks/", "scripts/", "templates/", "commands/"):
+            self.assertIn(path, job)
+        self.assertIn(".github/bump-version.py", job)
 
 
 class MigrateTo070(unittest.TestCase):
@@ -1355,7 +1384,7 @@ class The16HexFallbackLastsOneRelease(unittest.TestCase):
     and is read at 16 hex for that release only. Past 0.7.4 this goes red until the fallback in record_binds is gone."""
 
     def test_the_fallback_is_gone_after_0_7_4(self):
-        version = tuple(int(x) for x in json.loads(read(".claude-plugin", "plugin.json"))["version"].split(".")[:3])
+        version = tuple(int(x) for x in re.match(r"(\d+)\.(\d+)\.(\d+)", json.loads(read(".claude-plugin", "plugin.json"))["version"]).groups())
         if version <= (0, 7, 4):
             self.skipTest("0.7.4 still reads a record without `digest` at its 16 hex")
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

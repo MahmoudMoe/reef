@@ -945,6 +945,8 @@ class TheUpdateIsReefs(unittest.TestCase):
         self.assertTrue(os.path.exists(calls), "the update refreshed the marketplace itself (claude plugin marketplace update)\n" + out)
         called = open(calls, encoding="utf-8").read().splitlines()
         self.assertIn("plugin marketplace update mymarket", called)
+        self.assertIn("plugin update reef@mymarket", called, "the cache sessions run is re-installed, not only the marketplace clone (2026-11-02)\n" + out)
+        self.assertLess(called.index("plugin marketplace update mymarket"), called.index("plugin update reef@mymarket"))
         self.assertIn("plugin enable reef@mymarket", called, "the refresh left the plugin disabled: Reef enabled it again, the owner was not told to\n" + out)
         self.assertIn("left reef@mymarket disabled — enabled it again", r.stdout)
         self.assertIn("marketplace mymarket refreshed", r.stdout)
