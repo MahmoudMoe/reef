@@ -5,7 +5,8 @@ build → evidence → review → merge → close, and the ONE next command. Not
 Usage: reef-row.py state <row-id|slug> [--repo DIR] [--json]        reef-row.py next <row-id|slug> [--repo DIR]
 States: queued (depends not merged) · plan (no feature folder) · approval (not approved at the plan's digest) · build
 (open tasks) · evidence (no green result for the feature head) · review (no GREEN record at that head) · merge (the PR
-is open, or the branch is not in the base) · close (merged, row still in the queue) · closed (archived).
+is open, or the branch is not in the base) · close (merged, row still in the queue) · closed (archived) · broken (the
+queue could not be read).
 Exit 0 · 2 unknown row. The feature folder is found in the main checkout or any feature worktree.
 """
 import glob
@@ -18,7 +19,7 @@ import sys
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read_config as config, merge_by, run_rc, git_out, load_sibling, checkouts  # noqa: E402
+from reef_common import main_checkout, read_config as config, merge_by, run_rc, git_out, load_sibling, checkouts, run_rc3, spec_row  # noqa: E402
 
 
 run = lambda args, cwd, timeout=60: run_rc(args, cwd, timeout, timeout_rc=1)   # the readers know 1
@@ -40,10 +41,9 @@ def find_folder(main, cfg, key):
             slug = os.path.basename(os.path.dirname(spec))
             try:
                 with open(spec, encoding="utf-8") as f:
-                    m = re.search(r"^Row:\s*(\d+)", f.read(), re.M)
+                    rid = spec_row(f.read())
             except OSError:
                 continue
-            rid = m.group(1) if m else ""
             if key in (slug, rid):
                 found.append((co, slug, os.path.dirname(spec), rid))
     if not found:
@@ -58,15 +58,16 @@ def find_folder(main, cfg, key):
 
 
 def queue_status(main):
-    rc, out = run([sys.executable, os.path.join(main, "scripts", "reef-queue.py"), "status", "--repo", main], main)
+    """(rows {id: status}, ready ids, the failed read or ''): a failed read is named, never an empty queue (stress H4)."""
+    rc_s, out = run([sys.executable, os.path.join(main, "scripts", "reef-queue.py"), "status", "--repo", main], main)
     rows = {}
-    for l in out.splitlines() if rc == 0 else []:
+    for l in out.splitlines() if rc_s == 0 else []:
         parts = l.split("\t")
         if len(parts) > 1:
             rows[parts[0]] = parts[1]
     rc, out = run([sys.executable, os.path.join(main, "scripts", "reef-queue.py"), "ready", "--repo", main], main)
     ready = {l.split("\t")[0] for l in out.splitlines() if "\t" in l} if rc == 0 else set()
-    return rows, ready
+    return rows, ready, next((f"reef-queue.py {w} failed (exit {n})" for w, n in (("status", rc_s), ("ready", rc)) if n), "")
 
 
 def archived(main, cfg):
@@ -74,7 +75,7 @@ def archived(main, cfg):
     apath = os.path.join(os.path.dirname(qpath), "queue-archive.md")
     try:
         with open(apath, encoding="utf-8") as f:
-            return set(re.findall(r"^\|\s*(\d+)\s*\|", f.read(), re.M))
+            return set(re.findall(r"^\|\s*(\d+[a-z]?)\s*\|", f.read(), re.M))
     except OSError:
         return set()
 
@@ -112,8 +113,11 @@ def setup_next(main, state_rc, line, co=None, dg=""):
 def state_of(repo, key):
     main = main_checkout(git(repo, "rev-parse", "--show-toplevel") or os.path.abspath(repo))
     cfg = config(main)
-    rows, ready = queue_status(main)
+    rows, ready, failed = queue_status(main)
     out = {"row": key, "slug": None, "state": None, "next": None, "detail": "", "merge_by": merge_by(cfg)}
+    if failed:   # nothing was read: a merged row is not archived, a built one not unqueued
+        out.update(state="broken", next=f"(wait: {failed} — gh auth status)", detail=f"{failed}; its answer is not read as an empty queue")
+        return out, 0
     if key in archived(main, cfg) and key not in rows:
         out.update(state="closed", next="-", detail="archived")
         return out, 0
@@ -166,15 +170,20 @@ def state_of(repo, key):
     head = git(co, "rev-parse", "HEAD")
     base = str((cfg.get("branches") or {}).get("base", "main") or "main")
     prefix = str((cfg.get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
-    merged, pr = None, None
+    merged, pr, gh_failed = None, None, ""
     if shutil.which("gh") and git(main, "remote"):
-        rc, prs = run(["gh", "pr", "list", "--head", prefix + slug, "--state", "all", "--json", "number,state", "--limit", "5"], main, timeout=20)
+        rc, prs, err = run_rc3(["gh", "pr", "list", "--head", prefix + slug, "--state", "all", "--json", "number,state", "--limit", "5"], main, 20, timeout_rc=1)
         try:
-            lst = json.loads(prs) if rc == 0 and prs.strip() else []
+            lst = json.loads(prs.strip() or "[]") if rc == 0 else None
         except ValueError:
-            lst = []
-        if lst:
-            pr = lst[0]
+            lst = None
+        # a failed read is named, never "no PR" (stress H4); not logged in (exit 4) or no GitHub remote is no PRs, as the tick reads it
+        if not isinstance(lst, list) and rc != 4 and not re.search(r"no git remotes found|known GitHub host", err):
+            gh_failed = f"gh pr list failed (exit {rc})" if rc else "gh pr list answered no list"
+        lst = [p for p in lst if isinstance(p, dict)] if isinstance(lst, list) else []
+        # the open PR, else the merged one; a closed, unmerged PR is never the row's (stress M8)
+        pr = ([p for p in lst if p.get("state") == "OPEN"] + [p for p in lst if p.get("state") == "MERGED"] + [None])[0]
+        if pr:
             merged = pr.get("state") == "MERGED"
     if merged is None:
         fhead = git(main, "rev-parse", "-q", "--verify", f"refs/heads/{prefix}{slug}") or head
@@ -218,6 +227,8 @@ def state_of(repo, key):
         return out, 0
     if pr:
         nxt = f"gh pr merge {pr['number']} --squash --delete-branch" if merge_by(cfg) == "loop" else f"(the owner merges PR #{pr['number']})"
+    elif gh_failed:
+        nxt = f"(wait: {gh_failed} — gh auth status)"
     else:
         nxt = f"/reef-review {slug}  (push, PR into {base})"
     out.update(state="merge", next=nxt, detail=f"PR #{pr['number']} {pr.get('state')}" if pr else f"{head[:12]} is not in {base}")

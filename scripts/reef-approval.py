@@ -29,7 +29,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, drop_question, process_alive, questions, issues_mode, read_config  # noqa: E402
+from reef_common import main_checkout, drop_question, process_alive, questions, issues_mode, read_config, spec_row, checkouts  # noqa: E402
 
 QUESTION = re.compile(r"^Approve plan (?P<feature>[A-Za-z0-9][A-Za-z0-9._-]*) at (?P<digest>[0-9a-f]{16})\?$")
 NIGHT_Q = re.compile(r"^Approve night (?P<date>\d{4}-\d\d-\d\d) at (?P<digest>[0-9a-f]{16})\?$")
@@ -132,9 +132,12 @@ def plan_of_record(digests, feature, main):
     by its exact path, where the plan is drafted and amended and the row machine reads it; else the main checkout; else
     (None, None). Never "the first checkout holding it": a task worktree branched before an amendment holds an older plan
     (row 187, 2026-10-31: `git worktree list` named it first and Mahmoud's approval of the amended plan was refused for the
-    stale copy's digest), and a path that only ends like the feature's worktree is not it (the security review)."""
+    stale copy's digest), and a path that only ends like the feature's worktree is not it (the security review). The worktree
+    on the feature's own branch (branches.feature_prefix + slug) is it wherever it lives, as reef-row reads it."""
     real = {os.path.realpath(w): (w, d) for w, d in digests.items()}
-    for path in (os.path.join(main, ".reef", "worktrees", feature), main):
+    prefix = str((read_config(main).get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
+    own = checkouts(main, prefix).get(prefix + feature)
+    for path in ([own] if own else []) + [os.path.join(main, ".reef", "worktrees", feature), main]:
         if os.path.realpath(path) in real:
             return real[os.path.realpath(path)]
     return None, None
@@ -174,8 +177,7 @@ def feature_row(root, feature):
         feats = "reef/features"
     try:
         with open(os.path.join(root, feats, feature, "SPEC.md"), encoding="utf-8") as f:
-            m = re.search(r"^Row:\s*(\d+)", f.read(), re.M)
-        return m.group(1) if m else ""
+            return spec_row(f.read())
     except OSError:
         return ""
 
@@ -236,7 +238,9 @@ def cmd_proxy(argv):
         return refuse(f"its row ({row}) is not in tonight's contract ({', '.join(rr.night_rows(root)) or '-'})")
     if not night:   # autopilot: the work the owner gave is the queue's open rows, nothing beyond it (the security review)
         open_ids = rr.queue_open_rows(root)
-        if open_ids is not None and row not in open_ids:
+        if open_ids is None:   # an unreadable queue is no licence (stress H4)
+            return refuse("the queue cannot be read, so its open rows are unknown — the autopilot approves the work it was given")
+        if row not in open_ids:
             return refuse(f"its row ({row}) is not an open queue row — the autopilot approves the work it was given")
     if not re.search(r"^RUN:[ \t]*agent=mahmoud\b", text, re.M):
         return refuse("the report's first line is not `RUN: agent=mahmoud …`")
@@ -421,7 +425,7 @@ def cmd_from_issue(argv):
         for spec in sorted(glob.glob(os.path.join(co, features, "*", "SPEC.md"))):
             try:
                 with open(spec, encoding="utf-8") as f:
-                    if re.search(r"^Row:\s*" + re.escape(row) + r"\s*$", f.read(), re.M):
+                    if spec_row(f.read()) == row:
                         slug = os.path.basename(os.path.dirname(spec))
             except OSError:
                 continue
@@ -444,11 +448,9 @@ def cmd_from_issue(argv):
         print(f"reef-approval: row {row}: the plan {slug} is in neither its feature worktree nor the main checkout ({seen_digests(digests)})")
         return 1
     question = f"Approve plan {slug} at {dg[:16]}?"
-    r = gh("api", f"repos/{{owner}}/{{repo}}/issues/{n}/comments", "--paginate", "--slurp")
-    try:
-        pages = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []
-    except ValueError:
-        pages = []
+    pages = gh_answer(gh, f"row {row} (issue #{n})", [], "api", f"repos/{{owner}}/{{repo}}/issues/{n}/comments", "--paginate", "--slurp")
+    if pages is None:
+        return 1
     comments = [c for page in (pages if isinstance(pages, list) else []) for c in (page if isinstance(page, list) else [page])]
     hits = []
     for c in comments:
@@ -462,8 +464,8 @@ def cmd_from_issue(argv):
         print(f"reef-approval: row {row} (issue #{n}): no approval comment — the owner posts exactly this line on the issue: {question}")
         return 0
     chosen = owners_comment(gh, hits, f"row {row} (issue #{n})", question)
-    if chosen is None:
-        return 0
+    if not chosen:
+        return 1 if chosen is False else 0
     c, m, login = chosen
     if m.group("digest") != dg[:16]:
         print(f"reef-approval: row {row} (issue #{n}): @{login}'s comment approves {m.group('digest')}, the plan is at {dg[:16]} (stale) — the owner posts: {question}")
@@ -482,19 +484,36 @@ def cmd_from_issue(argv):
     return 0
 
 
+def gh_answer(gh, where, empty, *args):
+    """gh's JSON answer, `empty` where there is no GitHub to read (gh not logged in, exit 4, or no GitHub remote — as the tick
+    reads it), or None after naming the failure: a failed read is never an empty answer (stress H4, a 502 is not the owner's
+    silence)."""
+    r = gh(*args)
+    try:
+        val = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else (empty if r.returncode == 0 else None)
+    except ValueError:
+        val = None
+    if val is None and (r.returncode == 4 or re.search(r"no git remotes found|known GitHub host", r.stderr or "")):
+        return empty
+    if val is None:
+        print(f"reef-approval: {where}: gh failed (exit {r.returncode}) — {((r.stderr or r.stdout).strip().splitlines() or ['no answer'])[-1][:160]}; "
+              "nothing read, nothing written")
+    return val
+
+
 def owners_comment(gh, hits, where, question):
-    """(comment, match, login) of the newest ADMIN comment among hits [(comment, match)], oldest first; else None, said why.
+    """(comment, match, login) of the newest ADMIN comment among hits [(comment, match)], oldest first; else None, said why;
+    False when gh failed to read a permission.
     Anyone else's line is noise, not a veto; an edited one is not the owner's word — a write collaborator can rewrite
     anyone's remark (the review, 2026-10-27)."""
     perms = {}
     for c, m in reversed(hits):
         login = str((c.get("user") or {}).get("login") or "")
         if login not in perms:
-            r = gh("api", f"repos/{{owner}}/{{repo}}/collaborators/{login}/permission")
-            try:
-                perms[login] = str(json.loads(r.stdout).get("permission") or "") if r.returncode == 0 and r.stdout.strip() else ""
-            except ValueError:
-                perms[login] = ""
+            got = gh_answer(gh, where, {}, "api", f"repos/{{owner}}/{{repo}}/collaborators/{login}/permission")
+            if got is None:
+                return False
+            perms[login] = str(got.get("permission") or "") if isinstance(got, dict) else ""
         if perms[login] == "admin":
             if str(c.get("updated_at") or "") not in ("", str(c.get("created_at") or "")):
                 print(f"reef-approval: {where}: @{login}'s approval comment was edited after it was posted ({c.get('updated_at')}) — not taken; the owner posts a fresh one: {question}")
@@ -521,19 +540,17 @@ def day_from_issue(root, gh):
     if not question:
         print("reef-approval: day: no reef/owner.md — `python3 scripts/reef-run.py contract --day` first")
         return 1
-    r = gh("api", "repos/{owner}/{repo}/issues/comments?sort=created&direction=desc&per_page=100")
-    try:
-        comments = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []
-    except ValueError:
-        comments = []
+    comments = gh_answer(gh, "day", [], "api", "repos/{owner}/{repo}/issues/comments?sort=created&direction=desc&per_page=100")
+    if comments is None:
+        return 1
     hits = [(c, DAY_Q.match((str(c.get("body") or "").strip().splitlines() or [""])[0].strip())) for c in (comments if isinstance(comments, list) else []) if isinstance(c, dict)]
     hits = [(c, m) for c, m in reversed(hits) if m]   # oldest first
     if not hits:
         print(f"reef-approval: day: no approval comment — the owner posts exactly this line as a comment on any issue: {question}")
         return 0
     chosen = owners_comment(gh, hits, "day", question)
-    if chosen is None:
-        return 0
+    if not chosen:
+        return 1 if chosen is False else 0
     c, m, login = chosen
     dg = rr.day_digest(root)
     if m.group("digest") != dg[:16]:
@@ -627,32 +644,32 @@ def main(argv):
         if not digests:
             print(f"reef-approval: {feature}: no checkout holds this plan, cannot compute its digest — nothing written")
             continue
-        where = [wt for wt, dg in digests.items() if dg[:16] == digest16]
-        if not where:
-            print(f"reef-approval: {feature}: the question's digest {digest16} matches no checkout's plan ({seen_digests(digests)}) (stale) — nothing written")
-            continue
-        full = {digests[wt] for wt in where}   # the record binds the full digest: which plan the owner read must be one
-        if len(full) > 1:
-            print(f"reef-approval: {feature}: two plans share the fingerprint {digest16} ({', '.join(where)}) — which one was read is "
+        same = [wt for wt, dg in digests.items() if dg[:16] == digest16]
+        if len({digests[wt] for wt in same}) > 1:   # the record binds the full digest: which plan the owner read must be one
+            print(f"reef-approval: {feature}: two plans share the fingerprint {digest16} ({', '.join(same)}) — which one was read is "
                   "unknowable; nothing written — amend one plan, re-digest, ask again")
             continue
-        first = [os.path.realpath(x) for x in (os.path.join(root, ".reef", "worktrees", feature), root)]   # the plan of record (plan_of_record):
-        where.sort(key=lambda wt: first.index(os.path.realpath(wt)) if os.path.realpath(wt) in first else len(first))   # never a task worktree mid-edit (row 189, 2026-11-01)
-        fails = plan_check_failures(where[0], feature)
+        # the plan of record only, as --proxy and --from-issue read it: an older copy in main or a task worktree is stale (stress H6)
+        where, full = plan_of_record(digests, feature, root)
+        if not where or full[:16] != digest16:
+            print(f"reef-approval: {feature}: the question's digest {digest16} matches no checkout's plan of record (it is at "
+                  f"{full[:16] if full else 'none'}; every checkout: {seen_digests(digests)}) (stale) — nothing written")
+            continue
+        fails = plan_check_failures(where, feature)
         if fails:
-            print(f"reef-approval: {feature}: REFUSED — reef-plan-check.py FAILS in {where[0]}: {fails[0][:200]} — fix, re-digest, ask again; nothing written")
+            print(f"reef-approval: {feature}: REFUSED — reef-plan-check.py FAILS in {where}: {fails[0][:200]} — fix, re-digest, ask again; nothing written")
             continue
         d = os.path.join(root, ".reef", "approvals")
         os.makedirs(d, exist_ok=True)
-        rec = {"digest16": digest16, "digest": next(iter(full)), "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-        files = plan_files(where[0], feature)
+        rec = {"digest16": digest16, "digest": full, "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        files = plan_files(where, feature)
         if files:
             rec["files"] = files   # 0.7: {file: sha12} — the next gate's summary names what changed since this approval
         with open(os.path.join(d, f"{feature}.json"), "w", encoding="utf-8") as f:
             json.dump(rec, f, indent=1)
             f.write("\n")
-        print(f"reef-approval: {feature} approved at {digest16} (plan in {where[0]}) -> .reef/approvals/{feature}.json")
-        gone = clear_question(root, feature, where[0], digest16)
+        print(f"reef-approval: {feature} approved at {digest16} (plan in {where}) -> .reef/approvals/{feature}.json")
+        gone = clear_question(root, feature, where, digest16)
         if gone:
             print(f"reef-approval: {feature}: {gone} filed question(s) answered by this approval cleared from .reef/questions.md (its reef-question issue closed)")
         wrote += 1
