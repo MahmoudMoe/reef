@@ -106,7 +106,6 @@ class OwnerHook(unittest.TestCase):
         self.assertIn(f"plan in {wt}", r.stdout.replace(os.path.realpath(wt), wt))
         self.assertNotIn("two plans share", r.stdout)
 
-    @unittest.expectedFailure   # open: M4 (docs/review/stress-2026-11-03.md)
     def test_the_plan_approval_clears_its_own_question_and_keeps_the_rows_look_question(self):
         # clear_question (reef-approval.py:147-150): "The approval's own question leaves .reef/questions.md … this row's
         # other questions … stay". A design look waiting on the owner is another question (contract silent on the word
@@ -126,7 +125,6 @@ class OwnerHook(unittest.TestCase):
 
 
 class ProxyNight(unittest.TestCase):
-    @unittest.expectedFailure   # open: M5 (docs/review/stress-2026-11-03.md)
     def test_a_row_the_contract_leaves_out_with_its_reason_is_not_in_tonights_contract(self):
         # skills/reef-night/SKILL.md:12: "a `Rows: <ids>` line — … one left out only with its reason"; at night "the tick
         # drives these rows and no others" and "any row not listed" is a hard limit. Mahmoud writes the contract; the reason
@@ -141,7 +139,6 @@ class ProxyNight(unittest.TestCase):
         self.assertEqual(r.returncode, 1, "row 3, left out of the contract by its reason, was approved by the proxy:\n" + r.stdout)
         self.assertIsNone(record(d, "editable-items"))
 
-    @unittest.expectedFailure   # open: M4 (docs/review/stress-2026-11-03.md)
     def test_the_proxys_plan_approval_clears_the_question_it_answers(self):
         # clear_question (reef-approval.py:147-150, 2026-10-28): a filed approval question that outlives the record makes the
         # next sessions re-read it and record the same wait. Mahmoud's approval is "the record the hook would have written"
@@ -194,21 +191,24 @@ class ProxyNight(unittest.TestCase):
 
 
 class ProxyDay(unittest.TestCase):
-    @unittest.expectedFailure   # open: M5 (docs/review/stress-2026-11-03.md)
     def test_a_second_decides_line_in_proxy_md_does_not_leave_a_kind_the_owner_took_back(self):
         # day_kinds (reef-run.py:869): "The kinds reef/proxy.md's `Decides:` line names". The owner edits the seeded file by
         # appending a line (as test_day_proxy's own owner does); the file then has two. Contract silent on which wins; an
         # owner who appended `Decides: wording` would obviously expect `process` to be theirs again.
+        # The owner's choice (2026-11-03): two `Decides:` lines are REFUSED, never intersected — `contract --day` names the
+        # one-line shape, and neither line counts.
         d = N.project()
         DP.contract_day(d)
         with open(os.path.join(d, "reef", "proxy.md"), "a") as f:
             f.write("\nThis week I keep process myself.\nDecides: wording\n")
-        DP.approve_day(self, d)
+        r = DP.contract_day(d)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("keep ONE: `Decides:", r.stderr + r.stdout)
+        self.assertEqual(DP.load_run().day_kinds(d), [], "with two Decides: lines, neither names a kind")
         r = DP.decide(d, kind="process")
         self.assertEqual(r.returncode, 1, "the first `Decides:` line won over the owner's later one:\n" + r.stdout)
         self.assertNotIn("Mahmoud (proxy, day", open(os.path.join(d, "reef", "queue.md")).read())
 
-    @unittest.expectedFailure   # open: M6 (docs/review/stress-2026-11-03.md)
     def test_a_decision_killed_after_its_footnote_is_one_footnote_on_the_rerun(self):
         # cmd_proxy_day: "one decision, one footnote" (reef-approval.py:316). The footnote is written (:320) before the record
         # that makes it idempotent (:326); a run killed between them (the runner stopped, a /clear) re-runs into a second one.

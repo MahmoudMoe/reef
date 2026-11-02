@@ -796,15 +796,23 @@ def night_digest(root):
     return files_digest(root, (os.path.join(NIGHT_DIR, "contract.md"), os.path.join("reef", "owner.md")))
 
 
-def night_rows(root):
-    """The queue row ids the contract names on its `Rows:` line."""
+def contract_line(path, key):
+    """The value of a contract file's ONE `<key>:` line: '' when it has none (or cannot be read), None when it has more than
+    one — the contract names no winner, so neither counts and `contract` refuses (stress M5, the owner's choice)."""
     import re
     try:
-        with open(os.path.join(root, NIGHT_DIR, "contract.md"), encoding="utf-8") as f:
-            m = re.search(r"^Rows:\s*(.+)$", f.read(), re.M)
+        with open(path, encoding="utf-8") as f:
+            found = re.findall(rf"^{key}:[ \t]*(.*)$", f.read(), re.M)
     except OSError:
-        return []
-    return [x for x in re.findall(r"\d+", m.group(1))] if m else []
+        return ""
+    return None if len(found) > 1 else (found[0] if found else "")
+
+
+def night_rows(root):
+    """The queue row ids the contract's `Rows:` line LEADS with — `Rows: 12 (not 3: why)` is row 12 alone (stress M5)."""
+    import re
+    m = re.match(r"\s*((?:\d+[a-z]?\s*(?:,|\band\b)?\s*)+)", contract_line(os.path.join(root, NIGHT_DIR, "contract.md"), "Rows") or "")
+    return re.findall(r"\d+[a-z]?", m.group(1)) if m else []
 
 
 def night_ok(root):
@@ -868,13 +876,7 @@ def day_digest(root):
 
 def day_kinds(root):
     """The kinds reef/proxy.md's `Decides:` line names (a closed vocabulary; anything else is the owner's)."""
-    import re
-    try:
-        with open(os.path.join(root, DAY_FILES[0]), encoding="utf-8") as f:
-            m = re.search(r"^Decides:\s*(.+)$", f.read(), re.M)
-    except OSError:
-        return []
-    return [k.strip().lower() for k in m.group(1).split(",") if k.strip()] if m else []
+    return [k.strip().lower() for k in (contract_line(os.path.join(root, DAY_FILES[0]), "Decides") or "").split(",") if k.strip()]
 
 
 def day_plan_refusal(root):
@@ -1085,6 +1087,8 @@ def cmd_contract(root, src, day=False):
         dg = day_digest(root)
         if not dg:
             die("no reef/owner.md — /reef-night drafts it (or copy ~/.reef/owner.md)")
+        if contract_line(proxy, "Decides") is None:
+            die("reef/proxy.md has more than one `Decides:` line — keep ONE: `Decides: process, wording` (edit it, then approve)")
         print(f"day digest: {dg}")
         print(f"decides: {', '.join(day_kinds(root)) or '-'}")
         print(f"question: {day_question(root)}")
@@ -1099,6 +1103,8 @@ def cmd_contract(root, src, day=False):
     dg = night_digest(root)
     if not dg:
         die("no .reef/night/contract.md, or no reef/owner.md — /reef-night drafts both")
+    if contract_line(os.path.join(root, NIGHT_DIR, "contract.md"), "Rows") is None:
+        die("the contract has more than one `Rows:` line — keep ONE: `Rows: 3, 12 (not 7: <why>)`")
     print(f"night digest: {dg}")
     print(f"rows: {', '.join(night_rows(root)) or '-'}")
     left = [r for r in ready_rows(root) if r not in night_rows(root)]

@@ -274,11 +274,9 @@ def tick(root):
     # contract naming found rows never moved them; at night the contract's Rows are what is driven, found ones too
     night = None
     if os.path.isfile(os.path.join(root, ".reef", "night", "active")):
-        try:
-            with open(os.path.join(root, ".reef", "night", "contract.md"), encoding="utf-8") as f:
-                m = re.search(r"^Rows:\s*(.+)$", f.read(), re.M)
-            night = set(re.findall(r"\d+", m.group(1))) if m else set()
-        except OSError:
+        try:   # the runner's one reader of the contract's Rows: line (stress round two M5)
+            night = set(runner_module().night_rows(root))
+        except Exception:
             night = set()
     rc_q, q_ready = run([py, os.path.join(scripts, "reef-queue.py"), "ready", "--repo", root] + (["--with-found"] if night is not None else []), root)
     rc_s, q_status = run([py, os.path.join(scripts, "reef-queue.py"), "status", "--repo", root], root)
@@ -559,15 +557,20 @@ def render_status_page(state):
     return "\n".join(lines[:MAX_LINES]) + "\n"
 
 
+def runner_module():
+    """reef-run.py beside this script, loaded as a module."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("reef_run", os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-run.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def runner_section(root):
     """reef-run.py's Runner section (one renderer: the runner re-splices it between the markers on every live step); empty
     markers when reef-run.py is not beside this script."""
     try:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("reef_run", os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-run.py"))
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod.runner_html(root)
+        return runner_module().runner_html(root)
     except Exception:
         return "<!--runner--><!--/runner-->"
 
