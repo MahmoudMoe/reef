@@ -192,7 +192,7 @@ class FailTime(unittest.TestCase):
         write(self.d, ".reef/ci-local/handback-101.md", "RUN: agent=implementer task=101\nclaims\n")
         os.utime(self.hb, (at, at))
 
-    @unittest.expectedFailure   # open: M6 (docs/review/stress-2026-11-02.md)
+    @unittest.expectedFailure   # open: H5 (docs/review/stress-2026-11-03.md)
     def test_a_fail_recorded_within_the_hand_backs_second_is_after_it(self):
         # hand-back at T+0.2, the gate red and the FAIL recorded at T+0.8 → the line says T (whole seconds). The
         # failure is AFTER the hand-back; the tick still says verify and the judges re-run on the same red code (PR 295's class)
