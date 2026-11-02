@@ -119,7 +119,6 @@ class AttemptCap(unittest.TestCase):
         self.assertIn("tier=design", r.stdout)
         self.assertRegex(r.stdout, r"adversary: model=|guard-pass: feature")
 
-    @unittest.expectedFailure   # open: H6 (docs/review/stress-2026-11-02.md)
     def test_a_cap_lowered_on_the_main_checkout_binds_a_worktree_copy(self):
         # contract silent on caps.attempts' home; reef-attempt itself says "loop policy has ONE home, the main checkout"
         # (for hunter.*). The owner lowers caps.attempts to 2 on main after a task's worktree was cut: he expects 2.
@@ -134,7 +133,6 @@ class AttemptCap(unittest.TestCase):
 
 
 class CapAcrossCheckouts(unittest.TestCase):
-    @unittest.expectedFailure   # open: H6 (docs/review/stress-2026-11-02.md)
     def test_a_task_capped_in_its_task_worktree_is_never_dispatched_again(self):
         # scripts/reef-loop.py all_roots: "reef-attempt runs where the task file lives"; PR 295: the round's FAIL lines
         # land in the task worktree's copy. skills/reef-task/SKILL.md: "Exit 2 = blocked: … park the task"; "A HUMAN
@@ -153,7 +151,6 @@ class CapAcrossCheckouts(unittest.TestCase):
         r = attempt(os.path.join(d, "tasks", "101-a.md"))   # the path the tick's `files` hands the orchestrator
         self.assertEqual(r.returncode, 2, "reef-attempt on the main copy gave a fresh dispatch:\n" + r.stdout)
 
-    @unittest.expectedFailure   # open: H1 (docs/review/stress-2026-11-02.md)
     def test_a_task_pending_but_at_the_cap_is_named_parked(self):
         # skills/reef-loop/SKILL.md: "the cap (caps.attempts) on an item — blocker to the journal, the item parked".
         # A task at the cap with status pending (the cap lowered, or a half human reset that set status only) is not
@@ -165,7 +162,6 @@ class CapAcrossCheckouts(unittest.TestCase):
         self.assertNotIn("101", st["dispatch_now"])
         self.assertIn("101", st["parked"], "at-cap but pending: the tick says nothing, the owner is never asked")
 
-    @unittest.expectedFailure   # open: H1 (docs/review/stress-2026-11-02.md)
     def test_a_blocked_task_in_a_feature_worktree_is_named_parked(self):
         # the plan lives on the feature branch until the row closes (reef-loop.py tick); the tick reads that worktree's
         # ready set — its blocked tasks must reach `parked:` too, or the tick says "nothing ready" and no one is asked

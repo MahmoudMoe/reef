@@ -78,7 +78,7 @@ import sys
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_config as config, repo_root, read, table_cells, issues_mode, question_line, QUESTION_LINE, drop_question, questions, die as _die, slug_error  # noqa: E402
+from reef_common import read_config as config, repo_root, read, table_cells, issues_mode, question_line, QUESTION_LINE, drop_question, questions, die as _die, slug_error, checkouts  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 TASK_NAME_RE = re.compile(r"R?\d+-.*\.md$")
@@ -150,8 +150,10 @@ def current_batch(text):
     return m.group(1) if m else None
 
 
-def task_states(root, cfg):
-    """feature -> list of status values, from tasks/ and tasks/done/."""
+def task_states(root, cfg, worktrees=True):
+    """feature -> list of status values, from tasks/ and tasks/done/ — and every feature worktree's (2026-11-02, the stress test
+    H1: a row whose plan lives on its branch read `queued` here). The main checkout's word stands for a row it has tasks of (done
+    there is merged); a row with tasks only in a feature worktree is `building`, all done on its branch or not."""
     tdir = os.path.join(root, cfg.get("paths", {}).get("tasks", "tasks"))
     states = {}
     dirs = [tdir, os.path.join(tdir, "done")]
@@ -183,6 +185,10 @@ def task_states(root, cfg):
                 states.setdefault(m.group(1), []).extend(states.pop(slug))
             elif m:
                 states.setdefault(m.group(1), [])
+    for co in (checkouts(root, str((cfg.get("branches") or {}).get("feature_prefix", "feat/") or "feat/")).values() if worktrees else []):
+        for k, st in (task_states(co, cfg, False) if os.path.isdir(co) else {}).items():
+            if st and not states.get(k) and re.fullmatch(r"\d+[a-z]?", k):
+                states[k] = ["building"]
     return states
 
 

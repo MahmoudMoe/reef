@@ -46,7 +46,7 @@ import tempfile
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read_config, repo_root, table_cells, die as _die, load_sibling  # noqa: E402
+from reef_common import main_checkout, read_config, repo_root, table_cells, die as _die, load_sibling, task_copies, task_frontmatter, read  # noqa: E402
 
 DEFAULT_CAP = 3
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
@@ -142,8 +142,9 @@ def rejudge_line(text, rnd):
 
 def lock_path_for(path):
     """Shared with reef-guard.py. Lives in tmp (never committed) and is never
-    unlinked — unlink-in-finally is the classic broken lock."""
-    digest = hashlib.sha1(os.path.abspath(path).encode()).hexdigest()
+    unlinked — unlink-in-finally is the classic broken lock. Keyed on the realpath: one file reached through a symlinked folder
+    is one lock (2026-11-02, the stress test H6)."""
+    digest = hashlib.sha1(os.path.realpath(path).encode()).hexdigest()
     return os.path.join(tempfile.gettempdir(), f"reef-lock-{digest}")
 
 
@@ -251,7 +252,7 @@ def run_attempt(cap_flag, path, failure):
     # loop policy has ONE home, the main checkout — like the queue (2026-10-18: `hunter.guard_pass: feature` was set on
     # develop; the feature worktree's copy of the config predated it and the fix round dispatched a hunter)
     policy = read_config(main_checkout(root)) or cfg
-    cap = cap_flag or int(cfg.get("caps", {}).get("attempts", DEFAULT_CAP) or DEFAULT_CAP)
+    cap = cap_flag or int((policy.get("caps") or {}).get("attempts", DEFAULT_CAP) or DEFAULT_CAP)   # the cap too (2026-11-02, H6: lowered on main, a worktree kept 3)
     roles = cfg.get("roles", {}) if isinstance(cfg.get("roles", {}), dict) else {}
 
     with open(lock_path_for(path), "a") as lock:
@@ -277,6 +278,14 @@ def run_attempt(cap_flag, path, failure):
         # very signature the human needs to diagnose the block
         if task.get("status") == "blocked":
             die("task is blocked. A HUMAN must unblock it (set attempts: 0, status: pending, last_failure_sig: \"\") before any dispatch.")
+        # one truth across the task's copies (2026-11-02, the stress test H6: three FAILs blocked the task worktree's copy and the
+        # main checkout's copy dispatched again at 1/3): a NEWER copy, blocked or at the cap, binds this one; a human's reset is newer
+        for c in task_copies(path)[1:]:
+            fm = task_frontmatter(read(c)) or {}
+            n = str(fm.get("attempts") or "0")
+            if os.path.getmtime(c) > os.path.getmtime(path) and (fm.get("status") == "blocked" or (n.isdigit() and int(n) >= cap)):
+                die(f"task is blocked or at the retry cap in its newer copy {c}. A HUMAN must unblock it (set attempts: 0, status: pending, "
+                    "last_failure_sig: \"\") before any dispatch.")
 
         if failure:
             sig = hashlib.sha1(normalize(failure).encode()).hexdigest()[:12]

@@ -1207,7 +1207,7 @@ def lock_path_for(path):
     """Same lock reef-attempt takes. Lives in tmp (never committed) and is never
     unlinked — unlink-in-finally is the classic broken lock (a third process can
     acquire a fresh inode while another still holds the old one)."""
-    digest = hashlib.sha1(os.path.abspath(path).encode()).hexdigest()
+    digest = hashlib.sha1(os.path.realpath(path).encode()).hexdigest()   # realpath: reef-attempt's key (2026-11-02, the stress test H6)
     return os.path.join(tempfile.gettempdir(), f"reef-lock-{digest}")
 
 

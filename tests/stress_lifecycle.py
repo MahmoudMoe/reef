@@ -308,7 +308,6 @@ class FastPathLifecycle(unittest.TestCase):
     def test_fast_path_graph_mode_to_the_last_task_closed(self):
         self.drive(graph=True)
 
-    @unittest.expectedFailure   # open: H1 (docs/review/stress-2026-11-02.md)
     def test_every_task_done_on_the_feature_branch_with_no_pr_names_the_review(self):
         # The open bug of the brief: every task of row 1 is `done` on feat/demo-row-one, no PR yet. SKILL reef-loop §2.3:
         # after the build comes `/reef-review <feature>` (push, PR, the ONE review). An owner expects the tick to say so.
@@ -339,7 +338,6 @@ class FastPathLifecycle(unittest.TestCase):
         self.assertEqual((st["rows_to_close"], st["building"], st["rows_in_flight"], st["dispatch_now"], st["verify_now"]), ([], [], [], [], []), st)
         self.assertEqual(p.next_line(), "nothing ready — stop or wait")
 
-    @unittest.expectedFailure   # open: H1 (docs/review/stress-2026-11-02.md)
     def test_pr_merged_but_the_feature_worktree_not_yet_removed_is_to_close_not_building(self):
         # contract silent: SKILL reef-loop §2.4 removes the worktrees AT the close, so between the merge and the close the
         # feature worktree still stands on feat/<slug>. The row is done in the base: an owner expects `close: 1` and the
@@ -394,7 +392,6 @@ class CriticalPathLifecycle(unittest.TestCase):
     def test_critical_path_to_pass(self):
         self.drive_to_pass()
 
-    @unittest.expectedFailure   # open: H2 (docs/review/stress-2026-11-02.md)
     def test_a_pass_not_yet_merged_is_not_dispatched_again(self):
         # The verifier's PASS report is on disk (newer than the hand-back) and the session ends before reef-merge-close
         # (a /clear at the ceiling, a crash). SKILL reef-loop "Re-entry": "Continue every row from its furthest completed
@@ -424,7 +421,6 @@ class CriticalPathLifecycle(unittest.TestCase):
 class CrashedMarkers(unittest.TestCase):
     """A step that crashed half-way: the in-flight marker outlives its moment."""
 
-    @unittest.expectedFailure   # open: H2 (docs/review/stress-2026-11-02.md)
     def test_a_hand_back_whose_marker_was_not_removed_is_to_verify(self):
         # reef-task SKILL step 2: the guard writes .reef/inflight/<id> at dispatch; the orchestrator must `rm` it after the
         # hand-back. A session that dies between the agent's return and the `rm` leaves both on disk. The hand-back is
@@ -439,7 +435,6 @@ class CrashedMarkers(unittest.TestCase):
         st = p.state()
         self.assertEqual(st["verify_now"], ["101"], f"the hand-back is newer than the in-flight marker: next: {p.next_line()}")
 
-    @unittest.expectedFailure   # open: H2 (docs/review/stress-2026-11-02.md)
     def test_a_done_task_is_never_in_flight(self):
         # contract silent: the marker survived the close (graph mode wrote it in the MAIN checkout's .reef/inflight, see
         # tests/test_row_driver.py; the session died before removing it). After reef-merge-close the task is `done` on the
@@ -514,7 +509,6 @@ class DependencyStillBuilding(unittest.TestCase):
         self.assertEqual(st["rows_to_plan"], ["2"], "room under the cap: the dependent row is ready")
         self.assertEqual(p.next_line(), "close: 1", "finish before starting: the close comes before the plan")
 
-    @unittest.expectedFailure   # open: H1 (docs/review/stress-2026-11-02.md)
     def test_the_dependents_plan_is_not_dispatched_while_its_dependency_is_unmerged(self):
         # contract silent: row 2 was planned early (the owner asked) in its own worktree off main, while row 1 still builds.
         # Its tasks are ready by the graph's rule (no blocked-by), but its row's dependency is not merged: building on a

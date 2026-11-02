@@ -283,7 +283,9 @@ class Tick(unittest.TestCase):
         digest = subprocess.run([sys.executable, pc, wt, "--digest", "--feature", "2"], capture_output=True, text=True).stdout.split()[-1]
         write(d, ".reef/approvals/2.json", json.dumps({"digest16": digest[:16], "approved_at": "2026-10-16T00:00:00Z"}))
         st = json.loads(loop(d, "tick", "--json").stdout)
-        self.assertIn("201", st["dispatch_now"], st)
+        # approved, its plan passes the gate — and row 2 Depends on row 1, still building: held (2026-11-02, the stress test H1)
+        self.assertNotIn("201", st["dispatch_now"], st)
+        self.assertIn("2 (row 2 Depends on 1, not merged)", st["awaiting"], st)
         self.assertIn("101", st["dispatch_now"])
 
 
@@ -545,7 +547,8 @@ class VerifyNow(unittest.TestCase):
         write(d, ".reef/ci-local/report-101.md", "RUN: agent=verifier task=101\nVERDICT: PASS\n")   # a report newer than the hand-back
         st = json.loads(loop(d, "tick", "--json").stdout)
         self.assertEqual(st["verify_now"], [])
-        self.assertIn("101", st["dispatch_now"], "judged: the tick is back to the graph's word (the task closes or re-dispatches)")
+        self.assertEqual(st["close_now"], ["101"], "judged PASS: to merge-close, never a second implementer (2026-11-02, the stress test H2)")
+        self.assertNotIn("101", st["dispatch_now"])
         # 2026-10-18 (qassimha 1103): a red gate counted as attempt 1 after the hand-back, no report was written, and the
         # tick still said `verify now` — the gate would have run red again and graph mode could not re-dispatch
         os.remove(os.path.join(d, ".reef", "ci-local", "report-101.md"))

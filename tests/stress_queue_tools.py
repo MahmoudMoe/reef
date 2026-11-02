@@ -422,7 +422,6 @@ class LoopStateFromAWorktree(unittest.TestCase):
         return subprocess.run([sys.executable, LOOP, *a, "--repo", repo], capture_output=True, text=True,
                               env=dict(os.environ, PATH="/nonexistent-gh:" + os.environ["PATH"]))
 
-    @unittest.expectedFailure   # open: H5 (docs/review/stress-2026-11-02.md)
     def test_a_wait_recorded_from_the_feature_worktree_is_the_loops_wait(self):
         # skills/reef-loop/SKILL.md:11 "`wait "<reason>"` records a chat-side wait ... so the turn may end"; the Stop hook reads
         # the MAIN checkout's .reef/loop.json (reef-guard.py check_stop: root = main_checkout(cwd)), and `wait` already releases

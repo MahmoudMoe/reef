@@ -75,7 +75,6 @@ def plan_only_in_worktree(done=False):
 
 
 class Markers(unittest.TestCase):
-    @unittest.expectedFailure   # open: H2 (docs/review/stress-2026-11-02.md)
     def test_a_stale_marker_in_main_does_not_shadow_a_fresh_one_in_the_feature_worktree(self):
         # reef-loop.py all_roots: "reef-attempt runs where the task file lives, so its in-flight marker lands in that worktree's
         # .reef/"; graph-run writes .reef/inflight/<id> in the MAIN checkout (reef-graph-run.py:232). Round 1 in the graph died
@@ -105,7 +104,6 @@ class Markers(unittest.TestCase):
 
 
 class HandBacks(unittest.TestCase):
-    @unittest.expectedFailure   # open: H2 (docs/review/stress-2026-11-02.md)
     def test_a_handback_in_the_task_worktree_judged_by_a_report_in_main_is_not_verified_again(self):
         # reef-loop.py tick: "a ready task whose implementer already handed back (handback-<id>.md in any checkout's
         # .reef/ci-local, with no report newer than it) is not to DISPATCH but to VERIFY". reef-attempt prints the hand-back
@@ -134,7 +132,6 @@ class HandBacks(unittest.TestCase):
 
 
 class DivergingTaskCopies(unittest.TestCase):
-    @unittest.expectedFailure   # open: H1 (docs/review/stress-2026-11-02.md)
     def test_a_task_done_on_the_feature_branch_is_not_offered_again_from_mains_copy(self):
         # reef-loop.py tick: "a feature's plan lives on its branch, in its worktree, until the row closes: the main checkout's
         # graph does not see it". A project whose plan was committed on the base (the flat tasks/ layout the loop's own
@@ -148,7 +145,6 @@ class DivergingTaskCopies(unittest.TestCase):
         self.assertNotIn("101", st["dispatch_now"], st)
         self.assertIn("102", st["dispatch_now"], "its dependant is ready on the feature branch")
 
-    @unittest.expectedFailure   # open: H1 (docs/review/stress-2026-11-02.md)
     def test_a_broken_graph_in_a_feature_worktree_is_named_broken(self):
         # reef-graph.py: "A broken graph (duplicate id, dangling blocked-by, cycle) has NO ready set: `check` denies and
         # `ready` exits 1, never a best-effort subset"; the tick names main's as BROKEN. A half-resolved merge left 101 under
@@ -160,7 +156,6 @@ class DivergingTaskCopies(unittest.TestCase):
         st = tick(d)
         self.assertTrue(any("graph" in b for b in st["broken"]), st)
 
-    @unittest.expectedFailure   # open: H1 (docs/review/stress-2026-11-02.md)
     def test_a_row_whose_tasks_are_all_done_on_its_branch_is_named_for_review(self):
         # KNOWN OPEN BUG (brief): the tick says "nothing ready" when a row's tasks are all done on its feature branch and no PR
         # exists. reef-loop SKILL step 3: after the build, `/reef-review <feature>` opens the PR; reef-row.py: build ->
@@ -171,7 +166,6 @@ class DivergingTaskCopies(unittest.TestCase):
         self.assertNotIn("nothing ready", nxt, text)
         self.assertIn("1", nxt, text)
 
-    @unittest.expectedFailure   # open: H1 (docs/review/stress-2026-11-02.md)
     def test_reef_queue_status_reads_a_row_built_in_its_worktree_as_building(self):
         # contract silent. reef-queue.py: "status DERIVED from the task files"; the plan's task files live in the feature
         # worktree (reef-plan §1a). `reef-queue.py status` in the main checkout calls row 1 `queued` while its tasks are in
@@ -208,7 +202,6 @@ class WorktreesGoneOrOrphaned(unittest.TestCase):
         self.assertNotRegex(line[0], r"^\s*OK\b", r.stdout)
         self.assertIn("prune", r.stdout)
 
-    @unittest.expectedFailure   # open: H1 (docs/review/stress-2026-11-02.md)
     def test_a_feature_branch_without_its_worktree_is_not_a_row_to_plan(self):
         # contract silent. The plan of row 1 sits committed on feat/first; its worktree was removed (by hand, or a
         # half-finished cleanup). The tick says "plan: 1" — /reef-plan §1a would `git branch feat/first` over a branch that
@@ -293,7 +286,6 @@ class StampsApprovalsConfig(unittest.TestCase):
         self.assertIn("guard-pass: feature", r.stdout)
         self.assertNotIn("adversary:", r.stdout)
 
-    @unittest.expectedFailure   # open: H5 (docs/review/stress-2026-11-02.md)
     def test_the_tick_from_inside_a_feature_worktree_reads_the_loops_one_state(self):
         # contract silent on the tick, explicit for its neighbours: reef_common.main_checkout "Machine state (approvals,
         # records, the queue, the slot locks) lives there, never in a task worktree"; the Stop hook ticks the MAIN checkout
