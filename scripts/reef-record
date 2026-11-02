@@ -25,7 +25,7 @@ import time
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, die as _die, report_verdict, report_head, BLOCKER_LINE  # noqa: E402
+from reef_common import main_checkout, die as _die, report_binding, BLOCKER_LINE  # noqa: E402
 
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "20"))
 
@@ -135,7 +135,8 @@ def cmd_plan_review(argv):
 
 def feature_guard_pass_missing(cwd, feature):
     """Under hunter.guard_pass = feature: the ids of the feature's design/critical tasks (open and done) without an
-    adversarial-guard record; [] under the task mode (the pre-commit enforced it per task) or with every task stamped."""
+    adversarial-guard record; [] under the task mode (the pre-commit enforced it per task) or with every task stamped; None
+    when the feature's tasks are in no checkout (fail closed). The tasks are read where the plan lives (feature_home)."""
     import importlib.machinery
     import importlib.util
     p = os.path.join(os.path.dirname(os.path.realpath(__file__)), "reef-adversarial")
@@ -149,9 +150,9 @@ def feature_guard_pass_missing(cwd, feature):
         return []
     if adv.guard_pass_mode(cwd) != "feature":
         return []
-    root, cfg = adv.config_near(cwd)
+    root, cfg = adv.feature_home(cwd, feature)
     if not root:
-        return []
+        return None
     return [fm.get("id", os.path.basename(p_)) for p_, fm in adv.guarded_tasks(root, cfg, feature) if not (fm.get("adversarial-guard") or "").strip()]
 
 
@@ -179,13 +180,6 @@ def cmd_security(argv):
     except OSError as e:
         die(f"cannot read the report {report}: {e}")
     text = raw.decode("utf-8", "replace")
-    if not re.search(r"^RUN:[ \t]*agent=security\b", text, re.M):
-        die(f"{report} is not a security report: its first line must be `RUN: agent=security …` (written by reef:security)")
-    said = report_verdict(text)
-    if said not in ("PASS", "FAIL"):
-        die(f"{report} has no `VERDICT: PASS|FAIL` line")
-    if said != verdict:
-        die(f"the report says VERDICT: {said}, not {verdict} — the record carries the agent's verdict, never another")
     if verdict == "PASS" and BLOCKER_LINE.search(text):
         die(f"{report} says PASS with a BLOCKER line — a BLOCKER fails the pass")
     try:
@@ -198,6 +192,9 @@ def cmd_security(argv):
     head = r.stdout.strip()
     if r.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", head):
         die(f"no local branch {base!r} (branches.base) in {root} — the pass is bound to its head")
+    why = report_binding(text, "security", head, (verdict,), head_on_run=True, bound=f"the head of {base}")   # its RUN line's head=
+    if why:
+        die(f"{report}: {why}")
     rec = {"kind": "security", "head": head, "base": base, "verdict": verdict, "report_sha256": hashlib.sha256(raw).hexdigest(),
            "report": os.path.abspath(report), "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     d = os.path.join(root, ".reef", "review")
@@ -251,12 +248,21 @@ def main(argv):
     cwd = root or os.getcwd()
     if verdict.upper() in ("GREEN", "PASS"):
         missing = feature_guard_pass_missing(cwd, feature)
+        if missing is None:
+            die(f"{feature}: feature not found — no task file of it in its worktree or the main checkout, so its guard pass cannot be checked")
         if missing:
             die(f"{feature}: hunter.guard_pass is `feature` and the guard pass is not recorded on task(s) {', '.join(missing)} — dispatch the "
                 f"loophole-hunter ONCE on the feature's diff (`git diff <base>...HEAD`, pass=guard) and record it with "
                 f"`scripts/reef-adversarial --feature {feature} guard <report>` before a GREEN record")
-    view = json.loads(gh_text("pr", "view", *([pr] if pr else []), "--json", "headRefOid,baseRefName,url,number", cwd=cwd))
+    view = json.loads(gh_text("pr", "view", *([pr] if pr else []), "--json", "headRefOid,headRefName,baseRefName,url,number", cwd=cwd))
     sha, base, url = view.get("headRefOid", ""), view.get("baseRefName", ""), view.get("url", "")
+    try:
+        with open(os.path.join(main_checkout(cwd), ".reef", "config.json"), encoding="utf-8") as f:
+            prefix = str((json.load(f).get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
+    except (OSError, ValueError, AttributeError):
+        prefix = "feat/"
+    if "headRefName" in view and view["headRefName"] != prefix + feature:   # 2026-11-03 H7: another row's PR
+        die(f"PR {view.get('number', pr)} is {view['headRefName']!r}, not {prefix + feature!r} — the record is this row's PR")
     m = re.search(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)", url)
     if not re.fullmatch(r"[0-9a-f]{40}", sha) or not m:
         die(f"gh pr view returned no usable head/url: {view}")
@@ -265,21 +271,23 @@ def main(argv):
         die(f"gh api returned no tree sha for {sha}: {tree!r}")
     rec = {"sha": sha, "tree": tree, "verdict": verdict.upper(), "base": base, "pr": int(m.group(3)),
            "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-    if verdict.upper() in ("GREEN", "PASS"):
+    green = verdict.upper() in ("GREEN", "PASS")
+    if green and (not report or not os.path.isfile(report)):
         # 2026-10-24, the trial: the guard said "re-review and re-record", and a re-record with no review followed. The
         # record now carries the review: the report's VERDICT and the head it reviewed, bound by its hash.
-        if not report or not os.path.isfile(report):
-            die("a GREEN record carries its reviewer's report: --report <file> with `HEAD: <sha12>` and `VERDICT: GREEN`")
-        raw = open(report, "rb").read()
-        text = raw.decode("utf-8", "replace")
-        v = report_verdict(text)
-        if v not in ("GREEN", "PASS"):
-            die(f"{report} says VERDICT: {v or '(none)'} — the record carries the reviewer's verdict, never another")
-        h = report_head(text)
-        if not h or not (sha.startswith(h) or h.startswith(sha[:12])):
-            die(f"the report reviewed {h[:12] if h else 'no named head'}, not the PR head {sha[:12]} — review the head, then record")
+        die("a GREEN record carries its reviewer's report: --report <file> with `HEAD: <sha12>` and `VERDICT: GREEN`")
+    if report:   # any verdict (2026-11-03 H7): the acceptance agent's report of THIS row at THIS head, saying this verdict
+        try:
+            raw = open(report, "rb").read()
+        except OSError as e:
+            die(f"cannot read the report {report}: {e}")
+        why = report_binding(raw.decode("utf-8", "replace"), "acceptance", sha, ("GREEN", "PASS") if green else (verdict.upper(),),
+                             feature=feature, run_required=green)
+        if why:
+            die(f"{report}: {why}")
         import hashlib
         rec["report_sha256"] = hashlib.sha256(raw).hexdigest()
+    if green:
         e = evidence_for(cwd, sha)
         if e.get("state") != "green":
             what = {"red": f"the evidence for {sha[:12]} is RED ({e.get('source')}): a GREEN record needs a green suite — fix, then record",

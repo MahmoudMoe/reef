@@ -284,7 +284,6 @@ class Record(_Forge):
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertEqual(self.rec("beta"), before)
 
-    @unittest.expectedFailure   # open: H7 (docs/review/stress-2026-11-03.md)
     def test_a_green_record_refuses_another_rows_report_and_pr(self):
         # row alpha's reviewer report (RUN feature=alpha, HEAD alpha) and alpha's PR 8, recorded as beta's GREEN (a slip of
         # the orchestrator's --pr while two rows are in flight). Contract: agents/acceptance.md:25 "RUN: agent=acceptance
@@ -295,7 +294,6 @@ class Record(_Forge):
         self.assertNotEqual(r.returncode, 0, f"beta recorded GREEN from alpha's review: {r.stdout}")
         self.assertIsNone(self.rec("beta"))
 
-    @unittest.expectedFailure   # open: H7 (docs/review/stress-2026-11-03.md)
     def test_a_stale_fail_report_never_overwrites_a_green_at_the_new_head(self):
         # a step re-run after a crash: the review of X failed, the rollup made Y, Y was reviewed GREEN and recorded; the
         # resumed orchestrator then records the OLD fail report. reef-record binds FAIL to the forge head Y without reading
@@ -326,7 +324,6 @@ class Record(_Forge):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertTrue(os.path.isfile(os.path.join(self.main, ".reef", "review", f"security-{h[:12]}.json")))
 
-    @unittest.expectedFailure   # open: H7 (docs/review/stress-2026-11-03.md)
     def test_a_security_pass_of_an_older_base_head_is_not_bound_to_the_new_one(self):
         # the security pass audited main at H1 (its report: `RUN: agent=security … head=<H1 sha12>`, agents/security.md
         # Report). Before the record, another row merged (rows_in_flight 2): main is H2. reef-record binds the PASS to H2,

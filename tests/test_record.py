@@ -366,7 +366,10 @@ class SecurityPass(_Repo, unittest.TestCase):
         payload = {"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": cmd}}
         return subprocess.run([sys.executable, GUARD], input=json.dumps(payload), capture_output=True, text=True, env=self.env(**kw))
 
-    GOOD = "RUN: agent=security range=release...main head=x\nSPINE: reef/architecture/threat-model.md\nHIGH src/a.ts:3 — x — y\nVERDICT: PASS\n"
+    @property
+    def GOOD(self):   # the report names the head it audited, the one the record binds (the stress test, 2026-11-03 H7)
+        head = git(self.d, "rev-parse", "main")[:12]
+        return f"RUN: agent=security range=release...main head={head}\nSPINE: reef/architecture/threat-model.md\nHIGH src/a.ts:3 — x — y\nVERDICT: PASS\n"
 
     def test_the_record_carries_the_agents_own_verdict_or_nothing(self):
         for verdict, report, why in (("PASS", None, "--report"),
