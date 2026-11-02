@@ -69,7 +69,7 @@ def main(argv):
         if not os.path.isfile(alt):
             fail(f"no task file {pos[0]}", 1)
         task = alt
-    # 2026-11-02 (ai-coach row 191): a block with its own markers broke the Log's markers on five tasks, and a block with no
+    # 2026-11-02 (an adoption's graph-mode row): a block with its own markers broke the Log's markers on five tasks, and a block with no
     # `| id |` row left the row's journal without them; refused here, before anything moves
     tid = re.match(r"\d+", name)
     if "<!-- journal -->" in block or "<!-- /journal -->" in block:
