@@ -111,7 +111,6 @@ class TickWithGh(unittest.TestCase):
         st = json.loads(tick(self.d, self.path(), GH_PRS=self.prs)[0].stdout)
         self.assertEqual(st["prs_to_review"], ["#10 reef/12-cache"], "a configured prefix replaces feat/")
 
-    @unittest.expectedFailure   # open: H4 (docs/review/stress-2026-11-02.md)
     def test_a_failing_gh_is_named_not_read_as_no_prs(self):
         # contract silent: reef-loop.py docstring "the loop engine's one read of the world: the TICK" — an owner expects the
         # tick to say it could not read the PRs, not report "PRs to review: none" while PR #7 waits
@@ -130,7 +129,6 @@ class TickWithGh(unittest.TestCase):
         self.assertLess(took, 20, "the tick waited on a hung gh")
         json.loads(r.stdout)
 
-    @unittest.expectedFailure   # open: H4 (docs/review/stress-2026-11-02.md)
     def test_gh_printing_json_null_does_not_crash_the_tick(self):
         # contract silent: the tick is the one read the loop and the Stop hook run; garbage from gh must not crash it
         r, _ = tick(self.d, self.path(), GH_MODE="garbage")
@@ -173,7 +171,6 @@ class IssuesQueueTick(unittest.TestCase):
     def env(self, **extra):
         return dict(PATH=self.bin + os.pathsep + os.environ["PATH"], GH_STATE=self.state, GH_MODE="ok", REEF_GH_READ_TIMEOUT="5", **extra)
 
-    @unittest.expectedFailure   # open: H4 (docs/review/stress-2026-11-02.md)
     def test_gh_down_with_no_snapshot_is_named_never_an_empty_queue(self):
         # reef-queue.py:62 "every read syncs .reef/queue.json first (a failing gh: the last snapshot ...)"; with no snapshot
         # reef-queue exits 1 ("no snapshot, no gh: no queue"). contract silent on the tick: an owner expects the tick to say
@@ -186,7 +183,6 @@ class IssuesQueueTick(unittest.TestCase):
         self.assertTrue(any("queue" in b for b in st["broken"]),
                         f"the queue could not be read at all and the tick says nothing: rows_to_plan={st['rows_to_plan']} broken={st['broken']}")
 
-    @unittest.expectedFailure   # open: H4 (docs/review/stress-2026-11-02.md)
     def test_a_row_closed_on_github_is_not_planned_from_a_stale_ready_read(self):
         # contract silent: the tick reads `ready` and `status` as two syncs. gh failing on the first only, `ready` answers from
         # the last snapshot (row 3 queued) while `status` reads the fresh issues (row 3 closed, merged): the tick must not
@@ -242,7 +238,6 @@ class FileQueue(unittest.TestCase):
     def ready(self, d):
         return [l.split("\t")[0] for l in self.q(d, "ready", "--with-found").stdout.splitlines() if "\t" in l]
 
-    @unittest.expectedFailure   # open: M5 (docs/review/stress-2026-11-02.md)
     def test_a_row_id_the_parser_cannot_read_is_named_by_check(self):
         # contract silent: reef-queue.py check is "consistency: ... no row id repeats; depends resolve". A row the owner typed
         # as `R7` or with a footnote mark on its id (`8¹`) vanishes from status/ready; check must not say ok over it
@@ -252,7 +247,6 @@ class FileQueue(unittest.TestCase):
             r = self.q(d, "check")
             self.assertEqual(r.returncode, 1, f"check passed over an unreadable row id {bad.split('|')[1].strip()!r}: {r.stdout}")
 
-    @unittest.expectedFailure   # open: M5 (docs/review/stress-2026-11-02.md)
     def test_a_cycle_in_depends_fails_check(self):
         # contract silent (reef-plan-check refuses a cycle among tasks): two rows that wait on each other are never ready —
         # the loop would idle on "nothing ready" forever; check must name the cycle
@@ -270,7 +264,6 @@ class FileQueue(unittest.TestCase):
         self.assertIn("row 4 is in the queue AND the archive", r.stdout)
         self.assertIn("row 4 depends on unknown row 2", r.stdout)
 
-    @unittest.expectedFailure   # open: M5 (docs/review/stress-2026-11-02.md)
     def test_footnote_marks_on_current_batch_and_on_a_batch_cell(self):
         # reef-queue.py:148 "`Current batch: 2²⁶` — the owner's footnote marker rides on the line"; the same mark on a row's
         # Batch cell (contract silent) must not hide the row from its batch

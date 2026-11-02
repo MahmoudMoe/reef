@@ -349,7 +349,6 @@ class FastPathLifecycle(unittest.TestCase):
         self.assertEqual(p.next_line(), "close: 1")
         self.assertNotIn("1", st["building"], "a row merged into the base is not building (its worktree only awaits the close)")
 
-    @unittest.expectedFailure   # open: H4 (docs/review/stress-2026-11-02.md)
     def test_pr_open_while_gh_fails_is_named_not_nothing(self):
         # contract silent: an external tool failing. The PR is open but `gh pr list` exits 1 (auth expired, rate limit,
         # network). reef-loop.py:229-234 drops the error and the tick says "nothing ready" — the owner is told to stop
