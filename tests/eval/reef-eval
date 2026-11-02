@@ -52,18 +52,22 @@ def parse(report):
     line anywhere, or any non-empty line inside a BLOCKING section (a `**BLOCKING**` / `## BLOCKING` heading up to
     the next ADVISORY/NEW-ROW/NONE/VERDICT heading) — the plan-reviewer's shape."""
     vs = VERDICT.findall(report)
-    blocking, in_section = [], False
+    blocking, in_section, in_blocker = [], False, False
     for l in report.splitlines():
         m = SECTION.match(l)
         if m:
-            in_section = m.group(1).upper() == "BLOCKING"
+            in_section, in_blocker = m.group(1).upper() == "BLOCKING", False
             if in_section and ":" in l or "—" in l:
                 blocking.append(l.strip())    # `BLOCKING — HALT. …` on one line
             continue
         if BLOCKING_LINE.match(l):
-            blocking.append(l.strip())
+            blocking.append(l.strip()); in_blocker = True
         elif in_section and l.strip() and l.strip().lower() not in ("none", "none.", "- none", "- none."):
             blocking.append(l.strip())
+        elif in_blocker and re.match(r"^\s*[-*]\s", l):
+            blocking.append(l.strip())    # a BLOCKER's bullets are part of it, as a NIT's are
+        elif l.strip():
+            in_blocker = False
     verdict = vs[-1].upper() if vs else None
     return ("PASS" if verdict == "GREEN" else verdict), blocking
 
