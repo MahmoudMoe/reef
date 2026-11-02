@@ -91,6 +91,8 @@ class NightRows(unittest.TestCase):
         self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["rows_to_plan"], ["3"])
         write(d, ".reef/night/contract.md", "# Night\nRows: 1\n")
         self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["rows_to_plan"], [], "a row outside the contract is not the night's")
+        write(d, ".reef/night/contract.md", "# Night\nRows: 1 (not 3: it waits for the owner)\n")   # stress round two M5: the tick reads Rows as the runner does
+        self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["rows_to_plan"], [], "a row left out with its reason is not the night's")
 
 
 class RunnerDrives(unittest.TestCase):

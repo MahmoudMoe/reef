@@ -29,7 +29,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, drop_question, process_alive, questions, issues_mode, read_config, spec_row, checkouts  # noqa: E402
+from reef_common import main_checkout, drop_question, process_alive, questions, issues_mode, read_config, spec_row, checkouts, read_or_empty  # noqa: E402
 
 QUESTION = re.compile(r"^Approve plan (?P<feature>[A-Za-z0-9][A-Za-z0-9._-]*) at (?P<digest>[0-9a-f]{16})\?$")
 NIGHT_Q = re.compile(r"^Approve night (?P<date>\d{4}-\d\d-\d\d) at (?P<digest>[0-9a-f]{16})\?$")
@@ -150,9 +150,11 @@ def seen_digests(digests):
 def clear_question(main, feature, co, digest16):
     """The approval's own question leaves .reef/questions.md and its reef-question issue closes (2026-10-28: the owner approved in
     his terminal and three runner sessions re-read the filed question, believed it, and recorded the same wait). The row's lines
-    that ask for an approval go; other rows' questions, and this row's other questions, stay. Returns how many lines went."""
+    that ask for the plan's approval go (its digest, or `plan` with approve/stamp/digest); other rows' questions, and this row's
+    other questions — a look to approve — stay (stress M4). Returns how many lines went."""
+    asks = lambda line: digest16 in line or bool(re.search(r"\bplan\b", line, re.I) and re.search(r"approv|\bstamp\b|digest", line, re.I))
     row = feature_row(co, feature)
-    gone = drop_question(main, row=row, when=lambda line: re.search(r"approv|\bstamp\b|digest", line, re.I)) if row else 0
+    gone = drop_question(main, row=row, when=asks) if row else 0
     if not gone:
         return 0
     if shutil.which("gh"):
@@ -160,7 +162,7 @@ def clear_question(main, feature, co, digest16):
             r = subprocess.run(["gh", "issue", "list", "--label", "reef-question", "--state", "open", "--search", f"row {row}", "--json", "number,title"],
                                cwd=main, capture_output=True, text=True, timeout=30)
             for it in (json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []):
-                if re.search(rf"row {re.escape(row)}\b", str(it.get("title", ""))) and re.search(r"approv|stamp|digest", str(it.get("title", "")), re.I):
+                if re.search(rf"row {re.escape(row)}\b", str(it.get("title", ""))) and asks(str(it.get("title", ""))):
                     subprocess.run(["gh", "issue", "close", str(it["number"]), "--comment", f"Approved: plan {feature} at {digest16} (recorded)"],
                                    cwd=main, capture_output=True, text=True, timeout=30)
         except (OSError, ValueError, subprocess.TimeoutExpired):
@@ -258,6 +260,7 @@ def cmd_proxy(argv):
         json.dump(rec, f, indent=1)
         f.write("\n")
     print(f"reef-approval: {feature} approved at {dg[:16]} by mahmoud (proxy), {'night ' + rec['night'] if night else 'day ' + rec['day']} -> .reef/approvals/{feature}.json")
+    clear_question(root, feature, where, dg[:16])   # the question it answers leaves the inbox, or the autopilot re-reads its own wait (stress M4)
     return 0
 
 
@@ -321,11 +324,18 @@ def cmd_proxy_day(argv):
     except OSError:
         pass
     here = os.path.dirname(os.path.realpath(__file__))
-    r = subprocess.run([sys.executable, os.path.join(here, "reef-queue.py"), "footnote", note, "--row", row, "--repo", root], capture_output=True, text=True, cwd=root,
-                       env=dict(os.environ, REEF_NO_RESUME="1"))   # the proxy decides while the runner runs: nothing to resume
-    if r.returncode != 0:
-        return refuse(f"the footnote was refused: {(r.stderr or r.stdout).strip().splitlines()[-1][:200] if (r.stderr or r.stdout).strip() else r.returncode}")
-    mark = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+    # the queue is the record: a run killed after its footnote and before the log line left this exact footnote — the re-run
+    # logs it, never a second one (stress M6)
+    queue = read_or_empty(os.path.join(root, str((read_config(root).get("paths") or {}).get("queue", "docs/queue.md"))))
+    done = re.search(r"^([⁰¹²³⁴⁵⁶⁷⁸⁹]+) " + re.escape(note) + r"(?: \(\d{4}-\d\d-\d\d\))?$", queue, re.M)
+    if done:
+        mark = done.group(1)
+    else:
+        r = subprocess.run([sys.executable, os.path.join(here, "reef-queue.py"), "footnote", note, "--row", row, "--repo", root], capture_output=True, text=True, cwd=root,
+                           env=dict(os.environ, REEF_NO_RESUME="1"))   # the proxy decides while the runner runs: nothing to resume
+        if r.returncode != 0:
+            return refuse(f"the footnote was refused: {(r.stderr or r.stdout).strip().splitlines()[-1][:200] if (r.stderr or r.stdout).strip() else r.returncode}")
+        mark = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
     os.makedirs(os.path.dirname(log_p), exist_ok=True)
     with open(log_p, "a", encoding="utf-8") as f:
         f.write(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "row": row, "kind": kind, "question": dec.group("q").strip(),
@@ -481,6 +491,7 @@ def cmd_from_issue(argv):
         json.dump(rec, f, indent=1)
         f.write("\n")
     print(f"reef-approval: {slug} approved at {dg[:16]} by @{login} on issue #{n} -> .reef/approvals/{slug}.json")
+    clear_question(root, slug, where, dg[:16])
     return 0
 
 
