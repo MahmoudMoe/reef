@@ -298,7 +298,10 @@ def run_attempt(cap_flag, path, failure):
             # the failure's words go to ## Log (outside every digest): the next dispatch reads which criteria failed
             # and prints `rejudge:` — round ≥2 judges those, not all 23 again (2026-10-18: 202's one-test fix round
             # re-verified 23 criteria, 31 turns, 71k)
-            task.append_log(f"- attempt {attempts} FAIL: {' '.join(failure.split())[:300]} · at {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}")
+            # sub-second stamp (H5): a report copied then rejected in the same second must read OLDER than this FAIL
+            now = time.time()
+            task.append_log(f"- attempt {attempts} FAIL: {' '.join(failure.split())[:300]} · at "
+                            f"{time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(now))}.{int(now % 1 * 1e6):06d}Z")
             if attempts >= cap or repeated:
                 task.set("status", "blocked")
                 task.write()

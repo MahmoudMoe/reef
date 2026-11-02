@@ -62,7 +62,7 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout as _main_checkout, read_config, read_hold, write_hold, HOLD_MINUTES  # noqa: E402
+from reef_common import main_checkout as _main_checkout, read_config, read_hold, write_hold, HOLD_MINUTES, bump_dispatches, task_tier  # noqa: E402
 
 # 0.7: native Windows has no fcntl locks, no SIGALRM deadline and no process groups, and the guard cannot run there.
 # Inside a Reef project it stops with the one sentence that helps; anywhere else it steps aside (the plugin's hook runs
@@ -1230,34 +1230,6 @@ def read_frontmatter(path):
     return fm, text
 
 
-def bump_dispatches(path, text, current, mark_in_progress=False):
-    """Increment dispatches: (and set status: in-progress — the task now holds its
-    resources and a parallel slot) inside the frontmatter only; unique temp + atomic replace."""
-    m = FENCE.match(text)
-    fm_body = m.group(1)
-    if re.search(r"^dispatches:", fm_body, re.M):
-        new_fm = re.sub(r"^dispatches:.*$", f"dispatches: {current + 1}", fm_body, count=1, flags=re.M)
-    else:
-        new_fm = fm_body + f"dispatches: {current + 1}\n"
-    if mark_in_progress:
-        if re.search(r"^status:", new_fm, re.M):
-            new_fm = re.sub(r"^status:.*$", "status: in-progress", new_fm, count=1, flags=re.M)
-        else:
-            new_fm = new_fm + "status: in-progress\n"
-    new_text = text[:m.start(1)] + new_fm + text[m.end(1):]
-    fd, tmp = tempfile.mkstemp(prefix=".reef-guard-", dir=os.path.dirname(path) or ".")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
-            f.write(new_text)
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-
-
 def load_plugin_module(filename, name):
     """A sibling script from the PLUGIN's own directory (never the project's copy)."""
     import importlib.machinery
@@ -1397,10 +1369,6 @@ def check_single_rollup(path, fm):
 ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "plan_reviewer",
            "loophole-hunter": "adversary", "mechanic": "mechanic", "Explore": "mechanic", "security": "security",
            "planner": "planner", "mahmoud": "proxy", "acceptance": "reviewer"}
-
-
-def task_tier(fm):
-    return fm.get("tier") or ("light" if fm.get("complexity") == "mech" else "full")
 
 
 def feature_tier(root, feature):

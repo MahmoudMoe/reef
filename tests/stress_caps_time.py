@@ -192,12 +192,11 @@ class FailTime(unittest.TestCase):
         write(self.d, ".reef/ci-local/handback-101.md", "RUN: agent=implementer task=101\nclaims\n")
         os.utime(self.hb, (at, at))
 
-    @unittest.expectedFailure   # open: H5 (docs/review/stress-2026-11-03.md)
     def test_a_fail_recorded_within_the_hand_backs_second_is_after_it(self):
-        # hand-back at T+0.2, the gate red and the FAIL recorded at T+0.8 → the line says T (whole seconds). The
-        # failure is AFTER the hand-back; the tick still says verify and the judges re-run on the same red code (PR 295's class)
+        # hand-back at T+0.2, the gate red and the FAIL recorded at T+0.8 → reef-attempt stamps the sub-second (H5), so the
+        # failure reads AFTER the hand-back; the tick must not re-run the judges on the same red code (PR 295's class)
         self.handback(self.T + 0.2)
-        add_fail(self.p, 1, utc(self.T))
+        add_fail(self.p, 1, utc(self.T)[:-1] + ".800000Z")
         st = tick(self.d)
         self.assertEqual(st["verify_now"], [], "a failure recorded after the hand-back, in the same second, read as before it")
         self.assertIn("101", st["dispatch_now"])
