@@ -146,7 +146,6 @@ class RowNext(_RowBase):
         s = self.state(GH_PRS='[{"number": 7, "state": "OPEN"}]')
         self.assertEqual((s["state"], s["next"]), ("merge", "gh pr merge 7 --squash --delete-branch"), s)
 
-    @unittest.expectedFailure   # open: H4 (docs/review/stress-2026-11-03.md)
     def test_a_failing_gh_does_not_send_an_open_pr_back_to_be_created(self):
         # the PR is open on the forge; gh is unauthenticated. Contract: reef-row docstring "Nothing here is decided from memory
         # or prose"; the series rule (d83db09, H4) "a failed gh read is BROKEN, never empty". A failed `gh pr list` must be
@@ -155,7 +154,6 @@ class RowNext(_RowBase):
         self.assertNotIn("PR into", s["next"], f"gh failed, so the row cannot know there is no PR: {s}")
         self.assertIn("gh", (s["detail"] + " " + s["next"]).lower(), f"the failed gh read is named: {s}")
 
-    @unittest.expectedFailure   # open: M8 (docs/review/stress-2026-11-03.md)
     def test_a_closed_unmerged_pr_is_never_named_for_merge(self):
         # the owner closed PR 7 without merging (abandoned, or to reopen after a rewrite). `gh pr merge 7` on a closed PR is a
         # dead step. Contract: docstring "merge (the PR is open, or the branch is not in the base)" — a CLOSED PR is neither.
@@ -188,7 +186,6 @@ class RowQueueOnIssues(_RowBase):
     def setUp(self):
         super().setUp(config={"queue": {"home": "issues"}})
 
-    @unittest.expectedFailure   # open: H4 (docs/review/stress-2026-11-03.md)
     def test_a_merged_row_is_not_closed_when_the_queue_read_fails(self):
         # queue.home: issues, gh down, no .reef/queue.json snapshot: `reef-queue.py status` exits 1 ("gh failed and there is no
         # snapshot"). reef-row reads that as an empty queue, so a merged row whose issue is still open reads `closed — merged and
@@ -203,14 +200,12 @@ class RowLetteredId(_RowBase):
     def setUp(self):
         super().setUp(row="3a")
 
-    @unittest.expectedFailure   # open: M7 (docs/review/stress-2026-11-03.md)
     def test_a_lettered_row_id_finds_its_own_folder(self):
         # reef-queue reads an Id as `\d+[a-z]?` (reef-queue.py:126/143, stress M5). reef-row's find_folder reads `Row:` as `\d+`,
         # so row 3a's SPEC reads as row 3: `state 3a` says "plan, ready, no feature folder" for a row that is built and reviewed.
         s = self.state("3a", GH_PRS='[{"number": 7, "state": "OPEN"}]')
         self.assertEqual((s["slug"], s["state"]), (SLUG, "merge"), s)
 
-    @unittest.expectedFailure   # open: M7 (docs/review/stress-2026-11-03.md)
     def test_row_3_is_not_row_3a(self):
         # contract silent: `state 3` must not resolve to row 3a's folder (there is no row 3)
         s = self.state("3", GH_PRS='[{"number": 7, "state": "OPEN"}]')

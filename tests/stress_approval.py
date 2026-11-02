@@ -59,7 +59,6 @@ def night_report(d, feature, dg, cwd=None):
 
 
 class OwnerHook(unittest.TestCase):
-    @unittest.expectedFailure   # open: H6 (docs/review/stress-2026-11-03.md)
     def test_an_answer_at_a_stale_copys_digest_neither_records_nor_voids_the_plan_of_records_approval(self):
         # plan_of_record (reef-approval.py:130-135): an approval binds the feature's own worktree, else the main checkout —
         # "never the first checkout holding it: a task worktree branched before an amendment holds an older plan". --proxy
@@ -173,7 +172,6 @@ class ProxyNight(unittest.TestCase):
         self.assertEqual(record(d)["digest"], full_digest(wt))
         self.assertIn("approval: OK", verify(wt))
 
-    @unittest.expectedFailure   # open: H4 (docs/review/stress-2026-11-03.md)
     def test_the_autopilot_approves_no_row_when_the_queue_cannot_be_read(self):
         # cmd_proxy (reef-approval.py:237): "the work the owner gave is the queue's open rows, nothing beyond it (the security
         # review)". queue_open_rows returns None when the queue is unreadable and the check is skipped: fail open. Contract
@@ -273,7 +271,6 @@ class FromIssue(F._Forge):
                            capture_output=True, text=True)
         return r.stdout.split()[-1][:16]
 
-    @unittest.expectedFailure   # open: M7 (docs/review/stress-2026-11-03.md)
     def test_a_row_line_the_plan_check_accepts_names_the_feature(self):
         # reef-plan-check.py:858 accepts `^Row:\s*\d+` (and feature_row, reef-approval.py:177, reads it the same way);
         # --from-issue matches `^Row:\s*<row>\s*$` (:424), so a SPEC with text after the id has "nothing to approve"
@@ -288,7 +285,6 @@ class FromIssue(F._Forge):
         r = self.approval("--from-issue", "3")
         self.assertIn("approved at", r.stdout, "the owner's approval on the issue was not found:\n" + r.stdout + r.stderr)
 
-    @unittest.expectedFailure   # open: H4 (docs/review/stress-2026-11-03.md)
     def test_a_failed_comments_read_is_named_not_no_comment(self):
         # #305: "A failed gh or queue read is BROKEN, never empty". The docstring's "no comment: nothing" is a read that
         # succeeded and found none; a 502 is not the owner's silence (contract silent here; the factory logs this last line,

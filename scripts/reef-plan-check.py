@@ -42,7 +42,7 @@ Rule for the orchestrator: this script is deterministic; never argue with it, ne
 import hashlib, json, os, re, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read, table_cells, section, slug_error, SLUG_RE, GENERIC_SLUGS  # noqa: E402
+from reef_common import main_checkout, read, table_cells, section, slug_error, spec_row, SLUG_RE, GENERIC_SLUGS  # noqa: E402
 
 STATUS = {"pending", "in-progress", "blocked", "done"}
 COMPLEXITY = {"mech", "design"}
@@ -675,10 +675,10 @@ def main():
             for f_ in folders:
                 try:
                     with open(os.path.join(folders[f_], "SPEC.md"), encoding="utf-8") as fh:
-                        m_ = re.search(r"^Row:\s*(\d+)", fh.read(), re.M)
+                        rid = spec_row(fh.read())
                 except OSError:
-                    m_ = None
-                if m_ and m_.group(1) == head:
+                    rid = ""
+                if rid == head:
                     return f_
         return None
 
@@ -701,8 +701,7 @@ def main():
                     except OSError:
                         pass
         blob = "\n".join(texts)
-        m = re.search(r"^Row:\s*(\d+)", blob, re.M)
-        row = m.group(1) if m else ""
+        row = spec_row(blob)
         cited = {a or b.zfill(4) for a, b in ADR_CITE.findall(blob)}
         out = []
         for p in adr_files:
@@ -855,7 +854,7 @@ def main():
             fail(f"{frel}: no SPEC.md — a feature planned under 0.6 states its intent first (/reef-plan writes it)")
         else:
             st = read(spec)
-            if not re.search(r"^Row:\s*\d+", st, re.M):
+            if not spec_row(st):
                 fail(f"{frel}/SPEC.md: no `Row: <id>` line linking it to its queue row")
             for m in KEY_DEF_RE.finditer(st):
                 k = f"{m.group(1)}-{m.group(2)}"

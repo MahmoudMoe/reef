@@ -475,6 +475,13 @@ def bump_dispatches(path, text, current, mark_in_progress=False):
         raise
 
 
+def spec_row(text):
+    """The queue row a SPEC.md names on its `Row:` line, read as reef-queue reads an id (`\\d+[a-z]?`), or '' (the stress test,
+    2026-11-03: `\\d+` read row 3a as row 3, and an end-anchored reader missed `Row: 3 (split from row 2)`)."""
+    m = re.search(r"^Row:\s*(\d+[a-z]?)\b", text, re.M)
+    return m.group(1) if m else ""
+
+
 def report_verdict(text):
     """A report's verdict: its LAST `VERDICT:` line, upper-cased, or '' (the stress test, 2026-11-02: three readers took the
     first, so a report quoting a PASS and ending FAIL closed the task and recorded GREEN)."""
