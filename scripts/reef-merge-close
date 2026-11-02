@@ -69,6 +69,13 @@ def main(argv):
         if not os.path.isfile(alt):
             fail(f"no task file {pos[0]}", 1)
         task = alt
+    # 2026-11-02 (ai-coach row 191): a block with its own markers broke the Log's markers on five tasks, and a block with no
+    # `| id |` row left the row's journal without them; refused here, before anything moves
+    tid = re.match(r"\d+", name)
+    if "<!-- journal -->" in block or "<!-- /journal -->" in block:
+        fail(f"{journal} carries a journal marker — write only the runlog row; the close adds the markers", 1)
+    if tid and not re.search(rf"^\|\s*{tid.group(0)}\s*\|", block, re.M):
+        fail(f"{journal} has no runlog row `| {tid.group(0)} | …` — the journal block is that row", 1)
     in_done = os.path.basename(os.path.dirname(task)) == "done"
     with open(task, encoding="utf-8", newline="") as f:
         text = f.read()

@@ -191,6 +191,20 @@ class MergeClose(unittest.TestCase):
         self.assertEqual((r.returncode, "already closed" in r.stdout), (0, True), "a second run changes nothing")
         self.assertEqual(git(self.feat, "rev-list", "--count", "HEAD").stdout.strip(), "3")
 
+    def test_a_journal_block_with_its_own_markers_or_no_row_is_refused_with_nothing_changed(self):
+        # 2026-11-02 (ai-coach row 191, graph mode): the mechanic's journal files for 19104-19108 carried their own
+        # `<!-- journal -->` lines and a prose line, no `| id |` row; the close wrapped them as they were, so plan-check
+        # failed 5 checks at the feature head and `reef-queue.py journal` had no row to copy.
+        for block, why in (("<!-- journal -->\n| 101 | PASS | growth 3 |\n<!-- journal -->\n", "marker"),
+                           ("- 101 closed 2026-11-02 · graph mode · 3 rounds\n", "| 101 |")):
+            write(self.tmp, "journal.md", block)
+            head = git(self.feat, "rev-parse", "HEAD").stdout
+            r = self.close()
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn(why, r.stderr)
+            self.assertEqual(git(self.feat, "rev-parse", "HEAD").stdout, head)
+            self.untouched()
+
     def test_a_conflict_aborts_with_nothing_changed(self):
         write(self.feat, "src/a.py", "a = 3\n")
         git(self.feat, "add", "src/a.py"); git(self.feat, "commit", "-qm", "the feature moved on")
