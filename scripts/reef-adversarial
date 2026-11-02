@@ -44,7 +44,7 @@ import tempfile
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_crlf as read, die as _die  # noqa: E402
+from reef_common import read_crlf as read, die as _die, task_frontmatter as frontmatter  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 # the Reviewer notes (plan-review advisories) are outside the plan, like the Log — reef-plan-check cuts the same way
@@ -176,19 +176,6 @@ PASSES = ("plan", "guard")
 
 
 die = partial(_die, prefix="reef-adversarial REFUSED")
-
-
-def frontmatter(text):
-    m = FENCE.match(text)
-    if not m:
-        return None
-    fm = {}
-    for line in m.group(1).splitlines():
-        if line[:1] in (" ", "\t", "#") or ":" not in line:
-            continue
-        k, _, v = line.partition(":")
-        fm.setdefault(k.strip(), v.strip().strip('"'))
-    return fm
 
 
 def _hash_cut(text, cut):

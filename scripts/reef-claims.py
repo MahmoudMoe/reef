@@ -39,7 +39,7 @@ from functools import partial
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.dont_write_bytecode = True
-from reef_common import table_cells, die as _die  # noqa: E402
+from reef_common import table_cells, die as _die, report_verdict, task_frontmatter  # noqa: E402
 
 CLAIM = re.compile(r"^(?P<sentence>.+?)\s+(?:—|--|-)\s*true at\s+(?P<path>[^\s:]+):(?P<a>\d+)(?:-(?P<b>\d+))?\s*$")
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
@@ -196,8 +196,8 @@ def cmd_verdict(path):
     lines = [l.rstrip() for l in text.splitlines() if keep.search(l.strip()) and not l.strip().startswith("RULE")]
     print("\n".join(lines) or "(no RUN, VERDICT or BLOCKER line)")
     print(f"({len(text.splitlines())} lines in {path}: open it only for a blocker's detail)")
-    v = re.search(r"^VERDICT:\s*(\w+)", text, re.M)
-    return 2 if not v else 0 if v.group(1).upper() in ("PASS", "GREEN") else 1
+    v = report_verdict(text)
+    return 2 if not v else 0 if v in ("PASS", "GREEN") else 1
 
 
 def task_criteria(task):
@@ -228,8 +228,8 @@ def cmd_skeleton(task_path):
     except OSError as e:
         die(f"cannot read: {e}")
     ids, proof_rows = task_criteria(task)
-    tid = (re.search(r"^id:\s*(\S+)", task, re.M) or re.search(r"(\d+)", os.path.basename(task_path)))
-    print(f"RUN: agent=verifier task={tid.group(1) if tid else '?'} round=1")
+    tid = (task_frontmatter(task) or {}).get("id") or (re.search(r"(\d+)", os.path.basename(task_path)) or [None, "?"])[1]
+    print(f"RUN: agent=verifier task={tid} round=1")
     for n in ids:
         print(f"RULE AC{n}: <<fill: PASS iff …; FAIL otherwise>>" + (f" — `{proof_rows[n]}`" if n in proof_rows else ""))
     for n in ids:

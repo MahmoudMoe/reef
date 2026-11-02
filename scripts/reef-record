@@ -25,7 +25,7 @@ import time
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, die as _die  # noqa: E402
+from reef_common import main_checkout, die as _die, report_verdict, report_head, BLOCKER_LINE  # noqa: E402
 
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "20"))
 
@@ -181,12 +181,12 @@ def cmd_security(argv):
     text = raw.decode("utf-8", "replace")
     if not re.search(r"^RUN:[ \t]*agent=security\b", text, re.M):
         die(f"{report} is not a security report: its first line must be `RUN: agent=security …` (written by reef:security)")
-    m = re.search(r"^VERDICT:[ \t]*(PASS|FAIL)\b", text, re.M)
-    if not m:
+    said = report_verdict(text)
+    if said not in ("PASS", "FAIL"):
         die(f"{report} has no `VERDICT: PASS|FAIL` line")
-    if m.group(1) != verdict:
-        die(f"the report says VERDICT: {m.group(1)}, not {verdict} — the record carries the agent's verdict, never another")
-    if verdict == "PASS" and re.search(r"^BLOCKER\b", text, re.M):
+    if said != verdict:
+        die(f"the report says VERDICT: {said}, not {verdict} — the record carries the agent's verdict, never another")
+    if verdict == "PASS" and BLOCKER_LINE.search(text):
         die(f"{report} says PASS with a BLOCKER line — a BLOCKER fails the pass")
     try:
         with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
@@ -272,12 +272,12 @@ def main(argv):
             die("a GREEN record carries its reviewer's report: --report <file> with `HEAD: <sha12>` and `VERDICT: GREEN`")
         raw = open(report, "rb").read()
         text = raw.decode("utf-8", "replace")
-        v = re.search(r"^VERDICT:[ \t]*(GREEN|PASS|FAIL)\b", text, re.M)
-        if not v or v.group(1) == "FAIL":
-            die(f"{report} says VERDICT: {v.group(1) if v else '(none)'} — the record carries the reviewer's verdict, never another")
-        if sha[:12] not in text:
-            h = re.search(r"^HEAD:[ \t]*([0-9a-f]{7,40})", text, re.M)
-            die(f"the report reviewed {h.group(1)[:12] if h else 'no named head'}, not the PR head {sha[:12]} — review the head, then record")
+        v = report_verdict(text)
+        if v not in ("GREEN", "PASS"):
+            die(f"{report} says VERDICT: {v or '(none)'} — the record carries the reviewer's verdict, never another")
+        h = report_head(text)
+        if not h or not (sha.startswith(h) or h.startswith(sha[:12])):
+            die(f"the report reviewed {h[:12] if h else 'no named head'}, not the PR head {sha[:12]} — review the head, then record")
         import hashlib
         rec["report_sha256"] = hashlib.sha256(raw).hexdigest()
         e = evidence_for(cwd, sha)

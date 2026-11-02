@@ -426,6 +426,7 @@ def queue_paths(root):
 
 
 def write_text(path, text):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
 
@@ -1272,7 +1273,8 @@ def cmd_journal(root, slug):
         die(f"no feature folder {slug!r}", 1)
     files = sorted(os.path.join(dp, f) for sub in ("tasks", os.path.join("tasks", "done")) for dp in [os.path.join(fdir, sub)]
                    if os.path.isdir(dp) for f in os.listdir(dp) if TASK_NAME_RE.match(f))
-    blocks = [m.group(1).strip() for p in sorted(files, key=os.path.basename) for m in JOURNAL_BLOCK.finditer(read(p))]
+    order = lambda p: (os.path.basename(p).startswith("R"), int(re.match(r"R?(\d+)", os.path.basename(p)).group(1)), os.path.basename(p))
+    blocks = [m.group(1).strip() for p in sorted(files, key=order) for m in JOURNAL_BLOCK.finditer(read(p))]
     jpath = os.path.join(root, cfg.get("paths", {}).get("runlog", "docs/journal.md"))
     text = read(jpath) if os.path.isfile(jpath) else "# Journal\n"
     new = [b for b in blocks if b not in text]
