@@ -453,6 +453,28 @@ def report_head(text):
     return m.group(1) if m else ""
 
 
+def report_binding(text, agent, sha, verdicts, feature=None, run_required=True, head_on_run=False, bound="the PR head"):
+    """'' when a report binds to this record, else why not (the stress test, 2026-11-03 H7: a record took another row's report,
+    a stale FAIL, a security PASS of an older base head): its RUN line names `agent` (and `feature=`), its verdict (the last)
+    is one of `verdicts`, and the head it names (`HEAD:`, or the RUN line's `head=`) is a prefix of `sha`. Without a RUN line
+    and `run_required` off, the agent is not checked."""
+    run = re.search(r"^RUN:[ \t]*(.*)$", text, re.M)
+    words = dict(re.findall(r"([\w-]+)=(\S+)", run.group(1))) if run else {}
+    if (run or run_required) and words.get("agent") != agent:
+        return f"its first line must be `RUN: agent={agent} …` (written by reef:{agent})"
+    if feature and run and words.get("feature") != feature:
+        return f"its RUN line names feature={words.get('feature', '(none)')}, not {feature} — another row's report"
+    said = report_verdict(text)
+    if not said:
+        return "it has no `VERDICT:` line"
+    if said not in verdicts:
+        return f"it says VERDICT: {said}, not {verdicts[0]} — the record carries the agent's verdict, never another"
+    h = (words.get("head", "") if head_on_run else report_head(text)).lower()
+    if not re.fullmatch(r"[0-9a-f]{7,40}", h) or not sha.startswith(h):
+        return f"it reviewed {h[:12] or 'no named head'}, not {bound} {sha[:12]} — review the head, then record"
+    return ""
+
+
 BLOCKER_LINE = re.compile(r"^\W*BLOCKER\b", re.M)   # `BLOCKER:` and `- **BLOCKER**` alike (the shape reef-eval's scorer reads)
 JOURNAL_BLOCK_RE = re.compile(r"(?:^|\n)<!-- journal -->\r?\n(.*?)\r?\n?<!-- /journal -->", re.S)   # a block on lines of its own
 

@@ -45,8 +45,8 @@ GUARD_PASS=$(command -v python3 >/dev/null 2>&1 && python3 -c 'import json,sys;p
 [ "$GUARD_PASS" = feature ] || git diff --cached --name-only --diff-filter=AR -z | tr '\0' '\n' | grep -E '(^|/)done/[^/]+\.md$' \
 | while IFS= read -r p; do
     blob=$(git show ":$p" 2>/dev/null) || continue
-    if printf '%s\n' "$blob" | grep -qE '^tier: *(design|critical)' \
-       && ! printf '%s\n' "$blob" | grep -q '^adversarial-guard: *[^ ]'; then
+    if printf '%s\n' "$blob" | grep -qE "^tier:[[:space:]]*[\"']?(design|critical)[\"']?[[:space:]]*\$" \
+       && ! printf '%s\n' "$blob" | grep -qE "^adversarial-guard:[[:space:]]*[\"']?[^[:space:]\"']"; then
       echo "pre-commit: $p is a tier: design/critical task closing without adversarial-guard: — run the loophole-hunter on the finished guard and record it (scripts/reef-adversarial <task> guard <report>)." >&2
       exit 1
     fi

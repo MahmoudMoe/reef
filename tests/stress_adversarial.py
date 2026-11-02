@@ -55,7 +55,6 @@ class ReportShapes(unittest.TestCase):
         self.d = project()
         self.t = task(self.d)
 
-    @unittest.expectedFailure   # open: H1 (docs/review/stress-2026-11-03.md)
     def test_a_guard_report_quoting_the_last_rounds_pass_and_ending_fail_is_not_recorded(self):
         # loophole-hunter.md Method 4: "On pass=guard, attack the last round's fix first" — the hunter quotes that round;
         # reef_common.report_verdict: "its LAST `VERDICT:` line" (the round-one fix, 2026-11-02, not applied here)
@@ -67,7 +66,6 @@ class ReportShapes(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0, "a report ending VERDICT: FAIL was recorded as the guard pass: " + r.stdout)
         self.assertNotIn("adversarial-guard", fm_of(self.t))
 
-    @unittest.expectedFailure   # open: H1 (docs/review/stress-2026-11-03.md)
     def test_a_pass_inside_a_code_block_does_not_outvote_the_final_fail(self):
         # the brief's own seam: a VERDICT line inside a fenced block (the hunter quoting the verifier it attacks)
         self.assertEqual(adv(self.t, "plan", write(self.d, "p.md", PASS_PLAN.format(p="plan"))).returncode, 0)
@@ -78,7 +76,6 @@ class ReportShapes(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0, "the fenced PASS outvoted the report's own FAIL")
         self.assertNotIn("adversarial-guard", fm_of(self.t))
 
-    @unittest.expectedFailure   # open: H1 (docs/review/stress-2026-11-03.md)
     def test_a_bulleted_blocker_fails_the_pass(self):
         # loophole-hunter.md: "Bullets, not paragraphs ... one fact per bullet" and "A BLOCKER ... fails the pass";
         # reef_common.BLOCKER_LINE = ^\W*BLOCKER\b — "`BLOCKER:` and `- **BLOCKER**` alike"
@@ -110,7 +107,6 @@ class ReportShapes(unittest.TestCase):
 
 
 class RoundCap(unittest.TestCase):
-    @unittest.expectedFailure   # open: H1 (docs/review/stress-2026-11-03.md)
     def test_a_round_two_pass_that_quotes_round_ones_fail_is_recorded(self):
         # reef-adversarial docstring: "A PASS is recorded at any round: it ends the cycle (2026-10-21: R4's round-3 PASS was
         # refused ...)". The cap test greps ANY `VERDICT: FAIL` line (reef-adversarial:304), not the report's verdict.
@@ -130,7 +126,6 @@ class DesignTierUnderDefaults(unittest.TestCase):
     and reef-record: every design/critical task takes the guard record before GREEN. skills/reef-task/SKILL.md:34: per task,
     the guard PASS is recorded with reef-adversarial <task> guard (the pre-commit refuses a design-tier close without it)."""
 
-    @unittest.expectedFailure   # open: H2 (docs/review/stress-2026-11-03.md)
     def test_a_design_task_takes_its_per_task_guard_pass_without_a_plan_pass(self):
         d = project({"gates": {"test": "true"}, "hunter": {"plan_pass": "critical", "guard_pass": "task"}})
         t = task(d, tier="design")
@@ -139,7 +134,6 @@ class DesignTierUnderDefaults(unittest.TestCase):
                          "pre-commit can never close it: " + r.stderr)
         self.assertIn("adversarial-guard:", fm_of(t))
 
-    @unittest.expectedFailure   # open: H2 (docs/review/stress-2026-11-03.md)
     def test_the_feature_guard_pass_stamps_a_design_task_that_never_needed_a_plan_pass(self):
         with open(os.path.join(ROOT, "templates", "config.json"), encoding="utf-8") as f:
             hunter = json.load(f)["hunter"]
@@ -172,7 +166,6 @@ def main_with_feature_worktree():
 
 
 class FeatureRecordAcrossCheckouts(unittest.TestCase):
-    @unittest.expectedFailure   # open: H3 (docs/review/stress-2026-11-03.md)
     def test_green_through_root_main_refuses_while_the_worktrees_task_lacks_the_guard_pass(self):
         # reef-graph-run.py settle_row runs `reef-record <slug> GREEN --pr N --report … --root <main>` from the feature
         # worktree; reef-record:244 reads the feature's tasks under --root (config_near(main)), where the plan does not live.
@@ -188,7 +181,6 @@ class FeatureRecordAcrossCheckouts(unittest.TestCase):
         self.assertIn("guard pass is not recorded", r.stderr,
                       "GREEN went on to gh with task 1 unstamped (the check read main, which holds no copy): " + r.stderr[-300:])
 
-    @unittest.expectedFailure   # open: H3 (docs/review/stress-2026-11-03.md)
     def test_the_feature_guard_pass_run_from_main_finds_the_tasks_in_the_feature_worktree(self):
         # reef-adversarial:249 config_near(os.getcwd()): from the main checkout (where the loop session runs) the feature's tasks
         # are not found and the refusal says "no guard pass is required ... the GREEN record does not ask for one" — false for a
@@ -201,7 +193,6 @@ class FeatureRecordAcrossCheckouts(unittest.TestCase):
 
 
 class PreCommitTrust(unittest.TestCase):
-    @unittest.expectedFailure   # open: M9 (docs/review/stress-2026-11-03.md)
     def test_a_quoted_tier_still_needs_the_guard_pass_to_close(self):
         # templates/pre-commit:36-38: "A tier: design (or critical) task closes only after the loophole-hunter's SECOND pass".
         # reef_common.task_frontmatter strips quotes, so the guard and the plan check treat `tier: "critical"` as critical
@@ -226,7 +217,6 @@ class PreCommitTrust(unittest.TestCase):
 
 
 class CrlfTaskFiles(unittest.TestCase):
-    @unittest.expectedFailure   # open: L1 (docs/review/stress-2026-11-03.md)
     def test_a_crlf_task_file_stays_crlf_through_two_records(self):
         # contract silent; round one's M1 fix idea: set_key keeps `[^\r\n]*` (reef-attempt TaskFile.set). reef-adversarial's own
         # set_key appends `key: value\n` and its `.*$` substitution eats the `\r` — a CRLF file ends with mixed endings.

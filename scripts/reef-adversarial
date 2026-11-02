@@ -44,7 +44,7 @@ import tempfile
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_crlf as read, die as _die, task_frontmatter as frontmatter  # noqa: E402
+from reef_common import read_crlf as read, die as _die, task_frontmatter as frontmatter, report_verdict, BLOCKER_LINE, main_checkout, checkouts  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 # the Reviewer notes (plan-review advisories) are outside the plan, like the Log — reef-plan-check cuts the same way
@@ -168,6 +168,25 @@ def guarded_tasks(root, cfg, slug):
     return out
 
 
+def feature_home(path, slug):
+    """(checkout, config) holding the feature's task files: its worktree (branches.feature_prefix + slug) first, then the main
+    checkout, then the nearest — never only the caller's checkout (the stress test, 2026-11-03 H3: GREEN recorded with
+    `--root <main>` read main, where the plan does not live, and let the unstamped task through); (None, config) when none."""
+    root, cfg = config_near(path)
+    if not root:
+        return None, cfg
+    main = main_checkout(root)
+    prefix = str((cfg.get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
+    try:
+        wt = checkouts(main, prefix).get(prefix + slug)
+    except Exception:
+        wt = None
+    for co in (wt, main, root):
+        if co and feature_tasks(co, cfg, slug):
+            return co, cfg
+    return None, cfg
+
+
 def report_round(report):
     head = re.search(r"^RUN:.*$", report, re.M)
     m = ROUND.search(head.group(0)) if head else None
@@ -196,10 +215,10 @@ def plan_hash(text):
 def set_key(path, text, key, value):
     m = FENCE.match(text)
     fm = m.group(1)
-    if re.search(rf"^{re.escape(key)}:", fm, re.M):
-        fm = re.sub(rf"^{re.escape(key)}:.*$", f"{key}: {value}", fm, count=1, flags=re.M)
+    if re.search(rf"^{re.escape(key)}:", fm, re.M):   # [^\r\n]*: a CRLF file keeps its \r (the stress test, 2026-11-03 L1)
+        fm = re.sub(rf"^{re.escape(key)}:[^\r\n]*", lambda _: f"{key}: {value}", fm, count=1, flags=re.M)
     else:
-        fm = fm + f"{key}: {value}\n"
+        fm = fm + f"{key}: {value}" + ("\r\n" if fm.endswith("\r\n") else "\n")
     new = text[:m.start(1)] + fm + text[m.end(1):]
     fd, tmp = tempfile.mkstemp(prefix=".reef-adv-", dir=os.path.dirname(os.path.abspath(path)))
     try:
@@ -221,18 +240,17 @@ def check_report(report, want_pass):
     got = re.search(r"\bpass=(\w+)", head.group(1))
     if not got or got.group(1) != want_pass:
         die(f"the report's pass is {got.group(1) if got else 'missing'!r}, not {want_pass!r} — a plan pass does not stand in for the guard pass")
-    verdict = re.search(r"^VERDICT:[ \t]*(PASS|FAIL)\b", report, re.M)
-    if not verdict:
+    verdict = report_verdict(report)   # the LAST VERDICT line: a quoted or fenced earlier one never outvotes it (2026-11-03 H1)
+    if verdict not in ("PASS", "FAIL"):
         die("the report has no VERDICT: PASS|FAIL line")
-    if verdict.group(1) != "PASS":
+    if verdict != "PASS":
         die("VERDICT: FAIL is not recorded — fix the plan or the guard, then run the hunter again")
     # a BLOCKER line is a hole; "BLOCKER: none" is the hunter saying there is none (seen live, 0.7 dogfood) and
-    # `**BLOCKER:** hole` is a hole in markdown bold (also seen live) — strip the bold, read the words
+    # `**BLOCKER:** hole` or `- BLOCKER — hole` is a hole in markdown — strip the marks, read the words
     for line in report.splitlines():
-        bare = line.replace("*", "").strip()
-        if not bare.upper().startswith("BLOCKER"):
+        if not BLOCKER_LINE.match(line):
             continue
-        rest = re.sub(r"^BLOCKER\s*:?\s*", "", bare, flags=re.I).strip().rstrip(".").lower()
+        rest = re.sub(r"^\W*BLOCKER\W*", "", line).strip().rstrip(".").lower()
         if rest and not re.match(r"^(none|no blockers?|nothing)\b", rest):   # "none found." / "none — all NEW-ROW" (seen live, first contact)
             die("a BLOCKER line with VERDICT: PASS is a contradiction — not recorded")
 
@@ -246,7 +264,8 @@ def head_of(path):
 def main(argv):
     if len(argv) == 4 and argv[0] == "--feature" and argv[2] == "guard":
         slug, report_path = argv[1].strip(), argv[3]
-        root, cfg = config_near(os.getcwd())
+        root, cfg = feature_home(os.getcwd(), slug)   # no task file anywhere: the nearest checkout, which refuses below
+        root, cfg = (root, cfg) if root else config_near(os.getcwd())
         if not root:
             die("no .reef/config.json at or above the current directory — run in the checkout that holds the feature")
         if not os.path.isfile(report_path):
@@ -255,8 +274,8 @@ def main(argv):
         if not tasks:
             die(f"feature {slug!r} has no task of tier design or critical (its `tier:`, not its `complexity:`) — no guard pass "
                 "is required or recorded; the GREEN record does not ask for one")
-        for p, fm in tasks:
-            if "adversarial-plan" not in fm:
+        for p, fm in tasks:   # the plan pass only where hunter.plan_pass asks for it (2026-11-03 H2: a design task never gets one)
+            if fm.get("tier") in plan_pass_tiers(p) and "adversarial-plan" not in fm:
                 die(f"{os.path.relpath(p, root)}: no adversarial-plan record — the plan pass comes first")
         check_report(read(report_path), "guard")
         value = hashlib.sha1(read(report_path).encode("utf-8")).hexdigest()[:12] + "@" + head_of(tasks[0][0])
@@ -301,7 +320,7 @@ def main(argv):
     report = read(report_path)
     if which == "plan":
         cap, rnd = plan_rounds_cap(task_path), report_round(report)
-        if cap and rnd >= cap and re.search(r"^VERDICT:[ \t]*FAIL\b", report, re.M):
+        if cap and rnd >= cap and report_verdict(report) == "FAIL":
             die(f"plan pass round {rnd} FAILED at hunter.plan_rounds {cap}: the plan gets no further hunter round. An open hole is the owner's "
                 f"decision at the gate (fix as drafted / accept it as a found row / drop the task) — record his words as a queue footnote and run "
                 f"`reef-adversarial <task> plan --decided <mark>`; a hole the code must prove becomes an AC with a Proof row, and the hunter's next pass is on the CODE")
@@ -311,7 +330,7 @@ def main(argv):
             print(f"note: round {rnd} is above hunter.plan_rounds {cap}; its PASS is recorded, and a FAIL at the cap would have gone to the owner")
         value = plan_hash(text)
     else:
-        if "adversarial-plan" not in fm:
+        if fm.get("tier") in plan_pass_tiers(task_path) and "adversarial-plan" not in fm:
             die("no adversarial-plan record — the plan pass comes first")
         value = hashlib.sha1(read(report_path).encode("utf-8")).hexdigest()[:12] + "@" + head_of(task_path)
     set_key(task_path, text, f"adversarial-{which}", value)
