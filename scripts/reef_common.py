@@ -482,11 +482,25 @@ def spec_row(text):
     return m.group(1) if m else ""
 
 
+def prose_lines(text):
+    """The lines an agent says, not quotes: outside ``` fences and not starting with `>` (an example or a quoted round)."""
+    out, fenced = [], False
+    for line in text.splitlines():
+        s = line.lstrip()
+        if s.startswith("```"):
+            fenced = not fenced
+        elif not fenced and not s.startswith(">"):
+            out.append(line)
+    return out
+
+
 def report_verdict(text):
-    """A report's verdict: its LAST `VERDICT:` line, upper-cased, or '' (the stress test, 2026-11-02: three readers took the
-    first, so a report quoting a PASS and ending FAIL closed the task and recorded GREEN)."""
-    found = re.findall(r"^VERDICT:[ \t]*([A-Za-z]+)", text, re.M)
-    return found[-1].upper() if found else ""
+    """A report's verdict: its LAST verdict-looking prose line (`verdict:` in any case, bullets, bold or quotes around), upper-
+    cased, or '' when that line's value is not PASS, FAIL or GREEN — never an earlier line (the stress tests: 2026-11-02, three
+    readers took the first; 2026-11-03 H1, a fenced example or a `- VERDICT: FAIL` the regex missed fell back to a PASS)."""
+    said = [m.group(1) for m in (re.match(r"\W*verdict\W*:(.*)", l, re.I) for l in prose_lines(text)) if m]
+    v = said[-1].strip(" \t*`'\"").upper() if said else ""
+    return v if v in ("PASS", "FAIL", "GREEN") else ""
 
 
 def report_head(text):
@@ -517,7 +531,7 @@ def report_binding(text, agent, sha, verdicts, feature=None, run_required=True, 
     return ""
 
 
-BLOCKER_LINE = re.compile(r"^\W*BLOCKER\b", re.M)   # `BLOCKER:` and `- **BLOCKER**` alike (the shape reef-eval's scorer reads)
+BLOCKER_LINE = re.compile(r"^\W*BLOCKER\b", re.M | re.I)   # `BLOCKER:`, `- **Blocker**` alike (the shape reef-eval's scorer reads)
 JOURNAL_BLOCK_RE = re.compile(r"(?:^|\n)<!-- journal -->\r?\n(.*?)\r?\n?<!-- /journal -->", re.S)   # a block on lines of its own
 
 
