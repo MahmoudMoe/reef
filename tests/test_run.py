@@ -20,6 +20,8 @@ FAKE = r"""#!/usr/bin/env python3
 import json, os, sys
 plan = os.path.join(os.getcwd(), ".fake-plan")
 open(os.path.join(os.getcwd(), ".fake-argvs"), "a").write(json.dumps(sys.argv) + "\n")
+if "--resume" in sys.argv and os.path.isfile(os.path.join(os.getcwd(), ".fake-killresume")):   # SIGKILLed mid-turn: no output at all
+    os.remove(os.path.join(os.getcwd(), ".fake-killresume")); import signal; os.kill(os.getpid(), signal.SIGKILL)
 if "--resume" in sys.argv and os.path.isfile(os.path.join(os.getcwd(), ".fake-noresume")):   # the conversation is gone: claude says so, no result
     print("No conversation found with session ID: " + sys.argv[sys.argv.index("--resume") + 1], flush=True); sys.exit(1)
 open(os.path.join(os.getcwd(), ".fake-prompt"), "a").write((sys.argv[sys.argv.index("-p") + 1] if "-p" in sys.argv else "") + "\n")
@@ -887,6 +889,18 @@ class TheSessionResumesAfterAShortJob(unittest.TestCase):
         self.assertEqual(calls(self.d), ["job:gate-4:1", "stop:done"], "the fresh session took the step the resume could not")
         self.assertIn("JOBS DONE since the last session", open(os.path.join(self.d, ".fake-prompt")).read().splitlines()[-1])
         self.assertIn("resume refused", open(os.path.join(self.d, ".reef", "run", "live.log")).read())
+
+    def test_a_killed_session_is_named_killed_not_refused_or_quiet(self):
+        # the live run (2026-11-03): a resumed session SIGKILLed mid-turn read `resume refused ()` with an empty reason, and a
+        # fresh one killed later read `session ended: no wait recorded` — the owner could not tell a crash from a quiet end
+        open(os.path.join(self.d, ".fake-context"), "w").write("60000")
+        open(os.path.join(self.d, ".fake-killresume"), "w").write("x")
+        r = run(self.d, ["job:gate-4:1", "stop:done"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        live = open(os.path.join(self.d, ".reef", "run", "live.log")).read()
+        self.assertIn("the resumed session was killed (signal 9)", live, live)
+        self.assertNotIn("resume refused ()", live)
+        self.assertEqual(calls(self.d), ["job:gate-4:1", "stop:done"], "a fresh session took the step")
 
 
 class RunnerJobs(unittest.TestCase):
