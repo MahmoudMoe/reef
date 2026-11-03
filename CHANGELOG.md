@@ -2,6 +2,7 @@
 
 ## 0.7.4 (unreleased)
 
+- **The CI template checks gitleaks before it runs it.** In the live run on 2026-11-03, the release security pass flagged a HIGH: the `ci.yml` that init writes piped the gitleaks download straight into `tar` and ran the binary without checking it, and every project shipped that. Now the download is saved to a file and checked with `sha256sum -c` against the SHA-256 gitleaks publishes for v8.21.2. Only then is it unpacked. Run `reef update` to refresh a project's `ci.yml`.
 - **`reef update` finishes on an update that adds a shared helper.** In ai-coach on 2026-11-03, the update had already pulled, committed, pushed and refreshed the marketplace when its last check crashed with `ImportError: cannot import name 'commands_off_path'`. The entry point had started with the project's old `reef_common` in memory, and the plugin's new `reef-doctor.py` imported that cached copy. Now a sibling script loaded later imports the `reef_common` that sits beside it, and the entry point keeps its own copy.
 
 - **Init's first contact holds up on a bare machine.** These came from the live run on 2026-11-03.

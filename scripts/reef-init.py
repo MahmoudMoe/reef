@@ -84,8 +84,13 @@ SEMGREP_GATE = "command -v semgrep >/dev/null 2>&1 || exit 77; semgrep scan --co
 SEMGREP_SETUP = "      - run: pip install semgrep\n"
 AUDIT_SETUP = {"python": "      - run: pip install pip-audit\n", "rust": "      - run: cargo install cargo-audit --locked\n",
                "go": "      - run: go install golang.org/x/vuln/cmd/govulncheck@latest\n"}
-GITLEAKS_SETUP = ("      - name: gitleaks (the history secret scan)\n        run: |\n          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz "
-                  "| tar -xz gitleaks && sudo mv gitleaks /usr/local/bin/\n")
+# 2026-11-03 (the live run's release security pass, HIGH): the download was piped into tar and run unverified. It is checked
+# against the SHA-256 that gitleaks publishes for v8.21.2 (gitleaks_8.21.2_checksums.txt) before it is unpacked
+GITLEAKS_SHA256 = "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba"
+GITLEAKS_SETUP = ("      - name: gitleaks (the history secret scan)\n        run: |\n"
+                  "          curl -sSLo gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz\n"
+                  f"          echo \"{GITLEAKS_SHA256}  gitleaks.tar.gz\" | sha256sum -c -\n"
+                  "          tar -xzf gitleaks.tar.gz gitleaks && sudo mv gitleaks /usr/local/bin/ && rm gitleaks.tar.gz\n")
 TEMPLATES_COMMON = {   # published path -> template under templates/project (or templates/)
     "AGENTS.md": "project/AGENTS.md",
     "HANDOFF.md": "project/HANDOFF.md",

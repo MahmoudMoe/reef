@@ -366,6 +366,18 @@ class ReleaseOnlyCi(unittest.TestCase):
                            env=dict(os.environ, PATH=bin_))
         self.assertIn("NOT ON PATH: gates.fast runs `pytest`", r.stdout)
 
+    def test_the_ci_runs_gitleaks_only_after_its_checksum_matches(self):
+        # the live run's release security pass (2026-11-03): the CI template piped a downloaded gitleaks straight into tar and
+        # ran it unverified — every project init wrote shipped that. The download is checked against the release's SHA-256 first
+        d = tempfile.mkdtemp(prefix="reef-init-glk.")
+        write(d, "pyproject.toml", "[project]\nname='x'\n")
+        subprocess.run(["git", "init", "-q", d], check=True)
+        init(d, "--queue", "file")
+        ci = read(d, ".github/workflows/ci.yml")
+        self.assertNotRegex(ci, r"curl[^\n]*\|\s*tar", "a download piped into tar runs whatever arrived")
+        self.assertIn("5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba  gitleaks.tar.gz", ci)
+        self.assertLess(ci.index("sha256sum -c"), ci.index("tar -xzf gitleaks.tar.gz"), "checked before it is unpacked")
+
     def test_a_projects_linters_are_told_to_leave_reefs_scripts_alone(self):
         # 2026-10-29 (Sophia): the project's ruff flagged 1,725 style errors in the copied scripts/reef-*.py and its CI went
         # red; mypy and import-linter followed. Reef's scripts are rendered and replaced on every upgrade — their style is
