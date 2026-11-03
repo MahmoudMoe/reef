@@ -30,7 +30,7 @@ import sys
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import lint_state, read_hold, git_rc, plugin_root, plugin_version  # noqa: E402
+from reef_common import lint_state, read_hold, git_rc, plugin_root, plugin_version, commands_off_path, remote_fix  # noqa: E402
 
 LINES = []
 
@@ -322,6 +322,11 @@ def main(argv):
         say("OK" if rc_gh == 0 else "WARN", "gh: authenticated" if rc_gh == 0 else "gh: not authenticated", "" if rc_gh == 0 else "gh auth login (the loop reviews and merges PRs through gh)")
     except Exception:
         say("WARN", "gh: not installed", "install the GitHub CLI; the loop reviews and merges PRs through it")
+    fix = remote_fix(root)
+    say("WARN" if fix else "OK", "remote: none — a row's review is recorded against its pull request, so no row can finish" if fix
+        else "remote: origin", fix)
+    for key, word in commands_off_path(cfg):
+        say("WARN", f"{key}: `{word}` is not on PATH — the command cannot run here", "edit it in .reef/config.json (the module form for Python: python3 -m pytest)")
     if any(os.path.isfile(os.path.join(root, n)) for n in ("compose.yaml", "compose.yml", "docker-compose.yml")):
         try:
             rc_d = subprocess.run(["docker", "info"], capture_output=True, text=True, timeout=20).returncode

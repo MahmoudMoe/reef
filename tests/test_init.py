@@ -340,6 +340,32 @@ class ReleaseOnlyCi(unittest.TestCase):
         self.assertEqual(cfg["gates"]["full"], "uv run pytest -q")
         self.assertIn("uv sync", read(d, "AGENTS.md"))
 
+    def test_a_python_project_on_a_bare_path_gets_commands_that_run_and_is_told_what_cannot(self):
+        # the live run (2026-11-03): `pytest -q` and `pip install -e .` were written while neither was on PATH; the first
+        # task's setup failed and a session rewrote the config itself. No remote either, and the row reached GREEN with
+        # nowhere to record it. *.egg-info/ from the setup showed as untracked in every worktree
+        import shutil
+        d = tempfile.mkdtemp(prefix="reef-init-bare.")
+        write(d, "pyproject.toml", "[project]\nname='x'\n")
+        subprocess.run(["git", "init", "-q", d], check=True)
+        bin_ = tempfile.mkdtemp(prefix="reef-init-bin.")
+        os.symlink(shutil.which("git"), os.path.join(bin_, "git"))
+        os.symlink(sys.executable, os.path.join(bin_, "python3"))
+        r = subprocess.run([sys.executable, INIT, "--root", d, "--queue", "file"], capture_output=True, text=True,
+                           env=dict(os.environ, PATH=bin_))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        cfg = json.loads(read(d, ".reef/config.json"))
+        self.assertEqual(cfg["gates"]["full"], "python3 -m pytest -q")
+        self.assertEqual(cfg["worktree"]["setup"], "python3 -m pip install -e .")
+        self.assertIn("*.egg-info/", read(d, ".gitignore").splitlines())
+        self.assertIn("NO REMOTE", r.stdout)
+        self.assertIn("gh repo create " + os.path.basename(d) + " --private --source . --remote origin --push", r.stdout)
+        cfg["gates"]["fast"] = "pytest -q"
+        write(d, ".reef/config.json", json.dumps(cfg))
+        r = subprocess.run([sys.executable, INIT, "--root", d, "--queue", "file"], capture_output=True, text=True,
+                           env=dict(os.environ, PATH=bin_))
+        self.assertIn("NOT ON PATH: gates.fast runs `pytest`", r.stdout)
+
     def test_a_projects_linters_are_told_to_leave_reefs_scripts_alone(self):
         # 2026-10-29 (Sophia): the project's ruff flagged 1,725 style errors in the copied scripts/reef-*.py and its CI went
         # red; mypy and import-linter followed. Reef's scripts are rendered and replaced on every upgrade — their style is

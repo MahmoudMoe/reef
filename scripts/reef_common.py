@@ -672,3 +672,37 @@ def plugin_version(plugin, default="?"):
             return str(json.load(f).get("version") or default)
     except Exception:
         return default
+
+
+def commands_off_path(cfg):
+    """[(key, word)] for each gate and worktree.setup command whose program this shell cannot find (the live run,
+    2026-11-03: `pytest -q` and `pip install -e .` were configured on a Mac with neither on PATH). A path the shell
+    runs (./x, scripts/x) and a shell builtin are left alone."""
+    import shutil
+    gates = cfg.get("gates") or {}
+    cmds = [(f"gates.{k}", v) for k, v in gates.items() if isinstance(v, str)]
+    cmds += [(f"gates.extra.{k}", v) for k, v in (gates.get("extra") or {}).items() if isinstance(v, str)] if isinstance(gates.get("extra"), dict) else []
+    setup = (cfg.get("worktree") or {}).get("setup")
+    cmds += [("worktree.setup", setup)] if isinstance(setup, str) else []
+    out = []
+    for key, cmd in cmds:
+        for part in re.split(r"&&|\|\||;|\|", cmd):
+            try:
+                words = [w for w in shlex.split(part) if not re.match(r"^[A-Za-z_]\w*=", w)]
+            except ValueError:
+                continue
+            word = words[0] if words else ""
+            if word and "/" not in word and word not in ("cd", "export", "true", "false", "test", "[", "exit", "set", "echo", "source", ".") \
+                    and shutil.which(word) is None:
+                out.append((key, word))
+                break
+    return out
+
+
+def remote_fix(root):
+    """The one command that gives a project with no `origin` a remote, or '' when it has one (the live run, 2026-11-03:
+    a row reached GREEN with no PR to record it against and nothing to merge through)."""
+    r = subprocess.run(["git", "-C", root, "remote"], capture_output=True, text=True)
+    if r.returncode != 0 or "origin" in r.stdout.split():
+        return ""
+    return f"gh repo create {os.path.basename(os.path.realpath(root))} --private --source . --remote origin --push"

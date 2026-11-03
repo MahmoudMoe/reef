@@ -247,6 +247,15 @@ class FileQueue(unittest.TestCase):
             r = self.q(d, "check")
             self.assertEqual(r.returncode, 1, f"check passed over an unreadable row id {bad.split('|')[1].strip()!r}: {r.stdout}")
 
+    def test_the_templates_placeholder_row_is_never_ready_and_fails_check(self):
+        # the live run (2026-11-03): init wrote row 1 as `<the first planned row, one line>`, `check` said ok and the
+        # loop queued it as a row to plan
+        d = self.mk("| 1 | <the first planned row, one line> | | planned | 1 | |\n| 2 | real | | planned | 1 | |\n")
+        self.assertEqual(self.ready(d), ["2"])
+        r = self.q(d, "check")
+        self.assertEqual(r.returncode, 1, "check passed over the template's placeholder: " + r.stdout)
+        self.assertIn("row 1 is the template's placeholder", r.stdout)
+
     def test_a_cycle_in_depends_fails_check(self):
         # contract silent (reef-plan-check refuses a cycle among tasks): two rows that wait on each other are never ready —
         # the loop would idle on "nothing ready" forever; check must name the cycle
