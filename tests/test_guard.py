@@ -639,6 +639,29 @@ class SetupIsGuarded(unittest.TestCase):
         r = self.edit('"task_words": {}', '"task_words": {"light": 300}')
         self.assertEqual(r.returncode, 0, "a key that is not the guard's stays editable: " + r.stderr)
 
+    def sh(self, cmd):
+        return run_guard({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": cmd}})
+
+    def test_an_inline_program_cannot_rewrite_the_config(self):
+        # the live run (2026-11-03): pip was off PATH, and the runner session rewrote worktree.setup through a heredoc
+        r = self.sh("python3 - <<'EOF'\nimport json\np='.reef/config.json'\nc=json.load(open(p))\n"
+                    "c['worktree']['setup']='python3 -m pip install -e .'\njson.dump(c,open(p,'w'),indent=2)\nEOF\n"
+                    "git add .reef/config.json && git commit -qm config")
+        self.assertEqual(r.returncode, 2, "a heredoc program wrote the config unseen: " + r.stderr)
+        self.assertIn("owner", r.stderr)
+        r = self.sh("python3 -c \"import pathlib; pathlib.Path('scripts/reef-guard.py').write_text('')\"")
+        self.assertEqual(r.returncode, 2, "python -c wrote a guard script: " + r.stderr)
+        r = self.sh("node -e 'require(\"fs\").writeFileSync(\".githooks/pre-commit\", \"\")'")
+        self.assertEqual(r.returncode, 2, "node -e wrote a hook: " + r.stderr)
+
+    def test_reading_the_config_inline_stays_allowed(self):
+        r = self.sh("python3 - <<'EOF'\nimport json\nprint(json.load(open('.reef/config.json'))['worktree'])\nEOF")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.sh("python3 - <<'EOF'\nopen('notes.txt','w').write('x')\nEOF")
+        self.assertEqual(r.returncode, 0, "a write elsewhere is not the guard's: " + r.stderr)
+        r = self.sh("python3 scripts/reef-queue.py add <<'EOF'\nopen('.reef/config.json','w')\nEOF")
+        self.assertEqual(r.returncode, 0, "a heredoc fed to a script file is its data: " + r.stderr)
+
     def test_a_judge_never_proves_or_applies_the_setup(self):
         for cmd in ("python3 scripts/reef-setup.py prove", "python3 scripts/reef-setup.py apply .reef/worktrees/x --repo .", "cd /x && python3 /x/scripts/reef-setup.py prove"):
             with self.subTest(cmd=cmd):
