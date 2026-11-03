@@ -722,13 +722,6 @@ SECOND = {5: [], 6: [], 7: [("crash", "fm"), ("crash", "mv")]}
 # test name -> open cluster id in docs/review/stress-2026-11-03-hard.md. Each is wrapped in unittest.expectedFailure; a fix PR removes its
 # entries, and an entry its fix closed goes red as an unexpected success. `grep -n "open: " tests/stress_e2e.py` lists them.
 OPEN = {
-    "test_step07_verify_crash_mv": "H2 (docs/review/stress-2026-11-03-hard.md)",   # open: H2
-    "test_step04_verify_crash_fm": "M2 (docs/review/stress-2026-11-03-hard.md)",   # open: M2
-    "test_step07_verify_crash_fm": "M2 (docs/review/stress-2026-11-03-hard.md)",   # open: M2
-    "test_step12_close_crash_archived": "M3 (docs/review/stress-2026-11-03-hard.md)",   # open: M3
-    "test_step12_close_crash_journaled": "M3 (docs/review/stress-2026-11-03-hard.md)",   # open: M3
-    "test_step12_close_crash_committed": "M3 (docs/review/stress-2026-11-03-hard.md)",   # open: M3
-    "test_step02_dispatch_dup_twice": "M4 (docs/review/stress-2026-11-03-hard.md)",   # open: M4
 }
 # `dup` only where a second run is not refused or idempotent by design (dispatch, verify, review); the rest were redundant
 # by construction and passed (trimmed per docs/review/stress-2026-11-03-hard.md, "stress_e2e.py runtime")

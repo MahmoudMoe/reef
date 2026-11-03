@@ -19,7 +19,7 @@ import sys
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read_config as config, merge_by, run_rc, git_out, load_sibling, checkouts, run_rc3, spec_row  # noqa: E402
+from reef_common import main_checkout, read_config as config, merge_by, run_rc, git_out, load_sibling, checkouts, run_rc3, spec_row, JOURNAL_BLOCK_RE  # noqa: E402
 
 
 run = lambda args, cwd, timeout=60: run_rc(args, cwd, timeout, timeout_rc=1)   # the readers know 1
@@ -80,6 +80,49 @@ def archived(main, cfg):
         return set()
 
 
+def close_left(main, cfg, key):
+    """What a killed close left undone, as names ([] when the close finished): a task's journal block not in the journal, the
+    queue, archive or journal edit uncommitted, the feature branch or its worktree still there (2026-11-03, hard M3: `archived`
+    alone read `closed`, and the journal rows and the branch were lost). The close step is idempotent: re-running it finishes."""
+    found = find_folder(main, cfg, key)
+    if found is None:
+        return []
+    _, slug, fdir, _ = found
+    paths = cfg.get("paths") or {}
+    qpath = os.path.join(main, str(paths.get("queue", "docs/queue.md")))
+    jpath = os.path.join(main, str(paths.get("runlog", "docs/journal.md")))
+    prefix = str((cfg.get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
+    try:
+        with open(jpath, encoding="utf-8") as f:
+            journal = f.read()
+    except OSError:
+        journal = ""
+    left = []
+    for p in sorted(glob.glob(os.path.join(fdir, "tasks", "*.md")) + glob.glob(os.path.join(fdir, "tasks", "done", "*.md"))):
+        with open(p, encoding="utf-8") as f:
+            if any(m.group(1).strip() not in journal for m in JOURNAL_BLOCK_RE.finditer(f.read())):
+                left.append("the journal rows")
+                break
+    if git(main, "status", "--porcelain", "--", qpath, os.path.join(os.path.dirname(qpath), "queue-archive.md"), jpath):
+        left.append("the close commit")
+    if prefix + slug in checkouts(main, prefix):
+        left.append(f"the worktree of {prefix}{slug}")
+    if git(main, "rev-parse", "-q", "--verify", f"refs/heads/{prefix}{slug}"):
+        left.append(f"the branch {prefix}{slug}")
+    return left
+
+
+def closed(out, main, cfg, key, detail):
+    """`closed`, or `close` naming what the killed close left (close_left)."""
+    left = close_left(main, cfg, key)
+    if left:
+        out.update(state="close", next="/reef-loop  (the close step: adr-number, archive, journal, worktrees removed)",
+                   detail=f"{detail}, but the close is unfinished: {', '.join(left)}")
+    else:
+        out.update(state="closed", next="-", detail=detail)
+    return out, 0
+
+
 def setup_state(main):
     """(exit, first line, digest) of scripts/reef-setup.py — 0 proven, 3 unproven, 1 INCOMPLETE; a project whose scripts predate
     the proof (no reef-setup.py yet) builds as before (exit 0, no digest)."""
@@ -119,8 +162,7 @@ def state_of(repo, key):
         out.update(state="broken", next=f"(wait: {failed} — gh auth status)", detail=f"{failed}; its answer is not read as an empty queue")
         return out, 0
     if key in archived(main, cfg) and key not in rows:
-        out.update(state="closed", next="-", detail="archived")
-        return out, 0
+        return closed(out, main, cfg, key, "archived")
     found = find_folder(main, cfg, key)
     if found is None:
         if key in rows:
@@ -203,8 +245,7 @@ def state_of(repo, key):
             out.update(state="close", next="/reef-loop  (the close step: adr-number, archive, journal)",
                        detail="merged" + (f" (PR #{pr['number']})" if pr else "") + ", row still in the queue")
             return out, 0
-        out.update(state="closed", next="-", detail="merged and archived")
-        return out, 0
+        return closed(out, main, cfg, key, "merged and archived")
     rc, ev = run([sys.executable, os.path.join(scripts, "reef-evidence.py"), "--repo", co], co)
     if rc != 0:
         out.update(state="evidence", next=f"sh scripts/reef-gate.sh full  (in {os.path.relpath(co, main) or '.'})" if rc != 3 else "(wait: CI is running)",
