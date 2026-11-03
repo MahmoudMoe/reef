@@ -39,7 +39,7 @@ from functools import partial
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.dont_write_bytecode = True
-from reef_common import table_cells, die as _die, report_verdict, task_frontmatter  # noqa: E402
+from reef_common import table_cells, die as _die, report_verdict, prose_lines, task_frontmatter  # noqa: E402
 
 CLAIM = re.compile(r"^(?P<sentence>.+?)\s+(?:—|--|-)\s*true at\s+(?P<path>[^\s:]+):(?P<a>\d+)(?:-(?P<b>\d+))?\s*$")
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
@@ -165,7 +165,7 @@ def cmd_handback(repo, path):
     except OSError as e:
         die(f"cannot read {path}: {e}")
     words = len(re.findall(r"\S+", text))
-    claims = [l for l in text.splitlines() if CLAIM.match(l.strip())]
+    claims = [l for l in prose_lines(text) if CLAIM.match(l.strip())]   # a fenced or quoted example is not a claim (2026-11-03 L1)
     bad = []
     if cap and words > cap:
         bad.append(f"{words} words > writing.handback_words {cap} — shorten, evidence only")
@@ -259,7 +259,7 @@ def cmd_report(repo, path, task_path):
         if not re.search(r"^\**DEFECT\**:", text, re.M):
             bad.append("no `DEFECT:` line (the hunter names the defect class it attacked)")
         blockers = [l for l in text.splitlines() if re.match(r"^\**BLOCKER\**:\s*(?!none\b)\S", l, re.I)]
-        verdict_fail = re.search(r"^VERDICT:\s*FAIL\b", text, re.M)
+        verdict_fail = report_verdict(text) == "FAIL"
         if verdict_fail and not blockers:
             bad.append("VERDICT: FAIL with no BLOCKER line")
         for l in blockers:
@@ -297,7 +297,7 @@ def cmd_report(repo, path, task_path):
                 bad.append(f"AC{n} is not in REJUDGE: its verdict must read `carried` and name round 1's test (in backticks)")
         elif not any(re.search(r"[\w/.-]+\.[a-z]+:\d+|\btest_[a-z0-9_]+|`[^`]+`|exit\s+\d|Ran \d+|\d+ passed", v) for v in verdicts):
             bad.append(f"AC{n} verdict carries no evidence (a path:line, a test name, a command or its output)")
-    if not re.search(r"^VERDICT:\s*(PASS|FAIL)\b", text, re.M):
+    if report_verdict(text) not in ("PASS", "FAIL"):   # the one reader (2026-11-03 H1)
         bad.append("no `VERDICT: PASS|FAIL` line")
     cap = int((cfg.get("writing") or {}).get("report_words", 0) or 0)
     # RULE lines are the contract and their length is the plan's (one per criterion), so they are free; the budget

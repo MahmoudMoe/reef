@@ -862,28 +862,6 @@ OUT_OF_CONTRACT = {
 # test name -> open cluster id in docs/review/stress-2026-11-03-hard.md. Each is wrapped in unittest.expectedFailure; a fix PR removes its
 # entries, and an entry its fix closed goes red as an unexpected success. `grep -n "open: " tests/stress_fuzz.py` lists them.
 OPEN = {
-    "test_verifier__report_verdict__verdict_fenced_after": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_verifier__report_verdict__verdict_key_case": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_verifier__report_verdict__verdict_markdown": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_verifier__report_verdict__verdict_value_quoted": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_verifier__report_verdict__verdict_empty_value": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_verifier__report_verdict__verdict_key_lookalike": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_verifier__report_verdict__verdict_value_lookalike": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_verifier__claims_verdict__verdict_fenced_after": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_verifier__claims_verdict__verdict_key_case": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_verifier__claims_verdict__verdict_markdown": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_verifier__claims_verdict__verdict_value_quoted": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_verifier__claims_verdict__verdict_empty_value": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_verifier__claims_verdict__verdict_key_lookalike": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_verifier__claims_verdict__verdict_value_lookalike": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_acceptance__report_binding__verdict_fenced_after": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_acceptance__report_binding__verdict_key_case": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_acceptance__report_binding__verdict_markdown": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_acceptance__report_binding__verdict_value_quoted": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_acceptance__report_binding__verdict_empty_value": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_acceptance__report_binding__verdict_key_lookalike": "H1 (docs/review/stress-2026-11-03-hard.md)",   # open: H1
-    "test_security__record_security__blocker_key_case": "M1 (docs/review/stress-2026-11-03-hard.md)",   # open: M1
-    "test_hunter__adversarial_plan__blocker_key_case": "M1 (docs/review/stress-2026-11-03-hard.md)",   # open: M1
     "test_spec__spec_row__empty_value_numbered_next": "M5 (docs/review/stress-2026-11-03-hard.md)",   # open: M5
     "test_spec__spec_row__row_in_fence_before": "M5 (docs/review/stress-2026-11-03-hard.md)",   # open: M5
     "test_spec__spec_row__row_duplicate_conflicting": "M5 (docs/review/stress-2026-11-03-hard.md)",   # open: M5
@@ -896,8 +874,6 @@ OPEN = {
     "test_queue__queue_status__table_in_fence": "M6 (docs/review/stress-2026-11-03-hard.md)",   # open: M6
     "test_queue__queue_status__row_id_empty": "M6 (docs/review/stress-2026-11-03-hard.md)",   # open: M6
     "test_queue__queue_status__batch_cell_quoted": "M6 (docs/review/stress-2026-11-03-hard.md)",   # open: M6
-    "test_handback__claims_handback__claim_in_fence": "L1 (docs/review/stress-2026-11-03-hard.md)",   # open: L1
-    "test_handback__claims_handback__claim_in_quote": "L1 (docs/review/stress-2026-11-03-hard.md)",   # open: L1
     "test_journal__queue_journal__example_in_fence": "L2 (docs/review/stress-2026-11-03-hard.md)",   # open: L2
     "test_journal__queue_journal__example_in_quote": "L2 (docs/review/stress-2026-11-03-hard.md)",   # open: L2
     "test_night__night_rows__row_footnote_mark": "L3 (docs/review/stress-2026-11-03-hard.md)",   # open: L3

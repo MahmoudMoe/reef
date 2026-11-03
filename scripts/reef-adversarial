@@ -250,7 +250,7 @@ def check_report(report, want_pass):
     for line in report.splitlines():
         if not BLOCKER_LINE.match(line):
             continue
-        rest = re.sub(r"^\W*BLOCKER\W*", "", line).strip().rstrip(".").lower()
+        rest = re.sub(r"^\W*BLOCKER\W*", "", line, flags=re.I).strip().rstrip(".").lower()
         if rest and not re.match(r"^(none|no blockers?|nothing)\b", rest):   # "none found." / "none — all NEW-ROW" (seen live, first contact)
             die("a BLOCKER line with VERDICT: PASS is a contradiction — not recorded")
 
