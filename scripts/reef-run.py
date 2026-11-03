@@ -1717,15 +1717,20 @@ def run_loop(root, mode, cap, night, row, autopilot, carried):
             wait, stop, parked = CONTROL.sub(" ", str(st.get("wait") or "")), st.get("stop") or "", st.get("parked") or ""   # agent text: nothing a terminal reads
             markers = [] if (wait or stop or parked) else in_flight_markers(root)   # read once: the log line and the release judge the same snapshot
             flying = sorted({m["id"] for m in markers})
+            total = out.get("total_cost_usd")
+            # a resumed conversation reports its cost SO FAR (the live run, 2026-11-03: the log summed it again and the report
+            # said $11.34 for $5.99): the line carries what this session spent, and the conversation's total beside it
+            spent = round(max(0.0, total - last["total"]), 6) if resume and out.get("session_id") == resume and isinstance(total, (int, float)) \
+                and isinstance((last or {}).get("total"), (int, float)) else total
             with open(log, "a", encoding="utf-8") as f:
                 f.write(json.dumps({"iteration": i, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "session": out.get("session_id"),
-                                    "seconds": out.get("_seconds"), "cost_usd": out.get("total_cost_usd"), "rc": out.get("_rc"),
+                                    "seconds": out.get("_seconds"), "cost_usd": spent, "session_cost_usd": total, "rc": out.get("_rc"),
                                     "wait": wait, "stop": stop, "parked": parked, "in_flight": flying,
                                     "mode": "night" if night else "autopilot" if autopilot else "loop",
                                     "stop_requested": os.path.exists(stop_req)}) + "\n")   # the owner's stop: `resume` never undoes it
-            last = {"id": out.get("session_id"), "ended": time.time(), "context": out.get("_context") or 0,
+            last = {"id": out.get("session_id"), "ended": time.time(), "context": out.get("_context") or 0, "total": total,
                     "job_wait": wait.startswith("job:"), "chain": (last or {}).get("chain", 0) + 1 if resume and out.get("session_id") == resume else 0}
-            cost = out.get("total_cost_usd")
+            cost = spent
             say("session ended: " + (f"{killed(out)} — " if killed(out) else "") + (f"wait {wait!r}" if wait else f"stop {stop!r}" if stop else f"parked {parked!r}" if parked
                                      else f"in flight {flying}" if flying else "no wait recorded")
                 + f" · {out.get('_seconds')} s" + (f" · ${cost:.2f}" if isinstance(cost, (int, float)) else ""))

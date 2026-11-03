@@ -98,7 +98,10 @@ if os.path.isfile(os.path.join(os.getcwd(), ".fake-context")):   # the context t
        "usage": {"input_tokens": 10, "cache_read_input_tokens": n_ - 1010, "cache_creation_input_tokens": 1000, "output_tokens": 50}})
     ev(type="assistant", parent_tool_use_id="t1", message={"content": [], "usage": {"input_tokens": 900000}})   # a sub-agent's own context is not the session's
 ev(type="result", result="partial", session_id="early", total_cost_usd=0.05)
-ev(type="result", result=result, session_id="s-" + str(len(open(os.path.join(os.getcwd(), ".fake-calls")).read().splitlines())), total_cost_usd=0.1)
+if "--resume" in sys.argv:   # a resumed conversation keeps its id, and claude reports its cost so far: 0.10 before + 0.15 now
+    ev(type="result", result=result, session_id=sys.argv[sys.argv.index("--resume") + 1], total_cost_usd=0.25)
+else:
+    ev(type="result", result=result, session_id="s-" + str(len(open(os.path.join(os.getcwd(), ".fake-calls")).read().splitlines())), total_cost_usd=0.1)
 """
 
 
@@ -873,6 +876,12 @@ class TheSessionResumesAfterAShortJob(unittest.TestCase):
         self.assertNotIn("/reef-loop — a reef-run iteration", prompt, "no fresh start: the conversation already holds the loop's rules")
         live = open(os.path.join(self.d, ".reef", "run", "live.log")).read()
         self.assertIn("resumes the session that ended on the job", live, live)
+        # the live run (2026-11-03): a resumed conversation's total_cost_usd is its total so far, and the log summed it again —
+        # the autopilot report said $11.34 ($5.67 a row) for $5.99 spent. Each line carries what that session spent
+        recs = [json.loads(l) for l in open(os.path.join(self.d, ".reef", "run", "run.log")) if l.strip()]
+        self.assertEqual([r["cost_usd"] for r in recs], [0.1, 0.15], recs)
+        self.assertEqual(recs[1]["session_cost_usd"], 0.25)
+        self.assertIn("$0.15", live)
 
     def test_a_full_context_or_a_late_job_starts_fresh(self):
         open(os.path.join(self.d, ".fake-context"), "w").write("130000")   # over caps.context_warn: the room is for work, not for the past
