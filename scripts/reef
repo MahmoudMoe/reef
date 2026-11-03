@@ -161,7 +161,14 @@ def sibling_module(name, modname):
     loader = importlib.machinery.SourceFileLoader(modname, path)
     spec = importlib.util.spec_from_loader(modname, loader)
     mod = importlib.util.module_from_spec(spec)
-    loader.exec_module(mod)
+    # 2026-11-03 (ai-coach): `reef update` rewrites reef_common.py under this process, then loads the plugin's new doctor — it
+    # must import the reef_common beside it, not the old one cached here; this process keeps the copy it started with
+    mine = sys.modules.pop("reef_common", None)
+    try:
+        loader.exec_module(mod)
+    finally:
+        if mine is not None:
+            sys.modules["reef_common"] = mine
     return mod
 
 

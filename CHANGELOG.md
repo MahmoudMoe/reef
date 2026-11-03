@@ -2,6 +2,8 @@
 
 ## 0.7.4 (unreleased)
 
+- **`reef update` finishes on an update that adds a shared helper.** In ai-coach on 2026-11-03, the update had already pulled, committed, pushed and refreshed the marketplace when its last check crashed with `ImportError: cannot import name 'commands_off_path'`. The entry point had started with the project's old `reef_common` in memory, and the plugin's new `reef-doctor.py` imported that cached copy. Now a sibling script loaded later imports the `reef_common` that sits beside it, and the entry point keeps its own copy.
+
 - **Init's first contact holds up on a bare machine.** These came from the live run on 2026-11-03.
   - A Python project without uv now gets `python3 -m pytest -q` and `python3 -m pip install -e .`. Before, init wrote `pytest -q` and `pip install -e .` even though neither was on PATH, the first setup failed, and a session rewrote the config itself.
   - Init and the doctor now name any gate or `worktree.setup` command whose program this shell cannot find (`NOT ON PATH`).

@@ -64,6 +64,27 @@ class UpdatePushes(unittest.TestCase):
         self.assertIn("reef update: pushed", src)
 
 
+class UpdateLoadsTheNewSiblings(unittest.TestCase):
+    """2026-11-03 (ai-coach): `reef update` started with the project's old reef_common in memory, rewrote it on disk, then loaded
+    the plugin's new reef-doctor.py — whose `from reef_common import commands_off_path` met the cached old module: ImportError
+    at the update's last check. A sibling loaded later imports the reef_common beside it, not the one the entry point began with."""
+
+    def test_a_sibling_gets_the_reef_common_beside_it_and_the_entry_keeps_its_own(self):
+        code = (
+            "import sys, types, importlib.machinery, importlib.util\n"
+            f"sys.path.insert(0, {os.path.dirname(ENTRY)!r})\n"
+            f"loader = importlib.machinery.SourceFileLoader('reef_entry', {ENTRY!r})\n"
+            "spec = importlib.util.spec_from_loader('reef_entry', loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)\n"
+            "old = types.ModuleType('reef_common'); sys.modules['reef_common'] = old   # the copy the update just replaced on disk\n"
+            "doc = m.sibling_module('reef-doctor.py', 'reef_doctor_probe')\n"
+            "assert hasattr(doc, 'commands_off_path'), 'the doctor did not get the new reef_common'\n"
+            "assert sys.modules['reef_common'] is old, 'the entry point lost the copy it started with'\n"
+            "print('ok')\n")
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("ok", r.stdout)
+
+
 class UpdateNamesTheMarketplace(unittest.TestCase):
     """2026-10-30, the owner's `reef update`: the step's own line printed the marketplace's name, the last line printed
     `<marketplace>` — a placeholder in a command the owner types. The done line is built from the name on disk, or says
