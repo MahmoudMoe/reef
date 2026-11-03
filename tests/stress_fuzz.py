@@ -862,33 +862,9 @@ OUT_OF_CONTRACT = {
 # test name -> open cluster id in docs/review/stress-2026-11-03-hard.md. Each is wrapped in unittest.expectedFailure; a fix PR removes its
 # entries, and an entry its fix closed goes red as an unexpected success. `grep -n "open: " tests/stress_fuzz.py` lists them.
 OPEN = {
-    "test_spec__spec_row__empty_value_numbered_next": "M5 (docs/review/stress-2026-11-03-hard.md)",   # open: M5
-    "test_spec__spec_row__row_in_fence_before": "M5 (docs/review/stress-2026-11-03-hard.md)",   # open: M5
-    "test_spec__spec_row__row_duplicate_conflicting": "M5 (docs/review/stress-2026-11-03-hard.md)",   # open: M5
-    "test_spec__queue_row_reader__row_in_fence_before": "M5 (docs/review/stress-2026-11-03-hard.md)",   # open: M5
-    "test_spec__queue_row_reader__row_duplicate_conflicting": "M5 (docs/review/stress-2026-11-03-hard.md)",   # open: M5
-    "test_queue__queue_status__current_batch_key_case": "M6 (docs/review/stress-2026-11-03-hard.md)",   # open: M6
-    "test_queue__queue_status__current_batch_quoted": "M6 (docs/review/stress-2026-11-03-hard.md)",   # open: M6
-    "test_queue__queue_status__current_batch_duplicate": "M6 (docs/review/stress-2026-11-03-hard.md)",   # open: M6
-    "test_queue__queue_status__header_case": "M6 (docs/review/stress-2026-11-03-hard.md)",   # open: M6
-    "test_queue__queue_status__table_in_fence": "M6 (docs/review/stress-2026-11-03-hard.md)",   # open: M6
-    "test_queue__queue_status__row_id_empty": "M6 (docs/review/stress-2026-11-03-hard.md)",   # open: M6
-    "test_queue__queue_status__batch_cell_quoted": "M6 (docs/review/stress-2026-11-03-hard.md)",   # open: M6
-    "test_journal__queue_journal__example_in_fence": "L2 (docs/review/stress-2026-11-03-hard.md)",   # open: L2
-    "test_journal__queue_journal__example_in_quote": "L2 (docs/review/stress-2026-11-03-hard.md)",   # open: L2
-    "test_night__night_rows__row_footnote_mark": "L3 (docs/review/stress-2026-11-03-hard.md)",   # open: L3
-    "test_proxy__day_kinds__value_quoted": "L3 (docs/review/stress-2026-11-03-hard.md)",   # open: L3
-    "test_frontmatter__graph_read_frontmatter__value_quoted_single": "L4 (docs/review/stress-2026-11-03-hard.md)",   # open: L4
-    "test_frontmatter__queue_task_states__value_quoted_single": "L4 (docs/review/stress-2026-11-03-hard.md)",   # open: L4
-    "test_frontmatter__task_frontmatter__unicode_digit_id": "L5 (docs/review/stress-2026-11-03-hard.md)",   # open: L5
-    "test_frontmatter__task_frontmatter__unicode_digit_feature": "L5 (docs/review/stress-2026-11-03-hard.md)",   # open: L5
-    "test_frontmatter__graph_read_frontmatter__unicode_digit_id": "L5 (docs/review/stress-2026-11-03-hard.md)",   # open: L5
-    "test_frontmatter__graph_read_frontmatter__unicode_digit_feature": "L5 (docs/review/stress-2026-11-03-hard.md)",   # open: L5
-    "test_frontmatter__queue_task_states__unicode_digit_feature": "L5 (docs/review/stress-2026-11-03-hard.md)",   # open: L5
-    "test_queue__queue_status__current_batch_unicode_digit": "L5 (docs/review/stress-2026-11-03-hard.md)",   # open: L5
-    "test_queue__queue_status__row_id_unicode_digit": "L5 (docs/review/stress-2026-11-03-hard.md)",   # open: L5
-    "test_night__night_rows__row_unicode_digit": "L5 (docs/review/stress-2026-11-03-hard.md)",   # open: L5
-    "test_spec__spec_row__row_unicode_digit": "L5 (docs/review/stress-2026-11-03-hard.md)",   # open: L5
+    # kept (L5): task_states has no refusal channel. `feature: ١٢` is read as is, names no row, and `reef-queue.py check` fails on it
+    # ("task file(s) with feature: ١٢ have no queue row"); this reader does not run check, so only normalising the digits could pass.
+    "test_frontmatter__queue_task_states__unicode_digit_feature": "L5 (docs/review/stress-2026-11-03-hard.md)",   # open: L5 (kept, see above)
 }
 
 for _kind, (_s, _m, _ops, _n, _readers) in KINDS.items():
