@@ -252,6 +252,7 @@ def _check_bash(cmd, depth=0):
     pipefail = "pipefail" in cmd
     if depth == 0:
         CTX.pop("cd_hint", None)
+        check_inline_programs(cmd, CTX)
     for t in toks + [";"]:
         if t in OPS:
             if seg:
@@ -600,6 +601,31 @@ def check_guard_files(seg, ctx):
         deny(f"Bash write to {hits[0]!r}: the guard's own files and the roles/caps/gates/tiers keys change only under "
              "a tier: critical task (none is in flight) or inside Reef's own repository — plan it as a critical task "
              "(python3 scripts/reef-init.py --accept <path> is the allowed way to take a proposed script)")
+
+
+INLINE_INTERP = r"(?:python[\d.]*|node|ruby|perl|php|bun|deno)"
+INLINE_HEREDOC = re.compile(r"(?:^|[\s;&|(/])" + INLINE_INTERP + r"((?:[ \t]+-[\w-]*)*)[ \t]*<<-?[ \t]*(['\"]?)(\w+)\2[^\n]*\n(.*?)(?:\n[ \t]*\3[ \t]*(?:\n|$)|$)", re.S)
+INLINE_FLAG = re.compile(r"(?:^|[\s;&|(/])" + INLINE_INTERP + r"(?:[ \t]+-[\w-]*)*?[ \t]+-[ce][ \t]+(?:'([^']*)'|\"((?:[^\"\\]|\\.)*)\")", re.S)
+GUARD_PATH_TEXT = re.compile(r"\.reef/config\.json|scripts/reef(?:[-_][\w.-]+)?\b|\.githooks/|hooks/hooks\.json")
+WRITE_TEXT = re.compile(r"open\([^)]*['\"](?:[wax]|r\+)|write_(?:text|bytes)\(|json\.dump\(|os\.(?:replace|rename|remove|unlink)\(|shutil\.|"
+                        r"(?:write|append)FileSync|File\.write|\bunlink\(")
+
+
+def check_inline_programs(cmd, ctx):
+    """2026-11-03 (live run): a runner session found `pip` off PATH and rewrote worktree.setup with
+    `python3 - <<'EOF' … json.dump(c, open('.reef/config.json','w')) … EOF` — the heredoc is stripped as data, so no
+    check saw the write. A program handed to an interpreter inline (a heredoc with no script file, or -c/-e) that names
+    a guard file and writes is that write: the same denial as a redirect onto the file."""
+    if ctx.get("plugin_root") or ctx.get("critical_inflight"):
+        return
+    progs = [m.group(4) for m in INLINE_HEREDOC.finditer(cmd)] + [m.group(1) or m.group(2) or "" for m in INLINE_FLAG.finditer(cmd)]
+    for prog in progs:
+        hit = GUARD_PATH_TEXT.search(prog)
+        if hit and WRITE_TEXT.search(prog):
+            deny(f"an inline program writes {hit.group(0)!r}: the guard's own files and the roles/caps/gates/tiers/worktree keys "
+                 "change only under a tier: critical task (none is in flight) or inside Reef's own repository. A config "
+                 "command that does not run here (a gate, worktree.setup) is the owner's to change — file it as the owner's "
+                 "question with the one-line edit, and keep the rows that do not need it moving")
 
 
 def check_reviewer_lock(seg, ctx):
