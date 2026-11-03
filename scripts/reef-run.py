@@ -296,6 +296,13 @@ def session_record(root):
         return 0, ""
 
 
+def killed(out):
+    """'killed (signal 9)' for a session a signal ended, else '' (the live run, 2026-11-03: a SIGKILLed session read as a
+    refused resume with no reason, or as a quiet end)."""
+    rc = out.get("_rc")
+    return f"killed (signal {-rc})" if isinstance(rc, int) and rc < 0 else ""
+
+
 def session(root, prompt, mode, say=None, resume=None):
     """One headless Claude Code session in the project, streamed: each event's live lines go to `say`; returns the last
     `result` event (session_id, total_cost_usd, result), or {"result": <raw output>}. Mode `opencode`: an OpenCode one."""
@@ -1681,8 +1688,9 @@ def run_loop(root, mode, cap, night, row, autopilot, carried):
                 say(f"resumes the session that ended on the job ({int(time.time() - last['ended'])} s ago, context {last['context'] // 1000}k "
                     f"of {resume_limit(root) // 1000}k) — no fresh re-read")
                 out = session(root, RESUME_PROMPT + note, mode, say, resume=resume)
-                if not out.get("session_id"):   # gone, or refused: a fresh session takes the step, as before
-                    say(f"resume refused ({str(out.get('result') or '').strip()[:120]}) — a fresh session")
+                if not out.get("session_id"):   # gone, refused or killed: a fresh session takes the step, as before
+                    say(f"the resumed session was {killed(out)} after {out.get('_seconds')} s — a fresh session" if killed(out) else
+                        f"resume refused ({str(out.get('result') or '').strip()[:120] or 'exit ' + str(out.get('_rc')) + ', no output'}) — a fresh session")
                     out = None
             if out is None:
                 out = session(root, prompt + (NIGHT_PROMPT if night else AUTOPILOT_PROMPT if autopilot else "") + note, mode, say)
@@ -1701,7 +1709,7 @@ def run_loop(root, mode, cap, night, row, autopilot, carried):
             last = {"id": out.get("session_id"), "ended": time.time(), "context": out.get("_context") or 0,
                     "job_wait": wait.startswith("job:"), "chain": (last or {}).get("chain", 0) + 1 if resume and out.get("session_id") == resume else 0}
             cost = out.get("total_cost_usd")
-            say("session ended: " + (f"wait {wait!r}" if wait else f"stop {stop!r}" if stop else f"parked {parked!r}" if parked
+            say("session ended: " + (f"{killed(out)} — " if killed(out) else "") + (f"wait {wait!r}" if wait else f"stop {stop!r}" if stop else f"parked {parked!r}" if parked
                                      else f"in flight {flying}" if flying else "no wait recorded")
                 + f" · {out.get('_seconds')} s" + (f" · ${cost:.2f}" if isinstance(cost, (int, float)) else ""))
             if os.path.exists(stop_req):
