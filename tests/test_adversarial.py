@@ -2,6 +2,7 @@
 adversarial-plan check) and for scripts/reef-claims.py (claims bound to the round's diff,
 nothing but claims after GREEN). Every refusal here is a shortcut the pilot took once."""
 import json
+import glob
 import os
 import re
 import subprocess
@@ -177,6 +178,8 @@ class GuardRequiresPlanPass(unittest.TestCase):
     def test_execution_state_does_not_void_the_pass(self):
         adv(self.t, "plan", write(self.d, "p.txt", REPORT_PASS.format(p="plan")))
         self.assertEqual(dispatch(self.d, self.t).returncode, 0)   # writes in-progress + dispatches
+        for m in glob.glob(os.path.join(self.d, ".reef", "inflight", "*")):
+            os.remove(m)   # its hand-back is in: the orchestrator `rm`s the marker (2026-11-03, hard M4)
         self.assertEqual(dispatch(self.d, self.t).returncode, 0, "the guard's own writes voided the pass")
 
     def test_full_tier_needs_no_pass(self):
