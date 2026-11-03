@@ -168,6 +168,9 @@ def detect_stack(root):
         facts["setup"] = " && ".join([facts["setup"]] + [s["run"] for s in node_profile.get("setup") or []
                                                      if any(d in deps for d in s.get("when_deps") or [])
                                                      and (not s.get("needs_script") or s["needs_script"] in scripts)])
+        # 2026-11-04 (an adopted project): the full gate keeps the profile's build output fresh (gates.build), not only setup
+        facts["fresh_build"] = next(({"output": f["output"], "run": f["run"]} for f in node_profile.get("fresh") or []
+                                     if any(d in deps for d in f.get("when_deps") or []) and (not f.get("needs_script") or f["needs_script"] in scripts)), None)
         facts.update(stack="node", ecosystem="npm", install="npm ci",
                      test="npm test" if "test" in scripts else "",
                      build="npm run build" if "build" in scripts else "",
@@ -317,6 +320,8 @@ def project_config(existing, facts):
     cfg["gates"]["full"] = facts["test"]
     cfg["gates"]["extra"] = {"build": facts["build"]} if facts["build"] else {}
     cfg["gates"]["release"] = release_gates(facts)
+    if facts.get("fresh_build"):
+        cfg["gates"]["build"] = facts["fresh_build"]
     cfg["branches"] = {"base": facts["base"], "release": facts["release"]}
     cfg["merge"] = {"by": "loop" if facts["base"] != facts["release"] else "human"}
     cfg["ci"] = {"feature_gate": "local" if facts["base"] != facts["release"] else "ci"}
