@@ -163,6 +163,21 @@ class Doctor(unittest.TestCase):
         self.assertIn("gh repo create " + os.path.basename(d) + " --private --source . --remote origin --push", r.stdout)
         self.assertIn("WARN gates.full: `no-such-tool-xyz` is not on PATH", r.stdout)
 
+    def test_a_missing_release_branch_is_a_warning_with_the_command_that_makes_it(self):
+        # the live run (2026-11-03): batch 1 merged into develop and the release stopped — no `main`, locally or on origin
+        d = project()
+        with open(os.path.join(d, ".reef", "config.json")) as f:
+            cfg = json.load(f)
+        cfg["branches"] = {"base": "develop", "release": "prod"}
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump(cfg, f)
+        git(d, "branch", "develop")
+        r = doctor(d)
+        self.assertIn("WARN release branch: prod does not exist", r.stdout)
+        self.assertIn("git branch prod $(git rev-list --max-parents=0 develop)", r.stdout)
+        git(d, "branch", "prod")
+        self.assertNotIn("WARN release branch", doctor(d).stdout)
+
     def test_not_a_reef_project_exits_2(self):
         d = tempfile.mkdtemp(prefix="reef-doctor-none.")
         subprocess.run(["git", "init", "-q", d], check=True)

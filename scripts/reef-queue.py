@@ -487,9 +487,16 @@ def cmd_footnote(root, text, row_id):
     elif row_id:
         pat = re.compile(rf"^(\|\s*{re.escape(row_id)}\s*\|\s*)(.*?)(\s*\|)", re.M)
         m = pat.search(q)
-        if not m:
-            die(f"no row {row_id} in the queue", 1)
-        q = q[:m.start()] + m.group(1) + m.group(2).rstrip() + mark + m.group(3) + q[m.end():]
+        # a closed row's line lives in the archive (the live run, 2026-11-03: the release question was filed on row 3 after it
+        # merged, and `footnote … --row 3` said `no row 3 in the queue`): the mark goes on its archived line
+        a = read(apath) if not m and os.path.isfile(apath) else ""
+        ma = pat.search(a) if a else None
+        if not m and not ma:
+            die(f"no row {row_id} in the queue or its archive", 1)
+        if m:
+            q = q[:m.start()] + m.group(1) + m.group(2).rstrip() + mark + m.group(3) + q[m.end():]
+        else:
+            write_text(apath, a[:ma.start()] + ma.group(1) + ma.group(2).rstrip() + mark + ma.group(3) + a[ma.end():])
     write_text(qpath, q)
     if row_id:
         resume_runner(root)   # the owner's word on a row: the runner that waited on it starts again (said before the mark, which stays last)

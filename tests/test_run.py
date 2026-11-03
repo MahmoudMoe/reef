@@ -168,6 +168,17 @@ class UnknownArgument(unittest.TestCase):
         loader.exec_module(mod)
         return mod
 
+    def test_a_footnote_on_the_queue_file_wakes_the_asleep_runner(self):
+        # the live run (2026-11-03): the owner's footnote edited reef/queue.md but committed nothing, and the runner slept on —
+        # it watched the base's head, questions.md and the approvals, never the queue the footnote writes
+        mod, d = self.load(), project()
+        open(os.path.join(d, ".reef", "config.json"), "w").write('{"gates": {"full": "true"}, "paths": {"queue": "reef/queue.md"}}')
+        os.makedirs(os.path.join(d, "reef"))
+        open(os.path.join(d, "reef", "queue.md"), "w").write("# Queue\n\n## Footnotes\n")
+        before = mod.answer_signature(d)
+        open(os.path.join(d, "reef", "queue.md"), "a").write("¹ Yes: create main (2026-11-03)\n")
+        self.assertNotEqual(mod.answer_signature(d), before, "a footnote is the owner's answer")
+
     def test_a_typo_for_a_verb_refuses_with_the_usage_and_runs_nothing(self):
         import contextlib, io
         mod, d, called = self.load(), project(), []

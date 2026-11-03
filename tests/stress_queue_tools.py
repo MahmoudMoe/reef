@@ -256,6 +256,16 @@ class FileQueue(unittest.TestCase):
         self.assertEqual(r.returncode, 1, "check passed over the template's placeholder: " + r.stdout)
         self.assertIn("row 1 is the template's placeholder", r.stdout)
 
+    def test_a_footnote_on_a_closed_row_lands_on_its_archived_line(self):
+        # the live run (2026-11-03): row 3 merged and was archived, then the release question was filed on it and the runner
+        # printed `footnote … --row 3` — the owner ran it and got `no row 3 in the queue`
+        d = self.mk("| 4 | next | | found | 2 | |\n", archive="| 3 | punctuation | 2 | planned | 1 | |\n")
+        r = self.q(d, "footnote", "Yes: create main", "--row", "3")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertRegex(open(os.path.join(d, "reef", "queue-archive.md")).read(), r"\| 3 \| punctuation[¹²³⁴⁵⁶⁷⁸⁹⁰]+ \|")
+        self.assertIn("Yes: create main", open(os.path.join(d, "reef", "queue.md")).read())
+        self.assertEqual(self.q(d, "footnote", "x", "--row", "9").returncode, 1, "a row in neither file still refuses")
+
     def test_a_cycle_in_depends_fails_check(self):
         # contract silent (reef-plan-check refuses a cycle among tasks): two rows that wait on each other are never ready —
         # the loop would idle on "nothing ready" forever; check must name the cycle
