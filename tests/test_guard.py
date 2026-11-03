@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _fixtures import git_checked as git  # noqa: E402  (the suites' shared fixtures, once)
@@ -409,16 +410,33 @@ class DispatchGuard(unittest.TestCase):
 
     def test_odometer_backstop_denies_runaway(self):
         # the K4 scenario: a model that never records failures re-dispatches forever.
-        # The guard itself advances dispatches:; at 2x cap it trips regardless.
+        # The guard itself advances dispatches:; at 2x cap it trips regardless. Between dispatches the orchestrator `rm`s the
+        # in-flight marker after each hand-back (reef-task); a live one denies the second dispatch (2026-11-03, hard M4)
         p = make_task(self.dir)
+        marker = os.path.join(self.dir, ".reef", "inflight", "7")
         for i in range(6):
             r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement")
             self.assertEqual(r.returncode, 0, f"dispatch {i+1} wrongly denied: {r.stderr}")
+            os.remove(marker)
         r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement")
         self.assertEqual(r.returncode, 2, "7th dispatch with zero recorded failures must trip the backstop")
         self.assertIn("runaway", r.stderr)
         with open(p) as f:
             self.assertIn("dispatches: 6", f.read())
+
+    def test_a_live_marker_denies_the_same_dispatch_until_a_hand_back(self):
+        make_task(self.dir)
+        self.assertEqual(dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement").returncode, 0)
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("already in flight", r.stderr)
+        hb = os.path.join(self.dir, ".reef", "ci-local", "handback-7.md")
+        os.makedirs(os.path.dirname(hb), exist_ok=True)
+        with open(hb, "w") as f:
+            f.write("RUN: agent=implementer task=7\n")
+        t = time.time() + 5
+        os.utime(hb, (t, t))
+        self.assertEqual(dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement").returncode, 0, "a fix round after the hand-back")
 
     def test_odometer_written_to_frontmatter_only(self):
         p = make_task(self.dir)
@@ -515,6 +533,7 @@ class DispatchGuard(unittest.TestCase):
         d = self._stamped_repo()
         r = dispatch(d, "REEF-TASK: tasks/007-demo.md\nimplement")
         self.assertEqual(r.returncode, 0, f"fresh stamp must allow: {r.stderr}")
+        os.remove(os.path.join(d, ".reef", "inflight", "7"))   # its hand-back is in: the orchestrator `rm`s the marker (hard M4)
         # the guard's own odometer bump must NOT stale the stamp
         r = dispatch(d, "REEF-TASK: tasks/007-demo.md\nimplement")
         self.assertEqual(r.returncode, 0, f"odometer bump staled the stamp: {r.stderr}")

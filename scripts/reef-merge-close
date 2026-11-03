@@ -92,7 +92,7 @@ def main(argv):
     fast_row = pth == "fast" and folder   # v3 phase 3b: the row's one worktree, no task branch
     main_ck = main_checkout(root)
     dest = task if in_done else os.path.join(os.path.dirname(task), "done", name)
-    if fast_row and in_done and fm.get("status") == "done":
+    if fast_row and in_done and fm.get("status") == "done" and not git(root, "status", "--porcelain", "--", task).stdout.strip():
         print(f"merge-close: {name} is already closed (under done/, status done; fast path, no task branch)")
         return 0
     if not in_done and os.path.exists(dest):
@@ -102,7 +102,12 @@ def main(argv):
         # the fast path, decided by the path alone (the review, 2026-10-26: the `worktree:` key names the FEATURE worktree
         # here, and read as a task worktree it made the merge flow run and remove the feature worktree): the work is here,
         # in the row's one worktree — commit it in place with the trailer, mark done, move; a task branch is never looked for
-        git(root, "add", "-A")
+        # every change but another task's half-done close (2026-11-03, hard M2: its `status: done` rode in this commit; the tick
+        # names it close_now and its own close commits it)
+        tdir = os.path.dirname(dest)[:-len("/done")]
+        half = [f for f in os.listdir(tdir) if re.match(r"R?\d+-.*\.md$", f) and f != name
+                and (task_frontmatter(open(os.path.join(tdir, f), encoding="utf-8").read()) or {}).get("status") == "done"]
+        git(root, "add", "-A", "--", ".", *[":!" + os.path.relpath(os.path.realpath(os.path.join(tdir, f)), os.path.realpath(root)) for f in half])
         staged = git(root, "diff", "--cached", "--name-only").stdout.split()
         bad = [p for p in staged if SECRET.search(p)]
         if bad:

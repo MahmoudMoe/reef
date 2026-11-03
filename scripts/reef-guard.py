@@ -62,7 +62,7 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout as _main_checkout, read_config, read_hold, write_hold, HOLD_MINUTES, bump_dispatches, task_tier  # noqa: E402
+from reef_common import main_checkout as _main_checkout, read_config, read_hold, write_hold, HOLD_MINUTES, bump_dispatches, task_tier, process_alive  # noqa: E402
 
 # 0.7: native Windows has no fcntl locks, no SIGALRM deadline and no process groups, and the guard cannot run there.
 # Inside a Reef project it stops with the one sentence that helps; anywhere else it steps aside (the plugin's hook runs
@@ -1630,6 +1630,21 @@ def _check_dispatch(tool_input, payload):
             deny(f"task graph cannot be scheduled — {e}")
         if reason is not None:
             deny(f"{path} is not in the ready set — {reason}")
+        # the same dispatch twice: a live marker (young, its session alive, no hand-back since) is an implementer at work on this
+        # worktree — graph mode refuses it too (2026-11-03, hard M4); reef-task `rm`s the marker after each hand-back
+        tid = str(fm.get("id", "?"))
+        marker = os.path.join(root, ".reef", "inflight", tid)
+        hb = os.path.join(root, ".reef", "ci-local", f"handback-{tid}.md")
+        try:
+            with open(marker, encoding="utf-8") as f:
+                mpid = (json.load(f) or {}).get("pid")
+            mtime = os.path.getmtime(marker)
+        except (OSError, ValueError, AttributeError):
+            mpid, mtime = None, 0
+        stale = int((read_config(root).get("loop") or {}).get("inflight_stale_minutes", 90) or 90)
+        if mpid and time.time() - mtime < stale * 60 and process_alive(mpid) and not (os.path.isfile(hb) and os.path.getmtime(hb) > mtime):
+            deny(f"{tid} is already in flight (.reef/inflight/{tid}, its session pid {mpid} alive, no hand-back since) — a second "
+                 "implementer on one worktree; wait for its hand-back, or `rm` the marker if that agent is gone")
         # every check passed: the odometer moves and the task becomes in-progress as
         # part of the dispatch itself (it now holds its resources and a parallel slot)
         bump_dispatches(path, text, dispatches, mark_in_progress=(fm.get("status", "pending") != "in-progress"))

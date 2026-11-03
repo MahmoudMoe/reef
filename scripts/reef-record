@@ -289,6 +289,8 @@ def main(argv):
         rec["report_sha256"] = hashlib.sha256(raw).hexdigest()
     if green:
         e = evidence_for(cwd, sha)
+        if e.get("dirty"):   # 2026-11-03, hard H2: a killed close left the row's last task uncommitted, and the gate's green was that tree's
+            die(f"the tree differs from {sha[:12]}: commit or close first (a GREEN binds the head, and the gate ran on a tree it does not hold)")
         if e.get("state") != "green":
             what = {"red": f"the evidence for {sha[:12]} is RED ({e.get('source')}): a GREEN record needs a green suite — fix, then record",
                     "pending": f"CI is still running for {sha[:12]} — record when it is done (python3 scripts/reef-evidence.py {sha[:12]})"}

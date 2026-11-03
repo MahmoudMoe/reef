@@ -22,7 +22,7 @@ import calendar
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_config as config, read_replace as read, main_checkout, drop_hold, process_alive, run_rc, run_rc3, git_root, checkouts, task_copies, task_frontmatter, report_verdict  # noqa: E402
+from reef_common import read_config as config, read_replace as read, main_checkout, drop_hold, process_alive, run_rc, run_rc3, git_root, checkouts, task_copies, task_frontmatter, report_verdict, read_or_empty  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 MAX_LINES = 30
@@ -324,7 +324,7 @@ def tick(root):
     heads = {str(p.get("headRefName", "")) for p in prs}
     names = lambda d: [f for f in (os.listdir(d) if os.path.isdir(d) else []) if re.match(r"R?\d+-.*\.md$", f)]
     fpath = str((cfg.get("paths") or {}).get("features", "reef/features") or "reef/features")
-    row_of, planned_elsewhere, to_review = {}, set(), {}
+    row_of, planned_elsewhere, to_review, half_closed, unclean = {}, set(), {}, {}, []
     for co in cos:
         for spec in sorted(glob.glob(os.path.join(co, fpath, "*", "SPEC.md"))):
             m = re.search(r"^Row:\s*(\d+)", read(spec), re.M)
@@ -333,11 +333,24 @@ def tick(root):
             # a feature worktree is a full checkout, so it also carries every CLOSED row's SPEC (2026-10-17: "building rows:
             # 1, 11, 13, 2" with row 1 archived), and a merged row's: only rows still in the queue and not done in the base count
             if co == root or rid not in in_queue or rid in done_rows:
+                # its own worktree still there with the row archived: a close killed part-way (2026-11-03, hard M3) — reef-row names the rest
+                if co != root and rid and rid not in in_queue and feats.get(prefix + slug) == co and [rid, "done"] not in to_close and \
+                        re.search(rf"^\|\s*{re.escape(rid)}\s*\|", read_or_empty(os.path.join(root, os.path.dirname(str((cfg.get("paths") or {}).get("queue") or "docs/queue.md")), "queue-archive.md")), re.M):
+                    to_close.append([rid, "done"])
                 continue
             planned_elsewhere.add(rid)
             tdir = os.path.join(os.path.dirname(spec), "tasks")
+            # a close killed before its commit (2026-11-03, hard M2/H2): `status: done` outside done/, or moved there uncommitted —
+            # merge-close resumes it; the review waits for a clean tree (the full gate tests the tree, the record binds the head)
+            dirty = run(["git", "status", "--porcelain", "--untracked-files=all"], co)[1]
+            for p in [os.path.join(tdir, f) for f in names(tdir)] + [os.path.join(tdir, "done", f) for f in names(os.path.join(tdir, "done"))]:
+                if (os.path.dirname(p) == tdir or os.path.relpath(p, co) in dirty) and (task_frontmatter(read(p)) or {}).get("status") == "done":
+                    half_closed[re.match(r"R?\d+", os.path.basename(p)).group()] = (co, p)
             if names(os.path.join(tdir, "done")) and not names(tdir) and next(b for b, w in feats.items() if w == co) not in heads:
-                to_review[rid] = slug   # every task done on its branch and no PR: the review is next (2026-11-02, H1; reef-loop §2.3)
+                if not dirty.strip():
+                    to_review[rid] = slug   # every task done on its branch and no PR: the review is next (2026-11-02, H1; reef-loop §2.3)
+                elif not any(c == co for c, _ in half_closed.values()):
+                    unclean.append(f"row {rid}: {os.path.relpath(co, root)} has uncommitted changes — commit them, then /reef-review {slug}")
     # per ready task, the newest of each record across every checkout decides (task_evidence): handed back → VERIFY, not a second
     # implementer (first contact, 2026-10-17: "dispatch now: 103" over an uncommitted, handed-back worktree) — unless a FAIL or a
     # report is newer: the work was judged (2026-10-18, qassimha 1103; 2026-11-01, task 19101's FAIL in the task worktree's copy);
@@ -365,6 +378,10 @@ def tick(root):
                 close_now.append(tid)
             else:
                 dispatch_now.append(t)
+    for tid, (co, p) in sorted(half_closed.items()):
+        if tid not in by_id:
+            by_id[tid], home_of[tid] = {"id": tid, "path": p}, co
+            close_now.append(tid)   # its PASS (or gate) was in: the close was under way
     # a READY task is not a DISPATCHABLE task: its row's Depends must be merged (2026-11-02, H1: row 2, planned early in its own
     # worktree, was offered while row 1 still built), and its plan must carry the human's approval record at the current digest
     # and a fresh review stamp (the same `--verify-stamp --feature` the guard runs at dispatch). First contact, 2026-10-16: the
@@ -374,6 +391,7 @@ def tick(root):
         go, held = plan_gate(co, scripts, py, [by_id[i] for i in verify_now + close_now + [str(t["id"]) for t in dispatch_now] if home_of[i] == co])
         ok |= {str(t["id"]) for t in go}
         awaiting += [h for h in held if h not in awaiting]
+    awaiting += unclean
     deps = {r[0]: re.findall(r"'([^']+)'", r[2]) for r in rows if len(r) > 2}
     for tid in sorted(ok):
         feat = task_feature(str(by_id[tid].get("path") or ""))
