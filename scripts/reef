@@ -152,6 +152,26 @@ def status_line(root):
 SHELL_SYNTAX = re.compile(r"[();|&<>$`]")
 
 
+_COMMONS = {}
+
+
+def fresh_common(folder):
+    """The reef_common.py in `folder` as it is on disk now: loaded once per (path, mtime), so the screen's many sibling loads
+    stay cheap and an update that rewrote the file is seen."""
+    p = os.path.join(folder, "reef_common.py")
+    try:
+        key = (p, os.stat(p).st_mtime_ns)
+    except OSError:
+        return None
+    if key not in _COMMONS:
+        import importlib.machinery, importlib.util
+        loader = importlib.machinery.SourceFileLoader("reef_common", p)
+        mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("reef_common", loader))
+        loader.exec_module(mod)
+        _COMMONS[key] = mod
+    return _COMMONS[key]
+
+
 def sibling_module(name, modname):
     """A sibling script as a module (reef-run.py: the runner's own view of its lock and session), or None."""
     path = script(name)
@@ -163,7 +183,12 @@ def sibling_module(name, modname):
     mod = importlib.util.module_from_spec(spec)
     # 2026-11-03 (an adopted project): `reef update` rewrites reef_common.py under this process, then loads the plugin's new doctor — it
     # must import the reef_common beside it, not the old one cached here; this process keeps the copy it started with
-    mine = sys.modules.pop("reef_common", None)
+    mine = sys.modules.get("reef_common")
+    common = fresh_common(os.path.dirname(path))
+    if common is not None:
+        sys.modules["reef_common"] = common
+    else:
+        sys.modules.pop("reef_common", None)
     try:
         loader.exec_module(mod)
     finally:
