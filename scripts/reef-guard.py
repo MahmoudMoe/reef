@@ -606,7 +606,9 @@ def check_guard_files(seg, ctx):
 INLINE_INTERP = r"(?:python[\d.]*|node|ruby|perl|php|bun|deno)"
 INLINE_HEREDOC = re.compile(r"(?:^|[\s;&|(/])" + INLINE_INTERP + r"((?:[ \t]+-[\w-]*)*)[ \t]*<<-?[ \t]*(['\"]?)(\w+)\2[^\n]*\n(.*?)(?:\n[ \t]*\3[ \t]*(?:\n|$)|$)", re.S)
 INLINE_FLAG = re.compile(r"(?:^|[\s;&|(/])" + INLINE_INTERP + r"(?:[ \t]+-[\w-]*)*?[ \t]+-[ce][ \t]+(?:'([^']*)'|\"((?:[^\"\\]|\\.)*)\")", re.S)
-GUARD_PATH_TEXT = re.compile(r"\.reef/config\.json|scripts/reef(?:[-_][\w.-]+)?\b|\.githooks/|hooks/hooks\.json")
+# a guard path that IS a quoted string, as a program names a file ('…/.reef/config.json', "scripts/reef-guard.py"); the same
+# words inside a sentence are text (2026-11-03: a note that mentioned scripts/reef* was denied)
+GUARD_PATH_TEXT = re.compile(r"""['"](?:[^'"\s]*/)?(\.reef/config\.json|scripts/reef(?:[-_][\w.-]+)?|\.githooks/[\w.-]+|hooks/hooks\.json)['"]""")
 WRITE_TEXT = re.compile(r"open\([^)]*['\"](?:[wax]|r\+)|write_(?:text|bytes)\(|json\.dump\(|os\.(?:replace|rename|remove|unlink)\(|shutil\.|"
                         r"(?:write|append)FileSync|File\.write|\bunlink\(")
 
@@ -622,7 +624,7 @@ def check_inline_programs(cmd, ctx):
     for prog in progs:
         hit = GUARD_PATH_TEXT.search(prog)
         if hit and WRITE_TEXT.search(prog):
-            deny(f"an inline program writes {hit.group(0)!r}: the guard's own files and the roles/caps/gates/tiers/worktree keys "
+            deny(f"an inline program writes {hit.group(1)!r}: the guard's own files and the roles/caps/gates/tiers/worktree keys "
                  "change only under a tier: critical task (none is in flight) or inside Reef's own repository. A config "
                  "command that does not run here (a gate, worktree.setup) is the owner's to change — file it as the owner's "
                  "question with the one-line edit, and keep the rows that do not need it moving")
