@@ -151,6 +151,18 @@ class Doctor(unittest.TestCase):
         self.assertIn("compare once: DATABASE_URL= AI_COACH_SPEED_HASH= npm test", r.stdout)
         self.assertNotIn("sekret", r.stdout); self.assertNotIn("topsecret", r.stdout)
 
+    def test_no_remote_and_a_gate_off_path_are_warnings_with_the_fix(self):
+        d = project()
+        with open(os.path.join(d, ".reef", "config.json")) as f:
+            cfg = json.load(f)
+        cfg["gates"] = {"full": "no-such-tool-xyz -q"}
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump(cfg, f)
+        r = doctor(d)
+        self.assertIn("WARN remote: none", r.stdout)
+        self.assertIn("gh repo create " + os.path.basename(d) + " --private --source . --remote origin --push", r.stdout)
+        self.assertIn("WARN gates.full: `no-such-tool-xyz` is not on PATH", r.stdout)
+
     def test_not_a_reef_project_exits_2(self):
         d = tempfile.mkdtemp(prefix="reef-doctor-none.")
         subprocess.run(["git", "init", "-q", d], check=True)

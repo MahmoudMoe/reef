@@ -843,11 +843,14 @@ def cmd_status(root):
     return 0
 
 
+PLACEHOLDER = re.compile(r"^\s*<[^<>]*>\s*$")   # init's `<the first planned row, one line>` (the live run, 2026-11-03)
+
+
 def cmd_ready(root, all_batches, with_found=False):
     _, text, rows, archived, _ = load(root)
     batch = current_batch(text)
     by_id = {r["Id"]: r for r in rows}
-    ready = [r for r in rows if r["_status"] != "done"
+    ready = [r for r in rows if r["_status"] != "done" and not PLACEHOLDER.match(r.get("Item", ""))
              and all(is_done(d, by_id, archived) for d in r["_depends"])
              and (all_batches or batch is None or r.get("Batch", "") == batch)]
     first = lambda r: r.get("Source", "").lower() == "planned" or r.get("Priority") == "p1"   # a p1 found row: promoted
@@ -871,6 +874,8 @@ def cmd_check(root):
         if i in archived:
             bad.append(f"row {i} is in the queue AND the archive")
     known = set(ids) | archived
+    bad += [f"row {r['Id']} is the template's placeholder ({r.get('Item', '').strip()}) — write the real row or delete it"
+            for r in rows if PLACEHOLDER.match(r.get("Item", ""))]
     rejected = []
     table = parse_table(text, rejected)
     bad += rejected

@@ -47,7 +47,7 @@ import subprocess
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import lint_gaps, die as _die, reef_dir  # noqa: E402
+from reef_common import lint_gaps, die as _die, reef_dir, commands_off_path, remote_fix  # noqa: E402
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = ["reef", "reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.py", "reef-graph.py",
@@ -114,6 +114,7 @@ STACK_OPINIONS = {"node": "node.md", "python": "python.md", "rust": "rust.md", "
 GITIGNORE_LINES = [".reef/worktrees/", ".reef/proposed/", ".reef/ci-local/", ".reef/evidence/", ".reef/approvals/", ".reef/review/",
                    ".reef/verifying/", ".reef/inflight/", ".reef/loop.json", ".reef/status.html", ".reef/cost/", ".reef/graph/", "tasks/.plan-review.json", ".env",
                    ".reef/hunt/", ".reef/run/", ".reef/questions.md", ".reef/night/", ".reef/queue.json", ".reef/queue-view.md", "scripts/__pycache__/", ".reef/recalibration/"]   # .reef/recalibration/: the plan's proposals. .reef/run/: reef-run's gate, log and lock; questions.md: the owner's open questions (the handoff reads it). .reef/hunt/: the hunter's own reports: evidence like .reef/ci-local/ (2026-10-18: 12 untracked files in the trial's status)
+STACK_IGNORE = {"python": ["__pycache__/", "*.egg-info/", ".pytest_cache/"], "node": ["node_modules/"]}   # 2026-11-03: setup's own output
 VERSION = "0.7.3"   # written to .reef/version; absent = a 0.5 project (every 0.6 check warns instead of failing)
 MAKEFILE_TARGET = "\nsetup: ## git hooks (once per clone) — reef\n\tgit config core.hooksPath .githooks\n\tchmod +x .githooks/*\n"
 
@@ -169,8 +170,9 @@ def detect_stack(root):
                      setup_steps="      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n          cache: npm\n      - run: npm ci --no-audit --no-fund\n")
     elif has("pyproject.toml") or has("uv.lock"):
         uv = has("uv.lock")
-        facts.update(stack="python", ecosystem="pip", install="uv sync" if uv else "pip install -e .",
-                     test="uv run pytest -q" if uv else "pytest -q",
+        # the module form (the live run, 2026-11-03): `python3 -m` runs where python3 does, a bare `pytest`/`pip` often is not on PATH
+        facts.update(stack="python", ecosystem="pip", install="uv sync" if uv else "python3 -m pip install -e .",
+                     test="uv run pytest -q" if uv else "python3 -m pytest -q",
                      setup_steps="      - uses: actions/setup-python@v5\n        with:\n          python-version: '3.12'\n      - run: " + ("pip install uv && uv sync" if uv else "pip install -e .") + "\n")
     elif has("Cargo.toml"):
         facts.update(stack="rust", ecosystem="cargo", install="cargo fetch", test="cargo test -q", build="cargo build",
@@ -640,7 +642,7 @@ def render_tree(root, facts, dry):
     for d in ((["tasks", "tasks/done"] if lay["features"] is None else []) + [lay["adr"]]):
         if not dry:
             os.makedirs(os.path.join(root, d), exist_ok=True)
-    w.append_lines(".gitignore", GITIGNORE_LINES)
+    w.append_lines(".gitignore", GITIGNORE_LINES + STACK_IGNORE.get(facts.get("stack"), []))
     mk = os.path.join(root, "Makefile")
     if os.path.isfile(mk):
         with open(mk, encoding="utf-8") as f:
@@ -799,6 +801,19 @@ def main(argv):
           f"{len(w.skipped)} skipped, {len(w.proposed)} proposed")
     for line in rails_report(root):
         print("  " + line)
+    if not dry:
+        try:
+            with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            cfg = {}
+        for key, word in commands_off_path(cfg):
+            print(f"  NOT ON PATH: {key} runs `{word}`, which this shell cannot find — the gate cannot run here; fix the command "
+                  "in .reef/config.json before the first row")
+        fix = remote_fix(root)
+        if fix:
+            print("  NO REMOTE: a row's review is recorded against its pull request and the loop merges through it, so no row "
+                  f"can finish here — before the first row: {fix}")
     for line in ([] if dry else queue_home(root, queue, new, existing)):
         print("  " + line)
     return 0
