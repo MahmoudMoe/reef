@@ -2,6 +2,12 @@
 
 ## 0.7.4 (unreleased)
 
+- **The owner's answer lands, and the release branch is named up front.** These came from the end of the live run on 2026-11-03.
+  - A footnote on a closed row now marks its archived line. Before, the release question was filed on row 3 after row 3 merged, and the printed `footnote … --row 3` said `no row 3 in the queue`.
+  - A sleeping runner now also watches the queue file. Before, a footnote edits the queue without committing, and the runner slept on.
+  - An owner wait that comes back reworded is now still the same wait: it matches with the parentheses removed, or when nine in ten words are shared. Before, `(question filed on row 3)` was added, the runner read it as a new wait, and it took a third session.
+  - When `branches.release` exists neither locally nor on origin, init prints `NO RELEASE BRANCH` and the doctor warns. Both give the command, `git branch main $(git rev-list --max-parents=0 develop) && git push -u origin main`.
+
 - **The CI template checks gitleaks before it runs it.** In the live run on 2026-11-03, the release security pass flagged a HIGH: the `ci.yml` that init writes piped the gitleaks download straight into `tar` and ran the binary without checking it, and every project shipped that. Now the download is saved to a file and checked with `sha256sum -c` against the SHA-256 gitleaks publishes for v8.21.2. Only then is it unpacked. Run `reef update` to refresh a project's `ci.yml`.
 - **`reef update` finishes on an update that adds a shared helper.** In ai-coach on 2026-11-03, the update had already pulled, committed, pushed and refreshed the marketplace when its last check crashed with `ImportError: cannot import name 'commands_off_path'`. The entry point had started with the project's old `reef_common` in memory, and the plugin's new `reef-doctor.py` imported that cached copy. Now a sibling script loaded later imports the `reef_common` that sits beside it, and the entry point keeps its own copy.
 

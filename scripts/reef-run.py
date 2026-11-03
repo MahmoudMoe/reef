@@ -953,14 +953,17 @@ ASLEEP = os.path.join(RUN_DIR, "asleep")   # while the runner sleeps on an owner
 
 
 def answer_signature(root):
-    """What the owner's answer moves on disk: the base's head (a footnote), .reef/questions.md, the approvals."""
+    """What the owner's answer moves on disk: the base's head (a footnote, committed), .reef/questions.md, the queue file (a
+    footnote not yet committed — the live run, 2026-11-03: the runner slept on over one), the approvals."""
     import hashlib
-    base = str((read_config(root).get("branches") or {}).get("base", "main") or "main")
+    cfg = read_config(root)
+    base = str((cfg.get("branches") or {}).get("base", "main") or "main")
     parts = [subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", base], capture_output=True, text=True).stdout.strip()]
-    try:
-        parts.append(hashlib.sha256(open(os.path.join(root, ".reef", "questions.md"), "rb").read()).hexdigest())
-    except OSError:
-        parts.append("-")
+    for rel in (".reef/questions.md", str((cfg.get("paths") or {}).get("queue") or "docs/queue.md")):
+        try:
+            parts.append(hashlib.sha256(open(os.path.join(root, rel), "rb").read()).hexdigest())
+        except OSError:
+            parts.append("-")
     d = os.path.join(root, ".reef", "approvals")
     return "|".join(parts + [f"{n}:{os.stat(os.path.join(d, n)).st_mtime_ns}" for n in (sorted(os.listdir(d)) if os.path.isdir(d) else [])])
 
@@ -973,6 +976,20 @@ def issues_signature(root):
     except (OSError, subprocess.TimeoutExpired):
         return None
     return r.stdout if r.returncode == 0 else None
+
+
+def same_wait(a, b):
+    """Two owner waits that say the same thing in other words (the live run, 2026-11-03: the release wait came back with
+    "(question filed on row 3)" added, read as new, and cost a third session): equal without their parentheses, or nine in
+    ten of the words shared."""
+    if not a or not b:
+        return False
+    strip = lambda s: re.sub(r"\s*\([^()]*\)", "", s).lower().split()
+    wa, wb = strip(a), strip(b)
+    if wa == wb:
+        return True
+    sa, sb = set(wa), set(wb)
+    return len(sa & sb) >= 0.9 * max(len(sa), len(sb))
 
 
 def sleep_until_answered(root, stop_req):
@@ -1734,12 +1751,12 @@ def run_loop(root, mode, cap, night, row, autopilot, carried):
             if wait and autopilot:   # a decision the contract covers is Mahmoud's: the next session takes it; the same wait twice is the owner's
                 key = " ".join(wait.split())   # the wait's words (the progress signature changes every session: loop.json's hashes ring)
                 owner_waits += 1
-                if key != prev_wait and owner_waits < 3:   # a new wait: the next session decides it; three in a row, or the same twice, is the owner's
+                if not same_wait(key, prev_wait) and owner_waits < 3:   # a new wait: the next session decides it; three in a row, or the same twice, is the owner's
                     prev_wait = key
                     say(f"autopilot: the session waited on the owner — {wait[:140]} — the next session decides it through Mahmoud, or files it")
                     continue
                 end(2, owner_wait_lines(root, wait, mode) + ("\n  autopilot: the same wait twice — outside reef/proxy.md's Decides:, or a hard limit: yours"
-                                                             if key == prev_wait else "\n  autopilot: three owner waits in a row — the contract does not cover them: yours"))
+                                                             if same_wait(key, prev_wait) else "\n  autopilot: three owner waits in a row — the contract does not cover them: yours"))
                 say("asleep until you answer — no session runs until the answer lands (a commit on the base, .reef/questions.md, an approval, a reef-question issue)")
                 if sleep_until_answered(root, stop_req) == "stop":
                     os.unlink(stop_req)

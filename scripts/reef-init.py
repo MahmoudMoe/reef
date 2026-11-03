@@ -47,7 +47,7 @@ import subprocess
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import lint_gaps, die as _die, reef_dir, commands_off_path, remote_fix  # noqa: E402
+from reef_common import lint_gaps, die as _die, reef_dir, commands_off_path, remote_fix, release_fix  # noqa: E402
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = ["reef", "reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.py", "reef-graph.py",
@@ -815,6 +815,9 @@ def main(argv):
         for key, word in commands_off_path(cfg):
             print(f"  NOT ON PATH: {key} runs `{word}`, which this shell cannot find — the gate cannot run here; fix the command "
                   "in .reef/config.json before the first row")
+        rel_fix = release_fix(root, cfg)
+        if rel_fix:
+            print(f"  NO RELEASE BRANCH: {(cfg.get('branches') or {}).get('release')} does not exist — the batch's release stops on it: {rel_fix}")
         fix = remote_fix(root)
         if fix:
             print("  NO REMOTE: a row's review is recorded against its pull request and the loop merges through it, so no row "

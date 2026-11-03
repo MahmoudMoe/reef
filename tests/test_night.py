@@ -506,6 +506,21 @@ class Autopilot(unittest.TestCase):
         out, _ = p.communicate(timeout=30)
         self.assertEqual(p.returncode, 0, out); self.assertIn("stopped on the owner's request", out); self.assertEqual(len(R.calls(self.d)), 3)
 
+    def test_the_same_wait_reworded_is_still_the_same_wait(self):
+        # the live run (2026-11-03): the release wait came back with "(question filed on row 3)" added — read as a new wait, it
+        # took a third session ($0.22) before the runner slept
+        L.write(self.d, "reef/proxy.md", PROXY_MD)
+        approve_day(self, self.d)
+        p = self.start(["wait:owner: release — no main branch; create it so the security pass and the release PR can run",
+                        "wait:owner: release — no main branch; create it (question filed on row 3) so the security pass and the release PR can run",
+                        "stop:x"])
+        self.assertTrue(self.asleep(p), "the runner sleeps on the reworded wait")
+        self.assertIn("the same wait twice", open(os.path.join(self.d, ".reef", "run", "live.log")).read())
+        self.assertEqual(len(R.calls(self.d)), 2, "two sessions, not three")
+        open(os.path.join(self.d, ".reef", "run", "stop-request"), "w").write("x")
+        out, _ = p.communicate(timeout=30)
+        self.assertEqual(p.returncode, 0, out)
+
     def test_mahmoud_approves_a_plan_by_day_when_the_contract_names_plan(self):
         rep = os.path.join(self.d, ".reef", "ci-local", "report-mahmoud-share-links.md")
         os.makedirs(os.path.dirname(rep), exist_ok=True)

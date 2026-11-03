@@ -706,3 +706,18 @@ def remote_fix(root):
     if r.returncode != 0 or "origin" in r.stdout.split():
         return ""
     return f"gh repo create {os.path.basename(os.path.realpath(root))} --private --source . --remote origin --push"
+
+
+def release_fix(root, cfg):
+    """The command that makes branches.release when it exists neither here nor on origin, or '' (the live run, 2026-11-03: batch 1
+    merged into develop and the release stopped on a missing `main`). It starts at the base's first commit, so the release PR
+    shows the whole batch."""
+    br = cfg.get("branches") or {}
+    base, rel = str(br.get("base") or ""), str(br.get("release") or "")
+    if not base or not rel or base == rel:
+        return ""
+    have = lambda ref: subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", ref], capture_output=True, text=True).returncode == 0
+    if have(rel) or have(f"origin/{rel}") or not have(base):
+        return ""
+    push = " && git push -u origin " + rel if not remote_fix(root) else ""
+    return f"git branch {rel} $(git rev-list --max-parents=0 {base}){push}"
