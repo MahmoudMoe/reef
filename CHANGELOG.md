@@ -2,6 +2,8 @@
 
 ## 0.7.4 (unreleased)
 
+- **The inline-program check reads only quoted paths.** Its first day caught a false positive: a note written to a memory file was denied because its prose mentioned `scripts/reef*`. Now a guard path counts as a write target only when it is a whole quoted string, the way a program names a file (`'.reef/config.json'`, `"scripts/reef-guard.py"`). The same words inside a sentence are text.
+
 - **The owner's answer lands, and the release branch is named up front.** These came from the end of the live run on 2026-11-03.
   - A footnote on a closed row now marks its archived line. Before, the release question was filed on row 3 after row 3 merged, and the printed `footnote … --row 3` said `no row 3 in the queue`.
   - A sleeping runner now also watches the queue file. Before, a footnote edits the queue without committing, and the runner slept on.

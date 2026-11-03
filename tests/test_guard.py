@@ -661,6 +661,10 @@ class SetupIsGuarded(unittest.TestCase):
         self.assertEqual(r.returncode, 0, "a write elsewhere is not the guard's: " + r.stderr)
         r = self.sh("python3 scripts/reef-queue.py add <<'EOF'\nopen('.reef/config.json','w')\nEOF")
         self.assertEqual(r.returncode, 0, "a heredoc fed to a script file is its data: " + r.stderr)
+        # 2026-11-03, the first day of the check: a note written to a memory file MENTIONED `scripts/reef*` in its prose and was
+        # denied — a guard path inside a sentence is text; only a quoted path (the program's own string) is a target
+        r = self.sh("python3 - <<'EOF'\np='/tmp/notes.md'\nopen(p,'w').write('heredoc edits of scripts/reef* are denied; .reef/config.json too')\nEOF")
+        self.assertEqual(r.returncode, 0, "a guard path in prose is not a write target: " + r.stderr)
 
     def test_a_judge_never_proves_or_applies_the_setup(self):
         for cmd in ("python3 scripts/reef-setup.py prove", "python3 scripts/reef-setup.py apply .reef/worktrees/x --repo .", "cd /x && python3 /x/scripts/reef-setup.py prove"):
