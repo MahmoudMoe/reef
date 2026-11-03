@@ -22,7 +22,7 @@ import calendar
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_config as config, read_replace as read, main_checkout, drop_hold, process_alive, run_rc, run_rc3, git_root, checkouts, task_copies, task_frontmatter, report_verdict, read_or_empty  # noqa: E402
+from reef_common import read_config as config, read_replace as read, main_checkout, drop_hold, process_alive, run_rc, run_rc3, git_root, checkouts, task_copies, task_frontmatter, report_verdict, read_or_empty, spec_row  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 MAX_LINES = 30
@@ -196,9 +196,9 @@ def orphan_rows(root, cfg, prefix, base, feats):
         if not b.startswith(prefix) or b in feats or run(["git", "merge-base", "--is-ancestor", b, base], root)[0] == 0:
             continue
         for f in run(["git", "ls-tree", "-r", "--name-only", b, "--", fpath], root)[1].splitlines():
-            m = re.search(r"^Row:\s*(\d+)", run(["git", "show", f"{b}:{f}"], root)[1], re.M) if f.endswith("/SPEC.md") else None
-            if m:
-                out[m.group(1)] = (b, f"git worktree prune && git worktree add {wtdir}/{b[len(prefix):]} {b}")
+            rid = spec_row(run(["git", "show", f"{b}:{f}"], root)[1]) if f.endswith("/SPEC.md") else ""
+            if rid:
+                out[rid] = (b, f"git worktree prune && git worktree add {wtdir}/{b[len(prefix):]} {b}")
     return out
 
 
@@ -327,8 +327,7 @@ def tick(root):
     row_of, planned_elsewhere, to_review, half_closed, unclean = {}, set(), {}, {}, []
     for co in cos:
         for spec in sorted(glob.glob(os.path.join(co, fpath, "*", "SPEC.md"))):
-            m = re.search(r"^Row:\s*(\d+)", read(spec), re.M)
-            slug, rid = os.path.basename(os.path.dirname(spec)), (m.group(1) if m else "")
+            slug, rid = os.path.basename(os.path.dirname(spec)), spec_row(read(spec))
             row_of[slug] = rid or row_of.get(slug, "")
             # a feature worktree is a full checkout, so it also carries every CLOSED row's SPEC (2026-10-17: "building rows:
             # 1, 11, 13, 2" with row 1 archived), and a merged row's: only rows still in the queue and not done in the base count

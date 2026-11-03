@@ -35,7 +35,7 @@ import time
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read_config, repo_root, load_sibling  # noqa: E402
+from reef_common import main_checkout, read_config, repo_root, load_sibling, task_frontmatter  # noqa: E402
 
 DEFAULT_PARALLEL = 10
 DEFAULT_CAP = 3
@@ -53,19 +53,12 @@ class GraphError(Exception):
 # ---------------------------------------------------------------- frontmatter
 
 def read_frontmatter(path):
-    """Column-0 keys, FIRST occurrence wins — the same reading as reef-guard.py and
-    reef-attempt, so a duplicated or indented key cannot read differently here."""
+    """reef_common.task_frontmatter (the one reader) and the text; no fence, or an id or feature that is not ASCII, is loud."""
     with open(path, encoding="utf-8", newline="") as f:
         text = f.read()
-    m = FENCE.match(text)
-    if not m:
-        raise GraphError(f"{path}: no frontmatter fence — not a reef task file")
-    fm = {}
-    for line in m.group(1).splitlines():
-        if line[:1] in (" ", "\t", "#") or ":" not in line:
-            continue
-        key, _, val = line.partition(":")
-        fm.setdefault(key.strip(), val.strip().strip('"'))
+    fm = task_frontmatter(text)
+    if fm is None:
+        raise GraphError(f"{path}: no frontmatter fence, or a non-ASCII digit in its id or feature — not a reef task file")
     return fm, text
 
 

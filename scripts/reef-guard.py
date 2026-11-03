@@ -62,7 +62,7 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout as _main_checkout, read_config, read_hold, write_hold, HOLD_MINUTES, bump_dispatches, task_tier, process_alive  # noqa: E402
+from reef_common import main_checkout as _main_checkout, read_config, read_hold, write_hold, HOLD_MINUTES, bump_dispatches, task_tier, process_alive, spec_row  # noqa: E402
 
 # 0.7: native Windows has no fcntl locks, no SIGALRM deadline and no process groups, and the guard cannot run there.
 # Inside a Reef project it stops with the one sentence that helps; anywhere else it steps aside (the plugin's hook runs
@@ -1509,8 +1509,7 @@ def feature_row(main, slug):
     spec = os.path.join(main, (cfg.get("paths") or {}).get("features", "reef/features"), slug, "SPEC.md")
     try:
         with open(spec, encoding="utf-8") as f:
-            m = re.search(r"^Row:\s*(\d+)", f.read(), re.M)
-        return m.group(1) if m else ""
+            return spec_row(f.read())
     except OSError:
         return ""
 

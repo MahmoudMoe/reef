@@ -19,7 +19,7 @@ import sys
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read_config as config, merge_by, run_rc, git_out, load_sibling, checkouts, run_rc3, spec_row, JOURNAL_BLOCK_RE  # noqa: E402
+from reef_common import main_checkout, read_config as config, merge_by, run_rc, git_out, load_sibling, checkouts, run_rc3, spec_row, JOURNAL_BLOCK_RE, ROW_ID  # noqa: E402
 
 
 run = lambda args, cwd, timeout=60: run_rc(args, cwd, timeout, timeout_rc=1)   # the readers know 1
@@ -75,7 +75,7 @@ def archived(main, cfg):
     apath = os.path.join(os.path.dirname(qpath), "queue-archive.md")
     try:
         with open(apath, encoding="utf-8") as f:
-            return set(re.findall(r"^\|\s*(\d+[a-z]?)\s*\|", f.read(), re.M))
+            return set(re.findall(rf"^\|[ \t]*({ROW_ID})[ \t]*\|", f.read(), re.M))
     except OSError:
         return set()
 

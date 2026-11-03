@@ -78,9 +78,8 @@ import sys
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_config as config, repo_root, read, table_cells, issues_mode, question_line, QUESTION_LINE, drop_question, questions, die as _die, slug_error, checkouts  # noqa: E402
+from reef_common import read_config as config, repo_root, read, table_cells, issues_mode, question_line, QUESTION_LINE, drop_question, questions, die as _die, slug_error, checkouts, prose_lines, spec_row, task_frontmatter, journal_blocks, ROW_ID  # noqa: E402
 
-FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 TASK_NAME_RE = re.compile(r"R?\d+-.*\.md$")
 FOLDER_FILE = re.compile(r"^(SPEC\.md|specs/[^/]+\.md|adr/[^/]+\.md|tasks/[^/]+\.md|tasks/done/[^/]+\.md)$")
 
@@ -122,9 +121,11 @@ die = partial(_die, prefix="reef-queue")
 
 
 def parse_table(text, rejected=None):
-    """Rows of the first markdown table whose header has Id and Depends, as dicts keyed by header. An Id that is not
-    `\\d+[a-z]?` (`R7`, `8¹`) is no row: it goes to `rejected` when given, so `check` names it (2026-11-02, stress M5)."""
-    lines = text.splitlines()
+    """Rows of every markdown table whose header has Id and Depends (any case), as dicts keyed by header, from prose lines only
+    (a fenced example table is no row). A row whose Id is not ROW_ID (`R7`, `8¹`, `١٥`, an emptied cell) or whose Batch does
+    not lead with ASCII digits (`'2'`) is no row: its reason goes to `rejected` when given, so `check` names it (2026-11-02,
+    stress M5; the hard stress test, 2026-11-03 M6)."""
+    lines = prose_lines(text)
     rows, header = [], None
     for i, line in enumerate(lines):
         if not line.strip().startswith("|"):
@@ -132,6 +133,7 @@ def parse_table(text, rejected=None):
             continue
         cells = table_cells(line)
         if header is None:
+            cells = [{"id": "Id", "depends": "Depends", "batch": "Batch"}.get(c.lower(), c) for c in cells]
             if "Id" in cells and "Depends" in cells and i + 1 < len(lines) and re.match(r"^\s*\|\s*-", lines[i + 1]):
                 header = cells
             continue
@@ -140,17 +142,26 @@ def parse_table(text, rejected=None):
         if len(cells) < len(header):
             cells += [""] * (len(header) - len(cells))
         row = dict(zip(header, cells))
-        if re.fullmatch(r"\d+[a-z]?", row.get("Id", "")):
+        if not re.fullmatch(ROW_ID, row.get("Id", "")):
+            if any(cells) and rejected is not None:
+                rejected.append(f"row id {row.get('Id', '')!r} is unreadable (an Id is ASCII digits and one optional letter) — status and ready skip it")
+        elif row.get("Batch") and not re.match(r"[0-9]+", row["Batch"]):
+            if rejected is not None:
+                rejected.append(f"row {row['Id']}: batch {row['Batch']!r} is unreadable (ASCII digits) — the row is never ready")
+        else:
             rows.append(row)
-        elif row.get("Id") and rejected is not None:
-            rejected.append(row["Id"])
     return rows
 
 
-def current_batch(text):
-    # `Current batch: 2²⁶` — the owner's footnote marker rides on the line (first contact, 2026-10-17: read as batch "2²⁶")
-    m = re.search(r"^Current batch:[ \t]*(\d+)", text, re.M)
-    return m.group(1) if m else None
+CURRENT_BATCH = re.compile(r"Current batch:[ \t]*[\"'`]?([0-9]+)", re.I)
+
+
+def current_batch(text, every=False):
+    """The `Current batch:` line's number (the first readable prose line), or None; `every`: each readable line's, for `check`.
+    `Current batch: 2²⁶` — the owner's footnote marker rides on the line (first contact, 2026-10-17: read as batch "2²⁶"); any
+    case and a quote are read too (the hard stress test, 2026-11-03 M6: `Current Batch: 2` read None and `ready` offered every batch)."""
+    found = [m.group(1) for line in prose_lines(text) for m in [CURRENT_BATCH.match(line)] if m]
+    return found if every else (found[0] if found else None)
 
 
 def task_states(root, cfg, worktrees=True):
@@ -168,29 +179,22 @@ def task_states(root, cfg, worktrees=True):
         for f in sorted(os.listdir(d)):
             if not TASK_NAME_RE.match(f):
                 continue
-            m = FENCE.match(read(os.path.join(d, f)))
-            if not m:
-                continue
-            fm = {}
-            for line in m.group(1).splitlines():
-                if line[:1] in (" ", "\t", "#") or ":" not in line:
-                    continue
-                k, _, v = line.partition(":")
-                fm.setdefault(k.strip(), v.strip().strip('"'))
-            states.setdefault(fm.get("feature", ""), []).append(fm.get("status", "pending"))
+            fm = task_frontmatter(read(os.path.join(d, f)), ascii_ids=False)   # `feature: ١٢` names no row: `check` names it
+            if fm is not None:
+                states.setdefault(fm.get("feature", ""), []).append(fm.get("status", "pending"))
     # 0.6: a feature folder's SPEC.md `Row: <id>` links the slug to its queue row — the row's status is derived
     # from the folder's tasks; the slug itself then needs no row of its own
     for slug, fdir in feature_folders(root, cfg).items():
         spec = os.path.join(fdir, "SPEC.md")
         if os.path.isfile(spec):
-            m = re.search(r"^Row:\s*(\S+)", read(spec), re.M)
-            if m and slug in states:
-                states.setdefault(m.group(1), []).extend(states.pop(slug))
-            elif m:
-                states.setdefault(m.group(1), [])
+            rid = spec_row(read(spec))
+            if rid and slug in states:
+                states.setdefault(rid, []).extend(states.pop(slug))
+            elif rid:
+                states.setdefault(rid, [])
     for co in (checkouts(root, str((cfg.get("branches") or {}).get("feature_prefix", "feat/") or "feat/")).values() if worktrees else []):
         for k, st in (task_states(co, cfg, False) if os.path.isdir(co) else {}).items():
-            if st and not states.get(k) and re.fullmatch(r"\d+[a-z]?", k):
+            if st and not states.get(k) and re.fullmatch(ROW_ID, k):
                 states[k] = ["building"]
     return states
 
@@ -413,7 +417,7 @@ def load(root):
         st = states.get(r["Id"], [])
         r["_status"] = "queued" if not st else ("done" if all(s == "done" for s in st) else "building")
         r["_depends"] = [d for d in re.split(r"[,\s]+", r.get("Depends", "")) if d]
-        b = re.match(r"\s*(\d+)", r.get("Batch") or "")   # a footnote mark on the cell (`1³`) is read away, as current_batch does
+        b = re.match(r"\s*([0-9]+)", r.get("Batch") or "")   # a footnote mark on the cell (`1³`) is read away, as current_batch does
         r["Batch"] = b.group(1) if b else r.get("Batch", "")
     return cfg, text, rows, archived, states
 
@@ -868,8 +872,11 @@ def cmd_check(root):
             bad.append(f"row {i} is in the queue AND the archive")
     known = set(ids) | archived
     rejected = []
-    parse_table(text, rejected)
-    bad += [f"row id {i!r} is unreadable (an Id is digits and one optional letter) — status and ready skip it" for i in rejected]
+    table = parse_table(text, rejected)
+    bad += rejected
+    n_cur = len(current_batch(text, every=True))
+    if any("Batch" in r for r in table) and n_cur != 1:   # a file queue with batches: `ready` reads one line (stress M6)
+        bad.append(f"{n_cur} readable `Current batch: N` lines (need exactly one) — ready would offer the wrong batch")
     # a Depends cycle: peel the rows whose dependencies are all outside the queue; what is left waits on itself forever
     left = {r["Id"]: set(r["_depends"]) & set(ids) for r in rows}
     while any(not v for v in left.values()):
@@ -902,9 +909,12 @@ def cmd_check(root):
     for slug, fdir in feature_folders(root, cfg).items():
         spec = os.path.join(fdir, "SPEC.md")
         if os.path.isfile(spec):
-            m = re.search(r"^Row:\s*(\S+)", read(spec), re.M)
-            if m and m.group(1) not in known:
-                bad.append(f"{os.path.relpath(spec, root)}: Row: {m.group(1)} is not a queue row (nor archived)")
+            st = read(spec)
+            rid = spec_row(st)
+            if rid and rid not in known:
+                bad.append(f"{os.path.relpath(spec, root)}: Row: {rid} is not a queue row (nor archived)")
+            elif not rid and re.search(r"^Row:", st, re.M):
+                bad.append(f"{os.path.relpath(spec, root)}: no single readable `Row: <id>` line (two that disagree, or none outside a fence)")
     # 0.6: a journal row's per-AC statuses come from a closed set; a non-achieved one says what is missing
     jpath = os.path.join(root, cfg.get("paths", {}).get("runlog", "docs/journal.md"))
     is06 = os.path.isfile(os.path.join(root, ".reef", "version"))
@@ -1281,9 +1291,6 @@ def cmd_adr_number(root):
     return 0
 
 
-JOURNAL_BLOCK = re.compile(r"<!-- journal -->\n(.*?)\n?<!-- /journal -->", re.S)
-
-
 def cmd_journal(root, slug):
     """A feature branch never edits the journal (2026-10-24, the trial: two features appended to it, their PRs conflicted,
     and a hand-resolved conflict ended in a GREEN re-recorded with no review). Each task's block waits in its task file's
@@ -1295,7 +1302,7 @@ def cmd_journal(root, slug):
     files = sorted(os.path.join(dp, f) for sub in ("tasks", os.path.join("tasks", "done")) for dp in [os.path.join(fdir, sub)]
                    if os.path.isdir(dp) for f in os.listdir(dp) if TASK_NAME_RE.match(f))
     order = lambda p: (os.path.basename(p).startswith("R"), int(re.match(r"R?(\d+)", os.path.basename(p)).group(1)), os.path.basename(p))
-    blocks = [m.group(1).strip() for p in sorted(files, key=order) for m in JOURNAL_BLOCK.finditer(read(p))]
+    blocks = [b for p in sorted(files, key=order) for b in journal_blocks(read(p))]
     jpath = os.path.join(root, cfg.get("paths", {}).get("runlog", "docs/journal.md"))
     text = read(jpath) if os.path.isfile(jpath) else "# Journal\n"
     new = [b for b in blocks if b not in text]
@@ -1325,8 +1332,7 @@ def cmd_index(root):
         spec = os.path.join(fdir, "SPEC.md")
         row = ""
         if os.path.isfile(spec):
-            m = re.search(r"^Row:\s*(\S+)", read(spec), re.M)
-            row = m.group(1) if m else ""
+            row = spec_row(read(spec))
         st = states.get(row, []) or states.get(slug, [])
         status = "archived" if row in archived else ("queued" if not st else ("done" if all(x == "done" for x in st) else "building"))
         batch = rows_by_id.get(row, {}).get("Batch", "")

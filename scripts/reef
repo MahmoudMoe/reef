@@ -20,7 +20,7 @@ import threading
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, approval_questions, APPROVE_Q, questions, answer_command, drop_question, process_alive, plain  # noqa: E402
+from reef_common import main_checkout, approval_questions, APPROVE_Q, questions, answer_command, drop_question, process_alive, plain, spec_row  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
@@ -1339,9 +1339,9 @@ def files_block(wt, branch, base, feats):
     def builds(n):   # the feature this branch builds: its name is in the branch's, or (a task branch) it holds the task's file
         return n in branch or bool(tid) and any(fn.startswith(tid + "-") for _, _, fns in os.walk(os.path.join(fdir, n, "tasks")) for fn in fns)
     for name in sorted((n for n in names if builds(n)), key=len, reverse=True):
-        m = re.search(r"^Row:\s*(\S+)", open_text(os.path.join(fdir, name, "SPEC.md")), re.M)
-        if m:
-            row = m.group(1); break
+        row = spec_row(open_text(os.path.join(fdir, name, "SPEC.md")))
+        if row:
+            break
     mb = git_read(wt, "merge-base", "HEAD", base).strip() or base
     changed = diff_counts(git_read(wt, "diff-index", "--no-renames", "--numstat", mb))
     loose = set(diff_counts(git_read(wt, "diff-index", "--no-renames", "--numstat", "HEAD")))

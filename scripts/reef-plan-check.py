@@ -917,7 +917,7 @@ def main():
                            ("effort", EFFORT), ("verify", VERIFY), ("tier", TIER)):
             if key in fm and fm[key] not in legal:
                 errs.append(f"{key}={fm[key]!r} not in {sorted(legal)}")
-        if "id" in fm and not re.fullmatch(r"R?\d+", fm["id"]):
+        if "id" in fm and not re.fullmatch(r"R?[0-9]+", fm["id"]):
             errs.append(f"id={fm['id']!r} not NNN or RNN")
         # the folder and the status are one fact with two homes: a file under done/ is `status: done` and a
         # `status: done` file is under done/ (first contact, 2026-10-17: 103 was merged into done/ still `in-progress`,
@@ -999,7 +999,7 @@ def main():
             print(f"WARN {rel}: names an external API/SDK ({api.group(0)}) and resources: carry no doc URL or version — the implementer will "
                   "research it (2026-10-18: 35 of 54 turns, 145k context, on the Anthropic SDK); pin the SDK version, the doc URL and the "
                   "facts it needs (model id, limits) in resources: or the task text")
-        if "id" in fm and re.fullmatch(r"R?\d+", fm.get("id", "")):
+        if "id" in fm and re.fullmatch(r"R?[0-9]+", fm.get("id", "")):
             raw_id = fm["id"]
             fname = TASK_NAME_RE.match(os.path.basename(path))
             expect = fname.group(1) + str(int(fname.group(2)))

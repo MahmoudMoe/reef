@@ -64,7 +64,7 @@ import time
 from functools import cache, partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question, merge_by, read_config, load_sibling, plugin_version, die as _die  # noqa: E402
+from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question, merge_by, read_config, load_sibling, plugin_version, die as _die, ROW_ID  # noqa: E402
 
 RUN_DIR = os.path.join(".reef", "run")
 LIVE = os.path.join(RUN_DIR, "live.log")
@@ -805,14 +805,18 @@ def contract_line(path, key):
             found = re.findall(rf"^{key}:[ \t]*(.*)$", f.read(), re.M)
     except OSError:
         return ""
-    return None if len(found) > 1 else (found[0] if found else "")
+    if len(found) != 1:
+        return None if found else ""
+    v = found[0].strip()   # one pair of surrounding quotes or backticks is read away (the hard stress test, 2026-11-03 L3)
+    return v[1:-1] if len(v) > 1 and v[0] == v[-1] and v[0] in "\"'`" else v
 
 
 def night_rows(root):
-    """The queue row ids the contract's `Rows:` line LEADS with — `Rows: 12 (not 3: why)` is row 12 alone (stress M5)."""
+    """The queue row ids the contract's `Rows:` line LEADS with — `Rows: 12 (not 3: why)` is row 12 alone (stress M5); an id is
+    ROW_ID, and the owner's footnote mark on it (`12³`) is read away (the hard stress test, 2026-11-03 L3, L5)."""
     import re
-    m = re.match(r"\s*((?:\d+[a-z]?\s*(?:,|\band\b)?\s*)+)", contract_line(os.path.join(root, NIGHT_DIR, "contract.md"), "Rows") or "")
-    return re.findall(r"\d+[a-z]?", m.group(1)) if m else []
+    m = re.match(rf"\s*((?:{ROW_ID}[¹²³⁰⁴-⁹]*\s*(?:,|\band\b)?\s*)+)", contract_line(os.path.join(root, NIGHT_DIR, "contract.md"), "Rows") or "")
+    return re.findall(ROW_ID, m.group(1)) if m else []
 
 
 def night_ok(root):

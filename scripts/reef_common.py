@@ -425,10 +425,12 @@ def die(msg, code=2, *, prefix):
 TASK_FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 
 
-def task_frontmatter(text):
+def task_frontmatter(text, ascii_ids=True):
     """A task file's frontmatter as {key: value}, or None without a fence — the one reader (the stress test, 2026-11-02: seven
     private copies, and the close's kept the quotes, so `verify: "judge"` closed with no verifier). Values lose their quotes and
-    any CR; indented, comment and key-less lines are skipped; the first of a repeated key wins."""
+    any CR; indented, comment and key-less lines are skipped; the first of a repeated key wins. An `id` or `feature` holding a
+    non-ASCII digit (`id: ７`) is None too: ids are ASCII (ROW_ID). `ascii_ids=False` (reef-queue's states) keeps such a value,
+    which then names no row, and `check` names it."""
     m = TASK_FENCE.match(text)
     if not m:
         return None
@@ -438,7 +440,7 @@ def task_frontmatter(text):
             continue
         k, _, v = line.partition(":")
         fm.setdefault(k.strip(), v.strip().strip('"').strip("'"))
-    return fm
+    return None if ascii_ids and any(NON_ASCII_DIGIT.search(fm.get(k, "")) for k in ("id", "feature")) else fm
 
 
 def task_tier(fm):
@@ -475,15 +477,12 @@ def bump_dispatches(path, text, current, mark_in_progress=False):
         raise
 
 
-def spec_row(text):
-    """The queue row a SPEC.md names on its `Row:` line, read as reef-queue reads an id (`\\d+[a-z]?`), or '' (the stress test,
-    2026-11-03: `\\d+` read row 3a as row 3, and an end-anchored reader missed `Row: 3 (split from row 2)`)."""
-    m = re.search(r"^Row:\s*(\d+[a-z]?)\b", text, re.M)
-    return m.group(1) if m else ""
+ROW_ID = r"[0-9]+[a-z]?"   # a queue row id, ASCII digits only: `\d` read `١٢` and `１２` as ids (the hard stress test, 2026-11-03 L5)
+NON_ASCII_DIGIT = re.compile(r"(?![0-9])\d")
 
 
 def prose_lines(text):
-    """The lines an agent says, not quotes: outside ``` fences and not starting with `>` (an example or a quoted round)."""
+    """The lines a reader reads: outside ``` fences and not quoted with `>` — an example or a quoted earlier round is no line."""
     out, fenced = [], False
     for line in text.splitlines():
         s = line.lstrip()
@@ -492,6 +491,14 @@ def prose_lines(text):
         elif not fenced and not s.startswith(">"):
             out.append(line)
     return out
+
+
+def spec_row(text):
+    """The queue row a SPEC.md names on its `Row:` line (ROW_ID), or '' — the one reader (the hard stress test, 2026-11-03 M5:
+    seven private `^Row:\\s*` copies crossed a newline into `1. the owner`, and read a fenced example). Fenced and quoted lines
+    are skipped; two Row lines that disagree name no row."""
+    found = {m.group(1) for line in prose_lines(text) for m in [re.match(rf"Row:[ \t]*({ROW_ID})\b", line, re.A)] if m}
+    return found.pop() if len(found) == 1 else ""
 
 
 def report_verdict(text):
@@ -533,6 +540,13 @@ def report_binding(text, agent, sha, verdicts, feature=None, run_required=True, 
 
 BLOCKER_LINE = re.compile(r"^\W*BLOCKER\b", re.M | re.I)   # `BLOCKER:`, `- **Blocker**` alike (the shape reef-eval's scorer reads)
 JOURNAL_BLOCK_RE = re.compile(r"(?:^|\n)<!-- journal -->\r?\n(.*?)\r?\n?<!-- /journal -->", re.S)   # a block on lines of its own
+
+
+def journal_blocks(text):
+    """The `<!-- journal -->` blocks of a task file, each stripped — the one reader (the hard stress test, 2026-11-03 L2: reef-queue's
+    private copy copied a `>`-quoted example into the journal, and a fenced one made the close think the block was written).
+    Prose lines only (prose_lines); an indented block (inside a list) still counts."""
+    return [m.group(1).strip() for m in JOURNAL_BLOCK_RE.finditer("\n".join(line.lstrip() for line in prose_lines(text)))]
 
 
 def load_sibling(name, modname=None):
