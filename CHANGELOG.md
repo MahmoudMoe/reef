@@ -2,6 +2,8 @@
 
 ## 0.7.4 (unreleased)
 
+- **The runner counts a resumed session's cost once.** In the live run on 2026-11-03, the autopilot report said $11.34, or $5.67 per merged row. The real spend was $5.99, because a resumed conversation's `total_cost_usd` is its total so far and the log summed it again. Now each `run.log` line carries what that session spent (`cost_usd`), with the conversation's running total beside it (`session_cost_usd`), and the end line shows the spend. Logs written before this change still over-count.
+
 - **The inline-program check reads only quoted paths.** Its first day caught a false positive: a note written to a memory file was denied because its prose mentioned `scripts/reef*`. Now a guard path counts as a write target only when it is a whole quoted string, the way a program names a file (`'.reef/config.json'`, `"scripts/reef-guard.py"`). The same words inside a sentence are text.
 
 - **The owner's answer lands, and the release branch is named up front.** These came from the end of the live run on 2026-11-03.
