@@ -366,6 +366,17 @@ class ReleaseOnlyCi(unittest.TestCase):
                            env=dict(os.environ, PATH=bin_))
         self.assertIn("NOT ON PATH: gates.fast runs `pytest`", r.stdout)
 
+    def test_a_next_project_rebuilds_a_stale_build_before_the_full_gate(self):
+        d = tempfile.mkdtemp(prefix="reef-init-next.")
+        write(d, "package.json", json.dumps({"name": "a", "scripts": {"test": "vitest run", "build": "next build"}, "dependencies": {"next": "15.0.0"}}))
+        subprocess.run(["git", "init", "-q", "-b", "develop", d], check=True)
+        init(d, "--queue", "file")
+        cfg = json.loads(read(d, ".reef/config.json"))
+        self.assertEqual(cfg["gates"].get("build"), {"output": ".next/BUILD_ID", "run": "npm run build"})
+        d2 = node_project(tempfile.mkdtemp(prefix="reef-init-node."))
+        init(d2, "--queue", "file")
+        self.assertNotIn("build", json.loads(read(d2, ".reef/config.json"))["gates"], "no Next.js: nothing to keep fresh")
+
     def test_the_ci_runs_gitleaks_only_after_its_checksum_matches(self):
         # the live run's release security pass (2026-11-03): the CI template piped a downloaded gitleaks straight into tar and
         # ran it unverified — every project init wrote shipped that. The download is checked against the release's SHA-256 first

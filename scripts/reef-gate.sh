@@ -117,6 +117,29 @@ fi
 # log is overwritten by the next run, the green marker removed by the next green): every REAL run appends one line to
 # the MAIN checkout's .reef/ci-local/runs.jsonl — at, mode, snapshot, head, branch, exit, seconds. A cached answer is
 # not a run. The main checkout's, because a task worktree is gone at the merge; reef-cost.py rows counts from it.
+# 2026-11-04 (an adopted project): worktree.setup built .next once, the implementer changed the code, and the full gate
+# (23,482 tests) went red six times on one row on the project's own freshness checks. gates.build {output, run}: before the
+# full gate, an output missing or older than the newest tracked file is rebuilt; a failed build fails the gate unrun.
+if [ "$MODE" = full ] && [ -f .reef/config.json ]; then
+  BUILD=$(python3 - <<'PY'
+import json, os, subprocess
+b = (json.load(open(".reef/config.json")).get("gates") or {}).get("build")
+if isinstance(b, dict) and isinstance(b.get("output"), str) and isinstance(b.get("run"), str) and b["run"].strip():
+    try:
+        built = os.stat(b["output"]).st_mtime
+    except OSError:
+        built = None
+    files = subprocess.run(["git", "ls-files", "-z"], capture_output=True, text=True).stdout.split("\0")
+    newest = max((os.stat(f).st_mtime for f in files if f and os.path.isfile(f)), default=0)
+    if built is None or built < newest:
+        print(b["run"])
+PY
+) || BUILD=''
+  if [ -n "$BUILD" ]; then
+    echo "reef-gate ($MODE): the build is older than the tree (gates.build) — $BUILD first" >&2
+    sh -c "$BUILD" || { rc=$?; echo "reef-gate ($MODE): the build failed (exit $rc: $BUILD) — the gate did not run on a stale build" >&2; exit $rc; }
+  fi
+fi
 T0=$(date +%s)
 log_run() {   # log_run <exit>
   mkdir -p "$MAINROOT/.reef/ci-local" 2>/dev/null || return 0

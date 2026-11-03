@@ -2,6 +2,8 @@
 
 ## 0.7.4 (unreleased)
 
+- **The full gate rebuilds a stale build first.** In an adopted Next.js project on 2026-11-04, `worktree.setup` built `.next` once and then the implementer changed the code. The full gate (23,482 tests) went red on the project's own freshness checks, because the build was older than the tree. That happened six times on one row, and two rows hit it. Now `gates.build` (`{output, run}`) is checked before the full gate: if the output is missing or older than the newest tracked file, the build runs first. A failed build fails the gate without running it, and the fast gate never builds. Init writes `{"output": ".next/BUILD_ID", "run": "npm run build"}` for a project with `next` and a build script. `reef update` adds it to an existing project.
+
 - **The runner counts a resumed session's cost once.** In the live run on 2026-11-03, the autopilot report said $11.34, or $5.67 per merged row. The real spend was $5.99, because a resumed conversation's `total_cost_usd` is its total so far and the log summed it again. Now each `run.log` line carries what that session spent (`cost_usd`), with the conversation's running total beside it (`session_cost_usd`), and the end line shows the spend. Logs written before this change still over-count.
 
 - **The inline-program check reads only quoted paths.** Its first day caught a false positive: a note written to a memory file was denied because its prose mentioned `scripts/reef*`. Now a guard path counts as a write target only when it is a whole quoted string, the way a program names a file (`'.reef/config.json'`, `"scripts/reef-guard.py"`). The same words inside a sentence are text.

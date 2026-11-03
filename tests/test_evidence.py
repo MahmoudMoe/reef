@@ -182,3 +182,43 @@ class Evidence(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AStaleBuildIsRebuiltBeforeTheFullGate(unittest.TestCase):
+    """2026-11-04 (an adopted project): worktree.setup built `.next` once, the implementer changed the code, and the full gate
+    (23,482 tests) went red on the project's own freshness checks — the build older than the tree — six runs on one row,
+    two rows hit it. gates.build {output, run}: before the full gate, an output older than the newest tracked file (or
+    missing) is rebuilt; a failed build fails the gate without running it; the fast gate never builds."""
+    setUp, config, gate = Evidence.setUp, Evidence.config, Evidence.gate
+
+    def built(self):
+        p = os.path.join(self.d, "build.log")
+        return len(open(p).read().splitlines()) if os.path.exists(p) else 0
+
+    def test_the_build_runs_when_its_output_is_older_than_the_tree(self):
+        with open(os.path.join(self.d, ".gitignore"), "a") as f:
+            f.write("out/\nbuild.log\n")
+        git(self.d, "add", "-A"); git(self.d, "commit", "-qm", "ignore the build")
+        self.config({"gates": {"full": "cat out/stamp", "build": {"output": "out/stamp", "run": "mkdir -p out && date > out/stamp && echo b >> build.log"}}})
+        r = self.gate()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr); self.assertEqual(self.built(), 1, "no output yet: built first")
+        self.assertIn("older than the tree", r.stderr + r.stdout)
+        with open(os.path.join(self.d, "app.py"), "w") as f:
+            f.write("x = 2\n")
+        os.utime(os.path.join(self.d, "out", "stamp"), (1, 1))   # the build from before the change
+        r = self.gate()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr); self.assertEqual(self.built(), 2, "the code moved past the build: rebuilt")
+        with open(os.path.join(self.d, "app.py"), "w") as f:
+            f.write("x = 3\n")
+        os.utime(os.path.join(self.d, "app.py"), (2, 2))   # older than the build
+        r = self.gate()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr); self.assertEqual(self.built(), 2, "a fresh build is not rebuilt")
+        fast = subprocess.run(["sh", "scripts/reef-gate.sh", "fast"], cwd=self.d, capture_output=True, text=True)
+        self.assertEqual(self.built(), 2, "the fast gate never builds: " + fast.stderr)
+
+    def test_a_failed_build_fails_the_gate_without_running_it(self):
+        self.config({"gates": {"full": "echo RAN > ran.txt", "build": {"output": "out/stamp", "run": "exit 3"}}})
+        r = self.gate()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("the build failed", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.d, "ran.txt")), "the gate did not run on a stale build")
