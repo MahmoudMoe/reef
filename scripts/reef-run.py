@@ -64,7 +64,7 @@ import time
 from functools import cache, partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question, merge_by, read_config, load_sibling, plugin_version, die as _die, ROW_ID  # noqa: E402
+from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question, merge_by, read_config, load_sibling, plugin_version, die as _die, ROW_ID, guard_seal, critical_in_flight  # noqa: E402
 
 RUN_DIR = os.path.join(".reef", "run")
 LIVE = os.path.join(RUN_DIR, "live.log")
@@ -1700,6 +1700,7 @@ def run_loop(root, mode, cap, night, row, autopilot, carried):
                 say("jobs done: " + ", ".join(f"{j['name']} rc={j.get('rc')}" for j in done_jobs) + " — this session continues their rows")
             prompt = (f"/reef-loop {row}" + PROMPT[len("/reef-loop"):]) if row else PROMPT
             resume = resume_of(last, done_jobs, root, mode)
+            seal, seal_head = guard_seal(root), subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
             out = None
             if resume:
                 say(f"resumes the session that ended on the job ({int(time.time() - last['ended'])} s ago, context {last['context'] // 1000}k "
@@ -1712,6 +1713,12 @@ def run_loop(root, mode, cap, night, row, autopilot, carried):
             if out is None:
                 out = session(root, prompt + (NIGHT_PROMPT if night else AUTOPILOT_PROMPT if autopilot else "") + note, mode, say)
             drop_session_hold(root, out.get("session_id"))
+            now_seal = guard_seal(root)
+            tampered = sorted(k for k in set(seal) | set(now_seal) if seal.get(k) != now_seal.get(k))
+            if tampered and not critical_in_flight(root):
+                paths = " ".join(sorted({k.split(" ")[0].split(":")[-1] for k in tampered}))
+                return end(2, f"reef-run: the session changed the guard's own files with no critical task in flight — {', '.join(tampered)[:300]} "
+                              f"— read it: git -C {root} diff {seal_head[:12]} -- {paths} — keep it and start the runner again, or undo it")
             mark_reported(root, done_jobs)   # the session read the note: now the job is reported
             st = loop_state(root)
             wait, stop, parked = CONTROL.sub(" ", str(st.get("wait") or "")), st.get("stop") or "", st.get("parked") or ""   # agent text: nothing a terminal reads
