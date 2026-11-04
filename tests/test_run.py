@@ -939,8 +939,7 @@ class TheRunnerSealsTheGuardsFiles(unittest.TestCase):
         os.makedirs(os.path.join(self.d, "scripts"))
         for n in ("reef-run.py", "reef_common.py"):
             shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.d, "scripts", n))
-        subprocess.run(["git", "-C", self.d, "add", "-A"], check=True)
-        subprocess.run(["git", "-C", self.d, "commit", "-qm", "scripts"], check=True)
+        git(self.d, "add", "-A"); git(self.d, "commit", "-qm", "scripts")   # the fixtures' git: an identity on a bare CI runner
         self.assertEqual(run(self.d, ["probe-deny"], "probe").returncode, 0)
 
     def test_a_session_that_rewrites_a_protected_key_stops_the_run(self):
@@ -954,6 +953,8 @@ class TheRunnerSealsTheGuardsFiles(unittest.TestCase):
     def test_a_session_that_changes_nothing_of_the_guards_runs_on(self):
         self.assertEqual(run(self.d, ["wait:job: x", "stop:done"]).returncode, 0)
 
+
+class RunnerJobs(unittest.TestCase):
     """Step 3 of docs/design/owner-hands-off.md (2026-10-31: twice a session ended its turn while its own background converge ran on,
     the headless process waited for it and the runner for the process — forty idle minutes): a long command is a runner job, started
     detached by `reef-run.py job <name> -- <command>`; the session ends its turn; the runner waits for the job and the next session
