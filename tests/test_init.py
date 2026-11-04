@@ -240,24 +240,32 @@ class FastGate(unittest.TestCase):
     """0.7.2 (ai-coach, 2026-10-24): gates.fast was always empty, so every commit ran the full suite (66 s). From package.json,
     joined with &&, each only when present: lint, typecheck (else tsc with typescript + tsconfig), vitest --changed."""
 
-    def fast_for(self, pkg, files=()):
+    def fast_for(self, pkg, files=(), full=False):
         d = tempfile.mkdtemp(prefix="reef-init-fast.")
         write(d, "package.json", json.dumps({"name": "demo", **pkg}))
         for rel in files:
             write(d, rel, "{}\n")
         subprocess.run(["git", "init", "-q", "-b", "develop", d], check=True)
         self.assertEqual(init(d).returncode, 0)
-        return json.loads(read(d, ".reef/config.json"))["gates"]["fast"]
+        return json.loads(read(d, ".reef/config.json"))["gates"]["fast" if not full else "full"]
 
     def test_an_ai_coach_shaped_package_and_a_bare_one(self):
         self.assertEqual(self.fast_for({"scripts": {"test": "vitest run", "typecheck": "tsc --noEmit", "build": "next build"},
                                         "devDependencies": {"vitest": "3", "typescript": "5"}}, files=("tsconfig.json",)),
-                         "npm run typecheck && npx vitest run --changed")
+                         "npm run typecheck && npx vitest run --changed --exclude '**/.reef/**'")
         self.assertEqual(self.fast_for({"scripts": {"test": "echo t"}}), "")
+
+    def test_vitest_never_runs_a_row_worktrees_tests(self):
+        # the live Node run (2026-11-04): a row's worktree lives in .reef/worktrees/ inside the repository, and vitest's default
+        # exclude does not cover it — a failing test planted in a worktree turned the main checkout's `npm test` red
+        vitest = {"scripts": {"test": "vitest run"}, "devDependencies": {"vitest": "3"}}
+        self.assertEqual(self.fast_for(vitest, full=True), "npm test -- --exclude '**/.reef/**'")
+        self.assertEqual(self.fast_for(vitest), "npx vitest run --changed --exclude '**/.reef/**'")
+        self.assertEqual(self.fast_for({"scripts": {"test": "jest"}}, full=True), "npm test", "another runner: its own flags, never vitest's")
 
     def test_each_part_only_when_present_and_never_an_invented_script(self):
         self.assertEqual(self.fast_for({"scripts": {"test": "t", "lint": "eslint .", "typecheck": "tsc --noEmit"}, "devDependencies": {"vitest": "3"}}),
-                         "npm run lint && npm run typecheck && npx vitest run --changed")
+                         "npm run lint && npm run typecheck && npx vitest run --changed --exclude '**/.reef/**'")
         self.assertEqual(self.fast_for({"scripts": {"test": "t"}, "devDependencies": {"typescript": "5"}}, files=("tsconfig.json",)), "npx tsc --noEmit")
         self.assertEqual(self.fast_for({"scripts": {"test": "t"}, "devDependencies": {"typescript": "5"}}), "", "typescript without a tsconfig: nothing for types")
         self.assertEqual(self.fast_for({"scripts": {"test": "jest", "check": "tsc"}, "devDependencies": {"jest": "29"}}), "", "a `check` script is not a known part")
@@ -454,7 +462,7 @@ class ReleaseOnlyCi(unittest.TestCase):
         write(d, "package.json", json.dumps({"name": "late", "scripts": {"test": "vitest run", "build": "next build"}}))
         r = init(d)
         cfg = json.loads(read(d, ".reef/config.json"))
-        self.assertEqual(cfg["gates"]["full"], "npm test", r.stdout)
+        self.assertEqual(cfg["gates"]["full"], "npm test -- --exclude '**/.reef/**'", r.stdout)
         self.assertEqual(cfg["gates"]["extra"], {"build": "npm run build"})
         self.assertEqual(cfg["worktree"]["setup"], "npm ci")
         self.assertIn(".reef/config.json (keys added)", r.stdout)

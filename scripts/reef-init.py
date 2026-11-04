@@ -119,6 +119,7 @@ STACK_OPINIONS = {"node": "node.md", "python": "python.md", "rust": "rust.md", "
 GITIGNORE_LINES = [".reef/worktrees/", ".reef/proposed/", ".reef/ci-local/", ".reef/evidence/", ".reef/approvals/", ".reef/review/",
                    ".reef/verifying/", ".reef/inflight/", ".reef/loop.json", ".reef/status.html", ".reef/cost/", ".reef/graph/", "tasks/.plan-review.json", ".env",
                    ".reef/hunt/", ".reef/run/", ".reef/questions.md", ".reef/night/", ".reef/queue.json", ".reef/queue-view.md", "scripts/__pycache__/", ".reef/recalibration/"]   # .reef/recalibration/: the plan's proposals. .reef/run/: reef-run's gate, log and lock; questions.md: the owner's open questions (the handoff reads it). .reef/hunt/: the hunter's own reports: evidence like .reef/ci-local/ (2026-10-18: 12 untracked files in the trial's status)
+VITEST_SKIP = "--exclude '**/.reef/**'"   # appended to vitest's default excludes: the row worktrees' tests are never this tree's
 STACK_IGNORE = {"python": ["__pycache__/", "*.egg-info/", ".pytest_cache/"], "node": ["node_modules/"]}   # 2026-11-03: setup's own output
 VERSION = "0.7.4"   # written to .reef/version; absent = a 0.5 project (every 0.6 check warns instead of failing)
 MAKEFILE_TARGET = "\nsetup: ## git hooks (once per clone) — reef\n\tgit config core.hooksPath .githooks\n\tchmod +x .githooks/*\n"
@@ -154,8 +155,10 @@ def detect_stack(root):
             fast.append("npm run typecheck")
         elif "typescript" in deps and has("tsconfig.json"):
             fast.append("npx tsc --noEmit")
+        # the live Node run (2026-11-04): a row's worktree lives under .reef/worktrees/ in the repository and vitest's default
+        # exclude does not cover it — the main checkout's `npm test` ran every in-flight row's tests (pytest skips dot folders)
         if "vitest" in deps:
-            fast.append("npx vitest run --changed")
+            fast.append(f"npx vitest run --changed {VITEST_SKIP}")
         facts["fast"] = " && ".join(fast)
         # a generator the node profile names (scripts/reef-stacks.json `generate`) when the project depends on its tool
         with open(os.path.join(PLUGIN, "scripts", "reef-stacks.json"), encoding="utf-8") as f:
@@ -172,7 +175,8 @@ def detect_stack(root):
         facts["fresh_build"] = next(({"output": f["output"], "run": f["run"]} for f in node_profile.get("fresh") or []
                                      if any(d in deps for d in f.get("when_deps") or []) and (not f.get("needs_script") or f["needs_script"] in scripts)), None)
         facts.update(stack="node", ecosystem="npm", install="npm ci",
-                     test="npm test" if "test" in scripts else "",
+                     test=("npm test" + (f" -- {VITEST_SKIP}" if re.fullmatch(r"vitest(\s[^&|;<>]*)?", str(scripts.get("test") or "").strip()) else ""))
+                     if "test" in scripts else "",
                      build="npm run build" if "build" in scripts else "",
                      name=str(pkg.get("name") or facts["name"]),
                      setup_steps="      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n          cache: npm\n      - run: npm ci --no-audit --no-fund\n")
