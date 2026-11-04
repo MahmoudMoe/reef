@@ -1392,3 +1392,20 @@ class The16HexFallbackLastsOneRelease(unittest.TestCase):
         pc = load_script("reef-plan-check.py")
         self.assertFalse(pc.record_binds({"digest16": "a" * 16}, "a" * 64), "drop record_binds' 16-hex fallback (and this test)")
 
+
+
+class AnExtensionlessPythonScriptIsNamedWithItsInterpreter(unittest.TestCase):
+    def test_every_command_span_starts_with_python3(self):
+        """2026-11-03/04 (the live run, then an adopted project): a skill wrote `scripts/reef-merge-base`, a Python script without
+        an extension, and the session ran it with `sh` — a failed step each time. A code span in a skill or an agent that names
+        one of these scripts starts with `python3`."""
+        import glob
+        names = sorted(os.path.basename(f) for f in glob.glob(os.path.join(ROOT, "scripts", "reef-*"))
+                       if "." not in os.path.basename(f) and "python" in open(f, encoding="utf-8").readline())
+        self.assertIn("reef-merge-base", names)
+        bare = re.compile(r"`(?:sh )?scripts/(" + "|".join(map(re.escape, names)) + r")\b")
+        hits = []
+        for f in glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md")) + glob.glob(os.path.join(ROOT, "agents", "*.md")):
+            for i, line in enumerate(open(f, encoding="utf-8"), 1):
+                hits += [f"{os.path.relpath(f, ROOT)}:{i} {m.group(0)}" for m in bare.finditer(line)]
+        self.assertEqual(hits, [], "name the interpreter: `python3 scripts/<name>`")
