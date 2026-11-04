@@ -314,10 +314,8 @@ def planned_under_06(stamp, feat):
 
 def record_binds(rec, digest):
     """A record binds the plan whose full digest it carries: 16 hex are a 64-bit prefix an agent writing both plans can
-    collide (~2^32 tries). A record without `digest` (written before 0.7.4) is read at its 16 hex for this release only."""
-    if "digest" in rec:
-        return str(rec["digest"]) == digest
-    return str(rec.get("digest16", "")) == digest[:16]
+    collide (~2^32 tries). A record without `digest` (written before 0.7.4, read at 16 hex for that release only) binds nothing."""
+    return "digest" in rec and str(rec["digest"]) == digest
 
 
 def bound_to(rec):

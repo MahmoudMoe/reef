@@ -133,7 +133,7 @@ class SetupProof(unittest.TestCase):
         self.assertEqual(pc.returncode, 0, pc.stdout)
         digest = subprocess.run([sys.executable, os.path.join(feat, "scripts", "reef-plan-check.py"), feat, "--digest", "--feature", "demo-row-one"],
                                 capture_output=True, text=True).stdout.split()[-1]
-        write(self.main, ".reef/approvals/demo-row-one.json", json.dumps({"digest16": digest[:16], "approved_at": "2026-10-28T00:00:00Z"}))
+        write(self.main, ".reef/approvals/demo-row-one.json", json.dumps({"digest16": digest[:16], "digest": digest, "approved_at": "2026-10-28T00:00:00Z"}))
         env = dict(os.environ, PATH="/nonexistent-gh:" + os.environ["PATH"])
         row = lambda: json.loads(subprocess.run([sys.executable, ROW, "state", "1", "--json", "--repo", self.main], capture_output=True, text=True, env=env).stdout)
         s = row()

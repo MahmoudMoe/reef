@@ -155,7 +155,8 @@ class _Forge(QI.Base):
         r = subprocess.run([sys.executable, pc, self.d], capture_output=True, text=True)   # the stamp, as /reef-plan leaves it
         self.assertEqual(r.returncode, 0, r.stdout)
         r = subprocess.run([sys.executable, pc, self.d, "--digest", "--feature", "exact-totals"], capture_output=True, text=True)
-        self.digest = r.stdout.split()[-1][:16]
+        self.digest_full = r.stdout.split()[-1]
+        self.digest = self.digest_full[:16]
 
     def env(self, **extra):
         e = dict(os.environ, PATH=self.bin + os.pathsep + os.environ.get("PATH", ""), GH_STATE=self.state, GH_MODE="ok", **extra)
@@ -187,7 +188,7 @@ class Labels(_Forge):
         self.assertNotIn("reef-ready", self.labels(), "the trigger label is consumed")
         os.makedirs(os.path.join(self.d, ".reef", "approvals"), exist_ok=True)
         with open(os.path.join(self.d, ".reef", "approvals", "exact-totals.json"), "w") as f:
-            json.dump({"digest16": self.digest, "approved_at": "2026-10-26T00:00:00Z"}, f)
+            json.dump({"digest16": self.digest, "digest": self.digest_full, "approved_at": "2026-10-26T00:00:00Z"}, f)
         r = self.q("label-state", "3")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("reef-building", self.labels()); self.assertNotIn("reef-waiting-owner", self.labels())

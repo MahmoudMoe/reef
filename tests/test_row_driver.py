@@ -130,7 +130,7 @@ class _Row(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         r = subprocess.run([sys.executable, pc, self.main, "--digest", "--feature", FEATURE], capture_output=True, text=True)
         digest = r.stdout.split()[-1]
-        write(self.main, f".reef/approvals/{FEATURE}.json", json.dumps({"digest16": digest[:16], "approved_at": "2026-10-26T00:00:00Z"}))
+        write(self.main, f".reef/approvals/{FEATURE}.json", json.dumps({"digest16": digest[:16], "digest": digest, "approved_at": "2026-10-26T00:00:00Z"}))
 
     def g(self, *args):
         return subprocess.run([sys.executable, os.path.join(self.main, "scripts", "reef-graph-run.py"), *args, "--repo", self.main],

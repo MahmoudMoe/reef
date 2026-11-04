@@ -78,7 +78,7 @@ def approve(d, feature):
     digest = r.stdout.split()[-1]
     os.makedirs(os.path.join(d, ".reef", "approvals"), exist_ok=True)
     with open(os.path.join(d, ".reef", "approvals", f"{feature}.json"), "w") as f:
-        json.dump({"digest16": digest[:16], "approved_at": "2026-10-16T00:00:00Z"}, f)
+        json.dump({"digest16": digest[:16], "digest": digest, "approved_at": "2026-10-16T00:00:00Z"}, f)
     # and reviewed: the plan reviewer's PASS, recorded the way the skill records it (0.7)
     r = subprocess.run([sys.executable, RECORD, "plan-review", feature, "PASS", "--root", d], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
@@ -301,7 +301,7 @@ class HumanOnlyApproval(unittest.TestCase):
         self.assertRegex(line(), r"· changed since your approval on \d{4}-\d\d-\d\d: 007-demo\.md$")
         # a record from before this field: the line says so instead of guessing
         with open(os.path.join(self.d, ".reef", "approvals", "demo.json"), "w") as f:
-            json.dump({"digest16": digest[:16], "approved_at": "2026-10-19T00:00:00Z"}, f)
+            json.dump({"digest16": digest[:16], "digest": digest, "approved_at": "2026-10-19T00:00:00Z"}, f)
         self.assertIn("approved 2026-10-19, before this line recorded files: read the plan in full", line())
 
     def test_the_record_binds_the_full_digest_not_its_16_hex(self):
@@ -327,7 +327,7 @@ class HumanOnlyApproval(unittest.TestCase):
             json.dump({"digest16": digest[:16], "digest": "", "approved_at": "2026-10-31T00:00:00Z"}, f)
         self.assertEqual(plan_check(self.d, "--verify-stamp", "--feature", "demo").returncode, 1, "an empty digest binds nothing")
         with open(rec, "w") as f:
-            json.dump({"digest16": digest[:16], "approved_at": "2026-10-19T00:00:00Z"}, f)
+            json.dump({"digest16": digest[:16], "digest": digest, "approved_at": "2026-10-19T00:00:00Z"}, f)
         self.assertEqual(plan_check(self.d, "--verify-stamp", "--feature", "demo").returncode, 0, "an older record (16 hex only) works for one release")
 
     def test_two_plans_sharing_the_16_hex_approve_neither(self):
@@ -477,7 +477,7 @@ class PlanReviewVerdictIsARecord(unittest.TestCase):
         digest = plan_check(d, "--digest", "--feature", "demo").stdout.split()[-1]
         os.makedirs(os.path.join(d, ".reef", "approvals"), exist_ok=True)
         with open(os.path.join(d, ".reef", "approvals", "demo.json"), "w") as f:
-            json.dump({"digest16": digest[:16], "approved_at": "2026-10-16T00:00:00Z"}, f)
+            json.dump({"digest16": digest[:16], "digest": digest, "approved_at": "2026-10-16T00:00:00Z"}, f)
         r = plan_check(d, "--verify-stamp", "--feature", "demo")
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn("review: MISSING for 'demo'", r.stdout)
@@ -515,7 +515,7 @@ class PlanReviewVerdictIsARecord(unittest.TestCase):
         plan_check(d)
         approve_digest = plan_check(d, "--digest", "--feature", "demo").stdout.split()[-1]
         with open(os.path.join(d, ".reef", "approvals", "demo.json"), "w") as f:
-            json.dump({"digest16": approve_digest[:16], "approved_at": "2026-10-16T00:00:00Z"}, f)
+            json.dump({"digest16": approve_digest[:16], "digest": approve_digest, "approved_at": "2026-10-16T00:00:00Z"}, f)
         r = plan_check(d, "--verify-stamp", "--feature", "demo")
         self.assertEqual(r.returncode, 1)
         self.assertIn("review: STALE", r.stdout)
@@ -525,7 +525,7 @@ class PlanReviewVerdictIsARecord(unittest.TestCase):
         dg = plan_check(d2, "--digest", "--feature", "lite").stdout.split()[-1]
         os.makedirs(os.path.join(d2, ".reef", "approvals"), exist_ok=True)
         with open(os.path.join(d2, ".reef", "approvals", "lite.json"), "w") as f:
-            json.dump({"digest16": dg[:16], "approved_at": "2026-10-16T00:00:00Z"}, f)
+            json.dump({"digest16": dg[:16], "digest": dg, "approved_at": "2026-10-16T00:00:00Z"}, f)
         r = plan_check(d2, "--verify-stamp", "--feature", "lite")
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("review: not required", r.stdout)

@@ -268,7 +268,7 @@ class ContractRecordsBindTheFullDigest(unittest.TestCase):
         self.assertIn("changed since the owner approved it", why)
         del rec["digest"]
         json.dump(rec, open(os.path.join(d, ".reef", "approvals", "day.json"), "w"))
-        self.assertTrue(rr.day_ok(d)[0], "a record from before 0.7.4 (no `digest`) is read at its 16 hex, this release only")
+        self.assertFalse(rr.day_ok(d)[0], "a record from before 0.7.4 (no `digest`) binds nothing since 0.7.5")
         N.approve_night(self, d)
         self.assertTrue(rr.night_ok(d)[0])
         self.twin(d, "night", rr.night_digest(d))
@@ -302,4 +302,4 @@ class ContractRecordsBindTheFullDigest(unittest.TestCase):
         N.L.write(d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": dg[:16], "digest": dg}))
         r = N.proxy(d, "share-links", rep)
         self.assertEqual(r.returncode, 1, r.stdout)
-        self.assertIn("predates 0.7.4", r.stdout, "plan authority by day needs the contract approved at its full digest")
+        self.assertIn("changed since the owner approved it", r.stdout, "plan authority by day needs the contract approved at its full digest")

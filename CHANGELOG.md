@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.5 (unreleased)
+
+- **Converge reads a test name that mentions a flag as a test.** In the live Node run on 2026-11-04, row 2's Proof cells were vitest names for a CLI: `prints empty for bare --slug`, `counts words when --slug is not exactly argv[0]`. Converge read the ` --slug` as a command flag, ran the names as shell (`sh: prints: command not found`), and reported 4 of 5 proofs missing. That cost a proxy ruling, a plan amendment and a re-approval. Now a cell is a command only when its head is a path, an assignment, `!` or a runner word (`vitest`, `jest`, `tsc`, `echo` and `printf` joined the list), or when it chains with `&&`, `||`, `|`, `;`, `$(` or `${`. A flag, `=` or `<>` inside a sentence is part of the name.
+
+- **A record binds only its full digest.** 0.7.4 read an approval or review record that carries only `digest16` (written before 0.7.4) at its 16 hex, for that release only. That fallback is gone: such a record binds nothing, and its plan is approved again at its current digest. 16 hex are a 64-bit prefix that an agent writing both plans could collide in about 2^32 tries.
+
 ## 0.7.4 — hands off: the autopilot and its sleep, the screen, Mahmoud as CTO — then three stress rounds and a live run on GitHub, every finding fixed
 
 - **Released** (2026-11-04). plugin.json, the marketplace, reef-init's version, the README status, the site and the manual

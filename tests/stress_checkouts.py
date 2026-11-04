@@ -54,7 +54,7 @@ def approve_wt(d, w, feature):
     r = subprocess.run([sys.executable, pc, w], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout
     digest = subprocess.run([sys.executable, pc, w, "--digest", "--feature", feature], capture_output=True, text=True).stdout.split()[-1]
-    write(d, f".reef/approvals/{feature}.json", json.dumps({"digest16": digest[:16], "approved_at": "2026-10-16T00:00:00Z"}))
+    write(d, f".reef/approvals/{feature}.json", json.dumps({"digest16": digest[:16], "digest": digest, "approved_at": "2026-10-16T00:00:00Z"}))
 
 
 def plan_only_in_worktree(done=False):

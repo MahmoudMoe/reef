@@ -1379,21 +1379,6 @@ class NoAliasLayer(unittest.TestCase):
         self.assertEqual(SizeBudget.orphan_scripts(), [], "nothing else to remove")
 
 
-class The16HexFallbackLastsOneRelease(unittest.TestCase):
-    """0.7.4: an approval or review record binds the plan's full digest; one written before carries only `digest16`
-    and is read at 16 hex for that release only. Past 0.7.4 this goes red until the fallback in record_binds is gone."""
-
-    def test_the_fallback_is_gone_after_0_7_4(self):
-        version = tuple(int(x) for x in re.match(r"(\d+)\.(\d+)\.(\d+)", json.loads(read(".claude-plugin", "plugin.json"))["version"]).groups())
-        if version <= (0, 7, 4):
-            self.skipTest("0.7.4 still reads a record without `digest` at its 16 hex")
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from _fixtures import load_script
-        pc = load_script("reef-plan-check.py")
-        self.assertFalse(pc.record_binds({"digest16": "a" * 16}, "a" * 64), "drop record_binds' 16-hex fallback (and this test)")
-
-
-
 class AnExtensionlessPythonScriptIsNamedWithItsInterpreter(unittest.TestCase):
     def test_every_command_span_starts_with_python3(self):
         """2026-11-03/04 (the live run, then an adopted project): a skill wrote `scripts/reef-merge-base`, a Python script without
