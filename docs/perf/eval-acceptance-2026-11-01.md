@@ -1,6 +1,6 @@
 # Acceptance-reviewer eval — 2026-11-01
 
-Step 1 of the Squid adoption plan: the row's one reviewer (`agents/acceptance.md`) gets an eval, so a change to it or to
+Step 1 of the adoption plan of 2026-11-01: the row's one reviewer (`agents/acceptance.md`) gets an eval, so a change to it or to
 its model can be measured (decision 4). `python3 tests/eval/reef-eval run acceptance --k 3` on
 `tests/eval/corpus/acceptance.json`, each run `claude -p` headless with this plugin loaded and the agent file appended,
 in a fresh repository whose feature is a committed branch (`feat/csv-export`) over `main`. Scored by `reef-eval score`.

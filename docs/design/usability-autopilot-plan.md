@@ -27,22 +27,9 @@ counter; three features building in parallel; the release to `main` (security pa
 
 ## 2. What the field does (October 2026)
 
-- **quantum-loop** (closest shape): brainstorm → PRD → DAG in one `quantum.json` → `ql-execute`; an **external
-  shell runner** (`quantum-loop.sh --max-iterations --parallel`) spawns a fresh Claude Code instance per iteration, so
-  context never needs a human reset; stories have five states and a `staleThresholdMinutes` auto-reset; per-story
-  worktrees under `.ql-wt/`; waves exclude stories sharing file paths; auto-generated `docs/post-mortems/`. No token
-  accounting. ([repo](https://github.com/andyzengmath/quantum-loop))
-- **Ralph Wiggum** (official plugin): a Stop hook re-feeds the prompt until done; progress in files and git; fresh
-  context on restart; `--max-iterations`; run it sandboxed. ([technique](https://claudefa.st/blog/guide/mechanics/ralph-wiggum-technique),
-  [VentureBeat](https://venturebeat.com/ai/how-ralph-wiggum-went-from-the-simpsons-to-the-biggest-name-in-ai-right-now))
-- **claude-code-harness**: `/harness-progress` renders a **progress page** that refreshes every 60 s, with an
-  acceptance view (criteria passed / failed / unverified); `--resume latest`; a documented small first request as
-  onboarding. ([repo](https://github.com/Chachamaru127/claude-code-harness))
-- **GitHub spec-kit**: constitution → specify → plan → tasks → implement; 30+ integrations, v0.10 hooks per event;
-  ~111k stars — adoption through simplicity and docs, not through guards. ([overview](https://themenonlab.blog/blog/github-spec-kit-spec-driven-development-ai-coding))
-- **BMAD v6**: personas and story files; "scale-adaptive planning" (ceremony sized to the work). ([guide](https://redreamality.com/garden/notes/bmad-method-guide/))
-- **Superpowers**: brainstorm → write-plan → execute-plan with review checkpoints; skills activate on their own;
-  worktree isolation and TDD. ([install docs](https://www.mintlify.com/obra/superpowers/installation/claude-code))
+- **Other agent workflows**: external runners that start a fresh session per iteration; Stop hooks that
+  re-feed the prompt until done; progress pages; plan → tasks → implement pipelines; ceremony sized to the work;
+  worktree isolation and TDD.
 - **Claude Code itself (2.1.29x–2.1.302)**: dynamic workflows (`/workflows`: a JS script orchestrating many
   subagents in the background, resumable), agent teams, `/loop` paced by `ScheduleWakeup`, `-w`/`--worktree`
   sessions with `WorktreeCreate`/`WorktreeRemove` hooks, `autoCompactWindow` per subagent, idle compaction,
@@ -89,13 +76,13 @@ approval. Add: when several plans reach the gate together, ONE question with "Ap
 plan. Prose. Measure: owner questions per planned row ≤ 3.
 
 **A7. A guided first run.** `/reef:start`: on an empty repo, runs init with a tiny sample row ("a page that says
-hello") through the whole loop in one sitting with explanations at each stop — the way claude-code-harness
-documents a small first request, but driven. Prose + a sample. Measure: a new owner reaches a merged row in one
+hello") through the whole loop in one sitting with explanations at each stop — the way other harnesses
+document a small first request, but driven. Prose + a sample. Measure: a new owner reaches a merged row in one
 session without asking for help.
 
 ### Track B — autopilot maturity
 
-**B1. An external runner (the owner is not the restart button).** `scripts/reef-run` (Ralph-style): loops
+**B1. An external runner (the owner is not the restart button).** `scripts/reef-run` (an external loop): loops
 `claude -p "/reef:loop" --permission-mode auto` with a fresh context per iteration, `--max-iterations`, reading
 `.reef/loop.json` between iterations: stops on `stop`, on a `wait` that names the owner (a question, USER ACTION
 REQUIRED), on the cap; otherwise re-enters from `HANDOFF.md`. Each iteration is one session, so the 150k ceiling
@@ -125,7 +112,7 @@ question. Mechanism. Measure: found rows open ≤ planned rows at the start of e
 journal; `caps.task_growth` warns in the Stop hook when a task exceeds it. Mechanism. Measure: the number exists for
 every merged task; the cap comes from the median × 2 after ten tasks, not from a guess.
 
-**B7. Ceremony sized to the row.** Tiers exist; check the defaults do what BMAD calls scale-adaptive: a `light`
+**B7. Ceremony sized to the row.** Tiers exist; check the defaults size the ceremony to the work: a `light`
 row has no hunter and no semantic plan review (true today), a `full` row has no hunter on the plan (true), and a
 `found` row whose fix is one file defaults to `light` unless the path classes say otherwise. Mechanism (`reef-tier`).
 Measure: planning cost per `found` row under 10k.

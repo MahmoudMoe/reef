@@ -282,8 +282,7 @@ class AssessNeedsInit(unittest.TestCase):
 
 
 class LeastCodeLadder(unittest.TestCase):
-    """Step 2 of docs/review/squid-adoption-plan-2026-11-01.md (Squid agents/software-engineer.md:92-105 and
-    agents/pr-reviewer.md:115): the implementer stops at the first rung that holds, and the one reviewer names code the
+    """Step 2 of the adoption plan of 2026-11-01: the implementer stops at the first rung that holds, and the one reviewer names code the
     task did not need as a NIT — never a blocker, so the four blocker kinds stay as they are."""
 
     def test_the_implementer_climbs_the_ladder_without_cutting_safety(self):
@@ -313,7 +312,7 @@ class InitKeepsYours(unittest.TestCase):
 
 class GrillAsksTheLoadBearingQuestionFirst(unittest.TestCase):
     def test_a_question_set_opens_with_the_answer_that_settles_the_most_others(self):
-        # 2026-11-01, docs/review/squid-adoption-plan-2026-11-01.md step 4 (from Squid's grilling: the frontier, most
+        # 2026-11-01, step 4 of the adoption plan of 2026-11-01 (the frontier, most
         # load-bearing first): an answer that settles other questions removes them from the row's two-set budget
         skill = read("skills", "reef-plan", "SKILL.md")
         grill = skill[skill.index("## 1. Grill"):skill.index("## 1a.")]

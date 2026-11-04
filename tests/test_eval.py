@@ -71,7 +71,7 @@ class Parser(unittest.TestCase):
         self.assertEqual(verdict, "PASS")
 
     def test_a_nit_is_caught_only_on_a_pass_naming_every_truth_nit(self):
-        # step 2 of docs/review/squid-adoption-plan-2026-11-01.md: an over-built but correct diff is a NIT, never a blocker
+        # step 2 of the adoption plan of 2026-11-01: an over-built but correct diff is a NIT, never a blocker
         entry = {"id": "x", "truth": {"verdict": "PASS", "blockers": [], "nits": ["abstract|registry"]}}
         self.assertTrue(self.ev.judge(entry, "NIT: unused Exporter abstract base\nVERDICT: GREEN\n")["nit_caught"])
         self.assertFalse(self.ev.judge(entry, "NIT: README typo\nVERDICT: GREEN\n")["nit_caught"], "the wrong NIT")

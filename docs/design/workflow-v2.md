@@ -2,8 +2,7 @@
 
 Written 2026-10-17, after the first full day of Reef on a real project (qassimha, batch 2). Three planning sessions
 (12:00 → 18:19, three `/clear`s) produced three approved plans and no code. The transcript shows where the hours
-went, and the field review (`usability-autopilot-plan.md` §2, plus apexyard, Superpowers, spec-kit, OpenSpec, BMAD,
-GSD, ccpm) shows what the rest of the world does. This is the workflow that follows from both, the decisions behind it,
+went, and the field review (`usability-autopilot-plan.md` §2, plus other agent workflows) shows what the rest of the world does. This is the workflow that follows from both, the decisions behind it,
 and the phases that deliver it. Each phase has a measure; the measure, not the impression, re-scores it.
 
 ## 1. What the first day measured
@@ -28,7 +27,7 @@ Not in the measurement: the owner's own latency between question sets; it is rea
 3. **The truth is in the code, not the prose.** Two hunter rounds on a plan, enforced by the recorder; a hole still
    open after that is the owner's decision at the gate or an AC the code proves. The hunter's pass on the finished
    code stays.
-4. **Small tasks.** A task is one slice a verifier judges in one sitting: `plan.max_acs` (8). Superpowers plans 2–5
+4. **Small tasks.** A task is one slice a verifier judges in one sitting: `plan.max_acs` (8). Other workflows plan 2–5
    minute tasks; 1302 carried 21 criteria.
 5. **The graph runs outside the chat** (phase 3): the orchestrator supervises summaries; it is not a queue that
    receives one agent result per 90k-context turn.
