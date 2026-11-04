@@ -146,7 +146,7 @@ class PentestOnDemand(unittest.TestCase):
 class PlatformsSaidPlainly(unittest.TestCase):
     def test_the_readme_the_site_and_the_manual_say_macos_linux_or_wsl2(self):
         # 0.7 (2026-10-20): native Windows cannot run the guard; every page a new user reads says so, in the requirements
-        self.assertIn("**macOS or Linux. On Windows, run Claude Code inside WSL2.**", read("README.md"))
+        self.assertIn("**macOS or Linux. On Windows, run Claude Code inside WSL2.**", read("docs", "reference.md"))
         self.assertIn("macOS or Linux. On Windows, run Claude Code inside WSL2.", read("docs", "index.html"))
         self.assertIn("WSL2", read("docs", "manual", "ar", "index.html"))
 
@@ -165,7 +165,7 @@ class DocsForTwoHosts(unittest.TestCase):
     host. OpenCode's status names what is proven: the adapter live, no feature built on it yet (2026-10-23)."""
 
     def table(self, heading):
-        md = read("README.md")
+        md = read("docs", "reference.md")
         part = md.split(f"\n## {heading}\n", 1)[1].split("\n## ", 1)[0]
         return [[c.strip() for c in l.strip().strip("|").split("|")] for l in part.splitlines() if l.startswith("|") and "|---" not in l]
 
@@ -176,7 +176,7 @@ class DocsForTwoHosts(unittest.TestCase):
         self.assertEqual(status, ["supported", "early: built and verified live; no feature built on it yet"], "OpenCode's status says what is and is not proven")
 
     def test_every_ledger_row_says_which_host_enforces_it(self):
-        md = read("README.md")
+        md = read("docs", "reference.md")
         ledger = md.split("| Rule | Enforced by | Host | Layer |", 1)[1].split("</details>", 1)[0]
         rows = [l for l in ledger.splitlines() if l.startswith("| ")]
         self.assertGreaterEqual(len(rows), 40)
@@ -193,9 +193,9 @@ class DocsForTwoHosts(unittest.TestCase):
         site = read("docs", "index.html")
         self.assertIn('id="hosts-table"', site)
         self.assertIn('<a href="#hosts">Hosts</a>', site)
-        self.assertIn("https://github.com/MahmoudMoe/reef#hosts", site, "the fallback when the fetch fails")
+        self.assertIn("https://github.com/MahmoudMoe/reef/blob/main/docs/reference.md#hosts", site, "the fallback when the fetch fails")
         ar = read("docs", "manual", "ar", "index.html")
-        self.assertIn("https://github.com/MahmoudMoe/reef#hosts", ar)
+        self.assertIn("https://github.com/MahmoudMoe/reef/blob/main/docs/reference.md#hosts", ar)
         self.assertIn("OpenCode", ar)
 
 
@@ -252,7 +252,7 @@ class NightDocs(unittest.TestCase):
     after #108 made /reef-night start it; they now say how the night works."""
 
     def test_the_three_surfaces_say_reef_night_starts_it_and_how_to_follow_it(self):
-        readme = read("README.md")
+        readme = read("docs", "reference.md")
         self.assertIn("`/reef-night` starts the runner itself, detached from the session", readme)
         self.assertIn("`python3 scripts/reef-run.py status` shows it from anywhere", readme)
         self.assertIn("An approval holds 16 hours", readme)
@@ -325,7 +325,7 @@ class ProposalsUnderTheGitDir(unittest.TestCase):
     def test_every_reader_facing_text_names_the_git_dir_never_the_work_tree(self):
         # 0.7.3 (ai-coach, 2026-10-25): a project test that walks the disk counted Reef's .reef/proposed/ files as its own;
         # the proposals moved under <git dir>/reef/, and every text that tells a reader where to look says so
-        for parts in (("skills", "reef-init", "SKILL.md"), ("README.md",), ("templates", "project", "reef-README.md"),
+        for parts in (("skills", "reef-init", "SKILL.md"), ("docs", "reference.md"), ("templates", "project", "reef-README.md"),
                       ("templates", "project", "day-zero.md"), ("docs", "index.html"), ("docs", "manual", "ar", "index.html")):
             text = read(*parts)
             self.assertIn(".git/reef/proposed/", text, "/".join(parts))
@@ -402,7 +402,7 @@ class OneReviewer(unittest.TestCase):
         self.assertLessEqual(len(agent.splitlines()), 60)
         with open(os.path.join(ROOT, "templates", "config.json"), encoding="utf-8") as f:
             self.assertNotIn("diff_review", json.load(f)["review"], "the key is gone with the step")
-        for p in (("skills", "reef-loop", "SKILL.md"), ("templates", "project", "AGENTS.md"), ("README.md",), ("skills", "reef-review", "SKILL.md"), ("docs", "manual", "ar", "index.html")):
+        for p in (("skills", "reef-loop", "SKILL.md"), ("templates", "project", "AGENTS.md"), ("README.md",), ("docs", "reference.md"), ("skills", "reef-review", "SKILL.md"), ("docs", "manual", "ar", "index.html")):
             self.assertNotIn("diff review", read(*p), "/".join(p))
             self.assertNotIn("diff_review", read(*p), "/".join(p))
         # the review (2026-10-26): the reviewer is told the head, the base branch, and what red or pending evidence means
@@ -726,7 +726,7 @@ class LedgerClasses(unittest.TestCase):
 
     def test_ledger_rows_name_a_script_of_their_class(self):
         headers = self.headers()
-        rows = [l for l in read("README.md").splitlines() if l.startswith("|") and "|---" not in l]
+        rows = [l for l in read("docs", "reference.md").splitlines() if l.startswith("|") and "|---" not in l]
         checked = 0
         for row in rows:
             cells = [c.strip() for c in row.strip("|").split("|")]
@@ -892,7 +892,7 @@ class WorkflowV3Docs(unittest.TestCase):
     the offered factory — each in its own register."""
 
     def test_the_readme_describes_the_v3_pipeline(self):
-        md = read("README.md")
+        md = read("docs", "reference.md")
         for needle in ("fast path", "critical path", "`.reef/evidence/<snapshot>.json`", "one reviewer", "the loop merges",
                        "`.reef/questions.md`", "reef-factory.yml", "reef-row.py", "Approve proxy by day at <digest16>?",
                        "`loop.rows_in_flight`", "`converge.test_cmd`"):
@@ -949,7 +949,7 @@ class FactorySkill(unittest.TestCase):
         tpl = read("templates", "project", "reef-factory.yml")
         self.assertIn("ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}", tpl)
         self.assertIn("CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}", tpl)
-        for parts in (("README.md",), ("docs", "index.html"), ("docs", "manual", "ar", "index.html")):
+        for parts in (("docs", "reference.md"), ("docs", "index.html"), ("docs", "manual", "ar", "index.html")):
             text = read(*parts)
             self.assertIn("/reef-factory", text, parts)
             self.assertIn("reef-ready", text, parts)
@@ -981,7 +981,7 @@ class EveryStopNamesItsCommand(unittest.TestCase):
         self.assertIn('"reef"', read("scripts", "reef-init.py"), "the entry point is copied to projects")
         for v in ("status", "doctor", "run", "night", "autopilot", "watch", "stop", "setup", "update", "factory", "cost"):
             self.assertIn(f'("{v}",', read("scripts", "reef"))
-        self.assertIn("`reef --all`", read("README.md"))
+        self.assertIn("`reef --all`", read("docs", "reference.md"))
         self.assertIn("<code>reef --all</code>", read("docs", "manual", "ar", "index.html"))
         self.assertIn("`reef run`", read("skills", "reef-run", "SKILL.md"))
 
@@ -1022,7 +1022,7 @@ class ImplementerNeverEditsATaskFile(unittest.TestCase):
         self.assertIn("voids the approval", text)
         self.assertIn("hand-back", text)
         # the security review: a ledger row per denial
-        ledger = read("README.md")
+        ledger = read("docs", "reference.md")
         self.assertIn("An implementer never edits the plan it builds", ledger)
 
 
@@ -1122,20 +1122,20 @@ class ThreeOrphansGone(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(ROOT, "scripts", name)), f"scripts/{name} is an orphan of the plan")
         self.assertTrue(os.path.isfile(os.path.join(ROOT, "tests", "eval", "reef-eval")), "reef-eval is a test tool now")
         self.assertFalse(os.path.exists(os.path.join(ROOT, "tests", "test_watch.py")))
-        pages = [os.path.join(ROOT, *p) for p in (("README.md",), ("docs", "index.html"), ("docs", "manual", "ar", "index.html"), ("docs", "design", "site-information-architecture.md"), ("tests", "run.sh"))]
+        pages = [os.path.join(ROOT, *p) for p in (("README.md",), ("docs", "reference.md"), ("docs", "index.html"), ("docs", "manual", "ar", "index.html"), ("docs", "design", "site-information-architecture.md"), ("tests", "run.sh"))]
         for d in ("skills", "agents", "hooks", "commands", "templates", "scripts"):   # the plan's own definition of an orphan: nothing there names it
             pages += [f for f in glob.glob(os.path.join(ROOT, d, "**", "*"), recursive=True) if os.path.isfile(f)]
         for f in pages:
             text = open(f, encoding="utf-8", errors="replace").read()
             for name in ("scripts/reef-watch", "reef-guard-profile", "scripts/reef-eval", "test_watch"):
                 self.assertNotIn(name, text, f"{os.path.relpath(f, ROOT)} still names {name}")
-        self.assertIn("tests/eval/reef-eval", read("README.md"))
-        self.assertIn("reef-run.py status", read("README.md"))
+        self.assertIn("tests/eval/reef-eval", read("docs", "reference.md"))
+        self.assertIn("reef-run.py status", read("docs", "reference.md"))
 
 
 class TheScreenIsDocumented(unittest.TestCase):
     def test_the_readme_and_the_manual_say_reef_alone_opens_the_screen_with_the_inbox(self):
-        readme = read("README.md")
+        readme = read("docs", "reference.md")
         self.assertIn("the inbox", readme)
         self.assertIn("`reef approve <row>`", readme)
         self.assertIn("`reef answer <row> \"<text>\"`", readme)
@@ -1166,8 +1166,8 @@ class AutopilotIsDelegationInEveryVoice(unittest.TestCase):
         self.assertIn("autopilot", read("agents", "mahmoud.md"))
         self.assertNotIn("every plan approval are `WAIT`", read("agents", "mahmoud.md"))
         self.assertIn("reef autopilot", read("skills", "reef-loop", "SKILL.md"))
-        self.assertIn("`reef autopilot` runs", read("README.md"))
-        self.assertIn("--autopilot", read("README.md"))
+        self.assertIn("`reef autopilot` runs", read("docs", "reference.md"))
+        self.assertIn("--autopilot", read("docs", "reference.md"))
 
 
 class OneFullRunPerRow(unittest.TestCase):
@@ -1370,7 +1370,7 @@ class NoAliasLayer(unittest.TestCase):
     def test_the_aliases_are_gone_and_no_text_names_one(self):
         self.assertEqual(sorted(os.listdir(os.path.join(ROOT, "commands"))), ["reef.md"], "the overview alone")
         self.assertIn("Reef overview", read("commands", "reef.md"))
-        pages = [os.path.join(ROOT, "README.md")] + [f for d in ("skills", "agents", "templates", "scripts", "hooks") for f in glob.glob(os.path.join(ROOT, d, "**", "*"), recursive=True) if os.path.isfile(f)]
+        pages = [os.path.join(ROOT, "README.md"), os.path.join(ROOT, "docs", "reference.md")] + [f for d in ("skills", "agents", "templates", "scripts", "hooks") for f in glob.glob(os.path.join(ROOT, d, "**", "*"), recursive=True) if os.path.isfile(f)]
         pages += [os.path.join(ROOT, "docs", "index.html"), os.path.join(ROOT, "docs", "manual", "ar", "index.html")]
         for f in pages:
             text = open(f, encoding="utf-8", errors="replace").read()
