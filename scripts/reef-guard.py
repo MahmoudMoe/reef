@@ -62,7 +62,7 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout as _main_checkout, read_config, read_hold, write_hold, HOLD_MINUTES, bump_dispatches, task_tier, process_alive, spec_row  # noqa: E402
+from reef_common import main_checkout as _main_checkout, read_config, read_hold, write_hold, HOLD_MINUTES, bump_dispatches, task_tier, process_alive, spec_row, GUARD_FILES, PROTECTED_KEYS  # noqa: E402
 
 # 0.7: native Windows has no fcntl locks, no SIGALRM deadline and no process groups, and the guard cannot run there.
 # Inside a Reef project it stops with the one sentence that helps; anywhere else it steps aside (the plugin's hook runs
@@ -128,9 +128,9 @@ COPY_HEADS = {"cp", "mv", "install", "rsync"}
 EVIDENCE_DENIAL = ("the main session does not write an agent's evidence ({path}): the agent writes its own file (the hand-back into "
                    "its worktree's .reef/ci-local/, a judge's report into the scratchpad) and the orchestrator copies it with cp. "
                    "Missing? Resume that agent (SendMessage) with 'write your report to <path>' — never type it from its message")
-GUARD_FILES = re.compile(r"(^|/)(scripts/reef([-_][^/]+)?|\.githooks/[^/]+|hooks/hooks\.json|\.reef/config\.json)$")   # 2026-10-28: scripts/reef, the owner's entry point, too
-PROTECTED_KEYS = ("roles", "caps", "gates", "tiers", "merge", "ci", "branches", "loop",   # merge/ci/branches/loop: v3 phase 4 — the merge gate's own switches
-                  "worktree")   # 2026-10-28: worktree.setup is a command scripts/reef-setup.py runs under the main checkout, unseen by this hook
+# GUARD_FILES (scripts/reef*, .githooks/*, hooks/hooks.json, .reef/config.json) and PROTECTED_KEYS (roles, caps, gates, tiers;
+# merge/ci/branches/loop, the merge gate's own switches; worktree, whose setup reef-setup.py runs unseen) live in reef_common:
+# the runner seals the same list after every session
 GH_TIMEOUT = float(os.environ.get("REEF_GH_TIMEOUT", "5"))
 PR_MERGE_API = re.compile(r"repos/([^/]+)/([^/]+)/pulls/(\d+)/merge")
 GOOD_VERDICTS = ("PASS", "GREEN", "APPROVED")

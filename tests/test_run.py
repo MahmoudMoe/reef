@@ -4,6 +4,7 @@ session. A fake `claude` on PATH plays the scripted sessions (one line of .fake-
 real `claude -p --output-format stream-json --verbose` sends (shapes taken from a real session, 2026-10-21)."""
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -51,6 +52,9 @@ elif kind == "job":   # the session starts a runner job (step 3) and records the
 elif kind == "flight":
     os.makedirs(os.path.join(os.getcwd(), ".reef", "inflight"), exist_ok=True)
     open(os.path.join(os.getcwd(), ".reef", "inflight", arg), "w").write("{}")
+elif kind == "edit-config":   # a session that rewrote a protected key through a script file (unseen by the guard)
+    cp = os.path.join(os.getcwd(), ".reef", "config.json"); c = json.load(open(cp)); c["gates"]["full"] = "true # tampered"
+    json.dump(c, open(cp, "w")); result = "edited"
 elif kind == "probe-deny": result = "reef-guard DENY: writing under .reef/approvals/ or .reef/review/ by hand"
 elif kind == "probe-write":
     os.makedirs(os.path.join(os.getcwd(), ".reef", "approvals"), exist_ok=True)
@@ -923,7 +927,33 @@ class TheSessionResumesAfterAShortJob(unittest.TestCase):
         self.assertEqual(calls(self.d), ["job:gate-4:1", "stop:done"], "a fresh session took the step")
 
 
-class RunnerJobs(unittest.TestCase):
+class TheRunnerSealsTheGuardsFiles(unittest.TestCase):
+    """The guard judges a command's shape: a script written to a file and then run changes what it likes, unseen (the live
+    run, 2026-11-03: worktree.setup was rewritten that way). The runner is outside every session's reach: it takes the guard
+    files' and the protected config keys' digest before each session and compares after; a change with no critical task in
+    flight stops the run on the owner, naming the files and the diff command."""
+
+    def setUp(self):
+        import shutil
+        self.d = project()
+        os.makedirs(os.path.join(self.d, "scripts"))
+        for n in ("reef-run.py", "reef_common.py"):
+            shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.d, "scripts", n))
+        subprocess.run(["git", "-C", self.d, "add", "-A"], check=True)
+        subprocess.run(["git", "-C", self.d, "commit", "-qm", "scripts"], check=True)
+        self.assertEqual(run(self.d, ["probe-deny"], "probe").returncode, 0)
+
+    def test_a_session_that_rewrites_a_protected_key_stops_the_run(self):
+        r = run(self.d, ["edit-config", "stop:done"])
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("changed the guard's own files", r.stdout + r.stderr)
+        self.assertIn(".reef/config.json gates", r.stdout + r.stderr)
+        self.assertRegex(r.stdout + r.stderr, r"git -C \S*" + re.escape(os.path.basename(self.d)) + r" diff [0-9a-f]{12} -- \.reef/config\.json")
+        self.assertEqual(calls(self.d)[-1:], ["edit-config"], "no session after the change")
+
+    def test_a_session_that_changes_nothing_of_the_guards_runs_on(self):
+        self.assertEqual(run(self.d, ["wait:job: x", "stop:done"]).returncode, 0)
+
     """Step 3 of docs/design/owner-hands-off.md (2026-10-31: twice a session ended its turn while its own background converge ran on,
     the headless process waited for it and the runner for the process — forty idle minutes): a long command is a runner job, started
     detached by `reef-run.py job <name> -- <command>`; the session ends its turn; the runner waits for the job and the next session

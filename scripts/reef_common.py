@@ -721,3 +721,46 @@ def release_fix(root, cfg):
         return ""
     push = " && git push -u origin " + rel if not remote_fix(root) else ""
     return f"git branch {rel} $(git rev-list --max-parents=0 {base}){push}"
+
+
+# the guard's own files and config keys: reef-guard.py refuses an agent's write to them, the runner seals them (one list)
+GUARD_FILES = re.compile(r"(^|/)(scripts/reef([-_][^/]+)?|\.githooks/[^/]+|hooks/hooks\.json|\.reef/config\.json)$")
+PROTECTED_KEYS = ("roles", "caps", "gates", "tiers", "merge", "ci", "branches", "loop", "worktree")
+
+
+def guard_seal(root):
+    """{name: digest} of the guard's files in the main checkout and on the base branch, and of each protected config key —
+    what no session may change unless a critical task is in flight. The runner compares one before and after each session
+    (2026-11-04): the guard reads command shapes, so a script written to a file and run is seen here, after the fact."""
+    import hashlib
+    cfg = read_config(root)
+    seal = {f".reef/config.json {k}": json.dumps(cfg.get(k), sort_keys=True) for k in PROTECTED_KEYS}
+    base = str((cfg.get("branches") or {}).get("base") or "main")
+    r = subprocess.run(["git", "-C", root, "ls-tree", "-r", "--full-tree", base], capture_output=True, text=True)
+    for line in r.stdout.splitlines():
+        meta, _, path = line.partition("\t")
+        if GUARD_FILES.search(path) and not path.endswith("config.json"):
+            seal[f"{base}:{path}"] = meta.split()[-1]
+    for d in ("scripts", ".githooks", "hooks"):
+        folder = os.path.join(root, d)
+        for n in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+            rel = f"{d}/{n}"
+            if GUARD_FILES.search(rel) and os.path.isfile(os.path.join(folder, n)):
+                with open(os.path.join(folder, n), "rb") as f:
+                    seal[rel] = hashlib.sha256(f.read()).hexdigest()
+    return seal
+
+
+def critical_in_flight(root):
+    """A tier: critical task's in-flight marker in any checkout — the one case the guard lets an agent change its files."""
+    r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True)
+    for top in [l[9:].strip() for l in r.stdout.splitlines() if l.startswith("worktree ")] or [root]:
+        d = os.path.join(top, ".reef", "inflight")
+        for n in os.listdir(d) if os.path.isdir(d) else []:
+            try:
+                with open(os.path.join(d, n), encoding="utf-8") as f:
+                    if json.load(f).get("tier") == "critical":
+                        return True
+            except (OSError, ValueError, AttributeError):
+                continue
+    return False
