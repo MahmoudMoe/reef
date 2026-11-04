@@ -445,6 +445,29 @@ class Autopilot(unittest.TestCase):
         r = R.run(self.d, ["stop:x"], "--autopilot", "--night")
         self.assertEqual(r.returncode, 1); self.assertIn("one at a time", r.stderr)
 
+    def test_a_first_autopilot_seeds_both_files_and_never_prints_an_empty_question(self):
+        # the live Node run (2026-11-04): the first `reef autopilot` seeded reef/proxy.md but not reef/owner.md, the digest of the
+        # two was empty, and it printed `reef-approval.py --owner ""`
+        os.remove(os.path.join(self.d, "reef", "owner.md"))
+        mine = os.path.join(tempfile.mkdtemp(prefix="reef-home."), "owner.md")
+        with open(mine, "w") as f:
+            f.write("# The owner, everywhere\n")
+        env_ = dict(os.environ)
+        os.environ["REEF_OWNER_PROFILE"] = mine
+        try:
+            r = R.run(self.d, ["stop:x"], "--autopilot")
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertRegex(r.stderr + r.stdout, r'--owner "Approve proxy by day at [0-9a-f]{16}\?"')
+            self.assertTrue(os.path.isfile(os.path.join(self.d, "reef", "owner.md")), "seeded from the personal profile, as contract --day does")
+            os.remove(os.path.join(self.d, "reef", "owner.md"))
+            os.environ["REEF_OWNER_PROFILE"] = os.path.join(os.path.dirname(mine), "none.md")   # no profile anywhere
+            r = R.run(self.d, ["stop:x"], "--autopilot")
+            self.assertNotIn('--owner ""', r.stderr + r.stdout)
+            self.assertIn("reef/owner.md", r.stderr + r.stdout, "the one missing file is named")
+        finally:
+            os.environ.clear(); os.environ.update(env_)
+        self.assertEqual(R.calls(self.d), [], "no session without the contract")
+
     def test_a_decision_the_contract_covers_never_stops_the_runner(self):
         L.write(self.d, "reef/proxy.md", PROXY_MD)
         approve_day(self, self.d)
