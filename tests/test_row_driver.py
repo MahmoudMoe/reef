@@ -276,7 +276,7 @@ class RowSettle(_Row):
         r = self.g("settle", self.result([self.task_result("101"), self.task_result("102", closed=False)], head, stopped="task 102"))
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("FAIL 102: not closed", r.stdout)
-        self.assertIn("attempt counted: attempt=2/", r.stdout, "one attempt consumed; the line names the next")
+        self.assertIn("attempt counted: 1 of ", r.stdout, "one attempt consumed; the line names the next")
         self.assertIn("ROW 1 WAITS build", r.stdout)
         self.assertFalse(os.path.exists(os.path.join(self.main, ".reef", "review", f"{FEATURE}.json")))
         self.assertIn("attempts: 1", open(os.path.join(self.co, "reef", "features", FEATURE, "tasks", "102-second.md")).read())

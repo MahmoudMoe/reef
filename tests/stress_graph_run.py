@@ -161,7 +161,7 @@ class ReRuns(unittest.TestCase):
         G.g(d, "generate")
         p = results(d, gate_exit=1, notes="FAIL tests/x")
         r = G.g(d, "settle", p)
-        self.assertIn("attempt counted: attempt=2/3", r.stdout)
+        self.assertIn("attempt counted: 1 of 3 used — the next round is attempt 2 of 3", r.stdout)
         r = G.g(d, "settle", p)
         self.assertRegex(read(task_file(d)), r"(?m)^attempts: 1$", "the same round settled twice burns one attempt, not two:\n" + r.stdout)
 
@@ -218,7 +218,7 @@ class TwoAtOnce(unittest.TestCase):
         G.pass_gate(d)
         self.assertEqual(G.g(d, "generate").returncode, 0)
         r = G.g(d, "settle", results(d, gate_exit=1, notes="FAIL tests/x"))
-        self.assertIn("attempt counted: attempt=2/3", r.stdout, r.stdout + r.stderr)
+        self.assertIn("attempt counted: 1 of 3 used — the next round is attempt 2 of 3", r.stdout, r.stdout + r.stderr)
         real = os.path.join(d, "scripts", "reef-loop-real.py")
         shutil.move(os.path.join(d, "scripts", "reef-loop.py"), real)
         T.write(d, "scripts/reef-loop.py", "import runpy, sys, time\ntime.sleep(1.0)\nsys.argv[0] = %r\nrunpy.run_path(%r, run_name='__main__')\n" % (real, real))
