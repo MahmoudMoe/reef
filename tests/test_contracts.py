@@ -78,7 +78,7 @@ class MigrateTo070(unittest.TestCase):
         r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-migrate"), "--repo", d, "--plugin", ROOT],
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(open(os.path.join(d, ".reef", "version")).read().strip(), "0.7.3", "0.6.0 -> 0.7.0 -> 0.7.1 -> 0.7.2 -> 0.7.3, no gap")
+        self.assertEqual(open(os.path.join(d, ".reef", "version")).read().strip(), "0.7.4", "0.6.0 -> 0.7.0 -> 0.7.1 -> 0.7.2 -> 0.7.3 -> 0.7.4, no gap")
 
 
 class ConfigTemplate(unittest.TestCase):

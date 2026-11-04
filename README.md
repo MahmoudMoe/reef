@@ -548,12 +548,12 @@ and never runs in CI; its fixture replay does.
 
 ### Status and what is next
 
-On `main` since 0.7.3 (unreleased, `CHANGELOG.md` § 0.7.4): the hands-off plan (`docs/design/owner-hands-off.md`) — `reef autopilot`
+Reef 0.7.4 is the released version. It brings the hands-off plan (`docs/design/owner-hands-off.md`) — `reef autopilot`
 as the standing delegation, a runner that never stops dead (its last word reaches the screen and the desk, a decision restarts it:
 `reef resume`), the `reef` screen in its fourth design (the work board, the inbox, PLAN, the autopilot panel), questions on an issues queue
-answered from the screen, and Mahmoud as the project's CTO who challenges a plan once, on the record, on Opus at high effort. Then: the autopilot sleeps on an owner wait it cannot decide and its report covers the day; the day contract is approved from an issue comment (`reef-approval.py --from-issue day`); graph mode runs only in the sessions you run yourself; the full suite runs once per row; owner waits are one line with no placeholders; the screen's LOG shows each row's files; `reef update`, `/reef-watch`, and the runner keeping the project's scripts level with the plugin.
+answered from the screen, and Mahmoud as the project's CTO who challenges a plan once, on the record, on Opus at high effort. Then: the autopilot sleeps on an owner wait it cannot decide and its report covers the day; the day contract is approved from an issue comment (`reef-approval.py --from-issue day`); graph mode runs only in the sessions you run yourself; the full suite runs once per row; owner waits are one line with no placeholders; the screen's LOG shows each row's files; `reef update`, `/reef-watch`, and the runner keeping the project's scripts level with the plugin. Then it was stress-tested in three rounds (a crash at every step of a row, a fuzz of every file an agent writes) and run live on GitHub, and every finding was fixed: a crash at any step resumes, one reader parses each line an agent writes, init checks the gate commands, the remote and the release branch on first contact, the guard reads inline programs and the runner seals the guard's own files, a stale build is rebuilt before the gate, and a resumed session's cost is counted once (`docs/review/benchmark-cost-2026-11-04.md`: about $3 a feature).
 
-Reef 0.7.3 is the released version: workflow v3 (`docs/design/workflow-v3.md`) — risk decides the path, evidence once per
+0.7.3 brought workflow v3 (`docs/design/workflow-v3.md`) — risk decides the path, evidence once per
 commit, one reviewer, the loop merges, scripts orchestrate, the proxy by day, the factory on GitHub Actions (`/reef-factory`),
 and the worktree setup proven once per change. 0.7.2 came from the first adoption on an existing project (a Next.js, Prisma
 and Vitest codebase with its own loop): assess now measures instead of judging (`reef-recalibrate measure`), the recalibration plan keeps
@@ -561,7 +561,7 @@ what the project's tools read and measures its own cost before the one question,
 honest hand-off line, the instruction layer the agents read first is inventoried and rewritten, injection, layer boundaries
 and file sizes get deterministic checks with a baseline, a `refactor` task kind proves behaviour preserved, and the design
 tier reaches the project's real sensitive code. 0.7.1 moved the queue onto the project's GitHub issues and let one session
-hold a project's loop. Every entry under "0.7.3", "0.7.2", "0.7.1" and "0.7.0" in `CHANGELOG.md` names
+hold a project's loop. Every entry under "0.7.4", "0.7.3", "0.7.2", "0.7.1" and "0.7.0" in `CHANGELOG.md` names
 the first contact that caused it, and `docs/perf/` holds the measurements. What 0.7 brought (`docs/design/workflow-v2.md`): the owner's gate last, after the hunter and
 the plan reviewer run in parallel on the draft; a lean planner; tasks capped by criteria; graph mode (`/reef-graph`,
 gated by a probe of the guard); one command to update (`reef-update.py`), one screen to diagnose (`/reef-doctor`), a
