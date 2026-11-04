@@ -1125,21 +1125,37 @@ def personal_profile():
     return os.environ.get("REEF_OWNER_PROFILE") or os.path.join(os.path.expanduser("~"), ".reef", "owner.md")
 
 
-def cmd_contract(root, src, day=False):
+def seed_owner(root):
+    """reef/owner.md from the owner's personal profile, when the project has none."""
     import shutil
-    os.makedirs(os.path.join(root, NIGHT_DIR), exist_ok=True)
     mine, theirs = os.path.join(root, "reef", "owner.md"), personal_profile()
     if not os.path.isfile(mine) and os.path.isfile(theirs):
         os.makedirs(os.path.dirname(mine), exist_ok=True)
         shutil.copyfile(theirs, mine)
         print(f"owner profile: seeded reef/owner.md from {theirs} — Mahmoud adds this project's decisions; you approve both with the night")
+
+
+def seed_day(root):
+    """The day contract's two files, each only when absent: reef/owner.md (seed_owner) and reef/proxy.md from Reef's default.
+    One helper for `contract --day` and the first `reef autopilot` (the live Node run, 2026-11-04: the autopilot seeded only
+    proxy.md, the digest of the two was empty, and it printed `reef-approval.py --owner ""`)."""
+    seed_owner(root)
+    proxy = os.path.join(root, DAY_FILES[0])
+    if not os.path.isfile(proxy):
+        os.makedirs(os.path.dirname(proxy), exist_ok=True)
+        with open(proxy, "w", encoding="utf-8") as f:
+            f.write(DAY_DEFAULT)
+        print("day contract: seeded reef/proxy.md from Reef's default (process and wording) — edit its Decides: line, commit it, then approve once", flush=True)
+
+
+def cmd_contract(root, src, day=False):
+    import shutil
+    os.makedirs(os.path.join(root, NIGHT_DIR), exist_ok=True)
+    if not day:
+        seed_owner(root)
     if day:
+        seed_day(root)
         proxy = os.path.join(root, DAY_FILES[0])
-        if not os.path.isfile(proxy):
-            os.makedirs(os.path.dirname(proxy), exist_ok=True)
-            with open(proxy, "w", encoding="utf-8") as f:
-                f.write(DAY_DEFAULT)
-            print("day contract: seeded reef/proxy.md from Reef's default (process and wording) — edit it, commit it, then approve")
         dg = day_digest(root)
         if not dg:
             die("no reef/owner.md — /reef-night drafts it (or copy ~/.reef/owner.md)")
@@ -1601,15 +1617,13 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
         if not ok:
             die(why)
     if autopilot:
-        proxy_md = os.path.join(root, DAY_FILES[0])
-        if not os.path.isfile(proxy_md):   # the standing contract starts from Reef's default: the owner edits its Decides: line, then approves once
-            os.makedirs(os.path.dirname(proxy_md), exist_ok=True)
-            with open(proxy_md, "w", encoding="utf-8") as f:
-                f.write(DAY_DEFAULT)
-            print(f"autopilot: seeded {DAY_FILES[0]} from Reef's default — edit its Decides: line, commit it, then approve once", flush=True)
+        seed_day(root)   # the standing contract starts from Reef's default and the owner's profile: he edits Decides:, then approves once
         ok, why = day_ok(root)
         if not ok and (read_config(root).get("queue") or {}).get("home") == "issues":
             ok = read_day_comment(root)
+        if not ok and not day_question(root):
+            die(f"autopilot needs the standing contract approved — {why}, and there is no reef/owner.md to approve with it (no {personal_profile()} "
+                "to seed it from): write reef/owner.md (who you are and how you decide), commit it, then `python3 scripts/reef-run.py contract --day` prints the question")
         if not ok:
             die(f"autopilot needs the standing contract approved — {why}. To approve reef/proxy.md as it is, once: python3 scripts/reef-approval.py "
                 f"--owner \"{day_question(root)}\" (on an issues queue, that line as a comment on any issue too) — to widen it first, edit its Decides: line (plan, question, hole, triage for the whole day), "
