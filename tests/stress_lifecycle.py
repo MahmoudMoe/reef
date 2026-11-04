@@ -171,7 +171,7 @@ class Project:
         r = subprocess.run([sys.executable, pc, wt, "--digest", "--feature", slug], capture_output=True, text=True)
         digest = r.stdout.split()[-1]
         # reef-plan-check.py:33 — "The approvals live in the MAIN checkout's .reef/, never a worktree's."
-        write(self.main, f".reef/approvals/{slug}.json", json.dumps({"digest16": digest[:16], "approved_at": "2026-11-01T00:00:00Z"}))
+        write(self.main, f".reef/approvals/{slug}.json", json.dumps({"digest16": digest[:16], "digest": digest, "approved_at": "2026-11-01T00:00:00Z"}))
 
     def task_path(self, tid=101, slug=SLUG, where=None):
         return os.path.join(where or self.wts[slug], f"reef/features/{slug}/tasks/{tid}-slice.md")

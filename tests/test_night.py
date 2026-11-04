@@ -535,12 +535,16 @@ class Autopilot(unittest.TestCase):
         L.write(self.d, ".reef/night/autopilot", json.dumps({"pid": 1, "started": "x", "digest16": "0" * 16}))   # alive, wrong digest
         self.assertIn("no live autopilot", proxy(self.d, "share-links", rep).stdout)
         L.write(self.d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": dg}))   # a 0.7.3 runner's marker: 16 hex
+        self.assertIn("no live autopilot", proxy(self.d, "share-links", rep).stdout, "0.7.5: a marker without the full digest names no runner")
+        full = subprocess.run([sys.executable, RUN, "contract", "--day", "--repo", self.d], capture_output=True, text=True).stdout.split("day digest: ")[1].split()[0]
+        L.write(self.d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": dg, "digest": full}))
         r = proxy(self.d, "share-links", rep)
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn("does not name `plan`", r.stdout, "a plan approval by day needs the owner's word in Decides:")
         L.write(self.d, "reef/proxy.md", PROXY_MD)
         q = approve_day(self, self.d)
-        L.write(self.d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": q.split(" at ")[1].rstrip("?")}))
+        full = subprocess.run([sys.executable, RUN, "contract", "--day", "--repo", self.d], capture_output=True, text=True).stdout.split("day digest: ")[1].split()[0]
+        L.write(self.d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": full[:16], "digest": full}))
         r = proxy(self.d, "share-links", rep)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("approved at", r.stdout); self.assertNotIn("internal error", r.stdout, "the success line names the day, not a night key")

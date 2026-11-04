@@ -78,7 +78,7 @@ class MigrateTo070(unittest.TestCase):
         r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-migrate"), "--repo", d, "--plugin", ROOT],
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(open(os.path.join(d, ".reef", "version")).read().strip(), "0.7.3", "0.6.0 -> 0.7.0 -> 0.7.1 -> 0.7.2 -> 0.7.3, no gap")
+        self.assertEqual(open(os.path.join(d, ".reef", "version")).read().strip(), "0.7.4", "0.6.0 -> 0.7.0 -> 0.7.1 -> 0.7.2 -> 0.7.3 -> 0.7.4, no gap")
 
 
 class ConfigTemplate(unittest.TestCase):
@@ -1377,21 +1377,6 @@ class NoAliasLayer(unittest.TestCase):
             self.assertNotRegex(text, r"(?<![\w/.])/reef:[a-z]", f"{os.path.relpath(f, ROOT)} names a /reef:<verb> alias — the skill is /reef-<verb>")   # a path like .opencode/agents/reef:x is not one
         self.assertIn("Invoke the {skill} skill", read("scripts", "reef-opencode.py"), "the OpenCode command stubs are written from the skills, one per SKILL.md")
         self.assertEqual(SizeBudget.orphan_scripts(), [], "nothing else to remove")
-
-
-class The16HexFallbackLastsOneRelease(unittest.TestCase):
-    """0.7.4: an approval or review record binds the plan's full digest; one written before carries only `digest16`
-    and is read at 16 hex for that release only. Past 0.7.4 this goes red until the fallback in record_binds is gone."""
-
-    def test_the_fallback_is_gone_after_0_7_4(self):
-        version = tuple(int(x) for x in re.match(r"(\d+)\.(\d+)\.(\d+)", json.loads(read(".claude-plugin", "plugin.json"))["version"]).groups())
-        if version <= (0, 7, 4):
-            self.skipTest("0.7.4 still reads a record without `digest` at its 16 hex")
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from _fixtures import load_script
-        pc = load_script("reef-plan-check.py")
-        self.assertFalse(pc.record_binds({"digest16": "a" * 16}, "a" * 64), "drop record_binds' 16-hex fallback (and this test)")
-
 
 
 class AnExtensionlessPythonScriptIsNamedWithItsInterpreter(unittest.TestCase):

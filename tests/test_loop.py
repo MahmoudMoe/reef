@@ -60,7 +60,7 @@ def approve(d, feature):
     assert r.returncode == 0, r.stdout
     r = subprocess.run([sys.executable, pc, d, "--digest", "--feature", feature], capture_output=True, text=True)
     digest = r.stdout.split()[-1]
-    write(d, f".reef/approvals/{feature}.json", json.dumps({"digest16": digest[:16], "approved_at": "2026-10-16T00:00:00Z"}))
+    write(d, f".reef/approvals/{feature}.json", json.dumps({"digest16": digest[:16], "digest": digest, "approved_at": "2026-10-16T00:00:00Z"}))
 
 
 def loop(d, *args, env=None):
@@ -283,7 +283,7 @@ class Tick(unittest.TestCase):
         pc = os.path.join(d, "scripts", "reef-plan-check.py")
         subprocess.run([sys.executable, pc, wt], capture_output=True, text=True)   # stamp in the worktree
         digest = subprocess.run([sys.executable, pc, wt, "--digest", "--feature", "2"], capture_output=True, text=True).stdout.split()[-1]
-        write(d, ".reef/approvals/2.json", json.dumps({"digest16": digest[:16], "approved_at": "2026-10-16T00:00:00Z"}))
+        write(d, ".reef/approvals/2.json", json.dumps({"digest16": digest[:16], "digest": digest, "approved_at": "2026-10-16T00:00:00Z"}))
         st = json.loads(loop(d, "tick", "--json").stdout)
         # approved, its plan passes the gate — and row 2 Depends on row 1, still building: held (2026-11-02, the stress test H1)
         self.assertNotIn("201", st["dispatch_now"], st)

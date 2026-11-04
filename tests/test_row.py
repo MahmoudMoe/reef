@@ -98,7 +98,7 @@ class RowStateMachine(unittest.TestCase):
                       "2026-10-28: the approval has a terminal command, and the row names it (the owner was told 'an interactive session' twice)")
         digest = subprocess.run([sys.executable, os.path.join(feat, "scripts", "reef-plan-check.py"), feat, "--digest", "--feature", "demo-row-one"],
                                 capture_output=True, text=True).stdout.split()[-1]
-        write(self.main, ".reef/approvals/demo-row-one.json", json.dumps({"digest16": digest[:16], "approved_at": "2026-10-26T00:00:00Z"}))
+        write(self.main, ".reef/approvals/demo-row-one.json", json.dumps({"digest16": digest[:16], "digest": digest, "approved_at": "2026-10-26T00:00:00Z"}))
         s = self.state("1")
         self.assertEqual(s["state"], "build")
         self.assertIn("1 open task(s): 101-slice.md", s["detail"])
@@ -156,7 +156,7 @@ class RowStateMachine(unittest.TestCase):
         git(feat, "add", "-A"); git(feat, "commit", "-qm", "the slice")
         digest = subprocess.run([sys.executable, os.path.join(feat, "scripts", "reef-plan-check.py"), feat, "--digest", "--feature", "demo-row-one"],
                                 capture_output=True, text=True).stdout.split()[-1]
-        write(self.main, ".reef/approvals/demo-row-one.json", json.dumps({"digest16": digest[:16], "approved_at": "2026-10-26T00:00:00Z"}))
+        write(self.main, ".reef/approvals/demo-row-one.json", json.dumps({"digest16": digest[:16], "digest": digest, "approved_at": "2026-10-26T00:00:00Z"}))
         head = git(feat, "rev-parse", "HEAD").stdout.strip()
         write(self.main, ".reef/review/demo-row-one.json", json.dumps({"sha": head, "verdict": "GREEN", "pr": 7}))
         # a second row's worktree, with the base merged in AFTER row one landed on it as a squash

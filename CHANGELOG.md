@@ -1,8 +1,15 @@
 # Changelog
 
-## 0.7.4 (unreleased)
+## 0.7.5 (unreleased)
 
-- **Converge reads a test name that mentions a flag as a test.** In the live Node run on 2026-11-04, row 2's Proof cells were vitest names for a CLI: `prints empty for bare --slug`, `counts words when --slug is not exactly argv[0]`. Converge read the ` --slug` as a command flag, ran the names as shell (`sh: prints: command not found`), and reported 4 of 5 proofs missing. That cost a proxy ruling, a plan amendment and a re-approval. Now a cell is a command only when its head is a path, an assignment, `!` or a runner word (`vitest`, `jest`, `tsc`, `echo` and `printf` joined the list), or when it chains with `&&`, `||`, `|`, `;`, `$(` or `${`. A flag, `=` or `<>` inside a sentence is part of the name. The size budget rises by 2 script lines for the runner words.
+- **Converge reads a test name that mentions a flag as a test.** In the live Node run on 2026-11-04, row 2's Proof cells were vitest names for a CLI: `prints empty for bare --slug`, `counts words when --slug is not exactly argv[0]`. Converge read the ` --slug` as a command flag, ran the names as shell (`sh: prints: command not found`), and reported 4 of 5 proofs missing. That cost a proxy ruling, a plan amendment and a re-approval. Now a cell is a command only when its head is a path, an assignment, `!` or a runner word (`vitest`, `jest`, `tsc`, `echo` and `printf` joined the list), or when it chains with `&&`, `||`, `|`, `;`, `$(` or `${`. A flag, `=` or `<>` inside a sentence is part of the name.
+
+- **A record binds only its full digest.** 0.7.4 read an approval or review record that carries only `digest16` (written before 0.7.4) at its 16 hex, for that release only. That fallback is gone: such a record binds nothing, and its plan is approved again at its current digest. 16 hex are a 64-bit prefix that an agent writing both plans could collide in about 2^32 tries.
+
+## 0.7.4 — hands off: the autopilot and its sleep, the screen, Mahmoud as CTO — then three stress rounds and a live run on GitHub, every finding fixed
+
+- **Released** (2026-11-04). plugin.json, the marketplace, reef-init's version, the README status, the site and the manual
+  all read 0.7.4. migrations/0.7.3-to-0.7.4.py is a no-change step, so .reef/version walks with no gap.
 
 - **The fast gate rebuilds a stale build too.** A day after the full-gate fix, the same project's task worktree hit it on its first gate, which is the fast one. Its freshness checks went red on the old `.next` from setup, and the round burned an attempt before any judge read the code. Now `gates.build` is checked before either gate. A pre-commit after a code change in such a project now builds first instead of going red.
 - **A skill names the interpreter of an extensionless script.** The skills wrote `scripts/reef-merge-base` (and `reef-attempt`, `reef-adversarial`, `reef-merge-close`, `reef-converge`, `reef-recalibrate` and `reef-structure`), which are Python scripts without an extension. A session ran `sh scripts/reef-merge-base` and failed: once in the live run on 2026-11-03 and again in an adopted project on 2026-11-04. Every code span in a skill or an agent that names one of them now starts with `python3`, and a contract test keeps it so. prose_words goes up by 17, one word per span.
