@@ -113,12 +113,14 @@ flowchart LR
 
 Risky work (auth, money, personal data, migrations) takes the **critical path**: an adversary attacks the plan and the code before anything merges.
 
-## 🔒 What Reef never does
+## 🔒 Built to keep you in control
 
-- ❌ Overwrite a file you wrote — changes land as a proposal you accept.
-- ❌ Delete a document — it archives, and one `git revert` undoes it.
-- ❌ Let a judge edit code — reviewers are read-only, and a tree hash proves it.
-- ❌ Merge the release — that's your call, every time.
+- 📄 **Setup won't overwrite your files** — `/reef-init` proposes a change; you choose whether to accept it.
+- 🗄️ **Clean-up archives instead of deleting** — old documents move to an archive in one commit, and one `git revert` brings them back.
+- 👀 **Reviewers are read-only by design** — the guard blocks their writes, and a tree hash checks nothing changed.
+- 🚢 **The release merge is yours** — Reef merges features on green; shipping the release waits for you.
+
+<sub>Reef is provided as is, under the MIT license. Keep your work committed and backed up.</sub>
 
 ## 📚 Learn more
 
