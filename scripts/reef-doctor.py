@@ -322,7 +322,7 @@ def main(argv):
         say("OK" if rc_gh == 0 else "WARN", "gh: authenticated" if rc_gh == 0 else "gh: not authenticated", "" if rc_gh == 0 else "gh auth login (the loop reviews and merges PRs through gh)")
     except Exception:
         say("WARN", "gh: not installed", "install the GitHub CLI; the loop reviews and merges PRs through it")
-    fix = remote_fix(root)
+    fix = remote_fix(root, (cfg.get("branches") or {}).get("release"))
     say("WARN" if fix else "OK", "remote: none — a row's review is recorded against its pull request, so no row can finish" if fix
         else "remote: origin", fix)
     rel_fix = release_fix(root, cfg)

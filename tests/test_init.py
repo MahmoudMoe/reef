@@ -348,6 +348,16 @@ class ReleaseOnlyCi(unittest.TestCase):
         self.assertEqual(cfg["gates"]["full"], "uv run pytest -q")
         self.assertIn("uv sync", read(d, "AGENTS.md"))
 
+    def test_no_remote_pushes_the_release_branch_too(self):
+        # the live Node run (2026-11-04): `gh repo create … --push` pushes the current branch (develop) only; main stayed local
+        # and the release needs it on origin (the Python run's footnote 7: main created and pushed by hand)
+        d = node_project(tempfile.mkdtemp(prefix="reef-init-norel."))
+        subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "root"], check=True)
+        subprocess.run(["git", "-C", d, "branch", "main"], check=True)
+        r = init(d, "--base", "develop", "--release", "main", "--queue", "file")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f"gh repo create {os.path.basename(d)} --private --source . --remote origin --push && git push -u origin main", r.stdout)
+
     def test_a_python_project_on_a_bare_path_gets_commands_that_run_and_is_told_what_cannot(self):
         # the live run (2026-11-03): `pytest -q` and `pip install -e .` were written while neither was on PATH; the first
         # task's setup failed and a session rewrote the config itself. No remote either, and the row reached GREEN with

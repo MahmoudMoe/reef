@@ -2,6 +2,8 @@
 
 ## 0.7.5 (unreleased)
 
+- **NO REMOTE pushes the release branch too.** `gh repo create … --push` pushes only the current branch (`develop`). In the live runs, `main` stayed local, and the release needed it on origin. Now, when the release branch exists locally, init's and the doctor's command ends with `&& git push -u origin <release>`. The size budget rises by 4 script lines.
+
 - **The first `reef autopilot` prints the real question.** In the live Node run on 2026-11-04, the first `reef autopilot` seeded `reef/proxy.md` but not `reef/owner.md`. The digest of the two was empty, and it printed `reef-approval.py --owner ""`. Now the autopilot and `contract --day` share one helper that seeds both: `owner.md` from the owner's personal profile, `proxy.md` from Reef's default. With no profile anywhere, the message names the one missing file instead of an empty question. The size budget rises by 14 script lines.
 
 - **Settle says what was used and lists every failing test.** In an adopted project on 2026-11-04, `attempt counted: attempt=2/3` read as two attempts used, and the orchestrator told the owner the next round was the last. The task file said `attempts: 1`. The gate's notes also named only 3 of 10 failing tests. Now settle prints `1 of 3 used — the next round is attempt 2 of 3` (or `the cap is reached: the task parks`), and on a red gate it lists every failing test from the worktree's own gate log (vitest `FAIL`, pytest `FAILED`, `×`/`✗`), one line each.
