@@ -1129,7 +1129,7 @@ class WatchInsideASession(unittest.TestCase):
         run_skill = open(os.path.join(ROOT, "skills", "reef-run", "SKILL.md"), encoding="utf-8").read().split("---", 2)[1]
         self.assertIn("/reef-run autopilot", run_skill, "the owner looked for /reef:autopilot: the description names it")
         self.assertIn("autopilot", run_skill.split("argument-hint:", 1)[1].splitlines()[0])
-        self.assertIn("/reef-watch", open(os.path.join(ROOT, "README.md"), encoding="utf-8").read())
+        self.assertIn("/reef-watch", open(os.path.join(ROOT, "docs", "reference.md"), encoding="utf-8").read())
 
 
 class GraphModeIsForTheOwnersOwnSessions(unittest.TestCase):

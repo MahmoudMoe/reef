@@ -1,11 +1,12 @@
 /* Reef site. No dependencies. Everything here chooses what to show; nothing here is the only copy of a fact.
-   The settings table, the hosts table and the version are read from the README (one home per fact); see
+   The settings table and the hosts table are read from docs/reference.md, the version from the README (one home per fact); see
    docs/design/site-information-architecture.md. */
 (function () {
   'use strict';
   const REPO = 'https://github.com/MahmoudMoe/reef';
   const BLOB = REPO + '/blob/main/';
-  const README_URLS = ['README.md', '../README.md', 'https://raw.githubusercontent.com/MahmoudMoe/reef/main/README.md'];
+  const README_URLS = ['../README.md', '../../../README.md', 'https://raw.githubusercontent.com/MahmoudMoe/reef/main/README.md'];
+  const REFERENCE_URLS = ['reference.md', '../../reference.md', 'https://raw.githubusercontent.com/MahmoudMoe/reef/main/docs/reference.md'];
   const TABLE_HEADINGS = { settings: 'Settings', hosts: 'Hosts' };
 
   const $ = (s, r) => (r || document).querySelector(s);
@@ -183,25 +184,26 @@
     host.innerHTML = html + '</tbody></table>';
   }
 
-  async function fetchReadme() {
-    for (const url of README_URLS) {
+  async function fetchFirst(urls, ok) {
+    for (const url of urls) {
       try {
         const res = await fetch(url, { cache: 'no-cache' });
-        if (res.ok) { const text = await res.text(); if (/badge\/version-\d/.test(text) && text.includes('## Settings')) return text; }
+        if (res.ok) { const text = await res.text(); if (ok(text)) return text; }
       } catch (e) { /* try the next */ }
     }
     return null;
   }
 
   async function loadReadmeTables() {
-    const md = await fetchReadme();
-    if (!md) return; // the sections keep their README links
+    const readme = await fetchFirst(README_URLS, t => /badge\/version-\d/.test(t));
+    const v = readme && readme.match(/version-(\d+\.\d+\.\d+)/);
+    if (v) $$('[data-version]').forEach(el => el.textContent = 'v' + v[1]);
+    const md = await fetchFirst(REFERENCE_URLS, t => t.includes('## Settings') && t.includes('## Hosts'));
+    if (!md) return; // the sections keep their reference links
     const settings = tableAfterHeading(md, TABLE_HEADINGS.settings);
     if (settings) renderSettings(settings);
     const hosts = tableAfterHeading(md, TABLE_HEADINGS.hosts);
     if (hosts) renderHosts(hosts);
-    const v = md.match(/version-(\d+\.\d+\.\d+)/);
-    if (v) $$('[data-version]').forEach(el => el.textContent = 'v' + v[1]);
   }
   loadReadmeTables();
 })();
