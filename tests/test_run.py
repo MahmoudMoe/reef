@@ -11,7 +11,7 @@ import tempfile
 import time
 import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _fixtures import git_repo, git  # noqa: E402  (the suites' shared fixtures, once)
+from _fixtures import git_repo, git, load_script, write  # noqa: E402  (the suites' shared fixtures, once)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -850,6 +850,23 @@ class TheWaitAsksTheRow(unittest.TestCase):
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn('python3 scripts/reef-approval.py --owner "Approve plan kit-redesign at 0123456789abcdef?"', r.stdout)
         self.assertNotIn("reef-queue.py footnote", r.stdout, "an approval is not answered by a footnote")
+
+    def test_the_release_under_autopilot_names_the_owners_own_pr(self):
+        # the live runs (2026-11-03 Python, 2026-11-04 Node): the release wait offered a footnote ("open the release PR now"),
+        # but the guard refuses every agent's release PR while the autopilot runs — the answer parked the loop. The owner's
+        # terminal is not guarded: the wait names his own `gh pr create`, the security pass's report as its body
+        d = git_repo(prefix="reef-rel.", branch="develop", config={"branches": {"base": "develop", "release": "main"}})
+        git(d, "commit", "-q", "--allow-empty", "-m", "root", check=True)
+        git(d, "branch", "main", check=True)
+        head = git(d, "rev-parse", "develop").stdout.strip()
+        write(d, ".reef/night/autopilot", "{}")
+        write(d, f".reef/review/security-{head[:12]}.json", json.dumps({"kind": "security", "verdict": "PASS", "head": head}))
+        write(d, f".reef/ci-local/security-{head[:12]}.md", "VERDICT: PASS\n")
+        rr = load_script("reef-run.py")
+        text = rr.owner_wait_lines(d, "owner: release batch 1 (security PASS)", "claude")
+        self.assertIn(f"gh pr create --base main --head develop --title 'release: develop into main' --body-file .reef/ci-local/security-{head[:12]}.md", text)
+        os.remove(os.path.join(d, ".reef", "night", "autopilot"))   # no autopilot: the loop opens it itself, as before
+        self.assertNotIn("gh pr create", rr.owner_wait_lines(d, "owner: release batch 1 (security PASS)", "claude"))
 
 
 class TheSessionResumesAfterAShortJob(unittest.TestCase):

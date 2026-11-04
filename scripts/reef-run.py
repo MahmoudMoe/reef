@@ -1036,6 +1036,29 @@ def read_day_comment(root):
     return day_ok(root)[0]
 
 
+def release_command(root):
+    """The owner's own release PR, '' when it is not his to open: while a night or the autopilot runs, the guard refuses every
+    agent's release PR (Mahmoud never opens it), so a wait that offered a footnote parked the loop (the live runs, 2026-11-03
+    and 2026-11-04). The owner's terminal is not guarded; with a PASS security record at the base's tip, this is his command."""
+    if not any(os.path.isfile(os.path.join(root, NIGHT_DIR, f)) for f in ("active", "autopilot")):
+        return ""
+    br = read_config(root).get("branches") or {}
+    base, release = br.get("base") or "develop", br.get("release") or "main"
+    head = subprocess.run(["git", "-C", root, "rev-parse", "--verify", "--quiet", f"refs/heads/{base}"], capture_output=True, text=True).stdout.strip()
+    review = os.path.join(root, ".reef", "review")
+    for f in (sorted(os.listdir(review)) if base != release and head and os.path.isdir(review) else []):
+        try:
+            with open(os.path.join(review, f), encoding="utf-8") as fh:
+                rec = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if f.startswith("security-") and rec.get("kind") == "security" and str(rec.get("verdict", "")).upper() == "PASS" and rec.get("head") == head:
+            body = os.path.join(".reef", "ci-local", f"security-{head[:12]}.md")
+            return (f"gh pr create --base {release} --head {base} --title {shlex.quote(f'release: {base} into {release}')}"
+                    + (f" --body-file {body}" if os.path.isfile(os.path.join(root, body)) else ""))
+    return ""
+
+
 def owner_wait_lines(root, wait, mode):
     """The wait, and the ONE terminal command that answers each part of it (2026-10-28, the owner: a stop that names no command is
     a bug): an approval question → reef-approval.py --owner with that exact question; a filed question → `reef-queue.py answered <#>`
@@ -1043,6 +1066,9 @@ def owner_wait_lines(root, wait, mode):
     host = "OpenCode" if mode == "opencode" else "Claude Code"
     lines = [f"reef-run: waiting on you — {wait}"]
     cmds = [f'python3 scripts/reef-approval.py --owner "{q}"' for q in dict.fromkeys(APPROVE_Q.findall(wait))]
+    if release_command(root):   # the release is the owner's to open: his command first, the questions after
+        lines.append(f"  the release PR is yours to open — the guard refuses it to every agent while {'the night' if os.path.isfile(os.path.join(root, NIGHT_DIR, 'active')) else 'the autopilot'} runs")
+        cmds.append(release_command(root))
     q = os.path.join(root, ".reef", "questions.md")
     # "Row 7", "rows 7, 8" and "rows 7 and 8" name rows too (2026-11-02, the stress suite: only "row 7" did)
     rows = list(dict.fromkeys(n for g in re.findall(r"\brows?\s+(\d+(?:\s*(?:,|and)\s*\d+)*)", wait, re.I) for n in re.findall(r"\d+", g)))
