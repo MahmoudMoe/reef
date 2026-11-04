@@ -21,7 +21,8 @@ FAKE = r"""#!/usr/bin/env python3
 import json, os, sys
 plan = os.path.join(os.getcwd(), ".fake-plan")
 open(os.path.join(os.getcwd(), ".fake-argvs"), "a").write(json.dumps(sys.argv) + "\n")
-if "--resume" in sys.argv and os.path.isfile(os.path.join(os.getcwd(), ".fake-killresume")):   # SIGKILLed mid-turn: no output at all
+if "--resume" in sys.argv and os.path.isfile(os.path.join(os.getcwd(), ".fake-killresume")):   # SIGKILLed mid-turn: its init event, no result
+    print(json.dumps({"type": "system", "subtype": "init", "session_id": sys.argv[sys.argv.index("--resume") + 1]}), flush=True)
     os.remove(os.path.join(os.getcwd(), ".fake-killresume")); import signal; os.kill(os.getpid(), signal.SIGKILL)
 if "--resume" in sys.argv and os.path.isfile(os.path.join(os.getcwd(), ".fake-noresume")):   # the conversation is gone: claude says so, no result
     print("No conversation found with session ID: " + sys.argv[sys.argv.index("--resume") + 1], flush=True); sys.exit(1)
@@ -62,6 +63,9 @@ elif kind == "probe-write":
 if kind not in ("probe-deny", "probe-write"):
     json.dump(st, open(lp, "w"))
 def ev(**e): print(json.dumps(e), flush=True)
+if kind == "kill":   # a fresh session SIGKILLed mid-turn: its init event, no result
+    import signal
+    ev(type="system", subtype="init", session_id="k-1"); os.kill(os.getpid(), signal.SIGKILL)
 if kind == "sleep":   # a session mid-gate: one step after a second, then quiet for a long time
     import signal, time, traceback
     crumb = os.path.join(os.getcwd(), ".fake-died")   # why this fake ended, for the test to show (CI's macOS leg died unseen)
@@ -925,6 +929,19 @@ class TheSessionResumesAfterAShortJob(unittest.TestCase):
         self.assertIn("the resumed session was killed (signal 9)", live, live)
         self.assertNotIn("resume refused ()", live)
         self.assertEqual(calls(self.d), ["job:gate-4:1", "stop:done"], "a fresh session took the step")
+
+    def test_a_killed_session_keeps_its_line_and_its_id(self):
+        # the live Node run (2026-11-04): a killed fresh session logged `session: null, cost_usd: null`, a killed resume no line
+        # at all — the two cost as much as the rest of the run, and the log's total read half the spend
+        open(os.path.join(self.d, ".fake-context"), "w").write("60000")
+        open(os.path.join(self.d, ".fake-killresume"), "w").write("x")
+        r = run(self.d, ["kill", "job:gate-4:1", "stop:done"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        recs = [json.loads(l) for l in open(os.path.join(self.d, ".reef", "run", "run.log")) if l.strip()]
+        dead = [x for x in recs if x.get("killed")]
+        self.assertEqual([x["session"] for x in dead], ["k-1", "s-2"], recs)
+        self.assertEqual([x["cost_usd"] for x in dead], [None, None], "the cost is unknown, never a number")
+        self.assertEqual(len(recs), 4, "the killed fresh one, the job's session, the killed resume, the fresh one after it")
 
 
 class TheRunnerSealsTheGuardsFiles(unittest.TestCase):

@@ -326,7 +326,7 @@ def session(root, prompt, mode, say=None, resume=None):
     SESSION["p"] = p
     with open(os.path.join(root, SESSION_PID), "w", encoding="utf-8") as f:   # pid + its ps start time: the identity stop checks
         json.dump({"pid": p.pid, "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "lstart": ps_start(p.pid)}, f)
-    out, raw, names, verdicts, context = None, [], {}, {}, 0
+    out, raw, names, verdicts, context, sid = None, [], {}, {}, 0, resume
     try:
         for line in p.stdout:
             try:
@@ -343,6 +343,8 @@ def session(root, prompt, mode, say=None, resume=None):
                     context = sum(int(u.get(k) or 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")) or context
                 except (TypeError, ValueError):
                     pass
+            if ev.get("type") == "system" and ev.get("subtype") == "init" and ev.get("session_id"):
+                sid = ev["session_id"]   # named before any result: a killed session keeps its id (the live Node run, 2026-11-04)
             if ev.get("type") == "result":
                 out = ev
             try:
@@ -359,7 +361,7 @@ def session(root, prompt, mode, say=None, resume=None):
         except OSError:
             pass
     out = dict(out) if out else {"result": "".join(raw)[-2000:]}
-    out["_rc"], out["_seconds"], out["_context"] = p.returncode, round(time.time() - t0, 1), context
+    out["_rc"], out["_seconds"], out["_context"], out["_id"] = p.returncode, round(time.time() - t0, 1), context, out.get("session_id") or sid
     return out
 
 
@@ -1287,7 +1289,8 @@ def morning_report(root, started, log, mode="night"):
         lines += [f"Pipeline numbers unavailable this night: {nums['pipeline_error']}", ""]
     with open(hist, "a", encoding="utf-8") as f:
         f.write(json.dumps({"started": started, "mode": mode, "day": today, **nums}) + "\n")
-    lines += [f"Sessions: {len(tonight)} · cost: ${cost:.2f} · log: {os.path.relpath(log, root)}"]
+    dead = sum(1 for x in tonight if x.get("killed"))   # a killed session's cost never reached the log: say so, not a lower total
+    lines += [f"Sessions: {len(tonight)} · cost: ${cost:.2f}" + (f" + {dead} killed, cost unknown" if dead else "") + f" · log: {os.path.relpath(log, root)}"]
     with open(os.path.join(root, path), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     line = f"reef-run: the {'night' if mode == 'night' else 'autopilot'} report — {path}"
@@ -1636,6 +1639,7 @@ def cmd_run(root, mode, cap, night=False, detached=False, row=None, autopilot=Fa
 
 def run_loop(root, mode, cap, night, row, autopilot, carried):
     lock = os.path.join(root, RUN_DIR, "lock")
+    run_mode = "night" if night else "autopilot" if autopilot else "loop"   # the mode every run.log line carries
 
     def ending(signum, frame):   # TERM, INT: unwind — session()'s finally ends the session, cmd_run's finally the lock
         raise SystemExit(128 + signum)   # (the review: never wait on the child from inside a handler — the main thread may hold its wait lock)
@@ -1709,6 +1713,11 @@ def run_loop(root, mode, cap, night, row, autopilot, carried):
                 if not out.get("session_id"):   # gone, refused or killed: a fresh session takes the step, as before
                     say(f"the resumed session was {killed(out)} after {out.get('_seconds')} s — a fresh session" if killed(out) else
                         f"resume refused ({str(out.get('result') or '').strip()[:120] or 'exit ' + str(out.get('_rc')) + ', no output'}) — a fresh session")
+                    if killed(out):   # it spent before it died: its line, its id, the cost unknown (the live Node run, 2026-11-04: no line at all)
+                        with open(log, "a", encoding="utf-8") as f:
+                            f.write(json.dumps({"iteration": i, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "session": out.get("_id"),
+                                                "seconds": out.get("_seconds"), "cost_usd": None, "session_cost_usd": None, "rc": out.get("_rc"),
+                                                "killed": True, "mode": run_mode}) + "\n")
                     out = None
             if out is None:
                 out = session(root, prompt + (NIGHT_PROMPT if night else AUTOPILOT_PROMPT if autopilot else "") + note, mode, say)
@@ -1730,10 +1739,10 @@ def run_loop(root, mode, cap, night, row, autopilot, carried):
             spent = round(max(0.0, total - last["total"]), 6) if resume and out.get("session_id") == resume and isinstance(total, (int, float)) \
                 and isinstance((last or {}).get("total"), (int, float)) else total
             with open(log, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"iteration": i, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "session": out.get("session_id"),
+                f.write(json.dumps({"iteration": i, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "session": out.get("session_id") or out.get("_id"),
                                     "seconds": out.get("_seconds"), "cost_usd": spent, "session_cost_usd": total, "rc": out.get("_rc"),
-                                    "wait": wait, "stop": stop, "parked": parked, "in_flight": flying,
-                                    "mode": "night" if night else "autopilot" if autopilot else "loop",
+                                    **({"killed": True} if killed(out) else {}), "wait": wait, "stop": stop, "parked": parked, "in_flight": flying,
+                                    "mode": run_mode,
                                     "stop_requested": os.path.exists(stop_req)}) + "\n")   # the owner's stop: `resume` never undoes it
             last = {"id": out.get("session_id"), "ended": time.time(), "context": out.get("_context") or 0, "total": total,
                     "job_wait": wait.startswith("job:"), "chain": (last or {}).get("chain", 0) + 1 if resume and out.get("session_id") == resume else 0}
