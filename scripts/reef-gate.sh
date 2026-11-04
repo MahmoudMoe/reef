@@ -118,9 +118,10 @@ fi
 # the MAIN checkout's .reef/ci-local/runs.jsonl — at, mode, snapshot, head, branch, exit, seconds. A cached answer is
 # not a run. The main checkout's, because a task worktree is gone at the merge; reef-cost.py rows counts from it.
 # 2026-11-04 (an adopted project): worktree.setup built .next once, the implementer changed the code, and the full gate
-# (23,482 tests) went red six times on one row on the project's own freshness checks. gates.build {output, run}: before the
-# full gate, an output missing or older than the newest tracked file is rebuilt; a failed build fails the gate unrun.
-if [ "$MODE" = full ] && [ -f .reef/config.json ]; then
+# (23,482 tests) went red six times on one row on the project's own freshness checks. gates.build {output, run}: before
+# either gate (a task worktree's first gate is the fast one, and it burned an attempt the same way), an output missing or
+# older than the newest tracked file is rebuilt; a failed build fails the gate unrun.
+if [ -f .reef/config.json ]; then
   BUILD=$(python3 - <<'PY'
 import json, os, subprocess
 b = (json.load(open(".reef/config.json")).get("gates") or {}).get("build")

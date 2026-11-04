@@ -199,7 +199,7 @@ class AStaleBuildIsRebuiltBeforeTheFullGate(unittest.TestCase):
         with open(os.path.join(self.d, ".gitignore"), "a") as f:
             f.write("out/\nbuild.log\n")
         git(self.d, "add", "-A"); git(self.d, "commit", "-qm", "ignore the build")
-        self.config({"gates": {"full": "cat out/stamp", "build": {"output": "out/stamp", "run": "mkdir -p out && date > out/stamp && echo b >> build.log"}}})
+        self.config({"gates": {"full": "cat out/stamp", "fast": "cat out/stamp", "build": {"output": "out/stamp", "run": "mkdir -p out && date > out/stamp && echo b >> build.log"}}})
         r = self.gate()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr); self.assertEqual(self.built(), 1, "no output yet: built first")
         self.assertIn("older than the tree", r.stderr + r.stdout)
@@ -213,8 +213,13 @@ class AStaleBuildIsRebuiltBeforeTheFullGate(unittest.TestCase):
         os.utime(os.path.join(self.d, "app.py"), (2, 2))   # older than the build
         r = self.gate()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr); self.assertEqual(self.built(), 2, "a fresh build is not rebuilt")
+        # 2026-11-04 (the same project, a day on): a task worktree's first gate is the FAST one, its freshness checks went red on
+        # the setup's old .next and the round burned an attempt before any judge read the code — the fast gate rebuilds too
+        with open(os.path.join(self.d, "app.py"), "w") as f:
+            f.write("x = 4\n")
+        os.utime(os.path.join(self.d, "out", "stamp"), (1, 1))
         fast = subprocess.run(["sh", "scripts/reef-gate.sh", "fast"], cwd=self.d, capture_output=True, text=True)
-        self.assertEqual(self.built(), 2, "the fast gate never builds: " + fast.stderr)
+        self.assertEqual(self.built(), 3, "the fast gate rebuilds a stale build too: " + fast.stderr)
 
     def test_a_failed_build_fails_the_gate_without_running_it(self):
         self.config({"gates": {"full": "echo RAN > ran.txt", "build": {"output": "out/stamp", "run": "exit 3"}}})
