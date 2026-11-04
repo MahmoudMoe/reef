@@ -163,7 +163,7 @@
   <li><strong>التثبيت</strong> مرة واحدة في Claude Code:
 <pre><code>/plugin marketplace add MahmoudMoe/reef
 /plugin install reef@mahmoudmoe</code></pre>
-  هذه أوامر Claude Code، المضيف المدعوم اليوم (المضيف هو الأداة التي تشغّل مهارات Reef ووكلاءه وتستدعي حارسه قبل كل أمر). أما OpenCode فدعمه مبكر: المحوِّل مبني ومُختبَر فعليًا، ولم تُبنَ عليه ميزة ولم تُدمج بعد؛ جدول <a href="https://github.com/MahmoudMoe/reef#hosts">Hosts</a> في README يبيّن ما يتغيّر على مضيف آخر.<br>
+  هذه أوامر Claude Code، المضيف المدعوم اليوم (المضيف هو الأداة التي تشغّل مهارات Reef ووكلاءه وتستدعي حارسه قبل كل أمر). أما OpenCode فدعمه مبكر: المحوِّل مبني ومُختبَر فعليًا، ولم تُبنَ عليه ميزة ولم تُدمج بعد؛ جدول <a href="https://github.com/MahmoudMoe/reef/blob/main/docs/reference.md#hosts">Hosts</a> في README يبيّن ما يتغيّر على مضيف آخر.<br>
   وعلى OpenCode، من داخل المشروع ومن نسخة من هذا المستودع: <code>python3 &lt;plugin&gt;/scripts/reef-init.py --root .</code> ثم <code>python3 &lt;plugin&gt;/scripts/reef-opencode.py install</code>، واجعل كل قيمة في <code>roles</code> معرّف نموذج بصيغة <code>provider/model</code>. الموافقة على خطة أو على ليلة تكتبها أنت في الطرفية: <code>python3 &lt;plugin&gt;/scripts/reef-approval.py --owner "Approve plan &lt;slug&gt; at &lt;digest16&gt;?"</code>، ولا يوجد هناك وضع الرسم البياني (graph mode).<br>
 <table><thead><tr><th></th><th>Claude Code</th><th>OpenCode</th></tr></thead><tbody>
 <tr><td>الحالة</td><td>مدعوم</td><td>مبكر: مبني ومُختبَر فعليًا، ولم تُبنَ عليه ميزة بعد</td></tr>
@@ -438,7 +438,7 @@ reef/                                   # كل مستند ملتزَم به
   archive/&lt;date&gt;/
 scripts/reef*   .githooks/   .github/workflows/</code></pre>
 <h3>مفاتيح <code>.reef/config.json</code> التي تهم المالك</h3>
-<p>الجدول الكامل بكل مفتاح وقيمته الافتراضية في <a href="https://github.com/MahmoudMoe/reef#settings-reefconfigjson--the-one-home-for-every-number">قسم Settings في README</a>؛ هنا ما تضبطه عادةً:</p>
+<p>الجدول الكامل بكل مفتاح وقيمته الافتراضية في <a href="https://github.com/MahmoudMoe/reef/blob/main/docs/reference.md#settings-reefconfigjson">قسم Settings في README</a>؛ هنا ما تضبطه عادةً:</p>
 <table><thead><tr><th>المفتاح</th><th>الأثر</th></tr></thead><tbody>
 <tr><td><code>gates.fast</code> / <code>gates.full</code> / <code>gates.extra</code> / <code>gates.release</code></td><td>بوابة الـcommit / التحقق والمراجعة وCI / بوابات أخرى يشغّلها <code>reef-ci-local.sh</code> / بوابات فرع الإصدار (انحراف C4، فحص الأسرار، تدقيق المكدس؛ أداة ناقصة = تخطٍّ = exit 2)</td></tr>
 <tr><td><code>caps.attempts</code></td><td>جولات الإصلاح لكل مهمة، وللبند على rollup</td></tr>

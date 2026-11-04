@@ -31,9 +31,10 @@ what each stop means, and what the user can change. The one exception is a scrip
 
 | Surface | Owns | Links to (never copies) |
 |---|---|---|
-| `README.md` (the GitHub page) | The claim, the quick start, the **honesty ledger**, the tiers, the settings table, the measured summary, the layout, the status | the site, the manual, `docs/perf`, `docs/design` |
-| `docs/index.html` (the site) | The *presentation* for a user: the situation chooser, the pipeline explorer, the roles, the in-practice section, the expandable layout tree | **the settings table and the version are fetched from the README at page load and parsed**; the honesty ledger, the design notes and the measurements are linked, never shown |
-| `docs/manual/ar/index.html` | The Arabic user manual (learning path, daily use, troubleshooting) | the README for reference facts |
+| `README.md` (the GitHub page) | The claim, the quick start, the version badge — short on purpose (2026-11-04) | the reference, the site, the manual |
+| `docs/reference.md` | Every mode and command, every stop, the **honesty ledger**, the tiers, the settings table, the hosts table, the measured summary, the layout, the status | `docs/perf`, `docs/design` |
+| `docs/index.html` (the site) | The *presentation* for a user: the situation chooser, the pipeline explorer, the roles, the in-practice section, the expandable layout tree | **the settings and hosts tables are fetched from `docs/reference.md`, the version from the README, at page load and parsed**; the honesty ledger, the design notes and the measurements are linked, never shown |
+| `docs/manual/ar/index.html` | The Arabic user manual (learning path, daily use, troubleshooting) | `docs/reference.md` for reference facts |
 | `docs/design/*.md` | Design decisions and their reasoning (the graph executor, the planning cost cut, this document) | — |
 | `docs/perf/*.md` | Every measured number: the dogfood run, the baseline, the eval, the payloads, the guard profile | — |
 | `CHANGELOG.md` | What changed in each version, with the first contact that caused it | — |
