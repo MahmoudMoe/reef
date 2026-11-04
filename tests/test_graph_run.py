@@ -278,10 +278,29 @@ class Settle(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("FAIL 101: gate exit 1: FAIL src/lib/decode.test.ts", r.stdout)
         self.assertNotIn("no verifier verdict", r.stdout, "the judges were skipped by design; the gate is the failure")
-        self.assertIn("attempt counted: attempt=2/3", r.stdout)
+        self.assertIn("attempt counted: 1 of 3 used — the next round is attempt 2 of 3", r.stdout)
         task = open(os.path.join(d, "tasks", "101-a.md")).read()
         self.assertIn("attempts: 1", task)
         self.assertIn("- attempt 1 FAIL: gate exit 1: FAIL src/lib/decode.test.ts", task, "the failure's words reach the next dispatch")
+
+    def test_a_red_gate_lists_every_failing_test_from_its_log(self):
+        # 2026-11-04 (an adopted project): the gate's notes named 3 of 10 failing tests ("the other seven were not looked at")
+        # and the orchestrator reported that to the owner; settle reads the gate's own log and lists each one, one line
+        d = graph_project()
+        pass_gate(d)
+        g(d, "generate")
+        p = self.results(d, gate_exit=1, notes="10 failed")
+        res = json.load(open(p))
+        wt = res["tasks"][0].get("worktree") or d
+        os.makedirs(os.path.join(wt, ".reef", "ci-local"), exist_ok=True)
+        with open(os.path.join(wt, ".reef", "ci-local", "gate-full.log"), "w") as f:
+            f.write("".join(f" FAIL  src/t{i}.test.ts > case {i}\n" for i in range(10)) + "FAILED tests/test_x.py::test_y - assert 1\n ok line\n")
+        r = g(d, "settle", p)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("11 failing test(s) in the gate's log", r.stdout)
+        for i in range(10):
+            self.assertIn(f"src/t{i}.test.ts > case {i}", r.stdout)
+        self.assertIn("tests/test_x.py::test_y", r.stdout)
         # a green gate with no verdict is still a pipeline defect, not an attempt
         p = self.results(d)
         res = json.load(open(p)); res["tasks"][0]["judge"] = True; json.dump(res, open(p, "w"))

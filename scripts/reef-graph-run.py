@@ -69,6 +69,21 @@ die = partial(_die, prefix="reef-graph-run")
 run = lambda args, cwd, timeout=120: run_rc3(args, cwd, timeout)
 
 
+def failing_tests(wt):
+    """Every failing test the worktree's last gate log names, one line each (2026-11-04, an adopted project: the gate's notes
+    named 3 of 10 and the rest were "not looked at"): vitest's `FAIL  file > name`, pytest's `FAILED file::name`, `×`/`✗`."""
+    logs = [p for p in (os.path.join(wt or ".", ".reef", "ci-local", f"gate-{m}.log") for m in ("full", "fast")) if os.path.isfile(p)]
+    if not logs:
+        return []
+    names = []
+    with open(max(logs, key=os.path.getmtime), encoding="utf-8", errors="replace") as f:
+        for line in f:
+            m = re.match(r"^\s*(?:FAIL|FAILED|×|✗)\s+(\S.*?)\s*$", line)
+            if m and m.group(1) not in names:
+                names.append(m.group(1)[:200])
+    return [f"  {len(names)} failing test(s) in the gate's log:"] + [f"    {n}" for n in names[:40]] if names else []
+
+
 def project_script(root, name):
     p = os.path.join(root, "scripts", name)
     return p if os.path.isfile(p) else os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
@@ -527,7 +542,13 @@ def settle_task(root, r, extra_why=(), row=False):
             if os.path.isfile(task_file) and not any(w.startswith(("no verifier", "no hunter")) for w in why):
                 rc_a, out_a, err_a = run([sys.executable, project_script(root, "reef-attempt"), task_file, reason[:300]], os.path.dirname(task_file))
                 att = re.search(r"attempt=(\d+)/(\d+)", out_a or "")
-                print(f"  attempt counted: {att.group(0) if att else (err_a or out_a).strip().splitlines()[-1][:120] if (err_a or out_a).strip() else rc_a}")
+                # 2026-11-04: `attempt=2/3` read as two used, and the orchestrator told the owner it was the last round
+                used, cap = (int(att.group(1)) - 1, int(att.group(2))) if att else (None, None)
+                print(f"  attempt counted: {used} of {cap} used — " + (f"the next round is attempt {used + 1} of {cap}" if used < cap
+                      else "the cap is reached: the task parks") if att else
+                      f"  attempt counted: {(err_a or out_a).strip().splitlines()[-1][:120] if (err_a or out_a).strip() else rc_a}")
+            for line in failing_tests(wt) if gate.get("gate_exit") not in (0, None) else []:
+                print(line)
             return 1, found
         if row:
             print(f"CLOSED {tid} (in {wt})")
