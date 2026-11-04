@@ -21,12 +21,14 @@ sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project
 from reef_common import main_checkout, read, die as _die, section  # noqa: E402
 
 TEST_RE = re.compile(r"(?<![A-Za-z0-9_])test_[a-z0-9_]+|(?<![A-Za-z0-9_])Test[A-Z][A-Za-z0-9_]*|(?:\bit|\btest|\bdescribe)\((['\"])(.+?)\1\)")
-# a backticked Proof is a COMMAND when it reads like one — shell operators, a flag, a path, or a known runner up front;
-# otherwise it is a test's name (vitest/jest names are sentences with spaces: `health reports database and storage ok`;
-# first contact, 2026-10-17: 26 of them were run as shell and reported missing)
-SHELL_OPS = re.compile(r"&&|\|\||[|;<>]|\$\(|\$\{|\s--?[a-zA-Z]|=|^!")
+# a backticked Proof is a COMMAND when it reads like one — chained with a shell operator, or a path, an assignment or a known
+# runner up front; otherwise it is a test's name (vitest/jest names are sentences with spaces: `health reports database and
+# storage ok`; first contact, 2026-10-17: 26 of them were run as shell and reported missing). A flag, `=` or `<>` inside a
+# sentence is the name's own text: a CLI's tests name its flags (`prints empty for bare --slug`, the live Node run, 2026-11-04)
+SHELL_OPS = re.compile(r"&&|\|\||[|;]|\$\(|\$\{|^!")
 RUNNERS = {"sh", "bash", "zsh", "env", "npm", "npx", "pnpm", "yarn", "bun", "node", "deno", "python", "python3", "pytest", "uv", "pip",
-           "go", "cargo", "make", "docker", "git", "test", "curl", "wget", "grep", "rg", "find", "ls", "cat", "diff", "cmp", "exit", "true", "false"}
+           "go", "cargo", "make", "docker", "git", "test", "curl", "wget", "grep", "rg", "find", "ls", "cat", "diff", "cmp", "exit", "true", "false",
+           "vitest", "jest", "tsc", "echo", "printf"}
 TPL_FALLBACK = """---
 id: NNNnn
 feature: <feature-slug>
@@ -71,7 +73,7 @@ def looks_like_command(s):
         return True
     toks = s.split()
     head = toks[0]
-    if head.startswith(("./", "/", "../", "~")):
+    if head.startswith(("./", "/", "../", "~")) or "=" in head:
         return True
     if head not in RUNNERS:
         return False

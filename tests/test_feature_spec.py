@@ -10,7 +10,7 @@ import sys
 import tempfile
 import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _fixtures import write, git_repo  # noqa: E402  (the suites' shared fixtures, once)
+from _fixtures import write, git_repo, load_script  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHECK = os.path.join(ROOT, "scripts", "reef-plan-check.py")
@@ -18,6 +18,7 @@ QUEUE = os.path.join(ROOT, "scripts", "reef-queue.py")
 TIER = os.path.join(ROOT, "scripts", "reef-tier.py")
 CLAIMS = os.path.join(ROOT, "scripts", "reef-claims.py")
 CONVERGE = os.path.join(ROOT, "scripts", "reef-converge")
+CONV = load_script("reef-converge")
 
 SPEC = """# CSV export for orders — SPEC
 
@@ -923,6 +924,20 @@ class Converge(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("1 superseded row(s) skipped", r.stdout)
         self.assertIn("AC-2: superseded by 204 AC-5", r.stdout)
+
+    def test_a_vitest_name_that_mentions_a_flag_is_a_test(self):
+        # the live Node run (2026-11-04, row 2): a CLI's test names carry its flags — `prints empty for bare --slug` ran as
+        # shell (`sh: prints: command not found`) and four proofs came back missing; a command is told by its head
+        write(self.d, "tests/cli.test.ts", 'import { it } from "vitest";\nit("prints empty for bare --slug", () => {});\n'
+                                           'it("counts words when --slug is not exactly argv[0]", () => {});\n')
+        task = TASK_NEW.replace("| AC-1 | `test_csv_header_and_rows` |", "| AC-1 | `prints empty for bare --slug` |") \
+                       .replace("| AC-2 | `test_csv_two_decimals` |", "| AC-2 | `counts words when --slug is not exactly argv[0]` |")
+        write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
+        r = self.converge()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("command not found", r.stdout)
+        for cmd in ("npx vitest run --changed", "vitest run -t slug", "tsc --noEmit", "CI=1 npm test", "cd web && npm test", "! git grep -n x"):
+            self.assertTrue(CONV.looks_like_command(cmd), cmd)
 
     def test_vitest_names_are_tests_mechanic_rows_are_skipped_and_the_template_is_found_from_a_project_copy(self):
         # first contact (2026-10-17): 26 vitest names in backticks ran as shell and came back "missing"; then the script
