@@ -699,13 +699,17 @@ def commands_off_path(cfg):
     return out
 
 
-def remote_fix(root):
+def remote_fix(root, release=None):
     """The one command that gives a project with no `origin` a remote, or '' when it has one (the live run, 2026-11-03:
-    a row reached GREEN with no PR to record it against and nothing to merge through)."""
+    a row reached GREEN with no PR to record it against and nothing to merge through). `--push` pushes the current branch
+    only: a local `release` branch is pushed with it (the live Node run, 2026-11-04: main stayed local)."""
     r = subprocess.run(["git", "-C", root, "remote"], capture_output=True, text=True)
     if r.returncode != 0 or "origin" in r.stdout.split():
         return ""
-    return f"gh repo create {os.path.basename(os.path.realpath(root))} --private --source . --remote origin --push"
+    cur = subprocess.run(["git", "-C", root, "branch", "--show-current"], capture_output=True, text=True).stdout.strip()
+    has = release and release != cur and subprocess.run(["git", "-C", root, "rev-parse", "--verify", "--quiet", f"refs/heads/{release}"],
+                                                        capture_output=True, text=True).returncode == 0
+    return f"gh repo create {os.path.basename(os.path.realpath(root))} --private --source . --remote origin --push" + (f" && git push -u origin {release}" if has else "")
 
 
 def release_fix(root, cfg):

@@ -827,7 +827,7 @@ def main(argv):
         rel_fix = release_fix(root, cfg)
         if rel_fix:
             print(f"  NO RELEASE BRANCH: {(cfg.get('branches') or {}).get('release')} does not exist — the batch's release stops on it: {rel_fix}")
-        fix = remote_fix(root)
+        fix = remote_fix(root, (cfg.get("branches") or {}).get("release"))
         if fix:
             print("  NO REMOTE: a row's review is recorded against its pull request and the loop merges through it, so no row "
                   f"can finish here — before the first row: {fix}")
