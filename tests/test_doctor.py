@@ -63,6 +63,26 @@ def doctor(d, *a):
     return subprocess.run([sys.executable, DOCTOR, "--repo", d, "--plugin", ROOT, *a], capture_output=True, text=True, env=env)
 
 
+class TheVersionLineReadsTheLayout(unittest.TestCase):
+    def test_a_dev_plugin_on_a_current_layout_is_ok(self):
+        # the live Node run (2026-11-04): .reef/version holds the LAYOUT version (reef-init.py VERSION, 0.7.3) and the doctor
+        # compared it with the plugin's 0.7.4-dev.21 — a WARN naming `reef update` on a fresh init, forever: the update re-renders it
+        clone, _, _ = plugin_with_upstream()
+        pj = os.path.join(clone, ".claude-plugin", "plugin.json")
+        m = json.load(open(pj)); m["version"] = "0.7.9-dev.3"; json.dump(m, open(pj, "w"))
+        layout = re.search(r'^VERSION = "([^"]+)"', open(os.path.join(clone, "scripts", "reef-init.py")).read(), re.M).group(1)
+        d = project()
+        with open(os.path.join(d, ".reef", "version"), "w") as f:
+            f.write(layout + "\n")
+        env = dict(os.environ, PATH="/nonexistent-gh:" + os.environ["PATH"])
+        out = subprocess.run([sys.executable, DOCTOR, "--repo", d, "--plugin", clone], capture_output=True, text=True, env=env).stdout
+        self.assertIn(f"OK   version: project {layout}, plugin 0.7.9-dev.3 (layout {layout})", out)
+        with open(os.path.join(d, ".reef", "version"), "w") as f:
+            f.write("0.6.0\n")
+        out = subprocess.run([sys.executable, DOCTOR, "--repo", d, "--plugin", clone], capture_output=True, text=True, env=env).stdout
+        self.assertIn("WARN version: project 0.6.0, plugin 0.7.9-dev.3", out, "an older layout still names the update")
+
+
 class ProposalsFix(unittest.TestCase):
     def test_the_proposals_fix_names_the_plugins_reef_init(self):
         """2026-10-31, the owner pressed the item: `python3 scripts/reef-init.py --accept …` — a project has no scripts/reef-init.py;
