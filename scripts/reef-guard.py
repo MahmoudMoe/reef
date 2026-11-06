@@ -178,7 +178,60 @@ def tokenize(cmd):
     try:
         return strip_heredocs(list(lex))
     except ValueError:
+        pass
+    bare = drop_heredoc_bodies(cmd)   # an apostrophe in a heredoc body is data, not an open quote
+    if bare is None or bare == cmd:
         return None
+    lex = shlex.shlex(bare, posix=True, punctuation_chars="();|&<>\n")
+    lex.whitespace = " \t\r"
+    lex.whitespace_split = True
+    try:
+        return strip_heredocs(list(lex))
+    except ValueError:
+        return None
+
+
+HEREDOC_OPEN = re.compile(r"(?<!<)<<(?!<)-?[ \t]*(['\"]?)([A-Za-z_]\w*)\1")
+
+
+def drop_heredoc_bodies(cmd):
+    """The command with each heredoc's body removed (its `<<WORD` and closing line kept), read with the shell's quoting:
+    a `<<` inside quotes or a comment opens nothing, so the line after it stays a command. None when a quote outside any
+    body never closes. 2026-11-06 (an adopted project, row 239): a hunter's report written by heredoc said
+    `core.hooksPath` and `the plan's`; shlex read the apostrophe as an open quote before the body was dropped, the
+    command was unparseable and mentioned hooksPath, so the guard refused the report twice."""
+    out, pending, quote, i, n = [], [], None, 0, len(cmd)
+    while i < n:
+        c = cmd[i]
+        if quote:
+            if c == "\\" and quote == '"':
+                out.append(cmd[i:i + 2]); i += 2; continue
+            if c == quote:
+                quote = None
+            out.append(c); i += 1; continue
+        if c == "\\":
+            out.append(cmd[i:i + 2]); i += 2; continue
+        if c in "'\"":
+            quote = c; out.append(c); i += 1; continue
+        if c == "#" and (i == 0 or cmd[i - 1] in " \t\n;&|("):
+            end = cmd.find("\n", i)
+            end = n if end < 0 else end
+            out.append(cmd[i:end]); i = end; continue
+        m = HEREDOC_OPEN.match(cmd, i)
+        if m:
+            pending.append(m.group(2)); out.append(m.group(0)); i = m.end(); continue
+        out.append(c); i += 1
+        if c == "\n" and pending:
+            for word in pending:
+                while i < n:
+                    end = cmd.find("\n", i)
+                    end = n if end < 0 else end
+                    line, i = cmd[i:end], min(end + 1, n)
+                    if line.strip() == word:
+                        out.append(line + ("\n" if end < n else ""))
+                        break
+            pending = []
+    return None if quote else "".join(out)
 
 
 def strip_heredocs(toks):

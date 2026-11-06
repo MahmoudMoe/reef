@@ -95,6 +95,9 @@ DENY_BASH = [
     "python3 - <<'EOF' > scripts/reef-guard.py\nprint(1)\nEOF",
     'python3 gen.py | tee scripts/reef-guard.py',
     'sed -i s/a/b/ scripts/reef-guard.py',
+    # 2026-11-06: a quote-shaped `<<` is no heredoc — the line after it runs, even when a real heredoc's apostrophe follows
+    "echo \"<<X\"\ngit commit -n -m x\nX\ncat > n.md <<'E'\nthe plan's hooksPath\nE",
+    'git -c core.hooksPath=/dev/null commit -m "x',          # unbalanced outside any heredoc: still unparseable, denied
 ]
 
 ALLOW_BASH = [
@@ -142,6 +145,10 @@ ALLOW_BASH = [
     'python3 scripts/reef-loop.py tick; ls .reef/approvals 2>/dev/null; ls scripts',   # 2>/dev/null is no write (re-entry, 2026-10-16)
     "cat > notes.md <<'EOF'\nnever run git commit --no-verify\nEOF",   # a bypass mentioned INSIDE a heredoc body
     "cat <<-END\n\tgit commit -n -m x\n\tEND",                     # <<- form
+    # 2026-11-06 (an adopted project, row 239): a hunter's report written by heredoc said `core.hooksPath` and `the plan's`;
+    # the apostrophe made the whole command unparseable before the body was dropped, so the report was refused twice
+    "cat > /x/scratchpad/hunter.md <<'EOF'\nRUN: hunter\nNEW-ROW: no core.hooksPath in the main checkout; the plan's gate never runs\nEOF",
+    "mkdir -p /x/r && cat > /x/r/a.md <<EOF\nit's the hooksPath\nEOF\nls /x/r",
     'echo npm test | cat',
     'rg vitest src | wc -l',
     'npm run lint | tail',                                   # not the test gate
