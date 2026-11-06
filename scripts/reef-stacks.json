@@ -95,6 +95,7 @@
         "npx",
         "--no-install",
         "eslint",
+        "--no-inline-config",
         "--format",
         "json",
         "--rule",
@@ -165,6 +166,7 @@
       "cmd": [
         "ruff",
         "check",
+        "--ignore-noqa",
         "--output-format",
         "json",
         "--select",
