@@ -11,7 +11,7 @@ import tempfile
 import time
 import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the suites' shared fixtures live beside this file
-from _fixtures import load_script, git_repo  # noqa: E402  (the suites' shared fixtures, once)
+from _fixtures import load_script, git_repo, git_checked  # noqa: E402  (the suites' shared fixtures, once)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENTRY = os.path.join(ROOT, "scripts", "reef")
@@ -62,6 +62,22 @@ class UpdatePushes(unittest.TestCase):
         src = open(ENTRY, encoding="utf-8").read()
         self.assertIn('["git", "push"', src)
         self.assertIn("reef update: pushed", src)
+
+    def test_a_rejected_push_names_the_line_that_lands_it(self):
+        """2026-11-06 (an adopted project): the loop pushed between two `reef update`s; the entry said "push yourself: git
+        push", which fails the same way. It now prints reef-update.py's own line (one source): pull --rebase --autostash."""
+        src = open(ENTRY, encoding="utf-8").read()
+        self.assertNotIn("push yourself: git push", src)
+        self.assertIn("push_hint(root, ", src)
+        upd = load_script("reef-update.py", "reef_update_hint")
+        d = git_repo(prefix="reef-push-hint.", branch="develop")
+        git_checked(d, "commit", "-q", "--allow-empty", "-m", "start")
+        rejected = " ! [rejected]        develop -> develop (fetch first)\nerror: failed to push some refs"
+        hint = upd.push_hint(d, rejected)
+        self.assertIn("git pull --rebase --autostash origin develop && git push", hint)
+        self.assertIsNone(upd.push_hint(d, "fatal: Authentication failed"), "auth or network: no pull line")
+        git_checked(d, "checkout", "-q", "--detach")
+        self.assertIn("detached", upd.push_hint(d, rejected))
 
 
 class UpdateLoadsTheNewSiblings(unittest.TestCase):
