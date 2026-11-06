@@ -293,6 +293,8 @@ def _check_bash(cmd, depth=0):
     if depth > MAX_DEPTH:
         deny("shell nesting too deep to analyze — refusing a command that hides commands this many layers down")
     cmd = expand_simple_vars(cmd)
+    if os.environ.get("CLAUDE_JOB_DIR"):   # a runner session's own folder, read for what it holds (2026-11-06: `cp $CLAUDE_JOB_DIR/tmp/…`)
+        cmd = re.sub(r"\$\{?CLAUDE_JOB_DIR\}?(?![A-Za-z0-9_])", os.environ["CLAUDE_JOB_DIR"].replace("\\", "\\\\"), cmd)
     cmd = re.sub(r"\$\{?PWD\}?", (CTX.get("cwd") or os.getcwd()).replace("\\", "\\\\"), cmd)   # $PWD is the session's cwd (the review, 2026-10-26)
     cmd = re.sub(r"\\\r?\n", " ", cmd)     # backslash line continuations JOIN a command
     cmd = re.sub(r"(\d*>&\d+|&>>?)", " ", cmd)  # fd redirections are not operators (2>&1, &>)
