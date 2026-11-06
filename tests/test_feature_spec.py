@@ -759,6 +759,34 @@ class ConvergeReadsTheEvidence(unittest.TestCase):
         self.assertIn("Converged", r.stdout)
 
 
+class AProofTheGuardRefusesFailsAtPlanning(unittest.TestCase):
+    """2026-11-06 (an adopted project, rows 240 and 241): three [mechanic] Proof rows were refused by the guard at build
+    time — a `git config --unset core.hooksPath`, an overwrite of .githooks/*, a temp-clone commit with --no-verify. Each
+    cost a round and an owner ruling. plan-check now runs every [mechanic] command through the guard as the mechanic
+    would, so the planner rewrites the row before the owner ever sees the plan."""
+
+    def run_check(self, proof):
+        d = tempfile.mkdtemp(prefix="reef-pc-guard.")
+        subprocess.run(["git", "init", "-q", d], check=True)
+        write(d, ".reef/config.json", json.dumps({"gates": {"full": "true"}, "paths": {"features": "reef/features"}}))
+        feature(d)
+        write(d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", TASK_NEW.replace("| AC-2 | `test_csv_two_decimals` |", f"| AC-2 | {proof} |"))
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-plan-check.py"), d], capture_output=True, text=True)
+        return [l for l in r.stdout.splitlines() if "the guard refuses" in l]
+
+    def test_a_refused_mechanic_command_fails_and_an_allowed_one_passes(self):
+        for proof in ("[mechanic] `git commit -qam side --no-verify` exits 0",
+                      "[mechanic] `git show HEAD~1:.githooks/pre-commit > .githooks/pre-commit` exits 0",
+                      "[mechanic] `npm test > out.log 2>&1` exits 0; then `git config --unset core.hooksPath` exits 0"):
+            with self.subTest(proof=proof):
+                got = self.run_check(proof)
+                self.assertEqual(len(got), 1, f"not caught at planning: {proof}")
+                self.assertIn("Proof for AC-2", got[0])
+                self.assertIn("reef-guard", got[0], "the guard's own reason is quoted")
+        self.assertEqual(self.run_check("[mechanic] `rm -f .env && npm test > out.log 2>&1` exits 0"), [], "an allowed write stays allowed")
+        self.assertEqual(self.run_check("`test_csv_two_decimals`"), [], "a test name is never sent to the guard")
+
+
 class PlanCheckRefusesShellInACell(unittest.TestCase):
     """v3 phase 2: a Proof is a named test; a shell one-liner over 120 characters in a markdown cell is refused unless it
     is tagged [mechanic] (it must write files). A long test NAME is not shell."""
