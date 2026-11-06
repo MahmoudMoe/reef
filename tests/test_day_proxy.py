@@ -291,6 +291,9 @@ class ContractRecordsBindTheFullDigest(unittest.TestCase):
         N.L.write(d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": dg[:16], "digest": dg}))
         self.assertNotIn("no live autopilot", N.proxy(d, "share-links", rep).stdout, "the runner's own marker passes")
         os.unlink(os.path.join(d, ".reef", "approvals", "share-links.json"))
+        N.L.write(d, "reef/proxy.md", N.PROXY_MD.replace("Decides: plan, question, process, wording", "Decides: process, wording"))
+        approve_day(self, d)   # plan is not the proxy's by day: only a live autopilot's marker would let him approve it
+        dg = rr.day_digest(d)
         N.L.write(d, ".reef/night/autopilot", json.dumps({"pid": os.getpid(), "started": "x", "digest16": dg[:16], "digest": dg[:16] + "0" * 48}))
         self.assertIn("no live autopilot", N.proxy(d, "share-links", rep).stdout, "a marker for a 16-hex twin is not this contract's runner")
         loader = importlib.machinery.SourceFileLoader("reef_entry_full_digest", os.path.join(ROOT, "scripts", "reef"))
@@ -309,3 +312,54 @@ class ContractRecordsBindTheFullDigest(unittest.TestCase):
         r = N.proxy(d, "share-links", rep)
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn("changed since the owner approved it", r.stdout, "plan authority by day needs the contract approved at its full digest")
+
+
+class TheDayApprovalRoad(unittest.TestCase):
+    """2026-11-06 (an adopted project, rows 239 and 241): the owner had approved reef/proxy.md with `Decides: plan, …`, and
+    the day loop's approvals never landed — four stops for a terminal command in one day, each a different strict check:
+    Mahmoud's day decision on a plan wrote a footnote and no approval record (plan approvals by day were the autopilot's
+    only); the owner's own chat answer "Approve (Recommended)" was not the word "Approve"; and the report sat in
+    $CLAUDE_JOB_DIR/tmp, which the copy rule read as a literal folder. The whole road, as that loop walks it."""
+
+    def setUp(self):
+        self.d = N.project()
+        N.L.write(self.d, "reef/proxy.md", N.PROXY_MD)
+        approve_day(self, self.d)
+
+    def test_mahmoud_approves_a_plan_by_day_when_the_contract_names_plan(self):
+        dg = N.digest(self.d, "share-links")
+        text = (f"RUN: agent=mahmoud day={TODAY} kind=plan question=approve the plan\nAPPROVE plan share-links at {dg} — slices are vertical\n"
+                f"DECIDE approve plan share-links at {dg}? — approve — slices are vertical (reef/owner.md)\nVERDICT: DONE\n")
+        r = decide(self.d, kind="plan", text=text)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        rec = json.load(open(os.path.join(self.d, ".reef", "approvals", "share-links.json")))
+        self.assertEqual(rec["digest16"], dg)
+        self.assertEqual(rec["by"], "mahmoud (proxy)")
+        self.assertIn("day", rec)
+        self.assertIn("Mahmoud (proxy, day", open(os.path.join(self.d, "reef", "queue.md")).read(), "the footnote is written too")
+
+    def test_a_plan_decision_without_its_approve_line_writes_nothing(self):
+        r = decide(self.d, kind="plan", text=f"RUN: agent=mahmoud day={TODAY} kind=plan question=x\nDECIDE approve? — approve — x\nVERDICT: DONE\n")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("APPROVE plan", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "approvals", "share-links.json")))
+
+    def test_the_owners_recommended_approve_is_an_approval_and_nothing_else_is(self):
+        q = f"Approve plan share-links at {N.digest(self.d, 'share-links')}?"
+        for label in ("Approve with changes", "Approve, but later", "Don't approve (Recommended)"):
+            with self.subTest(label=label):
+                self.assertIn("nothing written", N.hook(self.d, q, label).stdout)
+        r = N.hook(self.d, q, "Approve (Recommended)")
+        self.assertIn("approved at", r.stdout, r.stdout)
+
+    def test_a_report_copied_from_the_job_dir_variable_is_a_scratchpad_copy(self):
+        jobs = os.path.join(os.path.expanduser("~"), ".claude", "jobs", "b26dead6")
+        cmd = "cp $CLAUDE_JOB_DIR/tmp/report-mahmoud-day-12.md .reef/ci-local/report-mahmoud-day-12.md"
+        env = dict(os.environ, CLAUDE_JOB_DIR=jobs)
+        r = subprocess.run([sys.executable, G.GUARD], input=json.dumps({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": cmd}}),
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        env["CLAUDE_JOB_DIR"] = "/Users/x/elsewhere"
+        r = subprocess.run([sys.executable, G.GUARD], input=json.dumps({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": cmd}}),
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 2, "the variable is read for what it holds, never trusted by its name")

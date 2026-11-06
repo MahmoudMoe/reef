@@ -193,6 +193,12 @@ def feature_row(root, feature):
         return ""
 
 
+def approves(label):
+    """The owner's approve: the word itself, or with the question tool's own `(Recommended)` mark (2026-11-06, an adopted
+    project: "Approve (Recommended)" was refused twice and the owner ran two terminal commands). Nothing else counts."""
+    return re.fullmatch(r"Approve(\s*\(Recommended\))?", str(label).strip()) is not None
+
+
 def cmd_proxy(argv):
     """Super Reef: Mahmoud's plan approval, written only while the night runs (.reef/night/active) under the approved contract
     at its current digest for a row the contract names — or, since 2026-10-30, while the autopilot runs (.reef/night/autopilot, a live runner at the contract's digest)
@@ -214,7 +220,8 @@ def cmd_proxy(argv):
         autopilot = process_alive(ap.get("pid")) and rr.binds(ap, rr.day_digest(root))
     except (OSError, ValueError, AttributeError):
         autopilot = False
-    if not night and not autopilot:
+    day = not night and not autopilot and rr.day_ok(root)[0] and not rr.day_plan_refusal(root)   # the contract's own word (2026-11-06)
+    if not night and not autopilot and not day:
         return refuse("no night is running (.reef/night/active is written by `reef-run.py --night` alone) and no live autopilot "
                       "(.reef/night/autopilot names a running `reef-run.py --autopilot` and the contract's digest)")
     if night:
@@ -226,7 +233,7 @@ def cmd_proxy(argv):
             ok, why = False, f"{no} — a plan approval by day is the owner's until then"
     if not ok:
         return refuse(why)
-    if not re.search(r"(^|/)\.reef/ci-local/report-mahmoud-" + re.escape(feature) + r"\.md$", report.replace(os.sep, "/")):
+    if not re.search(r"(^|/)\.reef/ci-local/report-mahmoud-(" + re.escape(feature) + r"|day-\d+(-[A-Za-z0-9_]+)?)\.md$", report.replace(os.sep, "/")):
         return refuse(f"the report must be Mahmoud's own file copied to .reef/ci-local/report-mahmoud-{feature}.md")
     digests = plan_digests(cwd, feature)
     if not digests:
@@ -245,6 +252,8 @@ def cmd_proxy(argv):
     row = feature_row(where, feature)
     if not row:
         return refuse("its SPEC.md has no Row: line")
+    if "--row" in argv and argv[argv.index("--row") + 1] != row:
+        return refuse(f"the plan is row {row}'s, the decision names row {argv[argv.index('--row') + 1]}")
     if night and row not in rr.night_rows(root):
         return refuse(f"its row ({row}) is not in tonight's contract ({', '.join(rr.night_rows(root)) or '-'})")
     if not night:   # autopilot: the work the owner gave is the queue's open rows, nothing beyond it (the security review)
@@ -317,6 +326,14 @@ def cmd_proxy_day(argv):
         return 3
     if not dec:
         return refuse("no `DECIDE <question> — <answer> — <why>` or `WAIT` line in the report")
+    if kind == "plan":   # the approval record first, from his APPROVE line, under every check a plan approval takes (2026-11-06:
+        # a day decision on a plan wrote only its footnote, and the row waited for the owner's terminal four times in a day)
+        ap = re.search(r"^APPROVE plan (\S+) at [0-9a-f]{16}\b", text, re.M)
+        if not ap:
+            return refuse("a plan decision carries `APPROVE plan <slug> at <digest16>` — the approval record is written from it")
+        rc = cmd_proxy(["--feature", ap.group(1), "--report", report, "--row", row])
+        if rc != 0:
+            return rc
     note = f"Mahmoud (proxy, day {today}, {kind}): {dec.group('a').strip()} — {dec.group('why').strip()}"
     import hashlib
     sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -621,7 +638,7 @@ def main(argv):
         dq = DAY_Q.match(str(question).strip())
         if dq:
             # v3 phase 6: the owner approves the proxy's day contract + their profile ONCE, at their digest
-            if str(label).strip() != "Approve":
+            if not approves(label):
                 print(f"reef-approval: proxy by day: answer was {label!r} — nothing written")
                 continue
             rr = runner()
@@ -636,7 +653,7 @@ def main(argv):
         n = NIGHT_Q.match(str(question).strip())
         if n:
             # super Reef (2026-10-21): the owner approves tonight's contract + their profile ONCE, at their digest
-            if str(label).strip() != "Approve":
+            if not approves(label):
                 print(f"reef-approval: night {n.group('date')}: answer was {label!r} — nothing written")
                 continue
             rr = runner()
@@ -657,7 +674,7 @@ def main(argv):
         if not m:
             continue
         feature, digest16 = m.group("feature"), m.group("digest")
-        if str(label).strip() != "Approve":
+        if not approves(label):
             print(f"reef-approval: {feature}: answer was {label!r}, not 'Approve' — nothing written")
             continue
         digests = plan_digests(payload.get("cwd") or os.getcwd(), feature)
