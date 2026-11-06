@@ -89,7 +89,30 @@
         "run": "npm run build",
         "why": "the full gate's tests read the built app; a build older than the tree fails the project's freshness checks (2026-11-04)"
       }
-    ]
+    ],
+    "quality": {
+      "cmd": [
+        "npx",
+        "--no-install",
+        "eslint",
+        "--format",
+        "json",
+        "--rule",
+        "complexity: [error, <complexity>]",
+        "--rule",
+        "max-params: [error, <params>]",
+        "--rule",
+        "max-depth: [error, <depth>]",
+        "--rule",
+        "max-lines-per-function: [error, {max: <function_lines>, skipBlankLines: true, skipComments: true}]"
+      ],
+      "rules": [
+        "complexity",
+        "max-params",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    }
   },
   "python": {
     "detect": [
@@ -137,6 +160,27 @@
       "session, cookie or token handling": "\\brequest\\.session\\b|\\bset_cookie\\(|\\bjwt\\.(encode|decode)\\b|OAuth2PasswordBearer",
       "permission predicate": "\\b(login_required|permission_required|user_passes_test)\\b|Depends\\(\\s*get_current_\\w*user",
       "sign-in route": "\\bdef (log_?in|log_?out|sign_?in|sign_?out)\\b"
+    },
+    "quality": {
+      "cmd": [
+        "ruff",
+        "check",
+        "--output-format",
+        "json",
+        "--select",
+        "C901,PLR0913,PLR0915",
+        "--config",
+        "lint.mccabe.max-complexity=<complexity>",
+        "--config",
+        "lint.pylint.max-args=<params>",
+        "--config",
+        "lint.pylint.max-statements=<statements>"
+      ],
+      "rules": [
+        "C901",
+        "PLR0913",
+        "PLR0915"
+      ]
     }
   }
 }

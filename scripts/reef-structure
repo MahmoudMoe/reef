@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # CLASS: code
-"""Reef structure — the one tree, checked. Usage: reef-structure --check | --raw-sql | --sizes [--repo DIR]
+"""Reef structure — the one tree, checked. Usage: reef-structure --check | --raw-sql | --sizes | --quality [--baseline] [--repo DIR]
+--quality (0.7.5): the clean-code ratchet — the project's own linter (eslint, ruff) with Reef's limits (`structure.quality`:
+complexity 10, params 5, function_lines 60, statements 50, depth 4) on the files changed since HEAD, over reef/quality-baseline.json
+(`--quality --baseline` grandfathers the old code). No linter: exit 77, a skip. Joins gates.extra.
 --sizes (0.7.2): the size ratchet over reef/size-baseline.json (written by `reef-recalibrate measure`, product files only): a
 baselined file may not grow past its baseline, a new file may not exceed `structure.new_file_lines` (default 400); a file that
 shrank lowers its baseline in the same run. Only files changed since HEAD are read. Joins gates.extra.
@@ -213,13 +216,113 @@ def size_violations(root):
     return bad
 
 
+QUALITY = {"complexity": 10, "params": 5, "function_lines": 60, "statements": 50, "depth": 4}   # structure.quality's defaults
+
+
+def quality_counts(root, rels):
+    """{file: [rule, ...]} from the project's own linter with Reef's limits (scripts/reef-stacks.json `quality`), or None when no
+    linter of the stack runs here — a skip, never a pass. eslint's JSON (filePath, messages[].ruleId) and ruff's (filename, code)."""
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-stacks.json"), encoding="utf-8") as f:
+        stacks = json.load(f)
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            lim = dict(QUALITY, **((json.load(f).get("structure") or {}).get("quality") or {}))
+    except (OSError, ValueError):
+        lim = dict(QUALITY)
+    out, ran = {}, False
+    for prof in stacks.values():
+        q = prof.get("quality") if isinstance(prof, dict) else None
+        files = [r for r in rels if q and r.endswith(tuple(prof.get("code_ext") or ()))]
+        if not files:
+            continue
+        cmd = [re.sub(r"<(\w+)>", lambda m: str(lim.get(m.group(1), m.group(0))), a) for a in q["cmd"]] + files
+        try:
+            r = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=600)
+            found = json.loads(r.stdout)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            continue
+        ran = True
+        for item in found:
+            path = item.get("filePath") or item.get("filename") or ""
+            rel = os.path.relpath(os.path.realpath(path), os.path.realpath(root)) if os.path.isabs(path) else path
+            rules = [m.get("ruleId") for m in item.get("messages") or []] if "messages" in item else [item.get("code")]
+            out.setdefault(rel, []).extend(x for x in rules if x in q["rules"])
+    return out if ran else None
+
+
+def quality_violations(root, baseline=False):
+    """2026-11-06 (the owner): the clean-code limits, measured. A file changed since HEAD never gains a violation over
+    reef/quality-baseline.json, a new file has none, a file that got cleaner lowers its baseline (the ratchet).
+    `--baseline` grandfathers the tracked code as it is. None = no linter ran (exit 77)."""
+    bp = os.path.join(root, "reef", "quality-baseline.json")
+    git = lambda *a: [l for l in subprocess.run(["git", "-C", root, *a], capture_output=True, text=True).stdout.splitlines() if l]
+    keep = lambda rel: rel.endswith(CODE_EXT) and not (rel.endswith(".d.ts") or SKIP_DIR.search(rel) or TEST_FILE.search(rel)
+                                                      or REEF_CODE.match(rel)) and os.path.isfile(os.path.join(root, rel))
+    if baseline:
+        rels = [r for r in git("ls-files") if keep(r)]
+        counts = quality_counts(root, rels)
+        if counts is None:
+            return None
+        os.makedirs(os.path.dirname(bp), exist_ok=True)
+        with open(bp, "w", encoding="utf-8") as f:
+            json.dump({"files": {k: len(v) for k, v in sorted(counts.items()) if v}}, f, indent=1)
+            f.write("\n")
+        print(f"quality: baseline written — {sum(len(v) for v in counts.values())} violation(s) in {sum(1 for v in counts.values() if v)} file(s) "
+              "grandfathered (reef/quality-baseline.json; commit it)")
+        return []
+    try:
+        with open(bp, encoding="utf-8") as f:
+            base = json.load(f)
+    except (OSError, ValueError):
+        base = {"files": {}}
+    files = base.setdefault("files", {})
+    tracked = set(git("ls-files"))
+    rels = sorted({r for r in git("diff", "--name-only", "HEAD", "--") + git("ls-files", "--others", "--exclude-standard") if keep(r)})
+    counts = quality_counts(root, rels) if rels else {}
+    if counts is None:
+        return None
+    bad, lowered = [], 0
+    for rel in rels:
+        got, was = counts.get(rel, []), int(files.get(rel, 0))
+        rules = ", ".join(sorted(set(got)))
+        if len(got) > was:
+            bad.append(f"{rel}: {len(got)} violation(s) in a new file ({rules}) — split the function, fewer branches or parameters"
+                       if rel not in tracked else f"{rel}: {len(got)} violation(s), over its baseline of {was} ({rules}) — a file "
+                       "never gains one; split the function, or a `kind: refactor` row")
+        elif len(got) < was:
+            files[rel] = len(got)
+            lowered += 1
+    if lowered:
+        base["files"] = {k: v for k, v in files.items() if v}
+        with open(bp, "w", encoding="utf-8") as f:
+            json.dump(base, f, indent=1)
+            f.write("\n")
+        print(f"quality: {lowered} baseline(s) lowered in reef/quality-baseline.json — commit it with the change (the ratchet)")
+    return bad
+
+
 def main(argv):
     repo = "."
     if "--repo" in argv:
         repo = argv[argv.index("--repo") + 1]
-    if "--check" not in argv and "--raw-sql" not in argv and "--sizes" not in argv:
-        print("usage: reef-structure --check | --raw-sql | --sizes [--repo DIR]", file=sys.stderr)
+    if "--check" not in argv and "--raw-sql" not in argv and "--sizes" not in argv and "--quality" not in argv:
+        print("usage: reef-structure --check | --raw-sql | --sizes | --quality [--baseline] [--repo DIR]", file=sys.stderr)
         return 2
+    if "--quality" in argv:
+        root = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=repo, capture_output=True, text=True).stdout.strip() or os.path.abspath(repo)
+        bad = quality_violations(root, baseline="--baseline" in argv)
+        if bad == [] and "--baseline" in argv:
+            return 0
+        if bad is None:
+            print("skipped: quality — no linter of this stack runs here (eslint through npx, or ruff); install it, then run again")
+            return 77
+        if bad:
+            print("FAIL: quality")
+            for b in bad:
+                print(f"  - {b}")
+            return 1
+        print("ok: no changed file gained a complexity, parameter, length or nesting violation")
+        return 0
     if "--sizes" in argv:
         root = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=repo, capture_output=True, text=True).stdout.strip() or os.path.abspath(repo)
         bad = size_violations(root)

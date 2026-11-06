@@ -395,6 +395,15 @@ class ReleaseOnlyCi(unittest.TestCase):
         init(d2, "--queue", "file")
         self.assertNotIn("build", json.loads(read(d2, ".reef/config.json"))["gates"], "no Next.js: nothing to keep fresh")
 
+    def test_init_offers_the_clean_code_limits_with_the_commands_that_turn_them_on(self):
+        # 2026-11-06 (the owner): the limits are opt-in — a project without eslint or ruff would read the skip as a red gate
+        d = tempfile.mkdtemp(prefix="reef-init-quality.")
+        write(d, "pyproject.toml", "[project]\nname='x'\n")
+        subprocess.run(["git", "init", "-q", d], check=True)
+        r = init(d, "--queue", "file")
+        self.assertIn("CLEAN CODE: python3 scripts/reef-structure --quality --baseline", r.stdout)
+        self.assertNotIn("quality", json.loads(read(d, ".reef/config.json"))["gates"].get("extra", {}), "offered, never switched on")
+
     def test_the_ci_runs_gitleaks_only_after_its_checksum_matches(self):
         # the live run's release security pass (2026-11-03): the CI template piped a downloaded gitleaks straight into tar and
         # ran it unverified — every project init wrote shipped that. The download is checked against the release's SHA-256 first
