@@ -94,6 +94,31 @@ class OwnerHook(unittest.TestCase):
         r = N.hook(wt, f"Approve plan {SLUG} at {new}?")
         self.assertIn("stale", r.stdout, "the same answer again approves nothing")
 
+    def test_a_feature_worktree_named_before_the_slug_changed_is_the_plan_of_record(self):
+        # 2026-11-04 (an adopted project, row 193): plan-check refused the word "feature" in the slug, the planner renamed the plan
+        # folder to hiring-module-move and kept the worktree and branch hiring-feature-module. The owner approved twice in the
+        # chat and the hook said "matches no checkout's plan of record (it is at none; every checkout: <digest> in
+        # hiring-feature-module) (stale)" — the one feature checkout holding the plan is the plan of record, whatever its name
+        d = N.project()
+        old = os.path.join(d, ".reef", "worktrees", "old-name")
+        git_checked(d, "worktree", "add", "-q", "-b", "feat/old-name", old)
+        with open(os.path.join(old, "reef", "features", SLUG, "SPEC.md"), "a") as f:
+            f.write("\nAmended in the worktree that kept its first name.\n")
+        twt = os.path.join(d, ".reef", "worktrees", f"{SLUG}-1201")
+        git_checked(d, "worktree", "add", "-q", "-b", "task/1201", twt, "feat/old-name")   # a task worktree holds the same plan
+        dg = N.digest(old, SLUG)
+        self.assertNotEqual(dg, N.digest(d, SLUG), "the main checkout holds the older copy")
+        r = N.hook(d, f"Approve plan {SLUG} at {dg}?")
+        self.assertIn("approved at", r.stdout, r.stdout)
+        self.assertEqual(record(d)["digest"], full_digest(old))
+        # two feature checkouts holding the plan: which one is of record is unknowable — refused, and the line says why
+        other = os.path.join(d, ".reef", "worktrees", "second")
+        git_checked(d, "worktree", "add", "-q", "-b", "feat/second", other, "feat/old-name")
+        os.remove(os.path.join(d, ".reef", "approvals", f"{SLUG}.json"))
+        r = N.hook(d, f"Approve plan {SLUG} at {dg}?")
+        self.assertNotIn("approved at", r.stdout)
+        self.assertIn("feature checkouts hold this plan", r.stdout)
+
     def test_two_checkouts_holding_the_identical_plan_record_once_from_the_plan_of_record(self):
         # contract: reef-approval.py:639-640 — among matching checkouts the plan of record is read first, never a task worktree
         d = N.project()
