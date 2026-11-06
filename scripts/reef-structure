@@ -2,7 +2,7 @@
 # CLASS: code
 """Reef structure — the one tree, checked. Usage: reef-structure --check | --raw-sql | --sizes | --quality [--baseline] [--repo DIR]
 --quality (0.7.5): the clean-code ratchet — the project's own linter (eslint, ruff) with Reef's limits (`structure.quality`:
-complexity 10, params 5, function_lines 60, statements 50, depth 4) on the files the branch changed since its base, over reef/quality-baseline.json
+complexity 10, params 5, depth 4, and length: function_lines 60 through eslint, statements 50 through ruff) on the files the branch changed since its base, over reef/quality-baseline.json
 (`--quality --baseline` grandfathers the old code). No linter: exit 77, a skip. Joins gates.extra.
 --sizes (0.7.2): the size ratchet over reef/size-baseline.json (written by `reef-recalibrate measure`, product files only): a
 baselined file may not grow past its baseline, a new file may not exceed `structure.new_file_lines` (default 400); a file that
