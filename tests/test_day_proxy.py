@@ -153,6 +153,12 @@ class DayGuard(unittest.TestCase):
         self.assertEqual(G.bash("cp /tmp/claude-1/x/scratchpad/r.md .reef/ci-local/report-mahmoud-day-12.md").returncode, 0)
         self.assertEqual(G.bash("cp /tmp/reef-graph-0a1b2c3d/row-x-1/review-x.md .reef/ci-local/report-mahmoud-day-12.md").returncode, 0,
                          "the agents' own report folder is a scratchpad too")
+        # 2026-11-06 (an adopted project): a runner session's scratchpad is ~/.claude/jobs/<id>/tmp — the guard let its agents
+        # write reports there and refused the copy, four re-runs in one day; a jobs folder that is not tmp/ stays refused
+        jobs = os.path.join(os.path.expanduser("~"), ".claude", "jobs", "b8834151")
+        self.assertEqual(G.bash(f"cp {jobs}/tmp/r.md .reef/ci-local/report-mahmoud-day-12.md").returncode, 0,
+                         "a runner session's scratchpad is a scratchpad")
+        self.assertEqual(G.bash(f"cp {jobs}/state/r.md .reef/ci-local/report-mahmoud-day-12.md").returncode, 2, "only its tmp/")
         r = G.run_guard({"tool_name": "Write", "tool_input": {"file_path": ".reef/CI-LOCAL/report-mahmoud-day-12.md", "content": "x"}})
         self.assertEqual(r.returncode, 2, "a case-insensitive disk opens .reef/CI-LOCAL/ as the same folder")
         cmd = "python3 scripts/reef-approval.py --proxy --day --kind process --row 12 --report .reef/ci-local/report-mahmoud-day-12.md"

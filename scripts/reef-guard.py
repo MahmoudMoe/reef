@@ -123,7 +123,9 @@ HANDOFF_DENIAL = ("HANDOFF.md is rendered whole from measured state by scripts/r
 # the payload) may copy one (cp/mv from the scratchpad) but never write its content (2026-10-17: a hunter report and
 # a hand-back were typed by the orchestrator "from the agent's message" — evidence nobody but the orchestrator wrote).
 EVIDENCE = re.compile(r"(^|/)\.reef/(ci-local/(handback|report|hunt|plan-review)-[^/]+\.md|hunt/[^/]+\.md)$", re.I)   # re.I: a macOS disk opens .reef/CI-LOCAL/ as the same folder
-SCRATCH = re.compile(r"(^|/)(scratchpad|reef-graph-[0-9a-f]{8})(/|$)")   # where an agent writes its report: the session scratchpad, the graph's report dirs
+SCRATCH = re.compile(r"(^|/)(scratchpad|reef-graph-[0-9a-f]{8})(/|$)|/\.claude/jobs/[A-Za-z0-9_-]+/tmp(/|$)")   # where an agent writes its report: the session
+# scratchpad, the graph's report dirs, a runner session's ~/.claude/jobs/<id>/tmp (the place in_scratch already lets it write;
+# 2026-11-06, an adopted project: the copy from there was refused, four re-runs in one day)
 COPY_HEADS = {"cp", "mv", "install", "rsync"}
 EVIDENCE_DENIAL = ("the main session does not write an agent's evidence ({path}): the agent writes its own file (the hand-back into "
                    "its worktree's .reef/ci-local/, a judge's report into the scratchpad) and the orchestrator copies it with cp. "
@@ -451,7 +453,7 @@ def check_evidence_authoring(seg, ctx):
         sources = [x for x in seg[i + 1:] if not x.startswith("-")][:-1]
         if sources and all(SCRATCH.search(os.path.realpath(x) if os.path.isabs(x) else x) for x in sources):
             return
-        deny(f"an agent's report is copied from the scratchpad it wrote it to (or the graph's /tmp/reef-graph-* report dir), not from "
+        deny(f"an agent's report is copied from the scratchpad it wrote it to (a session's scratchpad or ~/.claude/jobs/<id>/tmp, or the graph's /tmp/reef-graph-* report dir), not from "
              f"{', '.join(sources) or 'nowhere'}: a file from elsewhere is evidence nobody but the orchestrator wrote (the review, 2026-10-27)")
     deny(EVIDENCE_DENIAL.format(path=hits[0]))
 
