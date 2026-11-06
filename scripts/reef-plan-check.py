@@ -68,6 +68,25 @@ DEFAULT_TEST_RE = (
 TASK_NAME_RE = re.compile(r"(R?)(\d+)-.*\.md$")     # NNN-slug.md and rollup RNN-slug.md
 
 
+def guard_refusals(root, row):
+    """The guard's DENY line for each `command` in a [mechanic] Proof row, judged as the mechanic would run it in the task
+    worktree, with no critical task in flight (the implementer's marker is gone by the time the proofs run). [] when the guard
+    cannot be found. 2026-11-06 (an adopted project, rows 240-241): three such rows were refused only at build time, a round and
+    an owner ruling each — a `git config --unset core.hooksPath`, an overwrite of .githooks/*, a commit with --no-verify."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    guard = next((g for g in (os.path.join(here, "reef-guard.py"), os.path.join(os.environ.get("CLAUDE_PLUGIN_ROOT") or here, "scripts", "reef-guard.py"))
+                  if os.path.isfile(g)), None)
+    if not guard:
+        return []
+    out = []
+    for cmd in re.findall(r"`([^`]+)`", row.replace("\\|", "|")):
+        payload = {"tool_name": "Bash", "cwd": root, "tool_input": {"command": cmd}, "agent_type": "reef:mechanic", "agent_id": "plan-check"}
+        r = subprocess.run([sys.executable, guard], input=json.dumps(payload), capture_output=True, text=True, timeout=60)
+        if r.returncode == 2:
+            out.append(" ".join(r.stderr.split())[:300])
+    return out
+
+
 def is_rollup(path):
     """R<NN>-<slug>.md — a review rollup, written by reef-converge: never planned, stamped, hunted or tiered."""
     return re.match(r"^R\d+[-.]", os.path.basename(path)) is not None
@@ -1162,6 +1181,10 @@ def main():
                     # not table_cells: the row's REST, inner pipes and their spacing kept — the 120-char rule measures it as written
                     whole = line.strip().strip("|").split("|", 1)[1].strip() if "|" in line.strip().strip("|") else cells[1]
                     shell = re.search(r"&&|\|\||[|;<>]|\$\(|\s--?[a-zA-Z]", whole)
+                    if "[mechanic]" in whole:
+                        for why in guard_refusals(root, whole):
+                            a_fail(f"{rel}: Proof for {re.sub(r'^AC-?', 'AC-', m.group(1))}: the guard refuses this when the mechanic runs it "
+                                   f"({why}) — rewrite the row so it runs as written")
                     if len(whole) > 120 and shell and "[mechanic]" not in whole:
                         a_fail(f"{rel}: Proof for {re.sub(r'^AC-?', 'AC-', m.group(1))} is {len(whole)} characters of shell in a markdown cell — name a test "
                              f"(converge.test_cmd runs it by name) or put the command in a script and name the script; `[mechanic]` only for a proof that must write files")
