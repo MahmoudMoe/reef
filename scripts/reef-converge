@@ -114,8 +114,8 @@ def proofs(text):
             body = p.strip("`").strip()
             if re.match(r"^(~~.*~~|superseded\b.*)$", p.strip(), re.I | re.S):
                 out.append((ac_id, p.strip().strip("~").strip(), "superseded"))   # replaced by a later task's row: never run
-            elif re.match(r"^\[mechanic\]", p):
-                out.append((ac_id, re.sub(r"^\[mechanic\]\s*", "", p).strip("`").strip(), "mechanic"))
+            elif re.match(r"^`?\[mechanic\]`?", p):   # the tag bare or in its own backticks (2026-11-06: `[mechanic]` `cmd` was RUN)
+                out.append((ac_id, re.sub(r"^`?\[mechanic\]`?\s*", "", p).strip("`").strip(), "mechanic"))
             elif (p0 := without_notes(p)) != p:
                 rows[ac_id] = p0   # a note in parentheses is commentary (2026-10-24, note n45): read the cell without it
                 out += proofs_of(ac_id, p0)
