@@ -136,11 +136,20 @@ def plan_of_record(digests, feature, main):
     on the feature's own branch (branches.feature_prefix + slug) is it wherever it lives, as reef-row reads it."""
     real = {os.path.realpath(w): (w, d) for w, d in digests.items()}
     prefix = str((read_config(main).get("branches") or {}).get("feature_prefix", "feat/") or "feat/")
-    own = checkouts(main, prefix).get(prefix + feature)
-    for path in ([own] if own else []) + [os.path.join(main, ".reef", "worktrees", feature), main]:
+    cos = checkouts(main, prefix)
+    own = cos.get(prefix + feature)
+    for path in ([own] if own else []) + [os.path.join(main, ".reef", "worktrees", feature)]:
         if os.path.realpath(path) in real:
             return real[os.path.realpath(path)]
-    return None, None
+    # 2026-11-04 (an adopted project): the slug changed after the worktree was made (plan-check refused a word in it), so
+    # neither name matched and two chat approvals were refused as "stale". The ONE feature-branch checkout that holds the
+    # plan is it, whatever its name; a task worktree (not on the feature prefix) never counts, two feature checkouts never do
+    held = [p for b, p in cos.items() if b.startswith(prefix) and os.path.realpath(p) in real]
+    if len(held) == 1:
+        return real[os.path.realpath(held[0])]
+    if len(held) > 1:
+        return None, "several"
+    return real[os.path.realpath(main)] if os.path.realpath(main) in real else (None, None)
 
 
 def seen_digests(digests):
@@ -662,6 +671,10 @@ def main(argv):
             continue
         # the plan of record only, as --proxy and --from-issue read it: an older copy in main or a task worktree is stale (stress H6)
         where, full = plan_of_record(digests, feature, root)
+        if full == "several":
+            print(f"reef-approval: {feature}: {seen_digests(digests)} — several feature checkouts hold this plan and none is "
+                  f"named for it (branch {feature} or .reef/worktrees/{feature}); which one is of record is unknowable — nothing written")
+            continue
         if not where or full[:16] != digest16:
             print(f"reef-approval: {feature}: the question's digest {digest16} matches no checkout's plan of record (it is at "
                   f"{full[:16] if full else 'none'}; every checkout: {seen_digests(digests)}) (stale) — nothing written")
