@@ -33,6 +33,22 @@ from reef_common import run_all, plugin_root  # noqa: E402
 run = lambda args, cwd, timeout=300: run_all(args, cwd, timeout, strip=True)
 
 
+def push_hint(root, out):
+    """The line that lands a rejected push, or None. 2026-10-29: the owner's loop had pushed meanwhile; "push yourself: git
+    push" fails the same way. On a non-fast-forward rejection — that case, not auth or network — the line that lands it, the
+    branch quoted for the shell (a ref name admits `;` and friends — the review); --autostash because the tick's HANDOFF.md
+    rendering is always unstaged, and an autostash that does not re-apply is kept, never lost. `reef update` prints it too."""
+    if not ("non-fast-forward" in out or "fetch first" in out or "rejected" in out):
+        return None
+    rc_b, branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root)
+    branch = branch.strip() if rc_b == 0 and branch.strip() else "HEAD"
+    if branch == "HEAD":
+        return "the checkout is detached — check out the branch the commit belongs on, then push"
+    return (f"the remote moved under you (a loop merge, most likely) — land the commit with:  "
+            f"git pull --rebase --autostash origin {__import__('shlex').quote(branch)} && git push   "
+            f"(an autostash that does not re-apply stays in `git stash list`)")
+
+
 MARKET = __import__("re").compile(r"[A-Za-z0-9._-]+")
 
 
@@ -208,19 +224,9 @@ def main(argv):
             rc, out = run(["git", "push", "-q"], root, timeout=600)
             if rc != 0:
                 print(f"reef-update FAILED: push: {out.splitlines()[-1] if out else rc}")
-                # 2026-10-29: the owner's loop had pushed meanwhile; "push yourself: git push" fails the same way. On a
-                # non-fast-forward rejection — that case, not auth or network — the line that lands it, the branch quoted for
-                # the shell (a ref name admits `;` and friends — the review); --autostash because the tick's HANDOFF.md
-                # rendering is always unstaged, and an autostash that does not re-apply is kept, never lost
-                if "non-fast-forward" in out or "fetch first" in out or "rejected" in out:
-                    rc_b, branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root)
-                    branch = branch.strip() if rc_b == 0 and branch.strip() else "HEAD"
-                    if branch == "HEAD":
-                        print("reef-update: the checkout is detached — check out the branch the commit belongs on, then push")
-                        return 1
-                    print(f"reef-update: the remote moved under you (a loop merge, most likely) — land the commit with:  "
-                          f"git pull --rebase --autostash origin {__import__('shlex').quote(branch)} && git push   "
-                          f"(an autostash that does not re-apply stays in `git stash list`)")
+                hint = push_hint(root, out)
+                if hint:
+                    print(f"reef-update: {hint}")
                 return 1
             print("project: pushed")
     else:
