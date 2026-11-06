@@ -967,6 +967,17 @@ class Converge(unittest.TestCase):
         for cmd in ("npx vitest run --changed", "vitest run -t slug", "tsc --noEmit", "CI=1 npm test", "cd web && npm test", "! git grep -n x"):
             self.assertTrue(CONV.looks_like_command(cmd), cmd)
 
+    def test_a_mechanic_tag_written_in_backticks_is_still_the_mechanics(self):
+        """2026-11-06 (an adopted project, row 239, task 23901 AC-6): the cell read `[mechanic]` `<cmd>` — the tag in its own
+        backticks. plan-check saw the tag; converge did not, read two proofs, and RAN the baseline-writing command itself —
+        a reproducible `contradicts` that cost the rollup an attempt. Both read the tag the same way now."""
+        task = TASK_NEW.replace("| AC-2 | `test_csv_two_decimals` |", "| AC-2 | `[mechanic]` `touch converge-ran-it.txt && false` |")
+        write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
+        r = self.converge()
+        self.assertFalse(os.path.exists(os.path.join(self.d, "converge-ran-it.txt")), "converge ran a [mechanic] row: " + r.stdout)
+        self.assertIn("1 [mechanic] row(s) not run here", r.stdout)
+        self.assertNotIn("contradicts", r.stdout)
+
     def test_vitest_names_are_tests_mechanic_rows_are_skipped_and_the_template_is_found_from_a_project_copy(self):
         # first contact (2026-10-17): 26 vitest names in backticks ran as shell and came back "missing"; then the script
         # looked for <project>/templates/task.md and crashed before writing the rollup

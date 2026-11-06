@@ -79,7 +79,7 @@ def guard_refusals(root, row):
     if not guard:
         return []
     out = []
-    for cmd in re.findall(r"`([^`]+)`", row.replace("\\|", "|")):
+    for cmd in [c for c in re.findall(r"`([^`]+)`", row.replace("\\|", "|")) if c.strip() != "[mechanic]"]:
         payload = {"tool_name": "Bash", "cwd": root, "tool_input": {"command": cmd}, "agent_type": "reef:mechanic", "agent_id": "plan-check"}
         r = subprocess.run([sys.executable, guard], input=json.dumps(payload), capture_output=True, text=True, timeout=60)
         if r.returncode == 2:
