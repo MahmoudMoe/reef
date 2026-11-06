@@ -178,3 +178,31 @@ class TheBaselineNamesEachViolation(unittest.TestCase):
         r = self.q()
         self.assertEqual(r.returncode, 77, r.stdout + r.stderr)
         self.assertIn("eslint", r.stdout, "the line names the linter that did not answer")
+
+
+class AnInlineDisableIsNoWayOut(unittest.TestCase):
+    """2026-11-06 (an adopted project, row 239's hunter, B1): the quality command ran the project's linter with Reef's rules
+    but honoured the file's own directives — `// eslint-disable-next-line complexity`, `/* eslint complexity: [...] */`,
+    `# noqa: C901` — so one comment switched the gate off for that function. Both commands now ignore inline directives;
+    only Reef's rules are kept from the result, so the project's other directives change nothing here."""
+
+    def test_both_commands_ignore_inline_directives(self):
+        stacks = json.load(open(os.path.join(ROOT, "scripts", "reef-stacks.json")))
+        cmds = {k: v["quality"]["cmd"] for k, v in stacks.items() if isinstance(v, dict) and v.get("quality")}
+        self.assertIn("--no-inline-config", cmds["node"])
+        self.assertIn("--ignore-noqa", cmds["python"])
+
+    @unittest.skipUnless(__import__("shutil").which("ruff"), "the real ruff is not on PATH")
+    def test_a_noqa_comment_does_not_hide_a_complex_function_from_the_real_ruff(self):
+        d = tempfile.mkdtemp(prefix="reef-quality-noqa.")
+        git_checked(d, "init", "-q", "-b", "main")
+        write(d, "pyproject.toml", "[project]\nname='x'\n")
+        write(d, "src/ok.py", "def ok():\n    return 1\n")
+        git_checked(d, "add", "-A"); git_checked(d, "commit", "-qm", "start")
+        r = subprocess.run([sys.executable, STRUCT, "--quality", "--baseline", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        body = "".join(f"    if a == {i}:\n        return {i}\n" for i in range(12))
+        write(d, "src/big.py", "def big(a):  # noqa: C901\n" + body + "    return 0\n")
+        r = subprocess.run([sys.executable, STRUCT, "--quality", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("`big` is too complex", r.stdout)
