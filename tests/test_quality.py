@@ -1,6 +1,6 @@
 """The clean-code ratchet (2026-11-06, the owner: "clean code, a function never past a size, and so on — baked into Reef?").
 `reef-structure --quality` runs the project's own linter with Reef's four limits (complexity, parameters, function length or
-statements, nesting) on the files changed since HEAD, against reef/quality-baseline.json: a file never gains a violation, a
+statements, nesting) on the files the branch changed since its base, against reef/quality-baseline.json: a file never gains a violation, a
 new file has none, the old code is grandfathered by `--quality --baseline`. No linter is a skip (exit 77), never a pass."""
 import json
 import os
@@ -68,3 +68,63 @@ class QualityRatchet(unittest.TestCase):
         r = self.q(path="/usr/bin:/bin")
         self.assertEqual(r.returncode, 77, r.stdout + r.stderr)
         self.assertIn("skipped", r.stdout)
+
+
+class ACommittedHeadIsChecked(unittest.TestCase):
+    """2026-11-06 (an adopted project, row 239): the hunter found `--quality` and `--sizes` read only the files changed since
+    HEAD — on a committed, pushed head that is nothing, so the gate passed on every row. Both now read the branch against its
+    merge-base with the base branch (origin/<base>, else <base>), and refuse when the base cannot be found."""
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-committed.")
+        git_checked(self.d, "init", "-q", "-b", "main")
+        write(self.d, "pyproject.toml", "[project]\nname='x'\n")
+        write(self.d, ".reef/config.json", json.dumps({"branches": {"base": "main"}, "structure": {"new_file_lines": 5}}))
+        write(self.d, "reef/size-baseline.json", json.dumps({"files": {"src/old.py": 2}}))
+        write(self.d, "reef/quality-baseline.json", json.dumps({"files": {}}))
+        write(self.d, "src/old.py", "def a():\n    pass\n")
+        git_checked(self.d, "add", "-A"); git_checked(self.d, "commit", "-qm", "start")
+        git_checked(self.d, "checkout", "-q", "-b", "feat/x")
+        self.bin = tempfile.mkdtemp(prefix="reef-committed-bin.")
+        write(self.bin, "ruff", FAKE_RUFF); os.chmod(os.path.join(self.bin, "ruff"), 0o755)
+        self.env = dict(os.environ, PATH=self.bin + os.pathsep + os.environ["PATH"], FAKE_ARGS=os.path.join(self.bin, "args.jsonl"))
+
+    def run_struct(self, flag):
+        return subprocess.run([sys.executable, STRUCT, flag, "--repo", self.d], capture_output=True, text=True, env=self.env)
+
+    def commit(self):
+        git_checked(self.d, "add", "-A"); git_checked(self.d, "commit", "-qm", "row")
+
+    def test_a_committed_complex_function_fails_quality(self):
+        write(self.d, "src/new.py", "def n():  # complex\n    pass\n")
+        self.commit()
+        r = self.run_struct("--quality")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/new.py: 1 violation(s) in a new file", r.stdout)
+
+    def test_a_committed_growth_fails_sizes(self):
+        write(self.d, "src/old.py", "def a():\n    pass\n\n\ndef b():\n    pass\n")
+        self.commit()
+        r = self.run_struct("--sizes")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/old.py: 6 lines, over its baseline of 2", r.stdout)
+
+    def test_the_base_counts_from_origin_when_there_is_one(self):
+        # the local base ran ahead of origin/<base> (the row was merged into it locally): the row's files are still read
+        bare = tempfile.mkdtemp(prefix="reef-committed-origin.")
+        git_checked(bare, "init", "-q", "--bare")
+        git_checked(self.d, "remote", "add", "origin", bare)
+        git_checked(self.d, "push", "-q", "origin", "main")
+        git_checked(self.d, "fetch", "-q", "origin")
+        write(self.d, "src/new.py", "def n():  # complex\n    pass\n")
+        self.commit()
+        git_checked(self.d, "branch", "-f", "main", "HEAD")
+        self.assertEqual(self.run_struct("--quality").returncode, 1)
+
+    def test_no_base_branch_fails_closed(self):
+        write(self.d, ".reef/config.json", json.dumps({"branches": {"base": "develop"}}))
+        write(self.d, "src/new.py", "def n():\n    pass\n")
+        self.commit()
+        for flag in ("--quality", "--sizes"):
+            r = self.run_struct(flag)
+            self.assertEqual(r.returncode, 1, flag + r.stdout + r.stderr)
+            self.assertIn("no base branch develop", r.stdout, flag)
