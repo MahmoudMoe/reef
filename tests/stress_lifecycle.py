@@ -263,7 +263,7 @@ class FastPathLifecycle(unittest.TestCase):
         if graph:
             p.graph_gate()
         disp = "dispatch (graph): 101 — python3 scripts/reef-graph-run.py generate" if graph else \
-               "dispatch (chat): 101 — /reef-task (no GATE OK — reef-graph-run.py probe)"
+               "dispatch (chat): 101 — /reef-task (no GATE OK — /reef-graph once, in a session with the Workflow tool, from the main checkout; chat keeps every guarantee)"
         verify = "verify (graph): 101 — python3 scripts/reef-graph-run.py generate" if graph else "verify: 101"
 
         # queued: SKILL reef-loop §1 — the ready row is planned
@@ -292,7 +292,7 @@ class FastPathLifecycle(unittest.TestCase):
         self.assertEqual(st["verify_now"], [])
         self.assertEqual(st["dispatch_now"], ["101"])
         self.assertEqual(st["counters"]["101"], "1/1")
-        self.assertEqual(p.next_line(), disp.replace(" (no GATE OK — reef-graph-run.py probe)", " (no GATE OK — reef-graph-run.py probe)"))
+        self.assertEqual(p.next_line(), disp.replace(" (no GATE OK — /reef-graph once, in a session with the Workflow tool, from the main checkout; chat keeps every guarantee)", " (no GATE OK — /reef-graph once, in a session with the Workflow tool, from the main checkout; chat keeps every guarantee)"))
         # the fix round, handed back: verify again (a FAIL older than the hand-back does not flip it)
         p.dispatch(101, wt)
         p.hand_back(101, wt, "round 2")
@@ -366,7 +366,7 @@ class CriticalPathLifecycle(unittest.TestCase):
     def drive_to_pass(self):
         p = Project()
         wt = p.plan(1, critical=True)
-        self.assertEqual(p.next_line(), "dispatch (chat): 101 — /reef-task (no GATE OK — reef-graph-run.py probe)")
+        self.assertEqual(p.next_line(), "dispatch (chat): 101 — /reef-task (no GATE OK — /reef-graph once, in a session with the Workflow tool, from the main checkout; chat keeps every guarantee)")
         tw = p.task_worktree(101)
         self.assertTrue(tw.endswith(os.path.join(".reef", "worktrees", "101")), tw)
         p.dispatch(101, tw)
@@ -483,7 +483,7 @@ class TwoRowsAtTheCap(unittest.TestCase):
         self.assertEqual(st["rows_to_close"], ["1"], st)
         self.assertEqual(st["rows_in_flight"], ["1", "2"], st)
         self.assertEqual(st["rows_held"], ["3"])
-        self.assertEqual(p.next_line(), "dispatch (chat): 201 — /reef-task (no GATE OK — reef-graph-run.py probe)")
+        self.assertEqual(p.next_line(), "dispatch (chat): 201 — /reef-task (no GATE OK — /reef-graph once, in a session with the Workflow tool, from the main checkout; chat keeps every guarantee)")
         p.close_row(1)
         st = p.state()
         self.assertEqual(st["rows_to_plan"], ["3"], "the close freed a slot")
