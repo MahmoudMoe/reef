@@ -875,6 +875,22 @@ class TheCopyIsNoOffSwitch(unittest.TestCase):
             "command": "git rm scripts/reef-plan-check.py"}}), capture_output=True, text=True, env={**os.environ, "CLAUDE_PLUGIN_ROOT": self.d})
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_a_critical_marker_in_a_feature_worktree_counts_from_its_task_worktree(self):
+        """2026-11-06 (an adopted project, row 239, task 23902): the dispatch wrote the critical marker where the task file
+        lives — the FEATURE worktree — and the edit check read the main checkout and the task worktree only. The planned
+        critical edit was refused in three rounds. Every checkout's markers count, as the runner's critical_in_flight reads."""
+        base = tempfile.mkdtemp(prefix="reef-guard-twohome.")
+        feat, task = os.path.join(base, "feat"), os.path.join(base, "task")
+        git(self.d, "worktree", "add", "-q", "-b", "feat/x", feat)
+        git(self.d, "worktree", "add", "-q", "-b", "task/7", task)
+        r = run_guard({"tool_name": "Bash", "cwd": task, "tool_input": {"command": "git rm scripts/reef-plan-check.py"}})
+        self.assertEqual(r.returncode, 2, "no critical task in flight: denied")
+        os.makedirs(os.path.join(feat, ".reef", "inflight"), exist_ok=True)
+        with open(os.path.join(feat, ".reef", "inflight", "7"), "w") as f:
+            json.dump({"id": 7, "tier": "critical"}, f)
+        r = run_guard({"tool_name": "Bash", "cwd": task, "tool_input": {"command": "git rm scripts/reef-plan-check.py"}})
+        self.assertEqual(r.returncode, 0, "the feature worktree's marker was not read: " + r.stderr)
+
     def test_a_reef_layout_without_the_copy_denies_the_dispatch(self):
         plan_check(self.d)
         self.assertEqual(dispatch(self.d, "REEF-TASK: tasks/007-demo.md\nimplement").returncode, 0)
