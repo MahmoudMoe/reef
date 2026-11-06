@@ -1393,3 +1393,14 @@ class AnExtensionlessPythonScriptIsNamedWithItsInterpreter(unittest.TestCase):
             for i, line in enumerate(open(f, encoding="utf-8"), 1):
                 hits += [f"{os.path.relpath(f, ROOT)}:{i} {m.group(0)}" for m in bare.finditer(line)]
         self.assertEqual(hits, [], "name the interpreter: `python3 scripts/<name>`")
+
+
+class ATaskIsGreenOnItsOwnHead(unittest.TestCase):
+    def test_the_planner_and_the_plan_skill_say_each_task_is_green_alone(self):
+        """2026-11-04 (an adopted project, row 193): the plan put a pure move in task 19301 and its adapter and allowlist fixes
+        in 19302; 19301's head could only be red, and two attempts went before the owner merged the tasks. The planner and
+        /reef-plan both carry the rule that a task is green on its own head."""
+        for rel in ("agents/planner.md", "skills/reef-plan/SKILL.md"):
+            text = open(os.path.join(ROOT, rel), encoding="utf-8").read()
+            self.assertIn("green on its own head", text, rel)
+            self.assertIn("is ONE task", text, rel)

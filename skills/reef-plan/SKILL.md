@@ -23,6 +23,7 @@ One feature = one queue row = one folder `<paths.features>/<feature-slug>/` (def
 ## 2. Draft (by `reef:planner`, in the worktree)
 Vertical slices:
 - A slice goes ALL THE WAY THROUGH every layer its behaviour needs (schema to output) — thin but end-to-end, never "the database part" alone; done means showable; sized for one clean context.
+- Each task is green on its own head: a change that passes only with another task's edits is ONE task.
 - THE RULE: **no failing test = no task** — every task names the test that is red before work starts; if you can't, merge or delete the slice. Good: "004 skip-and-warn — red test: bad row currently raises a traceback." Bad: "003 multi-month — grouping already works, task adds a blank line."
 - Wide mechanical refactors: expand -> migrate-in-batches -> contract, each batch its own task.
 Per task, the full file from `${CLAUDE_PLUGIN_ROOT}/templates/task.md` (schema `${CLAUDE_PLUGIN_ROOT}/schemas/task.schema.json`):
