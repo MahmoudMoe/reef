@@ -2,11 +2,11 @@
 # CLASS: code
 """Reef structure — the one tree, checked. Usage: reef-structure --check | --raw-sql | --sizes | --quality [--baseline] [--repo DIR]
 --quality (0.7.5): the clean-code ratchet — the project's own linter (eslint, ruff) with Reef's limits (`structure.quality`:
-complexity 10, params 5, function_lines 60, statements 50, depth 4) on the files changed since HEAD, over reef/quality-baseline.json
+complexity 10, params 5, function_lines 60, statements 50, depth 4) on the files the branch changed since its base, over reef/quality-baseline.json
 (`--quality --baseline` grandfathers the old code). No linter: exit 77, a skip. Joins gates.extra.
 --sizes (0.7.2): the size ratchet over reef/size-baseline.json (written by `reef-recalibrate measure`, product files only): a
 baselined file may not grow past its baseline, a new file may not exceed `structure.new_file_lines` (default 400); a file that
-shrank lowers its baseline in the same run. Only files changed since HEAD are read. Joins gates.extra.
+shrank lowers its baseline in the same run. Only the files the branch changed since its base are read. Joins gates.extra.
 --raw-sql (0.7.2; 0.7.3 any stack with a profile): exit 1 on an unsafe raw query (scripts/reef-stacks.json) in a file outside `assess.raw_sql_allow`
 (the files that held one when assess measured — a baseline, not a cleanup); a comment line never counts. Joins gates.extra.
 Exit 1 when a process document (decision, spec, runbook, plan) lives outside the layout — reef/ for 0.6, the
@@ -170,10 +170,39 @@ TEST_FILE = re.compile(r"(^|/)(tests?|__tests__|spec)/|\.(test|spec)\.[a-z]+$|(^
 DATA_DIR = re.compile(r"(^|/)(i18n|locales|interface|translations)(/|$)")
 
 
+def changed_since_base(root):
+    """(changed, added): the files this branch changed against its merge-base with the base branch (`branches.base`; origin's
+    copy first, else the local one) — committed, staged, edited or untracked — and the ones it added. None when no base is
+    found: the caller fails, never passes on nothing. 2026-11-06 (an adopted project, row 239): the files changed since HEAD
+    are none on a committed, pushed head, so `--quality` and `--sizes` passed on every row."""
+    git = lambda *a: subprocess.run(["git", "-C", root, *a], capture_output=True, text=True)
+    lines = lambda r: set(l for l in r.stdout.splitlines() if l)
+    try:
+        with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
+            base = str((json.load(f).get("branches") or {}).get("base") or "main")
+    except (OSError, ValueError):
+        base = "main"
+    for ref in (f"origin/{base}", base):
+        mb = git("merge-base", "HEAD", ref)
+        if mb.returncode == 0 and mb.stdout.strip():
+            point = mb.stdout.strip()
+            break
+    else:
+        return base, None
+    new = lines(git("ls-files", "--others", "--exclude-standard"))
+    return base, (lines(git("diff", "--name-only", point, "--")) | new,
+                  lines(git("diff", "--name-only", "--diff-filter=A", point, "--")) | new)
+
+
+def no_base(base):
+    return [f"no base branch {base} (neither origin/{base} nor {base}) to measure this branch against — fetch it, or set "
+            "branches.base in .reef/config.json; the check refuses to pass on nothing"]
+
+
 def size_violations(root):
     """0.7.2 (first adoption, 2026-10-24, item 14): big files only grew. A baselined product file may not grow past its baseline; a
     new one may not exceed `structure.new_file_lines`; shrinking lowers the baseline in the same run (the ratchet). Cost: one
-    read per file changed since HEAD, never the whole tree."""
+    read per file the branch changed since its base, never the whole tree."""
     import fnmatch
     bp = os.path.join(root, "reef", "size-baseline.json")
     try:
@@ -189,8 +218,10 @@ def size_violations(root):
     except (OSError, ValueError):
         return [f"no reef/size-baseline.json — run `python3 scripts/reef-recalibrate measure` once (it writes the baseline), then commit it"]
     files = base.get("files") or {}
-    changed = set(l for l in subprocess.run(["git", "-C", root, "diff", "--name-only", "HEAD", "--"], capture_output=True, text=True).stdout.splitlines() if l)
-    changed |= set(l for l in subprocess.run(["git", "-C", root, "ls-files", "--others", "--exclude-standard"], capture_output=True, text=True).stdout.splitlines() if l)
+    branch, got = changed_since_base(root)
+    if got is None:
+        return no_base(branch)
+    changed = got[0]
     bad, lowered = [], 0
     for rel in sorted(changed):
         if not rel.endswith(CODE_EXT) or rel.endswith(".d.ts") or SKIP_DIR.search(rel) or TEST_FILE.search(rel) or DATA_DIR.search(rel) \
@@ -251,7 +282,7 @@ def quality_counts(root, rels):
 
 
 def quality_violations(root, baseline=False):
-    """2026-11-06 (the owner): the clean-code limits, measured. A file changed since HEAD never gains a violation over
+    """2026-11-06 (the owner): the clean-code limits, measured. A file the branch changed never gains a violation over
     reef/quality-baseline.json, a new file has none, a file that got cleaner lowers its baseline (the ratchet).
     `--baseline` grandfathers the tracked code as it is. None = no linter ran (exit 77)."""
     bp = os.path.join(root, "reef", "quality-baseline.json")
@@ -276,8 +307,10 @@ def quality_violations(root, baseline=False):
     except (OSError, ValueError):
         base = {"files": {}}
     files = base.setdefault("files", {})
-    tracked = set(git("ls-files"))
-    rels = sorted({r for r in git("diff", "--name-only", "HEAD", "--") + git("ls-files", "--others", "--exclude-standard") if keep(r)})
+    branch, got = changed_since_base(root)
+    if got is None:
+        return no_base(branch)
+    rels, added = sorted(r for r in got[0] if keep(r)), got[1]
     counts = quality_counts(root, rels) if rels else {}
     if counts is None:
         return None
@@ -287,7 +320,7 @@ def quality_violations(root, baseline=False):
         rules = ", ".join(sorted(set(got)))
         if len(got) > was:
             bad.append(f"{rel}: {len(got)} violation(s) in a new file ({rules}) — split the function, fewer branches or parameters"
-                       if rel not in tracked else f"{rel}: {len(got)} violation(s), over its baseline of {was} ({rules}) — a file "
+                       if rel in added else f"{rel}: {len(got)} violation(s), over its baseline of {was} ({rules}) — a file "
                        "never gains one; split the function, or a `kind: refactor` row")
         elif len(got) < was:
             files[rel] = len(got)
