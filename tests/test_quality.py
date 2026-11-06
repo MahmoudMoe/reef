@@ -17,7 +17,8 @@ FAKE_RUFF = r"""#!/usr/bin/env python3
 import json, os, sys
 open(os.environ["FAKE_ARGS"], "a").write(json.dumps(sys.argv[1:]) + "\n")
 files = [a for a in sys.argv[1:] if a.endswith(".py")]
-out = [{"filename": os.path.abspath(f), "code": "C901", "message": "too complex"} for f in files
+out = [{"filename": os.path.abspath(f), "code": "C901",
+        "message": "`%s` is too complex (12 > 7)" % (line.split("# complex")[1].strip() or "f")} for f in files
        for line in open(f) if "# complex" in line]
 print(json.dumps(out)); sys.exit(1 if out else 0)
 """
@@ -43,14 +44,14 @@ class QualityRatchet(unittest.TestCase):
         r = self.q("--baseline")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         base = json.load(open(os.path.join(self.d, "reef", "quality-baseline.json")))
-        self.assertEqual(base["files"], {"src/old.py": 1})
+        self.assertEqual(base["files"], {"src/old.py": {"C901 `f` is too complex (N > N)": 1}}, "each violation by rule and name")
         self.assertIn("lint.mccabe.max-complexity=7", open(self.args).read(), "the limit comes from structure.quality")
         write(self.d, "src/old.py", "def a():  # complex\n    return 1\n")
         self.assertEqual(self.q().returncode, 0, "the old violation is grandfathered")
         write(self.d, "src/old.py", "def a():  # complex\n    pass\ndef b():  # complex\n    pass\n")
         r = self.q()
         self.assertEqual(r.returncode, 1, r.stdout)
-        self.assertIn("src/old.py: 2 violation(s), over its baseline of 1", r.stdout)
+        self.assertIn("src/old.py: 1 violation(s) the baseline does not hold", r.stdout)
         write(self.d, "src/old.py", "def a():\n    pass\n")
         write(self.d, "src/new.py", "def n():  # complex\n    pass\n")
         r = self.q()
@@ -128,3 +129,52 @@ class ACommittedHeadIsChecked(unittest.TestCase):
             r = self.run_struct(flag)
             self.assertEqual(r.returncode, 1, flag + r.stdout + r.stderr)
             self.assertIn("no base branch develop", r.stdout, flag)
+
+
+class TheBaselineNamesEachViolation(unittest.TestCase):
+    """2026-11-06 (an adopted project, row 239's hunter): the baseline was one count per file, so fixing one grandfathered
+    function and adding a new over-limit one in the same file kept the count and passed. Each violation is now held by its
+    rule and the linter's own words for it (numbers dropped: the function's name stays). An old count baseline still works
+    as before until `--baseline` rewrites it. And one linter that fails to answer while another runs is no pass: the files
+    it was given were never measured (exit 77)."""
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="reef-quality-names.")
+        git_checked(self.d, "init", "-q", "-b", "main")
+        write(self.d, "pyproject.toml", "[project]\nname='x'\n")
+        write(self.d, "src/old.py", "def a():  # complex a\n    pass\n")
+        git_checked(self.d, "add", "-A"); git_checked(self.d, "commit", "-qm", "start")
+        self.bin = tempfile.mkdtemp(prefix="reef-quality-names-bin.")
+        write(self.bin, "ruff", FAKE_RUFF); os.chmod(os.path.join(self.bin, "ruff"), 0o755)
+        self.env = dict(os.environ, PATH=self.bin + os.pathsep + os.environ["PATH"], FAKE_ARGS=os.path.join(self.bin, "args.jsonl"))
+
+    def q(self, *a):
+        return subprocess.run([sys.executable, STRUCT, "--quality", *a, "--repo", self.d], capture_output=True, text=True, env=self.env)
+
+    def test_fixing_one_function_does_not_pay_for_a_new_one(self):
+        self.assertEqual(self.q("--baseline").returncode, 0)
+        write(self.d, "src/old.py", "def a():\n    pass\ndef b():  # complex b\n    pass\n")
+        r = self.q()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/old.py: 1 violation(s) the baseline does not hold", r.stdout)
+        self.assertIn("`b` is too complex", r.stdout, "the new one is named")
+        write(self.d, "src/old.py", "def a():\n    pass\n")
+        self.assertEqual(self.q().returncode, 0)
+        self.assertNotIn("src/old.py", json.load(open(os.path.join(self.d, "reef", "quality-baseline.json")))["files"],
+                         "the fixed one leaves the baseline (the ratchet)")
+
+    def test_an_old_count_baseline_still_counts(self):
+        write(self.d, "reef/quality-baseline.json", json.dumps({"files": {"src/old.py": 1}}))
+        write(self.d, "src/old.py", "def a():  # complex a\n    pass\ndef b():  # complex b\n    pass\n")
+        r = self.q()
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("src/old.py: 2 violation(s), over its baseline of 1", r.stdout)
+        self.assertIn("--baseline", r.stdout, "the line says how to move to the named baseline")
+
+    def test_a_linter_that_fails_while_another_runs_is_a_skip(self):
+        write(self.bin, "npx", "#!/bin/sh\necho 'npm ERR! could not determine executable to run'\nexit 1\n")
+        os.chmod(os.path.join(self.bin, "npx"), 0o755)
+        write(self.d, "src/new.ts", "export const n = 1\n")
+        write(self.d, "src/new.py", "def n():\n    pass\n")
+        r = self.q()
+        self.assertEqual(r.returncode, 77, r.stdout + r.stderr)
+        self.assertIn("eslint", r.stdout, "the line names the linter that did not answer")

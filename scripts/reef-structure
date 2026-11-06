@@ -17,6 +17,7 @@ code/CI. Feature-folder rules come from reef-queue.py. Joins gates.extra.
 import json
 import os
 import re
+from collections import Counter
 import subprocess
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
@@ -251,8 +252,11 @@ QUALITY = {"complexity": 10, "params": 5, "function_lines": 60, "statements": 50
 
 
 def quality_counts(root, rels):
-    """{file: [rule, ...]} from the project's own linter with Reef's limits (scripts/reef-stacks.json `quality`), or None when no
-    linter of the stack runs here — a skip, never a pass. eslint's JSON (filePath, messages[].ruleId) and ruff's (filename, code)."""
+    """{file: ["<rule> <the linter's words, numbers as N>", ...]} from the project's own linter with Reef's limits
+    (scripts/reef-stacks.json `quality`), or (None, linter) when a linter given files did not answer — a skip, never a pass:
+    with eslint broken and ruff running, the .ts files were once counted clean. eslint's JSON (filePath, messages[].ruleId,
+    message) and ruff's (filename, code, message). The words keep the function's name, so a fixed function cannot pay for a
+    new one in the same file."""
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-stacks.json"), encoding="utf-8") as f:
         stacks = json.load(f)
     try:
@@ -260,7 +264,7 @@ def quality_counts(root, rels):
             lim = dict(QUALITY, **((json.load(f).get("structure") or {}).get("quality") or {}))
     except (OSError, ValueError):
         lim = dict(QUALITY)
-    out, ran = {}, False
+    out = {}
     for prof in stacks.values():
         q = prof.get("quality") if isinstance(prof, dict) else None
         files = [r for r in rels if q and r.endswith(tuple(prof.get("code_ext") or ()))]
@@ -271,36 +275,38 @@ def quality_counts(root, rels):
             r = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=600)
             found = json.loads(r.stdout)
         except (OSError, ValueError, subprocess.TimeoutExpired):
-            continue
-        ran = True
+            return None, next((a for a in q["cmd"] if a in ("eslint", "ruff")), q["cmd"][0])
         for item in found:
             path = item.get("filePath") or item.get("filename") or ""
             rel = os.path.relpath(os.path.realpath(path), os.path.realpath(root)) if os.path.isabs(path) else path
-            rules = [m.get("ruleId") for m in item.get("messages") or []] if "messages" in item else [item.get("code")]
-            out.setdefault(rel, []).extend(x for x in rules if x in q["rules"])
-    return out if ran else None
+            hits = [(m.get("ruleId"), m.get("message")) for m in item.get("messages") or []] if "messages" in item \
+                else [(item.get("code"), item.get("message"))]
+            out.setdefault(rel, []).extend(f"{rule} {re.sub(r'[0-9]+', 'N', str(words or '')).strip()}".strip()
+                                           for rule, words in hits if rule in q["rules"])
+    return out, None
 
 
 def quality_violations(root, baseline=False):
     """2026-11-06 (the owner): the clean-code limits, measured. A file the branch changed never gains a violation over
     reef/quality-baseline.json, a new file has none, a file that got cleaner lowers its baseline (the ratchet).
-    `--baseline` grandfathers the tracked code as it is. None = no linter ran (exit 77)."""
+    `--baseline` grandfathers the tracked code as it is, each violation by rule and words; a file's old count (an int, before
+    2026-11-06) is still compared as a count. (None, linter) = a linter did not answer (exit 77)."""
     bp = os.path.join(root, "reef", "quality-baseline.json")
     git = lambda *a: [l for l in subprocess.run(["git", "-C", root, *a], capture_output=True, text=True).stdout.splitlines() if l]
     keep = lambda rel: rel.endswith(CODE_EXT) and not (rel.endswith(".d.ts") or SKIP_DIR.search(rel) or TEST_FILE.search(rel)
                                                       or REEF_CODE.match(rel)) and os.path.isfile(os.path.join(root, rel))
     if baseline:
         rels = [r for r in git("ls-files") if keep(r)]
-        counts = quality_counts(root, rels)
+        counts, silent = quality_counts(root, rels) if rels else ({}, None)
         if counts is None:
-            return None
+            return None, silent
         os.makedirs(os.path.dirname(bp), exist_ok=True)
         with open(bp, "w", encoding="utf-8") as f:
-            json.dump({"files": {k: len(v) for k, v in sorted(counts.items()) if v}}, f, indent=1)
+            json.dump({"files": {k: dict(sorted(Counter(v).items())) for k, v in sorted(counts.items()) if v}}, f, indent=1)
             f.write("\n")
         print(f"quality: baseline written — {sum(len(v) for v in counts.values())} violation(s) in {sum(1 for v in counts.values() if v)} file(s) "
               "grandfathered (reef/quality-baseline.json; commit it)")
-        return []
+        return [], None
     try:
         with open(bp, encoding="utf-8") as f:
             base = json.load(f)
@@ -309,29 +315,39 @@ def quality_violations(root, baseline=False):
     files = base.setdefault("files", {})
     branch, got = changed_since_base(root)
     if got is None:
-        return no_base(branch)
+        return no_base(branch), None
     rels, added = sorted(r for r in got[0] if keep(r)), got[1]
-    counts = quality_counts(root, rels) if rels else {}
+    counts, silent = quality_counts(root, rels) if rels else ({}, None)
     if counts is None:
-        return None
+        return None, silent
     bad, lowered = [], 0
     for rel in rels:
-        got, was = counts.get(rel, []), int(files.get(rel, 0))
-        rules = ", ".join(sorted(set(got)))
-        if len(got) > was:
-            bad.append(f"{rel}: {len(got)} violation(s) in a new file ({rules}) — split the function, fewer branches or parameters"
-                       if rel in added else f"{rel}: {len(got)} violation(s), over its baseline of {was} ({rules}) — a file "
-                       "never gains one; split the function, or a `kind: refactor` row")
-        elif len(got) < was:
-            files[rel] = len(got)
+        got, was = counts.get(rel, []), files.get(rel, {})
+        if isinstance(was, int):   # a count baseline (before 2026-11-06): compared as a count, lowered as one
+            rules = ", ".join(sorted(set(k.split(" ")[0] for k in got)))
+            if len(got) > was:
+                bad.append(f"{rel}: {len(got)} violation(s), over its baseline of {was} ({rules}) — a file never gains one; "
+                           "split the function, or a `kind: refactor` row (`--quality --baseline` once names each violation)")
+            elif len(got) < was:
+                files[rel] = len(got)
+                lowered += 1
+            continue
+        new = Counter(got) - Counter(was)
+        if new:
+            words = "; ".join(sorted(new))
+            bad.append(f"{rel}: {sum(new.values())} violation(s) in a new file ({words}) — split the function, fewer branches or "
+                       "parameters" if rel in added else f"{rel}: {sum(new.values())} violation(s) the baseline does not hold "
+                       f"({words}) — a fixed function never pays for a new one; split it, or a `kind: refactor` row")
+        elif Counter(got) != Counter(was):
+            files[rel] = dict(sorted(Counter(got).items()))
             lowered += 1
     if lowered:
-        base["files"] = {k: v for k, v in files.items() if v}
+        base["files"] = {k: v for k, v in files.items() if v}   # 0 and {} leave the baseline
         with open(bp, "w", encoding="utf-8") as f:
             json.dump(base, f, indent=1)
             f.write("\n")
         print(f"quality: {lowered} baseline(s) lowered in reef/quality-baseline.json — commit it with the change (the ratchet)")
-    return bad
+    return bad, None
 
 
 def main(argv):
@@ -343,11 +359,11 @@ def main(argv):
         return 2
     if "--quality" in argv:
         root = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=repo, capture_output=True, text=True).stdout.strip() or os.path.abspath(repo)
-        bad = quality_violations(root, baseline="--baseline" in argv)
+        bad, silent = quality_violations(root, baseline="--baseline" in argv)
         if bad == [] and "--baseline" in argv:
             return 0
         if bad is None:
-            print("skipped: quality — no linter of this stack runs here (eslint through npx, or ruff); install it, then run again")
+            print(f"skipped: quality — {silent} did not answer here (eslint through npx, or ruff); install it, then run again")
             return 77
         if bad:
             print("FAIL: quality")
