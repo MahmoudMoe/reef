@@ -1775,11 +1775,16 @@ def context_for(payload):
     cwd = payload.get("cwd") or os.getcwd()
     main = main_checkout(cwd)
     roots = {main, task_root(os.path.join(cwd, "x"), cwd)}
+    # a dispatch writes its marker where the task file lives — a feature worktree as often as the main checkout — so every
+    # checkout's markers count, as the runner's critical_in_flight reads them (2026-11-06, an adopted project: the planned
+    # critical config edit of task 23902 was refused three rounds, its marker in the feature worktree)
+    wl = subprocess.run(["git", "-C", main, "worktree", "list", "--porcelain"], capture_output=True, text=True)
+    marked = roots | {l[9:].strip() for l in wl.stdout.splitlines() if l.startswith("worktree ")}
     plugin = os.environ.get("CLAUDE_PLUGIN_ROOT") or ""
     plugin_root = bool(plugin) and (os.path.realpath(cwd) + os.sep).startswith(os.path.realpath(plugin).rstrip(os.sep) + os.sep)
     critical = False
     verifying = False
-    for root in roots:
+    for root in marked:
         d = os.path.join(root, ".reef", "inflight")
         for f in (os.listdir(d) if os.path.isdir(d) else []):
             try:
