@@ -834,7 +834,7 @@ class PlanReviewRounds(unittest.TestCase):
 
 
 class SonnetReviewsTheFastTiers(unittest.TestCase):
-    """Step 3 of docs/review/squid-adoption-plan-2026-11-01.md, the owner's go (2026-11-01: Sonnet if it holds and saves
+    """Step 3 of the adoption plan of 2026-11-01, the owner's go (2026-11-01: Sonnet if it holds and saves
     money and time). docs/perf/eval-acceptance-2026-11-01.md: sonnet held catch-rate, precision and NIT rate at 1.00 at
     $0.14 against $0.32 a review and 20 s against 30 s. The template's reviewer is sonnet on light and full; design and
     critical keep opus; the guard holds each dispatch to its feature's heaviest tier."""
