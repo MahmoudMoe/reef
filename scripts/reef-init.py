@@ -824,6 +824,10 @@ def main(argv):
         for key, word in commands_off_path(cfg):
             print(f"  NOT ON PATH: {key} runs `{word}`, which this shell cannot find — the gate cannot run here; fix the command "
                   "in .reef/config.json before the first row")
+        if facts.get("stack") in ("node", "python") and "quality" not in ((cfg.get("gates") or {}).get("extra") or {}):
+            print("  CLEAN CODE: python3 scripts/reef-structure --quality --baseline (grandfathers today's code), commit "
+                  "reef/quality-baseline.json, then add \"quality\": \"python3 scripts/reef-structure --quality\" to gates.extra — "
+                  "complexity, parameters, function length and nesting, through your eslint or ruff (limits: structure.quality)")
         rel_fix = release_fix(root, cfg)
         if rel_fix:
             print(f"  NO RELEASE BRANCH: {(cfg.get('branches') or {}).get('release')} does not exist — the batch's release stops on it: {rel_fix}")
