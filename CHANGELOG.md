@@ -2,6 +2,8 @@
 
 ## 0.7.5 (unreleased)
 
+- **The doctor's version line reads the layout.** `.reef/version` holds the layout version, reef-init's `VERSION`, not the plugin's. The doctor compared it with the plugin version and warned forever on a -dev plugin. In the live Node run, 0.7.3 against 0.7.4-dev.21 warned on a fresh init, and `reef update` rendered 0.7.3 again. Now a project at the plugin's layout version is OK, and the line shows the layout when it differs from the plugin's version. The size budget rises by 14 script lines.
+
 - **NO REMOTE pushes the release branch too.** `gh repo create … --push` pushes only the current branch (`develop`). In the live runs, `main` stayed local, and the release needed it on origin. Now, when the release branch exists locally, init's and the doctor's command ends with `&& git push -u origin <release>`. The size budget rises by 4 script lines.
 
 - **The first `reef autopilot` prints the real question.** In the live Node run on 2026-11-04, the first `reef autopilot` seeded `reef/proxy.md` but not `reef/owner.md`. The digest of the two was empty, and it printed `reef-approval.py --owner ""`. Now the autopilot and `contract --day` share one helper that seeds both: `owner.md` from the owner's personal profile, `proxy.md` from Reef's default. With no profile anywhere, the message names the one missing file instead of an empty question. The size budget rises by 14 script lines.

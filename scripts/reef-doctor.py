@@ -83,6 +83,16 @@ def installed_copy(plugin):
     return "OK", what, ""
 
 
+def layout_version(plugin):
+    """The layout a fresh init writes to .reef/version: the plugin's reef-init.py VERSION, '' when it cannot be read."""
+    try:
+        with open(os.path.join(plugin, "scripts", "reef-init.py"), encoding="utf-8") as f:
+            m = re.search(r'^VERSION = "([^"]+)"', f.read(), re.M)
+    except OSError:
+        return ""
+    return m.group(1) if m else ""
+
+
 def update_fix(root, plugin):
     """The fix for a new Reef — the clone behind its upstream, the version, the scripts, a missing script: ONE command. The project's
     own verb where it has scripts/reef (`reef update`: pull, copies, one commit pushed, the setup re-proved, the marketplace refreshed;
@@ -210,7 +220,11 @@ def main(argv):
                 mv = f.read().strip()
         except OSError:
             mv = "none (a 0.5 project)"
-        say("OK" if mv == pv else "WARN", f"version: project {mv}, plugin {pv}", "" if mv == pv else update_fix(root, plugin))
+        # .reef/version is the LAYOUT version (reef-init.py VERSION), not the plugin's: a -dev plugin on a current layout is OK
+        # (the live Node run, 2026-11-04: 0.7.3 against 0.7.4-dev.21 warned on a fresh init, and `reef update` re-rendered 0.7.3)
+        lv = layout_version(plugin) or pv
+        say("OK" if mv == lv else "WARN", f"version: project {mv}, plugin {pv}" + (f" (layout {lv})" if lv != pv else ""),
+            "" if mv == lv else update_fix(root, plugin))
         # scripts, main checkout and every worktree
         b = behind_scripts(root, plugin)
         if b:
