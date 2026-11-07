@@ -278,7 +278,11 @@ def tick(root):
             night = set(runner_module().night_rows(root))
         except Exception:
             night = set()
+    os.environ.pop("REEF_QUEUE_SNAPSHOT_SINCE", None)   # the first read of the tick syncs; the rest read its snapshot
+    t0 = time.time()
     rc_q, q_ready = run([py, os.path.join(scripts, "reef-queue.py"), "ready", "--repo", root] + (["--with-found"] if night is not None else []), root)
+    if rc_q == 0:
+        os.environ["REEF_QUEUE_SNAPSHOT_SINCE"] = str(t0)
     rc_s, q_status = run([py, os.path.join(scripts, "reef-queue.py"), "status", "--repo", root], root)
     roots_all = all_roots(root)
     inflight = markers(roots_all, "inflight", stale)
@@ -481,6 +485,7 @@ def tick(root):
     # rule 7: found rows two batches old with no task file — the triage question is the orchestrator's at the batch boundary
     rc_t, triage = run([py, os.path.join(scripts, "reef-queue.py"), "triage", "--count", "--repo", root], root)
     triage_line = triage.strip().splitlines()[0] if rc_t == 1 and triage.strip() else ""
+    os.environ.pop("REEF_QUEUE_SNAPSHOT_SINCE", None)
     # tasks whose orchestrator growth (summed over sessions, .reef/cost/tasks.json) passed caps.task_growth (0 = off)
     over = []
     cap_growth = int((cfg.get("caps") or {}).get("task_growth", 0) or 0)
