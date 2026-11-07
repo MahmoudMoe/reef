@@ -164,9 +164,13 @@ class DayGuard(unittest.TestCase):
         cmd = "python3 scripts/reef-approval.py --proxy --day --kind process --row 12 --report .reef/ci-local/report-mahmoud-day-12.md"
         self.assertEqual(self.agent(cmd).returncode, 2, "an implementer is not the proxy")
         self.assertEqual(self.agent(cmd, who="reef:mahmoud").returncode, 0)
-        self.assertEqual(G.bash(cmd).returncode, 0, "the orchestrator runs it after copying his report")
-        r = G.run_guard({"tool_name": "Edit", "agent_id": "a0e1e40f", "agent_type": "reef:implementer", "cwd": ROOT,
-                         "tool_input": {"file_path": os.path.join(ROOT, "docs", "queue.md"), "old_string": "a", "new_string": "b"}})
+        # the guard judges inside a Reef project (0.7.5); the fixture project holds no copy of the scripts, so the orchestrator
+        # runs the plugin's own, as the guard's refusal of a stale copy tells it to
+        own = cmd.replace("python3 scripts/", "python3 " + os.path.join(ROOT, "scripts") + "/", 1)
+        self.assertEqual(G.bash(own).returncode, 0, "the orchestrator runs it after copying his report")
+        proj = G.project_cwd()   # the queue of a Reef project (0.7.5: the guard judges inside one, wherever the session runs)
+        r = G.run_guard({"tool_name": "Edit", "agent_id": "a0e1e40f", "agent_type": "reef:implementer", "cwd": proj,
+                         "tool_input": {"file_path": os.path.join(proj, "docs", "queue.md"), "old_string": "a", "new_string": "b"}})
         self.assertEqual(r.returncode, 2, "queue edits are commands; no agent edits the queue file")
 
 
