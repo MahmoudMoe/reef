@@ -1,5 +1,5 @@
 /* Reef site. No dependencies. Everything here chooses what to show; nothing here is the only copy of a fact.
-   The settings table and the hosts table are read from docs/reference.md, the version from the README (one home per fact); see
+   The settings table and the hosts table are read from docs/reference.md, the version from the README's badge (one home per fact); see
    docs/design/site-information-architecture.md. */
 (function () {
   'use strict';
@@ -196,8 +196,8 @@
 
   async function loadReadmeTables() {
     const readme = await fetchFirst(README_URLS, t => /badge\/version-\d/.test(t));
-    const v = readme && readme.match(/version-(\d+\.\d+\.\d+)/);
-    if (v) $$('[data-version]').forEach(el => el.textContent = 'v' + v[1]);
+    const v = readme && readme.match(/version-(\d+\.\d+\.\d+)(--dev)?/);   // a shields badge writes `-` as `--`
+    if (v) $$('[data-version]').forEach(el => el.textContent = 'v' + v[1] + (v[2] ? '-dev' : ''));
     const md = await fetchFirst(REFERENCE_URLS, t => t.includes('## Settings') && t.includes('## Hosts'));
     if (!md) return; // the sections keep their reference links
     const settings = tableAfterHeading(md, TABLE_HEADINGS.settings);
