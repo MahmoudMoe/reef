@@ -400,11 +400,11 @@ class QueueEdits(unittest.TestCase):
         self.assertRegex(read_file(self.d, "docs/queue.md"), r"(?m)^²⁴ Mahmoud \(proxy, night 2026-10-21\): keep the confirm \(2026-10-21\)$")
 
     def test_add_row_found_lands_in_the_next_batch_planned_in_the_current_and_set_depends_edits_one_cell(self):
-        r = queue(self.d, "add-row", "--item", "Magic-link rate limit (row 11 plan)", "--depends", "11", "--source", "found")
+        r = queue(self.d, "add-row", "--item", "Magic-link rate limit (row 11 plan) — src/magic.ts:40", "--depends", "11", "--source", "found")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "14")
         q = read_file(self.d, "docs/queue.md")
-        self.assertIn("## Batch 3\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 14 | Magic-link rate limit (row 11 plan) | 11 | found | 3 | |", q)
+        self.assertIn("## Batch 3\n\n| Id | Item | Depends | Source | Batch | Admitted |\n|---|---|---|---|---|---|\n| 14 | Magic-link rate limit (row 11 plan) — src/magic.ts:40 | 11 | found | 3 | |", q)
         self.assertLess(q.index("## Batch 3"), q.index("## Footnotes"), "a new batch section sits before the footnotes")
         r = queue(self.d, "add-row", "--item", "Share links", "--depends", "11", "--source", "planned")
         self.assertEqual(r.stdout.strip(), "15")

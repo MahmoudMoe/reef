@@ -1750,7 +1750,7 @@ def main_checkout(cwd):
 
 
 LOOP_WRITE = re.compile(r"reef-loop\.py\s+tick|gh\s+pr\s+merge|reef-record\b|reef-merge-close\b|reef-queue\.py\s+(add-row|close|admit|set-|drop-row|demote|"
-                        r"footnote|journal|note|promote-note)|\bgit\s+(merge|push)\b")
+                        r"footnote|journal|note|promote|promote-note)|\bgit\s+(merge|push)\b")
 
 
 def check_one_orchestrator(payload, cwd):

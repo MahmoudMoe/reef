@@ -15,6 +15,8 @@ Usage:
   reef-queue.py footnote "<text>" [--row ID] [--repo DIR]   (0.7) append the next footnote (one sequence across queue + archive), dated;
                                                  --row puts its mark on that row's Item; prints the mark
   reef-queue.py add-row --item "<text>" [--depends "1, 2"] [--source planned|found] [--batch N] [--admitted "<ground>"]
+                                                 (0.7.5) a found row names its evidence (path:line or a failing `command`)
+                                                 and at most queue.found_max (5) wait for the owner; else it is a note
                                                  (0.7) the next id, in its batch's table (found: next batch by default); prints the id
   reef-queue.py add-rows --file rows.json [--repo DIR]     (0.7.2) a chain of rows in one pass: a JSON list of {item, depends,
                                                  source, batch, admitted, priority}; `@prev` in depends is the id just allocated
@@ -27,6 +29,7 @@ Usage:
                                                  for a security, privacy, money or data-loss finding (always a row); prints n<k>
   reef-queue.py promote-note n<k> [--batch N] [--repo DIR] (0.7) that note as a found row (Depends its row); the note keeps
                                                  `→ row <id>` — a note is never deleted; prints the row id
+  reef-queue.py promote ID --reason "<his words>" [--repo DIR]   (0.7.5) the owner promotes a found row: only then is it built
   reef-queue.py set-batch ID N [--repo DIR]                (0.7) move a row to batch N (a promotion; footnote the reason)
   reef-queue.py drop-row ID --reason "<text>" [--repo DIR] (0.7) delete a queued row (rule 7) and record the reason as a footnote
   reef-queue.py journal <slug> [--repo DIR]     (0.7.1) on the base at the row's close: every task's `<!-- journal -->`
@@ -548,8 +551,37 @@ def add_row(root, item, depends, source, batch, admitted, priority=""):
     return new_id
 
 
+EVIDENCE = re.compile(r"[\w./-]+\.\w+:\d+|`[^`]+`")   # a product path:line, or a command in backticks that fails today
+
+
+def found_as_note(root, item, source, admitted, priority):
+    """Why a found finding is recorded as a note instead of a row, or None (2026-11-07: the agents filed 47 found rows,
+    most of them ideas for one more check, and the loop built them ahead of the owner's product bugs). A row needs
+    evidence of a real defect, and at most queue.found_max (5) wait for the owner at once; a security, privacy, money or
+    data-loss finding, an --admitted one and a p1 are always rows."""
+    if source != "found" or admitted.strip() or priority == "p1" or SAFETY.search(item):
+        return None
+    if not EVIDENCE.search(item):
+        return "no evidence of a real defect (a product path:line, or a command in backticks that fails today)"
+    cap = int((config(root).get("queue") or {}).get("found_max", 5) or 0)
+    waiting = [r for r in load(root)[2] if r["_status"] != "done" and r.get("Source", "").lower() == "found" and not promoted(r)]
+    if cap and len(waiting) >= cap:
+        return f"{len(waiting)} found row(s) already wait for the owner (queue.found_max {cap}) — `reef-queue.py triage` first"
+    return None
+
+
+def file_finding(root, item, depends, source, batch, admitted, priority=""):
+    why = found_as_note(root, item, source, admitted, priority)
+    if why is None:
+        return add_row(root, item, depends, source, batch, admitted, priority)
+    print(f"a note, not a row: {why}", file=sys.stderr)
+    return cmd_note(root, item, (depends.split(",")[0].strip() or None))
+
+
 def cmd_add_row(root, item, depends, source, batch, admitted, priority=""):
-    print(add_row(root, item, depends, source, batch, admitted, priority))
+    rid = file_finding(root, item, depends, source, batch, admitted, priority)
+    if rid != 0:   # cmd_note printed the note's id itself
+        print(rid)
     return 0
 
 
@@ -569,8 +601,11 @@ def cmd_add_rows(root, path):
         if "@prev" in dep and prev is None:
             die("add-rows: @prev in the first row has nothing to point at")
         dep = dep.replace("@prev", str(prev)) if prev is not None else dep
-        prev = add_row(root, r["item"], dep, r.get("source", "planned"), r.get("batch"), str(r.get("admitted") or ""), r.get("priority", ""))
-        print(prev)
+        prev = file_finding(root, r["item"], dep, r.get("source", "planned"), r.get("batch"), str(r.get("admitted") or ""), r.get("priority", ""))
+        if prev == 0:   # a note: nothing for @prev to point at
+            prev = None
+        else:
+            print(prev)
     return 0
 
 
@@ -787,7 +822,7 @@ def cmd_triage(root, count_only):
         for r in groups[mod]:
             item = re.sub(r"[⁰¹²³⁴⁵⁶⁷⁸⁹ ]+$", "", r.get("Item", "")).strip()
             print(f"- row {r['Id']} (entered batch {r.get('Batch', '?')}, depends {', '.join(r['_depends']) or '-'}): {item[:140]}")
-            print(f"    Promote → set-batch {r['Id']} {cur} + footnote --row {r['Id']} \"promoted: <reason>\"")
+            print(f"    Promote → promote {r['Id']} --reason \"<his words>\"   (built in batch {cur})")
             print(f"    Merge into design row <id> → footnote --row <id> \"absorbs row {r['Id']}: …\" + drop-row {r['Id']} --reason \"merged into <id>\"")
             print(f"    Delete → drop-row {r['Id']} --reason \"<why it no longer matters>\"   (first-class outcome)")
     return 1
@@ -860,15 +895,50 @@ def cmd_ready(root, all_batches, with_found=False):
     ready = [r for r in rows if r["_status"] != "done" and not PLACEHOLDER.match(r.get("Item", ""))
              and all(is_done(d, by_id, archived) for d in r["_depends"])
              and (all_batches or batch is None or r.get("Batch", "") == batch)]
-    first = lambda r: r.get("Source", "").lower() == "planned" or r.get("Priority") == "p1"   # a p1 found row: promoted
+    first = lambda r: r.get("Source", "").lower() == "planned" or promoted(r)
     ready.sort(key=lambda r: ({"p1": 1, "p3": 3}.get(r.get("Priority", ""), 2), 0 if first(r) else 1, int(re.match(r"\d+", r["Id"]).group())))
     planned = [r for r in ready if first(r)]
     # --with-found (a night, 2026-10-23): the found rows too, after the planned ones — the contract names what is driven
-    for r in (ready if with_found else (planned or ready)):   # ready is in priority order (2026-10-24)
+    # an unsorted found row is never built (2026-11-07: 47 of them were, ahead of the owner's product bugs, through a
+    # `planned or ready` fallback); the owner promotes one, or it entered with an --admitted ground
+    for r in (ready if with_found else planned):   # ready is in priority order (2026-10-24)
         print(f"{r['Id']}\t{r['_status']}\t{r.get('Source', '')}\t{r.get('Item', '')[:70]}")
-    if ready and not planned and not with_found:
-        print("note: no planned row is ready — only found rows; the loop stops and escalates rather than falling through", file=sys.stderr)
+    waiting = len(ready) - len(planned)
+    if waiting and not with_found:
+        print(f"note: {waiting} found row(s) wait for the owner — `reef-queue.py triage` asks him; "
+              f"`reef-queue.py promote ID --reason \"<his words>\"` builds one", file=sys.stderr)
     return 0
+
+
+def promoted(r):
+    """A found row the owner promoted (p1 on issues, the Admitted cell in the file) or that entered with a ground."""
+    return r.get("Priority") == "p1" or bool((r.get("Admitted") or "").strip())
+
+
+def cmd_promote(root, row_id, reason):
+    """The owner promotes a found row with his reason: it is built in the current batch (p1 on issues; the Admitted cell
+    in the file), and the reason is a footnote on the row."""
+    reason = " ".join((reason or "").split()).replace("|", "/")
+    if not reason:
+        die("promote: --reason is the owner's words")
+    cfg, qpath, _ = queue_paths(root)
+    _, text, rows, _, _ = load(root)
+    r = next((x for x in rows if x["Id"] == row_id), None)
+    if r is None:
+        die(f"no row {row_id} in the queue", 1)
+    cur = current_batch(text)
+    if issues_mode(cfg):
+        cmd_set_priority(root, row_id, "p1")
+    else:
+        q = read(qpath)
+        pat = re.compile(rf"^(\|\s*{re.escape(row_id)}\s*\|(?:[^|\n]*\|){{4}})([^|\n]*)(\|)", re.M)
+        m = pat.search(q)
+        if not m:
+            die(f"row {row_id}: no Admitted cell to write", 1)
+        write_text(qpath, q[:m.start(2)] + f" promoted: {reason} " + q[m.end(2):])
+    if cur and r.get("Batch", "") != cur:
+        cmd_set_batch(root, row_id, cur)
+    return cmd_footnote(root, f"promoted: {reason}", row_id)
 
 
 def cmd_check(root):
@@ -1373,7 +1443,7 @@ def main(argv):
         argv = argv[:i] + argv[i + 2:]
     root = repo_root(repo)
     if not argv:
-        die("usage: reef-queue.py status|ready [--all] [--with-found]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids>|triage [--count]|note <text> [--row ID]|promote-note n<k> [--batch N]|set-batch ID N|drop-row ID --reason <text>|close ID --pr N|admit <issue>|set-priority ID p1|p2|p3|none|demote ID|migrate-to-issues [--apply] [--repo DIR]")
+        die("usage: reef-queue.py status|ready [--all] [--with-found]|check|adr-number|index|footnote <text> [--row ID]|add-row --item <text> […]|set-depends ID <ids>|triage [--count]|note <text> [--row ID]|promote-note n<k> [--batch N]|promote ID --reason <text>|set-batch ID N|drop-row ID --reason <text>|close ID --pr N|admit <issue>|set-priority ID p1|p2|p3|none|demote ID|migrate-to-issues [--apply] [--repo DIR]")
     cmd = argv[0]
     if cmd == "status":
         return cmd_status(root)
@@ -1408,6 +1478,8 @@ def main(argv):
         return cmd_note(root, argv[1], opt("--row", None))
     if cmd == "promote-note" and len(argv) >= 2:
         return cmd_promote_note(root, argv[1], opt("--batch", None))
+    if cmd == "promote" and len(argv) >= 2:
+        return cmd_promote(root, argv[1], opt("--reason"))
     if cmd == "set-batch" and len(argv) >= 3:
         return cmd_set_batch(root, argv[1], argv[2])
     if cmd == "close" and len(argv) >= 2 and "--pr" in argv:
