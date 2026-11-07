@@ -8,7 +8,9 @@ or `.key` file refused) and commit `<subject>` with the trailer `Closes-task: <i
 (2) here, `git merge --no-ff --no-commit task/<id>-<slug>`; a lockfile among the merged files runs `worktree.setup` here
 first; (3) in that same merge commit `status: done`, the journal file's text between `<!-- journal -->` markers under the
 task's `## Log`, the task file `git mv`ed to `tasks/done/`; (4) `git worktree remove`, `git worktree prune`, `git branch -d`.
-A conflict or a gate refusal aborts the merge and leaves the tree as it was. Exit 0 closed · 1 usage · 2 refused.
+A conflict or a gate refusal aborts the merge and leaves the tree as it was. A close killed before its commit landed leaves a
+recovery note (`<git-dir>/reef-close-<task>.json`) and the next close restores from it first; a task under done/ that is not
+committed and has no note is refused. Exit 0 closed · 1 usage · 2 refused.
 Why: the orchestrator ran these eight commands by hand at every close, each a chance to skip one (2026-10-17: 103 under
 done/ still in-progress; 2026-10-18: a Prisma client older than its migration failed 28 tests until `npm ci`).
 """
@@ -43,6 +45,52 @@ def task_home(path):
     return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else "."
 
 
+def in_head(root, path):
+    return git(root, "cat-file", "-e", "HEAD:./" + os.path.relpath(os.path.realpath(path), os.path.realpath(root)), check=False).returncode == 0
+
+
+def committed(root, path):
+    """In HEAD's tree, and the worktree's copy is HEAD's."""
+    return in_head(root, path) and not git(root, "status", "--porcelain", "--", path).stdout.strip()
+
+
+def drop_note(npath):
+    if os.path.exists(npath):
+        os.remove(npath)
+
+
+def write_note(npath, task, dest, text, branch=None):
+    """Written before the close changes a file, removed once its commit landed or its restore ran (2026-11-07, an adopted
+    project: the session moved on during a 40 s gate and the close died with the task moved and marked done, uncommitted)."""
+    with open(npath + ".tmp", "w", encoding="utf-8") as f:
+        json.dump({"task": task, "dest": dest, "text": text, "branch": branch}, f)
+    os.replace(npath + ".tmp", npath)
+
+
+def recover(root, npath):
+    """Undo the close a note names, unless its commit landed. The task file's restored path, or None."""
+    try:
+        with open(npath, encoding="utf-8") as f:
+            n = json.load(f)
+        task, dest, text = n["task"], n["dest"], n["text"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        fail(f"unreadable recovery note {npath} ({e}) — check `git status`, put the task file back by hand, delete the note, re-run", 2)
+    if committed(root, dest) and (dest == task or not in_head(root, task)):
+        drop_note(npath)   # the commit landed; only the note's removal was cut off
+        return None
+    mhead = git(root, "rev-parse", "-q", "--verify", "MERGE_HEAD", check=False).stdout.strip()
+    if n.get("branch") and mhead and mhead == git(root, "rev-parse", "-q", "--verify", n["branch"], check=False).stdout.strip():
+        git(root, "merge", "--abort", check=False)
+    git(root, "reset", "-q", check=False)
+    if dest != task and os.path.exists(dest):
+        os.remove(dest)
+    os.makedirs(os.path.dirname(task), exist_ok=True)
+    with open(task, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+    drop_note(npath)
+    return task
+
+
 def main(argv):
     def opt(name):
         return argv[argv.index(name) + 1] if name in argv and argv.index(name) + 1 < len(argv) else None
@@ -64,6 +112,12 @@ def main(argv):
         fail(f"{root} is on {branch!r}, not a feature branch ({prefix}…) — pass the task's path inside the feature worktree, or --repo", 1)
     task = os.path.abspath(pos[0])
     name = os.path.basename(task)
+    npath = os.path.join(git(root, "rev-parse", "--absolute-git-dir").stdout.strip(), f"reef-close-{name[:-3]}.json")
+    back = recover(root, npath) if os.path.isfile(npath) else None
+    if back:
+        task = back   # the tick names a half-closed task by its done/ path (reef-loop.py's half_closed)
+        print(f"merge-close: an earlier close of {name} was cut off before its commit — put the task file back as it was and "
+              f"unstaged (from {npath}); closing again")
     if not os.path.isfile(task):
         alt = os.path.join(os.path.dirname(task), "done", name)
         if not os.path.isfile(alt):
@@ -77,6 +131,10 @@ def main(argv):
     if tid and not re.search(rf"^\|\s*{tid.group(0)}\s*\|", block, re.M):
         fail(f"{journal} has no runlog row `| {tid.group(0)} | …` — the journal block is that row", 1)
     in_done = os.path.basename(os.path.dirname(task)) == "done"
+    if in_done and not committed(root, task):
+        # 2026-11-07 (an adopted project, task 4701): a close cut off before its commit; the next one took this copy as the task file
+        fail(f"{os.path.relpath(task, root)} is under done/ but not committed — a close cut off before its commit, and no recovery note "
+             f"({npath}); nothing changed. Check `git status`: put the task back where it was with its text from HEAD, then re-run", 2)
     with open(task, encoding="utf-8", newline="") as f:
         text = f.read()
     m = FENCE.match(text)
@@ -107,11 +165,13 @@ def main(argv):
         tdir = os.path.dirname(dest)[:-len("/done")]
         half = [f for f in os.listdir(tdir) if re.match(r"R?\d+-.*\.md$", f) and f != name
                 and (task_frontmatter(open(os.path.join(tdir, f), encoding="utf-8").read()) or {}).get("status") == "done"]
+        write_note(npath, task, dest, text)
         git(root, "add", "-A", "--", ".", *[":!" + os.path.relpath(os.path.realpath(os.path.join(tdir, f)), os.path.realpath(root)) for f in half])
         staged = git(root, "diff", "--cached", "--name-only").stdout.split()
         bad = [p for p in staged if SECRET.search(p)]
         if bad:
             git(root, "reset", "-q")
+            drop_note(npath)
             fail(f"refusing to commit {', '.join(bad)}: a secret-shaped file in the worktree — remove it, then re-run", 2)
         head = m.group(1)
         head = re.sub(r"^status:[^\r\n]*", "status: done", head, count=1, flags=re.M) if re.search(r"^status:", head, re.M) else head + "status: done" + ("\r\n" if "\r\n" in head else "\n")
@@ -128,6 +188,7 @@ def main(argv):
                 os.rename(dest, task)
             with open(task, "w", encoding="utf-8", newline="") as f:
                 f.write(text)
+            drop_note(npath)
         if not in_done:
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             r = git(root, "mv", task, dest, check=False)
@@ -139,6 +200,7 @@ def main(argv):
         if r.returncode != 0:
             restore()
             fail(f"the commit was refused by the gate; nothing changed:\n{(r.stdout + r.stderr).strip()[-800:]}", 2)
+        drop_note(npath)
         print(f"merge-close: fast path — {name} closed in place on {branch} at {git(root, 'rev-parse', '--short', 'HEAD').stdout.strip()}; "
               f"the row's one worktree, no task branch")
         return 0
@@ -191,10 +253,12 @@ def main(argv):
             if r.returncode != 0:
                 git(wt, "reset", "-q")
                 fail(f"the task worktree's commit was refused by the gate:\n{(r.stdout + r.stderr).strip()[-800:]}", 2)
+        write_note(npath, task, dest, text, tbranch)
         r = git(root, "merge", "--no-ff", "--no-commit", tbranch, check=False)
         if r.returncode != 0:
             conflicted = git(root, "diff", "--name-only", "--diff-filter=U", check=False).stdout.split()
             git(root, "merge", "--abort", check=False)
+            drop_note(npath)
             fail(f"CONFLICT in {', '.join(conflicted)} — merge aborted, nothing changed; a code conflict is a decision for a person"
                  if conflicted else f"`git merge {tbranch}` failed, nothing changed: {(r.stderr or r.stdout).strip()[:400]}", 2)
         changed = git(root, "diff", "--cached", "--name-only").stdout.split()
@@ -203,6 +267,7 @@ def main(argv):
             print(f"merge-close: a lockfile changed — running worktree.setup here first: {setup}")
             if subprocess.run(["sh", "-c", setup], cwd=root).returncode != 0:
                 git(root, "merge", "--abort", check=False)
+                drop_note(npath)
                 fail("worktree.setup failed; merge aborted, nothing changed", 2)
         head = m.group(1)
         head = re.sub(r"^status:[^\r\n]*", "status: done", head, count=1, flags=re.M) if re.search(r"^status:", head, re.M) else head + "status: done" + ("\r\n" if "\r\n" in head else "\n")
@@ -223,7 +288,9 @@ def main(argv):
                 os.remove(dest)
             with open(task, "w", encoding="utf-8", newline="") as f:
                 f.write(text)   # the task file as it was, its uncommitted edits included (the abort restores HEAD's)
+            drop_note(npath)
             fail(f"the merge commit was refused by the gate; merge aborted, nothing changed:\n{(r.stdout + r.stderr).strip()[-800:]}", 2)
+        drop_note(npath)
         task = dest
     if os.path.isdir(wt):
         r = git(root, "worktree", "remove", wt, check=False)

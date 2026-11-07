@@ -1,10 +1,12 @@
 """reef-merge-close (0.7.2, the owner's go 2026-10-24, item 4): a passed task's commit, merge --no-ff into the feature,
 status done + journal block + git mv to done/ in that merge commit, worktree.setup on a lockfile, worktree and branch
 removed — one command; a conflict or a gate refusal leaves the tree as it was."""
+import glob
 import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _fixtures import write, git  # noqa: E402  (the suites' shared fixtures, once)
@@ -29,9 +31,35 @@ attempts: 0
 """
 
 
+# the session ending mid-gate (2026-11-07, an adopted project's task 4701): the pre-commit hook kills the close's own process, then the gate is red
+KILL = ("#!/bin/sh\n{only}p=$PPID\nwhile [ \"${{p:-1}}\" -gt 1 ]; do\n"
+        "  case \"$(ps -o args= -p \"$p\")\" in *reef-merge-close*) kill -9 \"$p\"; exit 1;; esac\n"
+        "  p=$(ps -o ppid= -p \"$p\" | tr -d ' ')\ndone\necho 'gate: no close to kill' >&2; exit 1\n")
+
+
 def read(d, rel):
     with open(os.path.join(d, rel), encoding="utf-8") as f:
         return f.read()
+
+
+def gate(main, body):
+    """The repository's pre-commit hook (shared by every worktree); None removes it."""
+    hook = os.path.join(main, ".git", "hooks", "pre-commit")
+    if body is None:
+        os.remove(hook)
+        return
+    write(main, ".git/hooks/pre-commit", body)
+    os.chmod(hook, 0o755)
+
+
+def settled(wt):
+    """The orphaned `git commit` let go of the index; the recovery notes left in the worktree's git dir."""
+    gd = git(wt, "rev-parse", "--absolute-git-dir").stdout.strip()
+    for _ in range(200):
+        if not os.path.exists(os.path.join(gd, "index.lock")):
+            break
+        time.sleep(0.05)
+    return glob.glob(os.path.join(gd, "reef-close-*"))
 
 
 class FastRowClose(unittest.TestCase):
@@ -60,8 +88,8 @@ class FastRowClose(unittest.TestCase):
         self.journal = os.path.join(self.tmp, "journal.md")
         write(self.tmp, "journal.md", "| 101 | PASS | growth 3 |\n")
 
-    def close(self):
-        return subprocess.run([sys.executable, CLOSE, "reef/features/demo/tasks/101-slice.md", "--subject", "feat: the slice",
+    def close(self, task="reef/features/demo/tasks/101-slice.md"):
+        return subprocess.run([sys.executable, CLOSE, task, "--subject", "feat: the slice",
                                "--journal", self.journal, "--repo", self.feat], capture_output=True, text=True, cwd=self.feat)
 
     def _close_moves_no_plan_digest(self, tail):
@@ -125,6 +153,45 @@ class FastRowClose(unittest.TestCase):
         self.assertIn("already exists", r.stderr)
         self.assertEqual(git(self.feat, "status", "--porcelain").stdout, before, "nothing staged, nothing rewritten")
         self.assertIn("status: in-progress", read(self.feat, "reef/features/demo/tasks/101-slice.md"))
+
+    def test_a_close_killed_mid_commit_is_undone_by_the_next_close_then_closes_once(self):
+        # 2026-11-07, an adopted project's task 4701: the session moved on while the gate ran (~40 s) and the close died after its `git mv`
+        # and `status: done`, before its restore. The next close took the task under done/ as the task file, was refused by
+        # the gate, said "nothing changed" and left ` D tasks/4701-….md`, `?? tasks/done/`
+        before = git(self.feat, "status", "--porcelain").stdout
+        gate(self.main, KILL.format(only=""))
+        r = self.close()
+        self.assertEqual(r.returncode, -9, "the close was killed in its own commit: " + r.stdout + r.stderr)
+        settled(self.feat)
+        self.assertFalse(os.path.exists(os.path.join(self.feat, "reef/features/demo/tasks/101-slice.md")), "the half-done state")
+        self.assertIn("status: done", read(self.feat, "reef/features/demo/tasks/done/101-slice.md"))
+        gate(self.main, "#!/bin/sh\necho 'gate: red' >&2; exit 1\n")
+        r = self.close("reef/features/demo/tasks/done/101-slice.md")   # the path the tick's half-closed scan names
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertEqual(git(self.feat, "status", "--porcelain").stdout, before, "refused again: the tree as it was before the FIRST close")
+        self.assertIn("status: in-progress", read(self.feat, "reef/features/demo/tasks/101-slice.md"))
+        self.assertIn("cut off before its commit", r.stdout)
+        gate(self.main, None)
+        r = self.close()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        done = git(self.feat, "show", "HEAD:reef/features/demo/tasks/done/101-slice.md").stdout
+        self.assertEqual((done.count("status: done"), done.count("<!-- journal -->"), done.count("| 101 | PASS |")), (1, 1, 1))
+        self.assertEqual(git(self.feat, "rev-list", "--count", "main..HEAD").stdout.strip(), "1", "the task committed once")
+        self.assertEqual(git(self.feat, "ls-tree", "HEAD", "reef/features/demo/tasks/101-slice.md").stdout, "", "moved, not copied")
+        self.assertEqual(git(self.feat, "status", "--porcelain").stdout, "")
+        self.assertEqual(settled(self.feat), [], "no recovery note left")
+
+    def test_a_task_under_done_never_committed_and_no_note_is_refused_not_taken_as_the_task(self):
+        tasks = os.path.join(self.feat, "reef/features/demo/tasks")
+        os.makedirs(os.path.join(tasks, "done"))
+        git(self.feat, "mv", os.path.join(tasks, "101-slice.md"), os.path.join(tasks, "done", "101-slice.md"))
+        write(tasks, "done/101-slice.md", read(tasks, "done/101-slice.md").replace("status: in-progress", "status: done"))
+        before, head, text = git(self.feat, "status", "--porcelain").stdout, git(self.feat, "rev-parse", "HEAD").stdout, read(tasks, "done/101-slice.md")
+        r = self.close()
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("not committed", r.stderr)
+        self.assertEqual((git(self.feat, "status", "--porcelain").stdout, git(self.feat, "rev-parse", "HEAD").stdout, read(tasks, "done/101-slice.md")),
+                         (before, head, text), "nothing changed")
 
     def test_a_secret_shaped_file_is_refused_in_place_too(self):
         write(self.feat, ".env.local", "KEY=1\n")
@@ -228,6 +295,23 @@ class MergeClose(unittest.TestCase):
         self.assertEqual(git(self.feat, "rev-parse", "HEAD").stdout, head)
         self.untouched()
         self.assertEqual(git(self.wt, "status", "--porcelain").stdout, "", "the task's own commit stands; a re-run resumes from the merge")
+
+    def test_a_merge_commit_killed_mid_gate_is_undone_by_the_next_close_then_merges_once(self):
+        gate(self.main, KILL.format(only="git rev-parse --abbrev-ref HEAD | grep -q '^feat/' || exit 0\n"))
+        r = self.close()
+        self.assertEqual(r.returncode, -9, "killed in the merge commit: " + r.stdout + r.stderr)
+        settled(self.feat)
+        self.assertEqual(git(self.feat, "rev-parse", "-q", "--verify", "MERGE_HEAD").returncode, 0, "precondition: the merge half-done")
+        gate(self.main, None)
+        r = self.close()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        done = git(self.feat, "show", "HEAD:reef/features/demo/tasks/done/101-slice.md").stdout
+        self.assertIn("worktree: .reef/worktrees/101", done, "the task file's own uncommitted edit survived the recovery")
+        self.assertEqual((done.count("<!-- journal -->"), git(self.feat, "rev-list", "--merges", "--count", "HEAD").stdout.strip()), (1, "1"))
+        self.assertEqual(git(self.feat, "ls-tree", "HEAD", "reef/features/demo/tasks/101-slice.md").stdout, "", "moved, not copied")
+        self.assertEqual(git(self.feat, "status", "--porcelain").stdout, "")
+        self.assertIn("cut off before its commit", r.stdout)
+        self.assertEqual(settled(self.feat), [], "no recovery note left")
 
     def test_a_judged_task_on_the_critical_path_closes_only_with_the_verifiers_pass_report(self):
         # workflow v3, phase 3b: the critical path keeps a verifier per task, and its close now REQUIRES the report (before,
