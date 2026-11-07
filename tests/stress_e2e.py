@@ -29,7 +29,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
 SCRIPTS = ("reef_common.py", "reef-graph-run.py", "reef-graph.py", "reef-loop.py", "reef-queue.py", "reef-plan-check.py", "reef-attempt",
            "reef-claims.py", "reef-adversarial", "reef-snapshot.sh", "reef-gate.sh", "reef-row.py", "reef-evidence.py", "reef-tier.py",
-           "reef-merge-close", "reef-record", "reef-cost.py", "reef-handoff", "reef-converge", "reef-merge-base", "reef-approval.py")
+           "reef-merge-close", "reef-record", "reef-cost.py", "reef-handoff", "reef-merge-base", "reef-approval.py")
 SLUG = "crash-row-one"
 ROW = "1"
 TASK = """---

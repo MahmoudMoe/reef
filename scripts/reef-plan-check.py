@@ -49,7 +49,7 @@ COMPLEXITY = {"mech", "design"}
 EFFORT = {"low", "medium", "high"}
 VERIFY = {"judge", "gate-only"}
 TIER = {"light", "full", "design", "critical"}   # effort matched to risk; mech <=> light (design §4); 0.6 adds critical
-KIND = {"refactor"}   # 0.7.2 (first adoption, item 15): an optional task kind with its own deterministic proof (reef-converge)
+KIND = {"refactor"}   # 0.7.2 (first adoption, item 15): an optional task kind with its own deterministic proof (reef-claims.py refactor-preserved)
 SPLITS_RE = re.compile(r"^[^,\s]+(,\s*[^,\s]+)*\s+under\s+\d+\s+lines$")   # no comma inside a path: unambiguous (CodeQL py/redos)
 TIER_ORDER = ["light", "full", "design", "critical"]
 REQUIRED = ["id", "feature", "status", "complexity", "effort", "blocked-by", "verify", "attempts"]
@@ -88,7 +88,7 @@ def guard_refusals(root, row):
 
 
 def is_rollup(path):
-    """R<NN>-<slug>.md — a review rollup, written by reef-converge: never planned, stamped, hunted or tiered."""
+    """R<NN>-<slug>.md — a review rollup, the review's findings: never planned, stamped, hunted or tiered."""
     return re.match(r"^R\d+[-.]", os.path.basename(path)) is not None
 
 
@@ -979,7 +979,7 @@ def main():
         if "migration" in tl and not re.search(r"^Rollback:\s*\S", section(text, "Decision") or "", re.M):
             errs.append("touches migration requires a `Rollback:` line in ## Decision")
         # 0.7.2 (first adoption, item 15): a refactor task names the file(s) it splits and the size they end under; behaviour is
-        # shown preserved by reef-converge (no assertion line of an existing test changes; the full gate green)
+        # shown preserved at acceptance (`reef-claims.py refactor-preserved`: no assertion line of an existing test changes; the full gate green)
         kind = (fm.get("kind") or "").strip()
         if kind and kind not in KIND:
             errs.append(f"kind={kind!r} not in {sorted(KIND)}")
@@ -1077,8 +1077,8 @@ def main():
     # per-task semantic checks, ordered by file
     for rel, fm in sorted(tasks.items()):
         text = fm["_text"]
-        # a rollup (R<n>-<slug>.md) is written by reef-converge, never planned or stamped: it keeps the schema, id and
-        # graph checks, not the planner's authoring rules (2026-10-19, qassimha row 68: the rollups converge wrote failed
+        # a rollup (R<n>-<slug>.md) holds the review's findings, never planned or stamped: it keeps the schema, id and
+        # graph checks, not the planner's authoring rules (2026-10-19, qassimha row 68: the rollups written then failed
         # seven of them — Log last, a human Decision, an FR key, the same Proof command in two features)
         rollup = is_rollup(rel)
         # 2026-10-28 (the current adoption, rows 3 and 46): a FINISHED task was shipped under the rules of its time, and the v3
@@ -1187,7 +1187,7 @@ def main():
                                    f"({why}) — rewrite the row so it runs as written")
                     if len(whole) > 120 and shell and "[mechanic]" not in whole:
                         a_fail(f"{rel}: Proof for {re.sub(r'^AC-?', 'AC-', m.group(1))} is {len(whole)} characters of shell in a markdown cell — name a test "
-                             f"(converge.test_cmd runs it by name) or put the command in a script and name the script; `[mechanic]` only for a proof that must write files")
+                             f"(the full gate runs it) or put the command in a script and name the script; `[mechanic]` only for a proof that must write files")
         # 0.6 dual shape: with a ## Proof table the criterion is ONE declarative sentence and the proof
         # lives in its row; without it, the 0.5 shape (the criterion names its test inline) stays valid
         untested, automated, shape_errs, key_errs = [], 0, [], []

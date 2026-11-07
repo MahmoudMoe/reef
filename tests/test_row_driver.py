@@ -16,7 +16,7 @@ from _fixtures import write, git  # noqa: E402  (the suites' shared fixtures, on
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = ("reef_common.py", "reef-graph-run.py", "reef-graph.py", "reef-loop.py", "reef-queue.py", "reef-plan-check.py", "reef-attempt", "reef-claims.py",
            "reef-adversarial", "reef-snapshot.sh", "reef-gate.sh", "reef-row.py", "reef-evidence.py", "reef-tier.py", "reef-merge-close",
-           "reef-record", "reef-cost.py", "reef-handoff", "reef-converge")
+           "reef-record", "reef-cost.py", "reef-handoff")
 FEATURE = "demo-row-one"
 TASK = """---
 id: {id}
@@ -168,7 +168,7 @@ class RowDriver(_Row):
                         "merge-base and the push BEFORE the gate: the evidence must be the pushed head's (the review, 2026-10-26)")
         self.assertIn("merged_base", js, "a merge-base conflict stops the row for a person")
         self.assertIn("sh scripts/reef-gate.sh full", js, "the full suite once, on the final head: the evidence the reviewer reads")
-        self.assertIn("reef-converge", js, "the Proof rows run before the reviewer")
+        self.assertNotIn("converge", js, "0.7.5: the gate and the reviewer hold the Proof rows; no second run of them")
         self.assertIn("gh pr create", js)
         self.assertIn("agentType: 'reef:acceptance'", js, "the ONE reviewer")
         self.assertIn("VERDICT: GREEN|FAIL", js)
@@ -217,7 +217,7 @@ class RowSettle(_Row):
         done = not stopped
         res = {"row": "1", "feature": feature, "worktree": worktree or self.co, "report_dir": self.reports, "tasks": tasks, "stopped": stopped,
                "pr": {"merged_base": True, "number": 7, "head": head, "output": "https://github.com/o/r/pull/7"} if done else None,
-               "evidence": {"gate_exit": 0, "converge_exit": 0, "evidence_exit": 0, "evidence": "evidence: local green", "notes": ""} if done else None,
+               "evidence": {"gate_exit": 0, "evidence_exit": 0, "evidence": "evidence: local green", "notes": ""} if done else None,
                "review": {"verdict": verdict, "report_path": rep, "summary": "fine"} if done else None}
         return write(self.tmp, "row-results.json", json.dumps({"result": res}))
 

@@ -20,6 +20,8 @@ Usage:
   reef-claims.py skeleton --task <task-file>                    (0.7.4) the verifier's report to fill: a RULE and a verdict line per criterion
   reef-claims.py verdict <report>                               (0.7.2) what the orchestrator reads of a judge's report:
       RUN, VERDICT, every BLOCKER, failed criterion, NEW-ROW and NOTED line; exit 0 PASS/GREEN · 1 FAIL · 2 no verdict
+  reef-claims.py refactor-preserved <base>...HEAD [--repo DIR]   (0.7.5) a `kind: refactor` feature: exit 1 naming each EXISTING test
+      file whose assertion lines change (moved lines, a renamed file and new test files allowed); the full gate is the other half
   reef-claims.py claims-only <base>..<head> [--repo DIR]
   reef-claims.py blocking-fixed <plan-review-report> <since-rev> [--repo DIR]   every BLOCKING path:line changed since <since-rev>
       Exit 0 iff the range, stripped of documentation files and of comment/blank lines, is
@@ -93,6 +95,42 @@ def is_doc(path):
 def is_comment(text):
     s = text.strip()
     return s == "" or any(s.startswith(c) for c in COMMENT_START)
+
+
+ASSERT_RE = re.compile(r"\bexpect\(|\bassert\b|\bshould\b")
+TEST_FILE_RE = re.compile(r"(^|/)(tests?|__tests__|spec)/|\.(test|spec)\.[a-z]+$|(^|/)test_[^/]+\.py$|_test\.(go|py|rs|js|ts)$")
+
+
+def assertion_changes(diff):
+    """Per EXISTING test file in a unified diff: the assertion lines removed and added (whitespace-normalised). A new test
+    file is allowed; a renamed path is the same file; a moved line shows up on both sides (0.7.2, first adoption, item 15)."""
+    out, cur, new_file = {}, None, False
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            cur = line.split(" b/", 1)[-1]
+            new_file = False
+            continue
+        if line.startswith("new file mode"):
+            new_file = True
+            continue
+        if line.startswith(("+++", "---")) or cur is None or new_file or not TEST_FILE_RE.search(cur):
+            continue
+        if line[:1] in "+-" and ASSERT_RE.search(line[1:]):
+            out.setdefault(cur, ([], []))[0 if line[0] == "-" else 1].append(" ".join(line[1:].split()))
+    return out
+
+
+def cmd_refactor_preserved(repo, rng):
+    """A refactor preserves behaviour: no assertion line of an existing test changes in <rng> (moved code and imports may)."""
+    r = subprocess.run(["git", "diff", "-M", "--unified=0", "--no-color", "--no-ext-diff", rng, "--"], cwd=repo, capture_output=True, text=True)
+    if r.returncode != 0:
+        die(f"git diff {rng} failed: {r.stderr.strip()[:200]}")
+    bad = [(f, rem, add) for f, (rem, add) in sorted(assertion_changes(r.stdout).items()) if sorted(rem) != sorted(add)]
+    for f, rem, add in bad:
+        print(f"refactor-preserved: {f} changes an assertion line ({len(rem)} removed, {len(add)} added) — a refactor preserves behaviour, its tests stay")
+    if not bad:
+        print(f"refactor-preserved: no assertion line of an existing test changes in {rng}")
+    return 1 if bad else 0
 
 
 def cmd_check(repo, rng, claims_path):
@@ -482,13 +520,15 @@ def main(argv):
         return cmd_skeleton(argv[2])
     if argv[0] == "verdict" and len(argv) == 2:
         return cmd_verdict(argv[1])
+    if argv[0] == "refactor-preserved" and len(argv) == 2:
+        return cmd_refactor_preserved(repo, argv[1])
     if argv[0] == "claims-only" and len(argv) == 2:
         return cmd_claims_only(repo, argv[1])
     if argv[0] == "blocking-fixed" and len(argv) == 3:
         return cmd_blocking_fixed(repo, argv[1], argv[2])
     if argv[0] == "assess" and len(argv) in (1, 2):
         return cmd_assess(repo, argv[1] if len(argv) == 2 else repo)
-    die("usage: reef-claims.py check <base>..<head> <claims-file> | check --handback <file> | report <file> --task <task> | claims-only <base>..<head> | blocking-fixed <review-report> <since-rev> | assess [<project-root>]")
+    die("usage: reef-claims.py check <base>..<head> <claims-file> | check --handback <file> | report <file> --task <task> | claims-only <base>..<head> | refactor-preserved <base>...HEAD | blocking-fixed <review-report> <since-rev> | assess [<project-root>]")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 """Sabotage suite for 0.6 Phase 2: the feature folder and its SPEC (2.1), the criterion/proof split (2.2),
-reef-converge (2.4), the path-class rails and touches (2.5), the hand-back and report checks (2.7).
+the path-class rails and touches (2.5), the hand-back and report checks (2.7).
 Every FAIL here is a defect shown red; a 0.5-shaped plan keeps passing."""
 import json
 import re
@@ -17,8 +17,6 @@ CHECK = os.path.join(ROOT, "scripts", "reef-plan-check.py")
 QUEUE = os.path.join(ROOT, "scripts", "reef-queue.py")
 TIER = os.path.join(ROOT, "scripts", "reef-tier.py")
 CLAIMS = os.path.join(ROOT, "scripts", "reef-claims.py")
-CONVERGE = os.path.join(ROOT, "scripts", "reef-converge")
-CONV = load_script("reef-converge")
 
 SPEC = """# CSV export for orders — SPEC
 
@@ -239,36 +237,44 @@ class KeysCheckedInTheirOwnFolder(unittest.TestCase):
         self.assertIn("cites FR-4 which is not defined in this feature folder", r.stdout)
 
 
-TASK_REFACTOR = TASK_NEW.replace("id: 1201", "id: 1301").replace("attempts: 0\n", "attempts: 0\nkind: refactor\nsplits: src/big.py under 400 lines\n") \
-    .replace("| AC-1 | `test_csv_header_and_rows` |\n| AC-2 | `test_csv_two_decimals` |", "| AC-1 | `true` |\n| AC-2 | `true` |")
-
-
 class RefactorPreservesBehaviour(unittest.TestCase):
     """0.7.2 (ai-coach, item 15): a `kind: refactor` task's diff may move code and imports, never change an assertion line of an
-    existing test; the full gate must be green. Deterministic, in reef-converge."""
+    existing test. Deterministic: `reef-claims.py refactor-preserved <base>...HEAD`, run by the acceptance step (0.7.5: it
+    lived in reef-converge, removed); the full gate is the other half."""
 
-    def branch(self, test_text):
-        d = project(cfg={"gates": {"full": "true"}, "paths": {"features": "reef/features"}, "branches": {"base": "main"}})
-        shutil.copy(os.path.join(ROOT, "scripts", "reef-gate.sh"), os.path.join(d, "scripts", "reef-gate.sh")) if os.path.isdir(os.path.join(d, "scripts")) else (
-            os.makedirs(os.path.join(d, "scripts")), shutil.copy(os.path.join(ROOT, "scripts", "reef-gate.sh"), os.path.join(d, "scripts", "reef-gate.sh")))
+    def branch(self, test_text, extra=None, rename=False):
+        d = git_repo(prefix="reef-refactor.", branch="main")
         write(d, "src/big.py", "import os\n\ndef add(a, b):\n    return a + b\n")
         write(d, "tests/test_big.py", "import os\nfrom src.big import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n    assert add(0, 0) == 0\n")
         git = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
         git("add", "-A"); git("commit", "-qm", "base")
         git("checkout", "-qb", "feat/split")
-        write(d, "tests/test_big.py", test_text)
+        if rename:
+            git("mv", "tests/test_big.py", "tests/test_small.py")
+        write(d, "tests/test_small.py" if rename else "tests/test_big.py", test_text)
         write(d, "src/small.py", "def add(a, b):\n    return a + b\n")
+        for path, text in (extra or {}).items():
+            write(d, path, text)
         git("add", "-A"); git("commit", "-qm", "split")
-        feature(d, tasks={"1301-split-big.md": TASK_REFACTOR})
-        return subprocess.run([sys.executable, CONVERGE, "csv-export-for-orders", "--repo", d, "--base", "main", "--dry-run"], capture_output=True, text=True)
+        return subprocess.run([sys.executable, CLAIMS, "refactor-preserved", "main...HEAD", "--repo", d], capture_output=True, text=True)
 
-    def test_an_edited_assertion_is_red_and_moved_code_with_new_imports_is_green(self):
+    def test_an_edited_assertion_is_red(self):
         r = self.branch("import os\nfrom src.small import add\n\n\ndef test_add():\n    assert add(1, 2) == 4\n    assert add(0, 0) == 0\n")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("1301-split-big.md refactor: contradicts — tests/test_big.py changes an assertion line (1 removed, 1 added)", r.stdout)
-        r = self.branch("import sys\nimport os\nfrom src.small import add\n\n\ndef test_add():\n    assert add(0, 0) == 0\n    assert add(1, 2) == 3\n")
+        self.assertIn("tests/test_big.py changes an assertion line (1 removed, 1 added)", r.stdout)
+
+    def test_moved_lines_new_imports_a_rename_and_a_new_test_file_are_green(self):
+        moved = "import sys\nimport os\nfrom src.small import add\n\n\ndef test_add():\n    assert add(0, 0) == 0\n    assert add(1, 2) == 3\n"
+        r = self.branch(moved, extra={"tests/test_small_new.py": "from src.small import add\n\n\ndef test_neg():\n    assert add(-1, 1) == 0\n"})
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("Converged", r.stdout)
+        self.assertIn("refactor-preserved", r.stdout)
+        r = self.branch(moved, rename=True)
+        self.assertEqual(r.returncode, 0, "a renamed test file is the same file: " + r.stdout + r.stderr)
+
+    def test_a_range_git_cannot_read_is_a_usage_error(self):
+        d = git_repo(prefix="reef-refactor-bad.", branch="main")
+        r = subprocess.run([sys.executable, CLAIMS, "refactor-preserved", "nope...HEAD", "--repo", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
 
 
 class ProofWritersWarn(unittest.TestCase):
@@ -680,85 +686,6 @@ class BlockingFixed(unittest.TestCase):
         self.assertIn("cannot be checked", r.stdout)
 
 
-class ConvergeReadsTheEvidence(unittest.TestCase):
-    """v3 phase 2: a whole-suite proof reads the evidence the gate wrote for this tree instead of running the suite again;
-    the gate runs once only when there is none (and writes it); every proof runs holding gates.resources."""
-
-    def setUp(self):
-        self.d = tempfile.mkdtemp(prefix="reef-conv2.")
-        subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
-        os.makedirs(os.path.join(self.d, "scripts"))
-        for name in ("reef-gate.sh", "reef-snapshot.sh", "reef-graph.py", "reef-evidence.py", "reef_common.py"):
-            shutil.copy(os.path.join(ROOT, "scripts", name), os.path.join(self.d, "scripts", name))
-        self.marker = os.path.join(tempfile.mkdtemp(prefix="reef-conv2-ran."), "ran.log")   # outside the tree: a file in it would move the snapshot
-        self.cfg({"gates": {"full": f"echo ran >> {self.marker}; echo '2 passed'"}, "paths": {"features": "reef/features"}})
-        feature(self.d)
-        write(self.d, "tests/__init__.py", "")
-        write(self.d, "tests/test_export.py", "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_csv_header_and_rows(self):\n        pass\n\n    def test_csv_two_decimals(self):\n        pass\n")
-        subprocess.run(["git", "-C", self.d, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], check=True, capture_output=True)
-        subprocess.run(["git", "-C", self.d, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "start"], check=True, capture_output=True)
-
-    def cfg(self, c):
-        write(self.d, ".reef/config.json", json.dumps(c))
-
-    def converge(self):
-        # bytecode ON, as on CI: importing reef-evidence.py must not litter scripts/__pycache__ into the tree it measures
-        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
-        return subprocess.run([sys.executable, CONVERGE, "csv-export-for-orders", "--repo", self.d], capture_output=True, text=True, env=env)
-
-    def snapshot(self):
-        return subprocess.run(["sh", "scripts/reef-snapshot.sh"], cwd=self.d, capture_output=True, text=True).stdout.strip()
-
-    def evidence(self, exit_code, head=None):
-        os.makedirs(os.path.join(self.d, ".reef", "evidence"), exist_ok=True)
-        head = head or subprocess.run(["git", "-C", self.d, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-        write(self.d, f".reef/evidence/{self.snapshot()}.json", json.dumps({"snapshot": self.snapshot(), "head": head, "exit": exit_code, "at": "2030-01-01T00:00:00Z", "mode": "full"}))
-
-    def test_a_whole_suite_proof_reads_the_evidence_and_runs_the_gate_only_when_there_is_none(self):
-        self.evidence(0)
-        r = self.converge()
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("whole suite: evidence: local snapshot", r.stdout)
-        self.assertFalse(os.path.exists(self.marker), "green evidence for this tree: the suite is not run again")
-        self.evidence(0, head="0" * 40)   # the review (2026-10-25): a record is read through reef-evidence, which checks its head
-        r = self.converge()
-        self.assertIn("whole suite: the gate, run once", r.stdout + r.stderr)
-        self.assertTrue(os.path.exists(self.marker), "a record whose head is not this commit is no evidence: the gate ran")
-        os.unlink(self.marker)
-        self.evidence(1)
-        r = self.converge()
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("contradicts — test_csv_header_and_rows exists but the full suite is red (exit 1: evidence: local", r.stdout)
-        self.assertFalse(os.path.exists(self.marker), "red evidence is read too: the tree has not changed")
-        shutil.rmtree(os.path.join(self.d, ".reef", "evidence"))
-        # the rollup file converge wrote is part of the tree now; no evidence for it: the gate runs once and writes this tree's
-        snap_before = self.snapshot()
-        r = self.converge()
-        self.assertIn("whole suite: the gate, run once (exit 0", r.stdout + r.stderr)
-        with open(self.marker) as f:
-            self.assertEqual(f.read().count("ran"), 1, "two proofs, one suite run")
-        self.assertTrue(os.path.isfile(os.path.join(self.d, ".reef", "evidence", snap_before + ".json")), "the gate wrote the evidence for this tree")
-
-    def test_every_proof_runs_holding_gates_resources(self):
-        import fcntl
-        import hashlib
-        self.cfg({"gates": {"full": "true", "resources": ["heavy"], "timeout_s": 1}, "resources": {"heavy": {"slots": 1}},
-                  "converge": {"test_cmd": "python3 -m unittest -q tests.test_export -k {name}"}, "paths": {"features": "reef/features"}})
-        key = os.path.realpath(self.d)
-        slot = os.path.join(tempfile.gettempdir(), f"reef-slot-{hashlib.sha1(key.encode()).hexdigest()}-heavy-0")
-        with open(slot, "a") as held:
-            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            r = self.converge()
-            # the review (2026-10-25): a held slot is not a red test — nothing written, exit 3, run again
-            self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
-            self.assertIn("BUSY: 2 proof(s) could not run", r.stdout)
-            self.assertNotIn("contradicts", r.stdout)
-            self.assertFalse(any(f.startswith("R") for f in os.listdir(os.path.join(self.d, "reef/features/csv-export-for-orders/tasks"))), "no rollup for a busy slot")
-        r = self.converge()
-        self.assertEqual(r.returncode, 0, "slot free: the named tests run under the lock and pass: " + r.stdout + r.stderr)
-        self.assertIn("Converged", r.stdout)
-
-
 class AProofTheGuardRefusesFailsAtPlanning(unittest.TestCase):
     """2026-11-06 (an adopted project, rows 240 and 241): three [mechanic] Proof rows were refused by the guard at build
     time — a `git config --unset core.hooksPath`, an overwrite of .githooks/*, a temp-clone commit with --no-verify. Each
@@ -819,210 +746,22 @@ class PlanCheckRefusesShellInACell(unittest.TestCase):
         self.assertEqual(self.run_check(name), [], "a name beginning with a command word is still a name")
 
 
-class Converge(unittest.TestCase):
-    def setUp(self):
-        self.d = tempfile.mkdtemp(prefix="reef-conv.")
-        subprocess.run(["git", "init", "-q", "-b", "main", self.d], check=True)
-        write(self.d, ".reef/config.json", json.dumps({"gates": {"full": "python3 -m unittest -q"}, "paths": {"features": "reef/features"}}))
-        shutil.copy(os.path.join(ROOT, "scripts", "reef-gate.sh"), os.path.join(self.d, "scripts", "reef-gate.sh") if os.makedirs(os.path.join(self.d, "scripts"), exist_ok=True) is None else "")
-        feature(self.d)
-        write(self.d, "export.py", "def export_csv(rows):\n    return 'id,amount\\n' + ''.join(f\"{r['id']},{r['amount']:.2f}\\n\" for r in rows)\n")
-        write(self.d, "tests/__init__.py", "")
-        write(self.d, "tests/test_export.py", "import unittest\nfrom export import export_csv\n\n\nclass T(unittest.TestCase):\n    def test_csv_header_and_rows(self):\n        self.assertTrue(export_csv([{'id': 1, 'amount': 2}]).startswith('id,amount\\n'))\n\n    def test_csv_two_decimals(self):\n        self.assertIn('2.00', export_csv([{'id': 1, 'amount': 2}]))\n")
-
-    def converge(self):
-        return subprocess.run([sys.executable, CONVERGE, "csv-export-for-orders", "--repo", self.d], capture_output=True, text=True)
-
-    def test_a_rollup_id_is_unique_across_feature_folders(self):
-        # 2026-10-18 (qassimha row 11): its first rollup took R1 because its own folder had none; row 2's R1 was already
-        # on develop under another feature's folder, and the tick printed BROKEN (a duplicate id in the one graph)
-        write(self.d, "reef/features/receipt-decode/tasks/done/R01-receipt-decode.md", "---\nid: R1\nfeature: receipt-decode\nstatus: done\n---\n# R1\n")
-        write(self.d, "reef/features/receipt-decode/tasks/done/R03-receipt-decode.md", "---\nid: R3\nfeature: receipt-decode\nstatus: done\n---\n# R3\n")
-        with open(os.path.join(self.d, "tests", "test_export.py")) as f:
-            t = f.read()
-        write(self.d, "tests/test_export.py", t.replace("    def test_csv_two_decimals(self):\n        self.assertIn('2.00', export_csv([{'id': 1, 'amount': 2}]))\n", ""))
-        self.assertEqual(self.converge().returncode, 1)
-        tdir = os.path.join(self.d, "reef/features/csv-export-for-orders/tasks")
-        made = [f for f in os.listdir(tdir) if f.startswith("R")]
-        self.assertEqual(made, ["R04-csv-export-for-orders.md"], "the next id after every rollup in every feature folder")
-        with open(os.path.join(tdir, made[0])) as f:
-            self.assertIn("id: R4", f.read())
-
-    def test_a_rollup_is_complete_and_holds_to_no_planner_rule(self):
-        # 2026-10-19 (qassimha row 68): converge wrote the raw task template (placeholders, complexity design with no
-        # Decision, findings after ## Log); the orchestrator hand-filled two rollups with the same literal
-        # `reef-converge <feature> --dry-run`, and the plan check failed seven rules on them — a red check blocks approvals
-        pc = os.path.join(ROOT, "scripts", "reef-plan-check.py")
-        rollup_fails = lambda: [l for l in subprocess.run([sys.executable, pc, self.d], capture_output=True, text=True).stdout.splitlines()
-                                if l.startswith("FAIL") and "/R0" in l or l.startswith("FAIL: test name claimed")]
-        with open(os.path.join(self.d, "tests", "test_export.py")) as f:
-            t = f.read()
-        write(self.d, "tests/test_export.py", t.replace("    def test_csv_two_decimals(self):\n        self.assertIn('2.00', export_csv([{'id': 1, 'amount': 2}]))\n", ""))
-        self.assertEqual(self.converge().returncode, 1)
-        self.assertEqual(self.converge().returncode, 1, "a second run adds its own section")
-        p = os.path.join(self.d, "reef/features/csv-export-for-orders/tasks/R01-csv-export-for-orders.md")
-        with open(p) as f:
-            text = f.read()
-        self.assertNotIn("<", text.split("## Converge")[0], "no template placeholder left")
-        self.assertIn("`python3 scripts/reef-converge csv-export-for-orders --dry-run`", text)
-        self.assertEqual(text.count("## Converge"), 2)
-        self.assertTrue(text.rstrip().endswith("## Log"), "## Log stays the last section")
-        self.assertEqual(rollup_fails(), [])
-        # the trial's shape, hand-edited before this fix: two closed rollups, design, sections after Log, one Proof
+class RollupsKeepTheStructuralChecks(unittest.TestCase):
+    def test_a_rollup_holds_to_no_planner_rule(self):
+        # 2026-10-19 (qassimha row 68): two hand-filled rollups claimed the same literal Proof, wrote sections after ## Log and
+        # took complexity design with no Decision; the plan check failed seven rules on them — a red check blocks approvals.
+        # A rollup (R<NN>-<slug>.md, the review's findings) keeps the schema and graph checks, not the planner's authoring rules.
+        d = project(cfg={"gates": {"full": "true"}, "paths": {"features": "reef/features"}})
+        feature(d)
         legacy = ("---\nid: R{n}\nfeature: {f}\nstatus: done\ncomplexity: design\neffort: medium\nblocked-by: []\nresources: []\n"
                   "tier: full\ntouches: []\nverify: judge\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# R{n}\n\n## Scope\nx\n\n"
                   "## Acceptance Criteria\n- AC-1: every Proof row holds.\n\n## Proof\n| AC | Proof |\n|---|---|\n"
-                  "| AC-1 | `python3 scripts/reef-converge <feature> --dry-run` |\n\n## Log\n\n## Converge 2026-10-19\n- x\n\n## Closed 2026-10-19\ny\n")
-        write(self.d, "reef/features/old-a/tasks/done/R02-old-a.md", legacy.format(n=2, f="old-a"))
-        write(self.d, "reef/features/old-b/tasks/done/R03-old-b.md", legacy.format(n=3, f="old-b"))
-        self.assertEqual(rollup_fails(), [], "a rollup keeps schema and graph checks, not the planner's authoring rules")
-
-    def test_converged_then_missing_then_contradicts(self):
-        r = self.converge()
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("Converged", r.stdout)
-        self.assertFalse(any(f.startswith("R") for f in os.listdir(os.path.join(self.d, "reef/features/csv-export-for-orders/tasks"))), "nothing written when converged")
-        with open(os.path.join(self.d, "tests", "test_export.py")) as f:
-            t = f.read()
-        write(self.d, "tests/test_export.py", t.replace("    def test_csv_two_decimals(self):\n        self.assertIn('2.00', export_csv([{'id': 1, 'amount': 2}]))\n", ""))
-        r = self.converge()
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("AC-2: missing", r.stdout)
-        rollup = os.path.join(self.d, "reef/features/csv-export-for-orders/tasks/R01-csv-export-for-orders.md")
-        self.assertTrue(os.path.isfile(rollup), os.listdir(os.path.dirname(rollup)))
-        with open(rollup) as f:
-            self.assertIn("## Converge", f.read())
-
-        write(self.d, "tests/test_export.py", t)
-        write(self.d, "export.py", "def export_csv(rows):\n    return 'id,amount\\n' + ''.join(f\"{r['id']},{r['amount']}\\n\" for r in rows)\n")
-        r = self.converge()
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("contradicts", r.stdout)
-        self.assertEqual(len([f for f in os.listdir(os.path.dirname(rollup)) if f.startswith("R")]), 1, "one rollup per feature, appended to")
-
-    def test_a_note_a_printed_value_and_a_prose_cell_are_read_as_written(self):
-        # 2026-10-24, the trial's row 18 (note n45): four false "missing" lines — a test name followed by a note in
-        # parentheses (backticks inside it too), a command whose cell says what it prints, and a cell of plain prose
-        def cells(ac1, ac2):
-            task = TASK_NEW.replace("| AC-1 | `test_csv_header_and_rows` |", f"| AC-1 | {ac1} |").replace("| AC-2 | `test_csv_two_decimals` |", f"| AC-2 | {ac2} |")
-            write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
-            return self.converge()
-        r = cells("`test_csv_header_and_rows` (header first, `id,amount`)", "`python3 -c \"print(1 + 2)\"` prints `3`")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("Converged", r.stdout)
-        r = cells("`test_csv_header_and_rows`", "`python3 -c \"print(1 + 2)\"` prints `4`")
-        self.assertEqual(r.returncode, 1, r.stdout)
-        self.assertIn("AC-2: contradicts — `python3 -c \"print(1 + 2)\"` prints '3', not '4'", r.stdout)
-        r = cells("`test_csv_header_and_rows`", "both tests above render the header with two decimals")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("1 prose row(s) not run here", r.stdout)
-        self.assertNotIn("missing", r.stdout)
-
-    def test_a_command_followed_by_exits_n_is_run_and_its_exit_code_checked(self):
-        """2026-11-07 (an adopted project, row 38, task 3801 AC-5): the cell read `npx vitest run <file>` exits 0 — the
-        form plan-check's own help names. converge read it as ONE test named "<cmd>` exits 0", found none, and reported
-        it missing while the command passed 75/75; the session nearly amended an approved plan over it."""
-        def cell(c):
-            task = TASK_NEW.replace("| AC-2 | `test_csv_two_decimals` |", f"| AC-2 | {c} |")
-            write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
-            return self.converge()
-        r = cell("`python3 -c \"import sys; sys.exit(0)\"` exits 0")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertNotIn("missing", r.stdout)
-        r = cell("`python3 -c \"import sys; sys.exit(3)\"` exits 0")
-        self.assertEqual(r.returncode, 1, r.stdout)
-        self.assertIn("AC-2: contradicts — `python3 -c \"import sys; sys.exit(3)\"` exit 3, not 0", r.stdout)
-        r = cell("`python3 -c \"import sys; sys.exit(3)\"` exits 3")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-
-    def test_a_cell_with_two_backticked_names_checks_each(self):
-        # 2026-10-24, the trial's row 5 rollup: a Proof cell holding two names, `a`, `b`, was read as ONE name
-        # ("a`, `b") and reported missing although both tests existed
-        write(self.d, "tests/export.test.ts", 'import { it } from "vitest";\nit("csv header is written", () => {});\n'
-              'it("csv header keeps its order", () => {});\n')
-        task = TASK_NEW.replace("| AC-1 | `test_csv_header_and_rows` |", "| AC-1 | `csv header is written`, `csv header keeps its order` |") \
-                       .replace("| AC-2 | `test_csv_two_decimals` |", "| AC-2 | `test_csv_two_decimals` and `test_csv_header_and_rows` |")
-        write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
-        r = self.converge()
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("Converged", r.stdout)
-        write(self.d, "tests/export.test.ts", 'import { it } from "vitest";\nit("csv header is written", () => {});\n')
-        r = self.converge()
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("AC-1: missing — test csv header keeps its order does not exist", r.stdout)
-        self.assertNotIn("csv header is written does not exist", r.stdout)
-
-    def test_runner_word_names_escaped_pipes_and_superseded_rows(self):
-        # 2026-10-18, row 2's review (found row 50): a vitest name starting with `env` ran as a command, a grep with an
-        # escaped pipe split the table cell, and a row replaced by task 204's Proof had no way to be skipped
-        write(self.d, "tests/env.test.ts", 'import { it } from "vitest";\nit("env defaults to the test database when unset", () => {});\n')
-        task = TASK_NEW.replace("| AC-1 | `test_csv_header_and_rows` |", "| AC-1 | `env defaults to the test database when unset` |") \
-                       .replace("| AC-2 | `test_csv_two_decimals` |", "| AC-2 | `! git grep -nE 'as (Foo\\|Bar)' -- export.py` |")
-        write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
-        r = self.converge()
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("Converged", r.stdout)
-        self.assertNotIn("missing", r.stdout)
-        task = task.replace("| AC-2 | `! git grep -nE 'as (Foo\\|Bar)' -- export.py` |", "| AC-2 | superseded by 204 AC-5 (footnote 37) |")
-        write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
-        r = self.converge()
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("1 superseded row(s) skipped", r.stdout)
-        self.assertIn("AC-2: superseded by 204 AC-5", r.stdout)
-
-    def test_a_vitest_name_that_mentions_a_flag_is_a_test(self):
-        # the live Node run (2026-11-04, row 2): a CLI's test names carry its flags — `prints empty for bare --slug` ran as
-        # shell (`sh: prints: command not found`) and four proofs came back missing; a command is told by its head
-        write(self.d, "tests/cli.test.ts", 'import { it } from "vitest";\nit("prints empty for bare --slug", () => {});\n'
-                                           'it("counts words when --slug is not exactly argv[0]", () => {});\n')
-        task = TASK_NEW.replace("| AC-1 | `test_csv_header_and_rows` |", "| AC-1 | `prints empty for bare --slug` |") \
-                       .replace("| AC-2 | `test_csv_two_decimals` |", "| AC-2 | `counts words when --slug is not exactly argv[0]` |")
-        write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
-        r = self.converge()
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertNotIn("command not found", r.stdout)
-        for cmd in ("npx vitest run --changed", "vitest run -t slug", "tsc --noEmit", "CI=1 npm test", "cd web && npm test", "! git grep -n x"):
-            self.assertTrue(CONV.looks_like_command(cmd), cmd)
-
-    def test_a_mechanic_tag_written_in_backticks_is_still_the_mechanics(self):
-        """2026-11-06 (an adopted project, row 239, task 23901 AC-6): the cell read `[mechanic]` `<cmd>` — the tag in its own
-        backticks. plan-check saw the tag; converge did not, read two proofs, and RAN the baseline-writing command itself —
-        a reproducible `contradicts` that cost the rollup an attempt. Both read the tag the same way now."""
-        task = TASK_NEW.replace("| AC-2 | `test_csv_two_decimals` |", "| AC-2 | `[mechanic]` `touch converge-ran-it.txt && false` |")
-        write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
-        r = self.converge()
-        self.assertFalse(os.path.exists(os.path.join(self.d, "converge-ran-it.txt")), "converge ran a [mechanic] row: " + r.stdout)
-        self.assertIn("1 [mechanic] row(s) not run here", r.stdout)
-        self.assertNotIn("contradicts", r.stdout)
-
-    def test_vitest_names_are_tests_mechanic_rows_are_skipped_and_the_template_is_found_from_a_project_copy(self):
-        # first contact (2026-10-17): 26 vitest names in backticks ran as shell and came back "missing"; then the script
-        # looked for <project>/templates/task.md and crashed before writing the rollup
-        write(self.d, "tests/export.test.ts", 'import { it } from "vitest";\nit("csv header is written", () => {});\n')
-        task = TASK_NEW.replace("| AC-1 | `test_csv_header_and_rows` |", "| AC-1 | `csv header is written` |") \
-                       .replace("| AC-2 | `test_csv_two_decimals` |", "| AC-2 | [mechanic] `rm -f .env && python3 -m unittest -q` |")
-        write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
-        r = self.converge()
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("Converged", r.stdout)
-        self.assertIn("1 [mechanic] row(s) not run here", r.stdout)
-        self.assertNotIn("missing", r.stdout)
-        # the project's copy of the script, far from the plugin's templates/: a finding still gets its rollup
-        copy = os.path.join(self.d, "scripts", "reef-converge")
-        shutil.copy(CONVERGE, copy)
-        shutil.copy(os.path.join(ROOT, "scripts", "reef_common.py"), os.path.join(self.d, "scripts", "reef_common.py"))
-        write(self.d, "tests/export.test.ts", 'import { it } from "vitest";\nit("csv header is renamed", () => {});\n')
-        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PLUGIN_ROOT"}
-        r = subprocess.run([sys.executable, copy, "csv-export-for-orders", "--repo", self.d], capture_output=True, text=True, env=env)
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("AC-1: missing", r.stdout)
-        self.assertNotIn("Traceback", r.stderr)
-        rollup = os.path.join(self.d, "reef/features/csv-export-for-orders/tasks/R01-csv-export-for-orders.md")
-        self.assertTrue(os.path.isfile(rollup), r.stdout + r.stderr)
-        with open(rollup) as f:
-            body = f.read()
-        self.assertTrue(body.startswith("---\nid: R1\nfeature: csv-export-for-orders\n"), body[:80])
-        self.assertIn("## Converge", body)
+                  "| AC-1 | `sh scripts/reef-gate.sh full` |\n\n## Log\n\n## Review 2026-10-19\n- x\n\n## Closed 2026-10-19\ny\n")
+        write(d, "reef/features/old-a/tasks/done/R02-old-a.md", legacy.format(n=2, f="old-a"))
+        write(d, "reef/features/old-b/tasks/done/R03-old-b.md", legacy.format(n=3, f="old-b"))
+        r = check(d)
+        rollup_fails = [l for l in r.stdout.splitlines() if l.startswith("FAIL") and "/R0" in l or l.startswith("FAIL: test name claimed")]
+        self.assertEqual(rollup_fails, [], "a rollup keeps schema and graph checks, not the planner's authoring rules")
 
 
 if __name__ == "__main__":

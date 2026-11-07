@@ -894,7 +894,7 @@ class WorkflowV3Docs(unittest.TestCase):
         md = read("docs", "reference.md")
         for needle in ("fast path", "critical path", "`.reef/evidence/<snapshot>.json`", "one reviewer", "the loop merges",
                        "`.reef/questions.md`", "reef-factory.yml", "reef-row.py", "Approve proxy by day at <digest16>?",
-                       "`loop.rows_in_flight`", "`converge.test_cmd`"):
+                       "`loop.rows_in_flight`"):
             self.assertIn(needle, md, needle)
         self.assertNotIn("has a fresh context\nverify every task", md, "the v2 claim: a verifier per task on every row")
         self.assertNotIn("By default you merge the feature PR", md)
@@ -911,7 +911,7 @@ class WorkflowV3Docs(unittest.TestCase):
     def test_the_arabic_manual_describes_the_v3_pipeline(self):
         ar = read("docs", "manual", "ar", "index.html")
         for needle in ("المسار السريع", "المسار الحرج", ".reef/evidence/", "reef-factory.yml", "reef-row.py",
-                       "Approve proxy by day at &lt;digest16&gt;?", ".reef/questions.md", "loop.rows_in_flight", "converge.test_cmd"):
+                       "Approve proxy by day at &lt;digest16&gt;?", ".reef/questions.md", "loop.rows_in_flight"):
             self.assertIn(needle, ar, needle)
         self.assertNotIn("القضاة الثلاثة", ar, "v3 has one reviewer on the fast path; the judges are not three everywhere")
 
@@ -1132,6 +1132,31 @@ class ThreeOrphansGone(unittest.TestCase):
         self.assertIn("reef-run.py status", read("docs", "reference.md"))
 
 
+class ConvergeGone(unittest.TestCase):
+    """0.7.5 (an adopted project, 2026-11-07): reef-converge re-ran every Proof cell on the head the full gate and the acceptance
+    review already covered; each finding it wrote was a misread cell or closed with a reason. It is gone: a named test is the
+    full gate's, a command the acceptance review runs and lists with its exit code, a `kind: refactor` diff is
+    `reef-claims.py refactor-preserved`. Nothing Reef ships names it; history keeps its words."""
+
+    def test_nothing_reef_ships_names_reef_converge(self):
+        self.assertFalse(os.path.exists(os.path.join(ROOT, "scripts", "reef-converge")))
+        files = [os.path.join(ROOT, "docs", "reference.md")]
+        for d in ("scripts", "skills", "agents", "templates", "hooks", "commands"):
+            files += [f for f in glob.glob(os.path.join(ROOT, d, "**", "*"), recursive=True) if os.path.isfile(f)]
+        for f in files:
+            text = open(f, encoding="utf-8", errors="replace").read()
+            self.assertNotIn("reef-converge", text, f"{os.path.relpath(f, ROOT)} still names reef-converge")
+            self.assertNotIn("converge.test_cmd", text, f"{os.path.relpath(f, ROOT)} still names converge.test_cmd")
+        self.assertNotIn("converge", json.loads(read("templates", "config.json")))
+
+    def test_the_acceptance_review_runs_the_command_proofs_and_the_refactor_check(self):
+        agent, review = read("agents", "acceptance.md"), read("skills", "reef-review", "SKILL.md")
+        self.assertIn("A **command** Proof", agent)
+        self.assertIn("its exit code", agent)
+        for text in (agent, review, read("agents", "implementer.md")):
+            self.assertIn("refactor-preserved", text)
+
+
 class TheScreenIsDocumented(unittest.TestCase):
     def test_the_readme_and_the_manual_say_reef_alone_opens_the_screen_with_the_inbox(self):
         readme = read("docs", "reference.md")
@@ -1184,8 +1209,8 @@ class OneFullRunPerRow(unittest.TestCase):
             self.assertIn("once per row", text, f"{name} says where the full suite runs")
         self.assertIn("GATE: fast exit", verifier)
         two = review[review.index("## 2."):]
-        self.assertLess(two.index("scripts/reef-merge-base"), two.index("scripts/reef-converge"), "the base's tip first: the one full run is on the head that merges")
-        self.assertIn("the tree converge ran", review, "the local feature gate is that run's cached answer, not a second run")
+        self.assertLess(two.index("scripts/reef-merge-base"), two.index("reef:acceptance"), "the base's tip first: the one full run is on the head that merges")
+        self.assertIn("the row's one full run, on the head that merges", review, "the local feature gate is that run, not a second one")
 
 
 class MahmoudIsACTO(unittest.TestCase):

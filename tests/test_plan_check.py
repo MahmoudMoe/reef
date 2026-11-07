@@ -1181,7 +1181,7 @@ class FinishedTasksKeepOnlyStructuralChecks(unittest.TestCase):
         self.assertIn("blocked-by refers to missing task id(s) [99]", r.stdout)
 
     def test_a_finished_rollup_is_finished_too(self):
-        # a closed rollup (written by reef-converge, moved under done/ at the close) is shipped work like any finished task
+        # a closed rollup (the review's findings, moved under done/ at the close) is shipped work like any finished task
         self.write("tasks/done/R01-demo.md", id="R1", feature="demo", status="done")
         self.assertEqual(run(self.tmp).returncode, 0)
 
