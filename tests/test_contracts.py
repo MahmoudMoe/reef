@@ -130,6 +130,16 @@ class SecurityPassIsReefs(unittest.TestCase):
         self.assertRegex(guard, r'LOCKED_TYPES = \([^)]*"security"', "the judge lock covers it")
 
 
+    def test_a_missing_threat_model_is_not_a_finding_when_the_constitution_states_the_rules(self):
+        """An adopted project, 2026-11-07: every release pass rated "threat model absent" HIGH and filed it again (rows 178, 226,
+        219, footnote 279), while the same pass found the one real hole from the constitution alone. The constitution's
+        security lines are a spine; only no stated security rule at all is a finding."""
+        text = read("agents", "security.md")
+        self.assertNotIn("No spine → that is your first finding", text)
+        self.assertIn("A missing threat model is not a finding", text)
+        self.assertIn("never a HIGH and never a NEW-ROW", text)
+        self.assertRegex(text, r"SPINE: <paths loaded>[^\n]*NONE")
+
 class PentestOnDemand(unittest.TestCase):
     """0.7 (the owner, 2026-10-19): the hunter's pass=system — the live attack — was described in its own definition and
     the README as "once per release", and no step dispatched it. It is now a standalone command the owner runs at will."""
