@@ -17,6 +17,8 @@ import test_loop as T  # noqa: E402  (the loop's project fixture: an approved, r
 
 def graph_project():
     d = T.project()
+    for k, v in (("user.email", "t@t"), ("user.name", "t")):   # reef-graph.py worktree commits a plan a test adds (CI has no identity)
+        subprocess.run(["git", "-C", d, "config", k, v], check=True)
     for n in ("reef-attempt", "reef-claims.py", "reef-adversarial", "reef-snapshot.sh", "reef-gate.sh", "reef-graph-run.py"):
         shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(d, "scripts", n))
     return d
