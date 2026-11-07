@@ -125,6 +125,35 @@ class DayDecision(unittest.TestCase):
         self.assertIn("no .reef/approvals/day.json", r.stdout)
 
 
+    def test_a_report_deciding_several_rows_records_each_row_its_own_line(self):
+        """An adopted project, 2026-11-07: Mahmoud triaged 38 rows in one report, and each row was recorded with the FIRST DECIDE
+        line (row 205's), so the decision log held 37 wrong entries. A multi-line report is read by the line that opens
+        `row <id>`; none or several for the row is refused, nothing written."""
+        multi = (f"RUN: agent=mahmoud day={TODAY} kind=process question=triage rows 12 and 3\n"
+                 "DECIDE row 12 triage — keep p2 — a real defect, merged into 12's design (reef/owner.md)\n"
+                 "DECIDE row 3 triage — drop — a duplicate of row 12 (reef/owner.md)\n"
+                 "VERDICT: DONE\n")
+        r = decide(self.d, row="3", report=".reef/ci-local/report-mahmoud-day-3.md", text=multi)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = decide(self.d, row="12", text=multi)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        log = {e["row"]: e for e in (json.loads(l) for l in open(os.path.join(self.d, ".reef", "approvals", "day-decisions.jsonl")))}
+        self.assertEqual(log["3"]["decision"], "drop", "row 3 carries its own line, not the first")
+        self.assertEqual(log["12"]["decision"], "keep p2")
+        q = open(os.path.join(self.d, "reef", "queue.md")).read()
+        self.assertIn(f"Mahmoud (proxy, day {TODAY}, process): drop — a duplicate of row 12", q)
+        # several lines and none opens `row 3` (a mention inside another row's line does not count): refused
+        other = multi.replace("DECIDE row 3 triage", "DECIDE row 30 triage").replace("merged into 12's", "unlike row 3,")
+        r = decide(self.d, row="3", report=".reef/ci-local/report-mahmoud-day-3-b.md", text=other)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("row 3", r.stdout)
+        # two lines for the same row: refused
+        twice = multi.replace("DECIDE row 12 triage", "DECIDE row 3 again")
+        twice = twice.replace("DECIDE row 3 again", "DECIDE row 3 triage again")
+        r = decide(self.d, row="3", report=".reef/ci-local/report-mahmoud-day-3-c.md", text=twice)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertEqual(len(open(os.path.join(self.d, ".reef", "approvals", "day-decisions.jsonl")).readlines()), 2, "the refusals wrote nothing")
+
 class DayGuard(unittest.TestCase):
     def agent(self, cmd, who="reef:implementer"):
         return G.run_guard({"tool_name": "Bash", "agent_id": "a0e1e40f", "agent_type": who, "tool_input": {"command": cmd}})

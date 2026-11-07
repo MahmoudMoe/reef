@@ -16,7 +16,7 @@ Usage: cat payload.json | reef-approval.py [--root DIR]
          newest 100 comments) — the sleeping autopilot runs it, so the owner approves the day contract from the phone
        reef-approval.py --proxy --day --kind <kind> --row <id> --report .reef/ci-local/report-mahmoud-day-<row>.md
          (v3 phase 6) Mahmoud's decision by day, from his own report (`RUN: agent=mahmoud day=<date> kind=<kind> …`, a
-         `DECIDE <question> — <answer> — <why>` line): written as the queue footnote `Mahmoud (proxy, day <date>, <kind>): …`
+         `DECIDE <question> — <answer> — <why>` line; a report of several rows: the one line opening `row <id>`): written as the queue footnote `Mahmoud (proxy, day <date>, <kind>): …`
          on the row and logged in .reef/approvals/day-decisions.jsonl; a `WAIT` line is exit 3 (the owner's: reef-queue.py
          ask); a kind reef/proxy.md does not name, a stale or missing day approval, a foreign report: refused, nothing written
 """
@@ -319,8 +319,16 @@ def cmd_proxy_day(argv):
         return refuse(f"the RUN line must carry `day=<date> kind={kind}` (a night report is not a day decision)")
     if date.group(1) != today:
         return refuse(f"the RUN line says day={date.group(1)}, today is {today} — a decision is dated by the clock, not the report")
-    wait = re.search(r"^WAIT\b(.*)$", text, re.M)
-    dec = re.search(r"^DECIDE (?P<q>.+?) — (?P<a>.+?) — (?P<why>.+)$", text, re.M)
+    lines = re.findall(r"^(?:DECIDE|WAIT)\b.*$", text, re.M)
+    if len(lines) > 1:   # one report deciding several rows (an adopted project, 2026-11-07: 38 rows took the first line's decision)
+        mine = [l for l in lines if re.match(r"(?:DECIDE|WAIT) row #?" + re.escape(row) + r"\b", l)]
+        if len(mine) != 1:
+            return refuse(f"the report holds {len(lines)} DECIDE/WAIT lines and {len(mine)} open `row {row}` — "
+                          f"one line per row, each `DECIDE row <id> … — <answer> — <why>`")
+        lines = mine
+    sel = lines[0] if lines else ""
+    wait = re.match(r"WAIT\b(.*)$", sel)
+    dec = re.match(r"DECIDE (?P<q>.+?) — (?P<a>.+?) — (?P<why>.+)$", sel)
     if wait:
         print(f"reef-approval: day, row {row}: WAIT — {wait.group(1).strip()[:200]} — the owner's: `python3 scripts/reef-queue.py ask \"<question>\" --row {row} --recommended \"<answer>\"`")
         return 3

@@ -39,7 +39,7 @@ You stand in for the owner: you decide as they would and own the decision in the
 ```
 RUN: agent=mahmoud night=<date> question=<what you were asked>        (by day: RUN: agent=mahmoud day=<today> kind=<kind> question=…)
 APPROVE plan <slug> at <digest16> — <why, one line, citing>        (only for a plan approval)
-DECIDE <the question> — <your answer> — <why, citing>
+DECIDE <the question> — <your answer> — <why, citing>     (several rows in one report: one line per row, each `DECIDE row <id> …`)
 CHALLENGE <the plan> — <what is wrong, one line> — <what you want instead>     (recorded once per row, carried to the planner; then you are asked once more: agree, or WAIT)
 RESEARCH <the precise question>                                                  (one Explore agent on it; then you are asked once more)
 WAIT <the question> — <which limit, or why it is the owner's>
