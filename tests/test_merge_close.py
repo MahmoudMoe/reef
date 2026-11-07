@@ -14,6 +14,7 @@ from _fixtures import write, git  # noqa: E402  (the suites' shared fixtures, on
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLOSE = os.path.join(ROOT, "scripts", "reef-merge-close")
 PLAN_CHECK = os.path.join(ROOT, "scripts", "reef-plan-check.py")
+GRAPH = os.path.join(ROOT, "scripts", "reef-graph.py")
 TASK = """---
 id: 101
 feature: demo
@@ -192,6 +193,29 @@ class FastRowClose(unittest.TestCase):
         self.assertIn("not committed", r.stderr)
         self.assertEqual((git(self.feat, "status", "--porcelain").stdout, git(self.feat, "rev-parse", "HEAD").stdout, read(tasks, "done/101-slice.md")),
                          (before, head, text), "nothing changed")
+
+    def test_a_plan_never_committed_is_committed_when_its_first_task_starts_and_the_close_succeeds(self):
+        """An adopted project, 2026-11-07 (row 242): the approved plan was written in the feature worktree and never
+        committed; the first task's close failed on `git mv` of an untracked task file. `reef-graph.py worktree`, the
+        step every build starts with, commits the feature's untracked or added plan files first."""
+        write(self.feat, "reef/features/fresh/SPEC.md", "# fresh\nRow: 2\n")
+        write(self.feat, "reef/features/fresh/tasks/201-first.md",
+              TASK.replace("id: 101", "id: 201").replace("feature: demo", "feature: fresh").replace("101 — the slice", "201 — the first"))
+        git(self.feat, "add", "reef/features/fresh/SPEC.md")   # one staged, one untracked: both are an uncommitted plan
+        task = "reef/features/fresh/tasks/201-first.md"
+        r = subprocess.run([sys.executable, GRAPH, "worktree", task], capture_output=True, text=True, cwd=self.feat)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("plan committed", r.stdout)
+        self.assertNotRegex(git(self.feat, "status", "--porcelain", "--", "reef/features/fresh").stdout, r"(?m)^(\?\?|A)",
+                            "nothing of the plan is untracked or only staged (the task's own `worktree:` key is an edit)")
+        self.assertIn("reef/features/fresh/tasks/201-first.md", git(self.feat, "show", "--name-only", "--format=", "HEAD").stdout)
+        self.assertNotIn("src/a.py", git(self.feat, "show", "--name-only", "--format=", "HEAD").stdout, "only the plan's files")
+        write(self.tmp, "journal.md", "| 201 | PASS | growth 3 |\n")
+        r = self.close(task)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(self.feat, "reef/features/fresh/tasks/done/201-first.md")))
+        r = subprocess.run([sys.executable, GRAPH, "worktree", "reef/features/demo/tasks/101-slice.md"], capture_output=True, text=True, cwd=self.feat)
+        self.assertNotIn("plan committed", r.stdout, "a committed plan is left alone")
 
     def test_a_secret_shaped_file_is_refused_in_place_too(self):
         write(self.feat, ".env.local", "KEY=1\n")

@@ -374,11 +374,47 @@ def cmd_check(task_path):
     return 2
 
 
+def commit_plan(root, task_path):
+    """An adopted project, 2026-11-07 (row 242): an approved plan written in the feature worktree was never committed, and
+    the first task's close failed on `git mv` of an untracked task file. Every build starts here, so the feature's
+    untracked or added plan files (its folder, and the plan digest's other files such as a draft ADR) are committed
+    first, alone. Modified tracked files are left as they are: a task's own status edits close with it."""
+    tdir = os.path.dirname(os.path.abspath(task_path))
+    tdir = os.path.dirname(tdir) if os.path.basename(tdir) == "done" else tdir
+    feat = os.path.dirname(tdir) if os.path.basename(tdir) == "tasks" else tdir
+    slug = os.path.basename(feat)
+    paths = [os.path.relpath(feat, root)]
+    try:
+        r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py"), root,
+                            "--plan-files", "--feature", slug], capture_output=True, text=True, timeout=60)
+        listed = json.loads(r.stdout) if r.returncode == 0 else {}
+        paths += [k for k in (listed if isinstance(listed, dict) else {}) if not os.path.isabs(k)]
+    except Exception:
+        pass
+    st = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all", "--", *paths], cwd=root, capture_output=True, text=True)
+    new = [l[3:] for l in st.stdout.splitlines() if l[:2] in ("??", "A ", "AM")]
+    if not new:
+        return
+    approved = ""
+    try:
+        with open(os.path.join(main_checkout(root), ".reef", "approvals", f"{slug}.json"), encoding="utf-8") as f:
+            approved = f", approved at {json.load(f).get('digest16', '')}"
+    except Exception:
+        pass
+    subprocess.run(["git", "add", "--", *new], cwd=root, capture_output=True, text=True)
+    c = subprocess.run(["git", "commit", "-q", "-m", f"reef: plan {slug}{approved} — committed before its first task", "--", *new],
+                       cwd=root, capture_output=True, text=True, timeout=1800)
+    if c.returncode != 0:
+        raise GraphError(f"the plan of {slug} is not committed and its commit was refused: {(c.stderr or c.stdout).strip()[-240:]}")
+    print(f"plan committed: {slug} ({len(new)} file(s))")
+
+
 def cmd_worktree(task_path, base):
     root = repo_root(task_path)
     cfg = read_config(root)
     tasks = load_graph(project_dirs(root, cfg, task_path))
     t = find_task(tasks, task_path)
+    commit_plan(root, t.path)
     if fast_row(t):   # v3 phase 3b: the row's one worktree is the feature worktree the task file lives in; no setup, no branch
         branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=root, capture_output=True, text=True).stdout.strip()
         with open(graph_lock_path(lock_key(root, cfg)), "a") as lock:
