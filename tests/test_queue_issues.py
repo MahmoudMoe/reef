@@ -213,10 +213,10 @@ class ReadsFromIssues(Base):
 
 class WritesToIssues(Base):
     def test_add_row_takes_the_next_id_across_issues_and_the_archive_file(self):
-        r = self.q("add-row", "--item", "receipt orientation", "--depends", "3", "--source", "found")
+        r = self.q("add-row", "--item", "receipt orientation — src/receipt.ts:12", "--depends", "3", "--source", "found")
         self.assertEqual(r.stdout.strip(), "6")
         i = self.issue(6)
-        self.assertEqual(i["title"], "[6] receipt orientation")
+        self.assertEqual(i["title"], "[6] receipt orientation — src/receipt.ts:12")
         self.assertEqual(i["milestone"], "Batch 3", "found work enters the next batch")
         self.assertEqual(sorted(i["labels"]), ["found", "reef-row"])
         self.assertIn("Depends: 3", i["body"])
@@ -418,6 +418,75 @@ class InitChoosesTheQueue(Base):
         self.assertEqual(self.home_of(d), "issues", "a refresh (reef-update) keeps a project on issues")
         self.assertNotIn("PROPOSED reef/queue.md", r.stdout)
         self.assertNotIn("PROPOSED .reef/config.json", r.stdout)
+
+
+class FoundRowsWaitForTheOwner(Base):
+    """2026-11-07 (an adopted project): 47 found rows nobody sorted were built ahead of the owner's product bugs, because
+    `ready` fell back to found rows whenever no planned row was ready. A found row is built only once the owner promoted it
+    (`promote ID --reason`: p1 on issues, the Admitted cell in the file) or it entered with an --admitted ground."""
+
+    def ids(self):
+        r = self.q("ready")
+        return [l.split("\t")[0] for l in r.stdout.splitlines()], r.stderr
+
+    def test_on_issues_an_unpromoted_found_row_is_never_ready_and_promote_makes_it_so(self):
+        st = self.gh()
+        st["issues"][1]["state"], st["issues"][1]["stateReason"] = "CLOSED", "COMPLETED"   # row 3 done: only found row 4 is left
+        self.put(st)
+        ids, err = self.ids()
+        self.assertEqual(ids, [], "an unsorted found row fell through to the loop")
+        self.assertIn("reef-queue.py triage", err)
+        r = self.q("promote", "4", "--reason", "the owner wants the photos fixed")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("p1", self.issue(4)["labels"])
+        self.assertEqual(self.ids()[0], ["4"])
+        self.assertEqual(self.q("promote", "4").returncode, 2, "a promotion carries the owner's reason")
+
+
+class FoundRowsWaitInTheFile(Base):
+    home = "file"
+
+    def add(self, item, *extra):
+        return self.q("add-row", "--item", item, "--source", "found", *extra)
+
+    def test_a_found_row_needs_evidence_of_a_real_defect_else_it_is_a_note(self):
+        """2026-11-07: the agents filed 47 found rows, most of them ideas for one more check, not defects. A found row
+        names its evidence — a product path:line or a command that fails today — or it is recorded as a note."""
+        r = self.add("add a gate that checks the hooks")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "n1", "an idea with no evidence is a note")
+        self.assertIn("no evidence", r.stderr)
+        self.assertNotIn("add a gate", open(os.path.join(self.d, "reef", "queue.md")).read())
+        self.assertRegex(self.add("call length is wrong — src/progress.ts:88").stdout.strip(), r"^\d+$")
+        self.assertRegex(self.add("the build fails: `npm run build` exits 1").stdout.strip(), r"^\d+$")
+        self.assertRegex(self.add("a session cookie leaks to the logs").stdout.strip(), r"^\d+$", "a safety finding is always a row")
+        self.assertRegex(self.add("photos rotate", "--admitted", "owner asked").stdout.strip(), r"^\d+$")
+
+    def test_found_rows_waiting_for_the_owner_are_capped_and_the_rest_are_notes(self):
+        cfg = dict(self.cfg, queue={"home": "file", "found_max": 2})
+        with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
+            f.write(json.dumps(cfg))
+        # row 4 (photo resize, found) already waits: one more fits under found_max 2
+        self.assertRegex(self.add("totals off by a cent — src/totals.ts:9").stdout.strip(), r"^\d+$")
+        r = self.add("dates in UTC — src/dates.ts:3")
+        self.assertEqual(r.stdout.strip(), "n1", "past the cap a finding is a note")
+        self.assertIn("2 found row(s) already wait for the owner", r.stderr)
+        self.assertRegex(self.add("an auth bypass — src/auth.ts:1").stdout.strip(), r"^\d+$", "a safety finding is never capped")
+
+    def test_in_the_file_an_admitted_found_row_is_ready_an_unsorted_one_waits_until_promoted(self):
+        qp = os.path.join(self.d, "reef", "queue.md")
+        q = open(qp).read().replace("| 3 | exact totals¹ | 1 | planned | 2 | |\n| 4 | photo resize | 3 | found | 2 | |\n",
+                                    "| 4 | photo resize | | found | 2 | |\n| 5 | session cookie leak | | found | 2 | security: a cookie leaks |\n")
+        open(qp, "w").write(q)
+        r = self.q("ready")
+        self.assertEqual([l.split("\t")[0] for l in r.stdout.splitlines()], ["5"], r.stdout + r.stderr)
+        self.assertIn("1 found row(s) wait for the owner", r.stderr)
+        r = self.q("promote", "4", "--reason", "the owner wants the photos fixed")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual([l.split("\t")[0] for l in self.q("ready").stdout.splitlines()], ["4", "5"])
+        q = open(qp).read()
+        self.assertIn("| 4 | photo resize² | | found | 2 | promoted: the owner wants the photos fixed |", q)
+        self.assertIn("promoted: the owner wants the photos fixed", q.split("## Footnotes")[1])
 
 
 class RowsInTheFile(Base):
