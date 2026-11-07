@@ -24,8 +24,22 @@ def run_guard(payload):
                           capture_output=True, text=True)
 
 
+PROJECT = []   # a Reef project the shape tables run in: the file rules reach a Reef project's files only (2026-11-07)
+
+
+def project_cwd():
+    if not PROJECT:
+        d = os.path.realpath(tempfile.mkdtemp(prefix="reef-guard-table."))
+        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
+        os.makedirs(os.path.join(d, ".reef"))
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump({"gates": {"full": "true"}}, f)
+        PROJECT.append(d)
+    return PROJECT[0]
+
+
 def bash(cmd):
-    return run_guard({"tool_name": "Bash", "tool_input": {"command": cmd}})
+    return run_guard({"tool_name": "Bash", "cwd": project_cwd(), "tool_input": {"command": cmd}})
 
 
 DENY_BASH = [
@@ -989,12 +1003,12 @@ class HandoffIsRendered(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertEqual(bash(cmd).returncode, 0, cmd + ": " + bash(cmd).stderr)
         for tool in ("Write", "Edit"):
-            r = run_guard({"tool_name": tool, "tool_input": {"file_path": "HANDOFF.md", "content": "# Handoff", "old_string": "a", "new_string": "b"}})
+            r = run_guard({"tool_name": tool, "cwd": project_cwd(), "tool_input": {"file_path": "HANDOFF.md", "content": "# Handoff", "old_string": "a", "new_string": "b"}})
             self.assertEqual(r.returncode, 2, tool)
             self.assertIn("reef-handoff --write", r.stderr)
-        r = run_guard({"tool_name": "Write", "tool_input": {"file_path": "templates/project/HANDOFF.md", "content": "# template"}})
+        r = run_guard({"tool_name": "Write", "cwd": project_cwd(), "tool_input": {"file_path": "templates/project/HANDOFF.md", "content": "# template"}})
         self.assertEqual(r.returncode, 0, "the plugin's own template is not a project's handoff")
-        r = run_guard({"tool_name": "Write", "agent_id": "a0e1e40f", "agent_type": "reef:implementer", "tool_input": {"file_path": "HANDOFF.md", "content": "x"}})
+        r = run_guard({"tool_name": "Write", "cwd": project_cwd(), "agent_id": "a0e1e40f", "agent_type": "reef:implementer", "tool_input": {"file_path": "HANDOFF.md", "content": "x"}})
         self.assertEqual(r.returncode, 2, "no agent writes it either")
 
 
@@ -1234,10 +1248,10 @@ class EvidenceIsTheGates(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertEqual(bash(cmd).returncode, 0, cmd + ": " + bash(cmd).stderr)
         for tool in ("Write", "Edit"):
-            r = run_guard({"tool_name": tool, "tool_input": {"file_path": ".reef/evidence/0123456789abcdef.json", "content": "{}", "old_string": "a", "new_string": "b"}})
+            r = run_guard({"tool_name": tool, "cwd": project_cwd(), "tool_input": {"file_path": ".reef/evidence/0123456789abcdef.json", "content": "{}", "old_string": "a", "new_string": "b"}})
             self.assertEqual(r.returncode, 2, tool + " writes the evidence by hand")
             self.assertIn("evidence", r.stderr)
-        r = run_guard({"tool_name": "Write", "agent_id": "a0e1e40f", "agent_type": "reef:verifier",
+        r = run_guard({"tool_name": "Write", "cwd": project_cwd(), "agent_id": "a0e1e40f", "agent_type": "reef:verifier",
                        "tool_input": {"file_path": ".reef/evidence/0123456789abcdef.json", "content": "{}"}})
         self.assertEqual(r.returncode, 2, "a judge is no exception: it reads the evidence, it never writes it")
 
@@ -1257,7 +1271,7 @@ class EvidenceIsTheAgents(unittest.TestCase):
                     "cat .reef/ci-local/handback-1101.md", "python3 scripts/reef-claims.py check --handback .reef/ci-local/handback-1101.md"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(bash(cmd).returncode, 0, cmd)
-        r = run_guard({"tool_name": "Write", "tool_input": {"file_path": ".reef/ci-local/handback-1101.md", "content": "RUN: x"}})
+        r = run_guard({"tool_name": "Write", "cwd": project_cwd(), "tool_input": {"file_path": ".reef/ci-local/handback-1101.md", "content": "RUN: x"}})
         self.assertEqual(r.returncode, 2, "the Write tool is authoring too")
         r = run_guard({"tool_name": "Write", "agent_id": "a0e1e40f", "agent_type": "reef:implementer",
                        "tool_input": {"file_path": ".reef/ci-local/handback-1101.md", "content": "RUN: x"}})
@@ -1335,7 +1349,7 @@ class AJobIsNotAWayAroundTheGate(unittest.TestCase):
         for w in ("printf '{\"ok\": true}' > .reef/graph/gate.json", "cp /tmp/g.json .reef/graph/gate.json", "echo x >> ./.reef/graph/gate.json"):
             r = bash(w)
             self.assertEqual(r.returncode, 2, "the graph gate is the probe's: " + w + " " + r.stderr); self.assertIn("graph/gate.json", r.stderr)
-        for w in ("cp /tmp/gate.json .reef/graph/", "mv gate.json .reef/graph", "cd .reef/graph && printf '{}' > gate.json", "printf '{}' > /x/.reef/graph/./gate.json",
+        for w in ("cp /tmp/gate.json .reef/graph/", "mv gate.json .reef/graph", "cd .reef/graph && printf '{}' > gate.json", f"printf '{{}}' > {project_cwd()}/.reef/graph/./gate.json",
                   "cp -r /tmp/graph .reef/"):   # the landed name, a cd, a dot component, the folder whole (the second security pass)
             r = bash(w)
             self.assertEqual(r.returncode, 2, "spelled around the record: " + w + " " + r.stderr)
@@ -1343,6 +1357,122 @@ class AJobIsNotAWayAroundTheGate(unittest.TestCase):
         self.assertEqual(r.returncode, 0, "the probe's result is written by the session: " + r.stderr)
         r = bash("cp /tmp/probe-results.json .reef/graph/")
         self.assertEqual(r.returncode, 0, "and may land there by name: " + r.stderr)
-        r = run_guard({"tool_name": "Write", "tool_input": {"file_path": "/x/.reef/graph/gate.json", "content": "{}"}})
+        r = run_guard({"tool_name": "Write", "tool_input": {"file_path": os.path.join(project_cwd(), ".reef/graph/gate.json"), "content": "{}"}})
         self.assertEqual(r.returncode, 2, "nor through the Write tool: " + r.stderr)
+
+
+class TheGuardReachesReefProjectsOnly(unittest.TestCase):
+    """2026-11-07 (the owner's go): the file rules judged a path's SHAPE anywhere on the machine — `scripts/reef*`,
+    `.reef/config.json`, `hooks/hooks.json` were refused in a scratchpad, in Reef's own repository and its worktrees. The
+    scope follows the TARGET: inside a Reef project (its main checkout holds .reef/config.json) it is judged whatever the
+    session's cwd; outside every one it passes. And two false positives of that day: a READ of core.hooksPath, and a copy's
+    SOURCE taken for its destination."""
+
+    GUARDED = ("scripts/reef-x", ".reef/config.json", "hooks/hooks.json")
+
+    def setUp(self):
+        self.scratch = os.path.realpath(tempfile.mkdtemp(prefix="reef-reach-scratch."))
+        self.proj = os.path.realpath(tempfile.mkdtemp(prefix="reef-reach-proj."))
+        git(self.proj, "init", "-q", "-b", "main")
+        write_config(self.proj, {"roles": {"author": "opus"}, "gates": {"full": "true"}})
+        for rel in ("scripts/reef-y", "hooks/hooks.json", ".githooks/pre-commit", "README.md"):
+            os.makedirs(os.path.dirname(os.path.join(self.proj, rel)), exist_ok=True)
+            with open(os.path.join(self.proj, rel), "w") as f:
+                f.write("x\n")
+        with open(os.path.join(self.proj, ".gitignore"), "w") as f:
+            f.write(".reef/\n")   # the config is the main checkout's: a worktree of it holds none
+        git(self.proj, "add", "-A")
+        git(self.proj, "commit", "-qm", "init")
+
+    def write(self, cwd, path, content='{"roles": {"author": "haiku"}}'):
+        return run_guard({"tool_name": "Write", "cwd": cwd, "tool_input": {"file_path": path, "content": content}})
+
+    def sh(self, cwd, cmd):
+        return run_guard({"tool_name": "Bash", "cwd": cwd, "tool_input": {"command": cmd}})
+
+    def test_a_scratch_folder_outside_every_project_is_not_the_guards(self):
+        for rel in self.GUARDED:
+            with self.subTest(tool="Write", rel=rel):
+                r = self.write(self.scratch, os.path.join(self.scratch, rel))
+                self.assertEqual(r.returncode, 0, f"a scratch {rel} is nobody's: {r.stderr}")
+            for cmd in (f"echo x > {rel}", f"cp /etc/hosts {rel}", f"sed -i s/a/b/ {rel}", f"echo x > {os.path.join(self.scratch, rel)}"):
+                with self.subTest(tool="Bash", cmd=cmd):
+                    r = self.sh(self.scratch, cmd)
+                    self.assertEqual(r.returncode, 0, f"a scratch write is nobody's: {cmd}\n{r.stderr}")
+        r = self.sh(self.scratch, "python3 - <<'EOF'\nopen('.reef/config.json','w').write('{}')\nEOF")
+        self.assertEqual(r.returncode, 0, "an inline program in a scratch folder: " + r.stderr)
+
+    def test_a_projects_files_are_judged_from_a_session_anywhere(self):
+        for rel in ("scripts/reef-y", ".reef/config.json", "hooks/hooks.json"):
+            target = os.path.join(self.proj, rel)
+            with self.subTest(tool="Write", rel=rel):
+                r = self.write(self.scratch, target)
+                self.assertEqual(r.returncode, 2, f"another session wrote the project's {rel}: {r.stderr}")
+            for cmd in (f"echo x > {target}", f"cp /etc/hosts {target}", f"sed -i s/a/b/ {target}"):
+                with self.subTest(tool="Bash", cmd=cmd):
+                    r = self.sh(self.scratch, cmd)
+                    self.assertEqual(r.returncode, 2, f"NOT DENIED from outside: {cmd}\n{r.stderr}")
+        r = self.sh(self.scratch, f"cd {self.proj} && echo x > scripts/reef-y")
+        self.assertEqual(r.returncode, 2, "a cd into the project: " + r.stderr)
+        r = self.sh(self.scratch, f"git -C {self.proj} rm scripts/reef-y")
+        self.assertEqual(r.returncode, 2, "git -C into the project: " + r.stderr)
+
+    def test_a_worktree_of_a_project_is_the_project_wherever_it_lies(self):
+        wt = os.path.join(self.scratch, "wt")
+        git(self.proj, "worktree", "add", "-q", "-b", "side", wt)
+        self.assertFalse(os.path.exists(os.path.join(wt, ".reef", "config.json")))
+        r = self.write(self.scratch, os.path.join(wt, "scripts", "reef-y"), "y\n")
+        self.assertEqual(r.returncode, 2, "a worktree outside the main checkout is still the project: " + r.stderr)
+        r = self.sh(wt, "echo x > hooks/hooks.json")
+        self.assertEqual(r.returncode, 2, r.stderr)
+
+    def test_reefs_own_repository_and_its_worktrees_stay_editable(self):
+        repo = os.path.join(self.scratch, "reef")   # Reef's shape: hooks/hooks.json, scripts/reef-*, no .reef/config.json
+        for rel in ("scripts/reef-guard.py", "hooks/hooks.json"):
+            os.makedirs(os.path.dirname(os.path.join(repo, rel)), exist_ok=True)
+            with open(os.path.join(repo, rel), "w") as f:
+                f.write("x\n")
+        git(repo, "init", "-q", "-b", "main")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "init")
+        wt = os.path.join(repo, ".claude", "worktrees", "agent-1")
+        git(repo, "worktree", "add", "-q", "-b", "agent-1", wt)
+        tmp_wt = os.path.join(self.scratch, "tmp-wt")
+        git(repo, "worktree", "add", "-q", "-b", "tmp", tmp_wt)
+        for top in (repo, wt, tmp_wt):
+            for rel in ("scripts/reef-guard.py", "hooks/hooks.json"):
+                with self.subTest(top=top, rel=rel):
+                    r = run_guard({"tool_name": "Edit", "cwd": top, "tool_input": {"file_path": os.path.join(top, rel), "old_string": "x", "new_string": "y"}})
+                    self.assertEqual(r.returncode, 0, f"Reef's own repository: {r.stderr}")
+                    r = self.sh(top, f"sed -i s/x/y/ {rel}")
+                    self.assertEqual(r.returncode, 0, f"Reef's own repository, Bash: {r.stderr}")
+        env = dict(os.environ, CLAUDE_PLUGIN_ROOT=repo)   # the plugin's own checkout, as before
+        r = subprocess.run([sys.executable, GUARD], input=json.dumps({"tool_name": "Write", "cwd": repo, "tool_input": {
+            "file_path": os.path.join(repo, "scripts", "reef-guard.py"), "content": "y\n"}}), capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_a_read_of_core_hookspath_is_no_write(self):
+        for cmd in ("git config core.hooksPath", "git config --local core.hooksPath", "git -C . config core.hooksPath; echo $?"):
+            with self.subTest(cmd=cmd):
+                r = self.sh(self.proj, cmd)
+                self.assertEqual(r.returncode, 0, f"a READ of core.hooksPath: {cmd}\n{r.stderr}")
+        for cmd in ("git config core.hooksPath x", "git config --unset core.hooksPath", "git -c core.hooksPath=x commit -m y"):
+            with self.subTest(cmd=cmd):
+                r = self.sh(self.proj, cmd)
+                self.assertEqual(r.returncode, 2, f"NOT DENIED: {cmd}\n{r.stderr}")
+
+    def test_a_copys_source_is_read_not_written(self):
+        src = os.path.join(self.proj, ".githooks", "pre-commit")
+        for cwd in (self.scratch, self.proj):
+            for cmd in (f"cp {src} {self.scratch}/x", f"cp -p {src} {os.path.join(self.proj, 'scripts', 'reef-y')} {self.scratch}/",
+                        f"cp -t {self.scratch} {src}", f"install -m 755 {src} {self.scratch}/y"):
+                with self.subTest(cwd=cwd, cmd=cmd):
+                    r = self.sh(cwd, cmd)
+                    self.assertEqual(r.returncode, 0, f"a copy FROM the project is a read: {cmd}\n{r.stderr}")
+        for cmd in (f"cp {self.scratch}/x {self.proj}/scripts/reef-y", f"cp -t {self.proj}/scripts {self.scratch}/reef-z",
+                    f"cp {self.scratch}/reef-z {self.proj}/scripts/", f"mv {self.proj}/scripts/reef-y {self.scratch}/",
+                    f"install {self.scratch}/x {self.proj}/hooks/hooks.json"):
+            with self.subTest(cmd=cmd):
+                r = self.sh(self.scratch, cmd)
+                self.assertEqual(r.returncode, 2, f"NOT DENIED: {cmd}\n{r.stderr}")
 
