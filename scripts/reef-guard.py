@@ -49,7 +49,9 @@ Reads the hook JSON on stdin. Two duties:
    writes): scripts/reef-*, .githooks/*, hooks/hooks.json and the roles/caps/gates/tiers keys
    of .reef/config.json change only under a critical task in flight or inside the plugin's
    own repository; .reef/approvals/ and .reef/review/ are written by hooks and scripts
-   only. A DEADLINE (signal alarm: 8 s, 25 s for a dispatch, or REEF_GUARD_DEADLINE for
+   only. THE REACH (2026-11-07): those file rules judge a TARGET inside a Reef project (its
+   realpath lies in a folder that holds .reef/config.json, or in a worktree whose main checkout
+   does), whatever the session's cwd; a path outside every Reef project is not the guard's. A DEADLINE (signal alarm: 8 s, 25 s for a dispatch, or REEF_GUARD_DEADLINE for
    both) denies before the host's hook timeout: a hung guard is a denial, never an allow,
    and the denial names the step that overran.
 
@@ -62,7 +64,7 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout as _main_checkout, read_config, read_hold, write_hold, HOLD_MINUTES, bump_dispatches, task_tier, process_alive, GUARD_FILES, PROTECTED_KEYS  # noqa: E402
+from reef_common import main_checkout as _main_checkout, read_config, read_hold, write_hold, HOLD_MINUTES, bump_dispatches, task_tier, process_alive, GUARD_FILES, PROTECTED_KEYS, critical_in_flight  # noqa: E402
 
 # 0.7: native Windows has no fcntl locks, no SIGALRM deadline and no process groups, and the guard cannot run there.
 # Inside a Reef project it stops with the one sentence that helps; anywhere else it steps aside (the plugin's hook runs
@@ -368,12 +370,55 @@ def write_targets(seg):
                     out.append(seg[k + 1])
                 elif any(a.startswith(f + "=") for f in flags if f.startswith("--")) and a.split("=", 1)[1] not in DEVNULL:
                     out.append(a.split("=", 1)[1])
+    parts = copy_parts(seg)
     for j, t in enumerate(seg):
         head = os.path.basename(t)
+        if parts and head == parts[0]:
+            # 2026-11-07: `cp <project>/.githooks/pre-commit <scratchpad>/x` was refused as a write to the file copied FROM.
+            # A copy writes its destination (the last operand, or -t <dir>) and, into a folder, the source's name there —
+            # read as landing whether or not the folder exists; mv also removes its sources
+            head, sources, dest = parts
+            if dest is not None:
+                out += [dest] + [os.path.join(dest, os.path.basename(os.path.normpath(x))) for x in sources]
+            if head == "mv":
+                out += sources
+            break
         if head in WRITE_HEADS or (head in ("sed", "perl") and any(re.match(r"^-[a-zA-Z]*i", a) for a in seg[j + 1:])):
             out += [a for a in seg[j + 1:] if not a.startswith("-") and a not in REDIRECTS]
             break
     return out
+
+
+COPY_VALUE_OPTS = {"-S", "--suffix", "-m", "--mode", "-o", "--owner", "-g", "--group"}   # an option whose value is the next word
+
+
+def copy_parts(seg):
+    """(head, sources, destination) of the first cp, mv or install in a segment (the first write head), or None: `-t <dir>`,
+    a short cluster ending in t (`-rt <dir>`) or `--target-directory=<dir>` names the destination, else the last operand;
+    after `--` every word is an operand."""
+    j = next((j for j, t in enumerate(seg) if os.path.basename(t) in WRITE_HEADS), None)
+    if j is None or os.path.basename(seg[j]) not in ("cp", "mv", "install"):
+        return None
+    head, ops, dest, k, ended = os.path.basename(seg[j]), [], None, j + 1, False
+    while k < len(seg):
+        a = seg[k]
+        if a in REDIRECTS:
+            k += 2
+            continue
+        if not ended and a == "--":
+            ended = True
+        elif not ended and (a in ("-t", "--target-directory") or re.match(r"^-[a-zA-Z]+t$", a)) and k + 1 < len(seg):
+            dest, k = seg[k + 1], k + 1
+        elif not ended and a.startswith("--target-directory="):
+            dest = a.split("=", 1)[1]
+        elif not ended and a in COPY_VALUE_OPTS:
+            k += 1
+        elif ended or not a.startswith("-"):
+            ops.append(a)
+        k += 1
+    if dest is None:
+        return (head, ops[:-1], ops[-1]) if ops else (head, [], None)
+    return head, ops, dest
 
 
 def is_scratch(path):
@@ -387,43 +432,117 @@ def is_scratch(path):
     return bool(jobs) or p.startswith((tmp + "/", "/tmp/", "/private/tmp/", "/var/folders/"))
 
 
+PROJECT_OF = {}   # a folder's realpath -> the Reef project holding it ("" for none), for one hook call
+
+
+def common_main(top):
+    """The main checkout of the linked worktree at `top` (its .git is a FILE), from git's own files — `gitdir: <common>/worktrees/
+    <name>` and that folder's `commondir` — so no subprocess; None when they cannot be read."""
+    try:
+        with open(os.path.join(top, ".git"), encoding="utf-8") as f:
+            line = f.read().strip()
+        if not line.startswith("gitdir:"):
+            return None
+        gitdir = line[len("gitdir:"):].strip()
+        gitdir = gitdir if os.path.isabs(gitdir) else os.path.join(top, gitdir)
+        common = gitdir
+        if os.path.isfile(os.path.join(gitdir, "commondir")):
+            with open(os.path.join(gitdir, "commondir"), encoding="utf-8") as f:
+                rel = f.read().strip()
+            common = rel if os.path.isabs(rel) else os.path.join(gitdir, rel)
+        common = os.path.realpath(common)
+        return os.path.dirname(common) if os.path.basename(common) == ".git" else None
+    except OSError:
+        return None
+
+
+def reef_project(path, here=None):
+    """THE REACH (2026-11-07, the owner's go): the Reef project a path lies in, or None. Its realpath (relative to `here`, else the
+    cd hint, else the session's cwd; `~` expanded) is in a folder that holds .reef/config.json, or in a linked worktree whose main
+    checkout does — wherever that worktree lies. A path outside every Reef project is not the guard's: the file rules refused
+    `scripts/reef-x` in a scratchpad, in Reef's own repository and its worktrees. A word the shell still expands (`$X`, a backtick)
+    cannot be placed: it is judged as inside one."""
+    if re.search(r"[$`]", path):
+        return "?"
+    here = here or CTX.get("cd_hint") or CTX.get("cwd") or os.getcwd()
+    p = os.path.expanduser(path)
+    d = os.path.realpath(p if os.path.isabs(p) else os.path.join(here, p))
+    seen, found = [], ""
+    while True:
+        if d in PROJECT_OF:
+            found = PROJECT_OF[d]
+            break
+        seen.append(d)
+        if os.path.isfile(os.path.join(d, ".reef", "config.json")):
+            found = d
+            break
+        if os.path.isfile(os.path.join(d, ".git")):
+            main = common_main(d)
+            if main and os.path.isfile(os.path.join(main, ".reef", "config.json")):
+                found = main
+                break
+        if os.path.dirname(d) == d:
+            break
+        d = os.path.dirname(d)
+    for x in seen:
+        PROJECT_OF[x] = found
+    return found or None
+
+
+def exempt(project, ctx):
+    """The guard's files of `project` change: inside the plugin's own repository, or under a tier: critical task in flight in
+    THAT project (the session's own, as computed once; another project's, read from its checkouts)."""
+    if ctx.get("plugin_root") or not project:
+        return True
+    if project == "?" or os.path.realpath(project) == os.path.realpath(ctx.get("main") or ""):
+        return bool(ctx.get("critical_inflight"))
+    try:
+        return critical_in_flight(project)
+    except Exception:
+        return False
+
+
+def resolved_path(t, here):
+    """A target as an absolute, normalised path (not realpath: the shape of the words is kept for the regexes)."""
+    t = os.path.expanduser(t)
+    return os.path.normpath(t if os.path.isabs(t) or not here else os.path.join(here, t))
+
+
 def is_project_handoff(path, here):
     """The project's HANDOFF.md (at a project root or the cwd), never a file of that name elsewhere (the plugin's template)."""
     p = os.path.normpath(os.path.join(here, os.path.expanduser(path))) if here and not os.path.isabs(path) else os.path.normpath(path)
     if os.path.basename(p) != "HANDOFF.md":
         return False
     roots = {os.path.realpath(r) for r in (CTX.get("roots") or [])} | {os.path.realpath(CTX.get("cwd") or os.getcwd())}
-    return os.path.realpath(os.path.dirname(p)) in roots
+    return os.path.realpath(os.path.dirname(p)) in roots and bool(reef_project(p, here or None))
 
 
 def check_record_dirs(seg):
     """.reef/approvals/ and .reef/review/ are written by scripts/reef-approval.py and scripts/reef-record
     only: a hand-written record would be an approval nobody gave (tripwire; the digest check is the code)."""
     here = CTX.get("cd_hint") or CTX.get("cwd") or ""
-    resolved = lambda t: os.path.normpath(os.path.join(here, os.path.expanduser(t))) if here and not os.path.isabs(t) else os.path.normpath(t)   # `../../evidence/x` after a cd; `graph/./gate.json`
-    hits = lambda t: RECORD_DIRS.search(t) or RECORD_DIRS.search(resolved(t))
+    resolved = lambda t: resolved_path(t, here)   # `../../evidence/x` after a cd; `graph/./gate.json`
+    inside = lambda t: bool(reef_project(resolved(t), here or None))   # the reach: a record folder outside every Reef project is nobody's
+    hits = lambda t: (RECORD_DIRS.search(t) or RECORD_DIRS.search(resolved(t))) and inside(t)
     targets = write_targets(seg)
-    landed = list(targets)   # a copy INTO a directory lands the source's name there: `cp x .reef/graph/` is a write to .reef/graph/gate.json when x is
-    copy_head0 = next((os.path.basename(x) for x in seg if os.path.basename(x) in WRITE_HEADS), None)   # gate.json — judged whether or not the folder exists here
-    if copy_head0 in COPY_HEADS and len(targets) >= 2:
-        landed.append(os.path.join(targets[-1], os.path.basename(targets[-2])))
+    landed = list(targets)   # a copy INTO a directory lands the source's name there (write_targets): `cp x .reef/graph/` is a write to
+    # .reef/graph/gate.json when x is gate.json — judged whether or not the folder exists here
     if any(hits(t) for t in landed):
         deny("writing under .reef/approvals/, .reef/review/, .reef/night/, .reef/evidence/ or .reef/run/jobs/, or .reef/graph/gate.json, by hand — these records are written by the "
              "AskUserQuestion hook, scripts/reef-record, scripts/reef-run.py and scripts/reef-gate.sh, bound to a digest, a forge SHA or a tree snapshot "
              "(a job: `python3 scripts/reef-run.py job <name> -- <command>`)")
     # the folder as a whole: copied, synced or unpacked INTO .reef/, or removed with .reef/ (the security review, 2026-10-25)
-    is_reef = lambda t: os.path.basename(os.path.normpath(resolved(t))).lower() == ".reef"
+    is_reef = lambda t: os.path.basename(os.path.normpath(resolved(t))).lower() == ".reef" and inside(t)
     head = next((os.path.basename(x) for x in seg if os.path.basename(x) in WRITE_HEADS or os.path.basename(x) in ("find", "git")), None)
     args = [a for a in seg if not a.startswith("-") and a not in REDIRECTS]
     # v3 phase 5: the project's HANDOFF.md is rendered, never written by hand — a copy's SOURCE is a read, only its destination
     # counts; a copy INTO a directory lands the source's name there (the review, 2026-10-26)
     handoff_targets = list(targets)
-    copy_head = next((os.path.basename(x) for x in seg if os.path.basename(x) in WRITE_HEADS), None)   # `git mv a b` is a move too
-    if copy_head in COPY_HEADS and len(targets) >= 2:
-        dest = targets[-1]
-        dest_abs = os.path.normpath(os.path.join(here, os.path.expanduser(dest))) if here and not os.path.isabs(dest) else os.path.normpath(dest)
-        if dest in (".", "./") or dest.endswith("/") or os.path.isdir(dest_abs):
-            handoff_targets = [os.path.join(dest, os.path.basename(targets[-2]))]
+    parts = copy_parts(seg)   # `git mv a b` is a move too
+    if parts and parts[2] is not None and parts[1]:
+        dest = parts[2]
+        if dest in (".", "./") or dest.endswith("/") or os.path.isdir(resolved(dest)):
+            handoff_targets = [os.path.join(dest, os.path.basename(os.path.normpath(x))) for x in parts[1]]
         else:
             handoff_targets = [dest]
     if any(is_project_handoff(t, here) for t in handoff_targets):
@@ -447,12 +566,12 @@ def check_evidence_authoring(seg, ctx):
     if not ctx.get("main_session") or not is_write(seg):
         return
     head = next((os.path.basename(x) for x in seg if os.path.basename(x) in WRITE_HEADS), None)
-    hits = [x for x in write_targets(seg) if EVIDENCE.search(x)]
+    hits = [x for x in write_targets(seg) if EVIDENCE.search(x) and reef_project(x)]
     if not hits:
         return
     if head in COPY_HEADS:   # a copy carries the agent's words unchanged — when it comes from where the agent wrote them
-        i = next(i for i, x in enumerate(seg) if os.path.basename(x) == head)
-        sources = [x for x in seg[i + 1:] if not x.startswith("-")][:-1]
+        parts = copy_parts(seg)
+        sources = parts[1] if parts else [x for x in seg[next(i for i, x in enumerate(seg) if os.path.basename(x) == head) + 1:] if not x.startswith("-")][:-1]
         if sources and all(SCRATCH.search(os.path.realpath(x) if os.path.isabs(x) else x) for x in sources):
             return
         deny(f"an agent's report is copied from the scratchpad it wrote it to (a session's scratchpad or ~/.claude/jobs/<id>/tmp, or the graph's /tmp/reef-graph-* report dir), not from "
@@ -641,18 +760,23 @@ def guard_pathspecs(sub, rest, here):
 
 
 def check_guard_files(seg, ctx):
-    """scripts/reef-*, .githooks/*, hooks/hooks.json, .reef/config.json: a Bash write (redirect, cp, mv, sed -i …) or a git
-    removal or replacement (git_guard_targets) is allowed only inside the plugin's own repository or under a critical task
-    in flight. rm/mv/chmod on the hook files keep their 0.5 denial regardless."""
-    if ctx.get("plugin_root") or ctx.get("critical_inflight"):
+    """scripts/reef-*, .githooks/*, hooks/hooks.json, .reef/config.json OF A REEF PROJECT (the reach, 2026-11-07: wherever the
+    session runs, and nothing outside one): a Bash write (redirect, cp, mv, sed -i …) or a git removal or replacement
+    (git_guard_targets, in a checkout of the project) is allowed only inside the plugin's own repository or under a critical
+    task in flight in that project. rm/mv/chmod on the hook files keep their 0.5 denial regardless."""
+    if ctx.get("plugin_root"):
         return
-    sub, gone, why = git_guard_targets(seg)
+    gsub, _, ghere, gwhy = git_command(seg)   # git acts on the checkout it runs in; a tree it moves (`--work-tree`, GIT_DIR)
+    gproj = (reef_project(ghere, ghere) or (gwhy and reef_project(ctx.get("cwd") or os.getcwd()))) if gsub else None   # cannot be placed: the cwd's too
+    sub, gone, why = git_guard_targets(seg) if gproj and not exempt(gproj, ctx) else (None, [], "")
     if gone or why:
         deny(f"git {sub} {f'over {gone[0]!r}' if gone else f'with {why}'}: it "
              f"{'removes or replaces' if gone else 'may remove or replace, and the guard cannot read which of'} the guard's own files "
              "(scripts/reef*, .githooks/, hooks/hooks.json, .reef/config.json) — only under a tier: critical task or inside Reef's own "
              "repository; a restore from HEAD, or from an index that matches HEAD (`git checkout -- <path>`), stays allowed")
-    hits = [t for t in write_targets(seg) if GUARD_FILES.search(t)] \
+    here = ctx.get("cd_hint") or ctx.get("cwd") or os.getcwd()
+    hits = [t for t in write_targets(seg) if (GUARD_FILES.search(t) or GUARD_FILES.search(resolved_path(t, here)))
+            and not exempt(reef_project(t, here), ctx)] \
         if is_write(seg) and not any(os.path.basename(t) == "chmod" for t in seg) else []   # chmod is check_chmod's business
     if hits:
         deny(f"Bash write to {hits[0]!r}: the guard's own files and the roles/caps/gates/tiers keys change only under "
@@ -675,12 +799,16 @@ def check_inline_programs(cmd, ctx):
     `python3 - <<'EOF' … json.dump(c, open('.reef/config.json','w')) … EOF` — the heredoc is stripped as data, so no
     check saw the write. A program handed to an interpreter inline (a heredoc with no script file, or -c/-e) that names
     a guard file and writes is that write: the same denial as a redirect onto the file."""
-    if ctx.get("plugin_root") or ctx.get("critical_inflight"):
+    if ctx.get("plugin_root"):
         return
     progs = [m.group(4) for m in INLINE_HEREDOC.finditer(cmd)] + [m.group(1) or m.group(2) or "" for m in INLINE_FLAG.finditer(cmd)]
+    here = ctx.get("cwd") or os.getcwd()
     for prog in progs:
-        hit = GUARD_PATH_TEXT.search(prog)
-        if hit and WRITE_TEXT.search(prog):
+        if not WRITE_TEXT.search(prog):
+            continue
+        # the quoted path as the program names it, judged where it lies: a Reef project's file, from any cwd
+        hit = next((m for m in GUARD_PATH_TEXT.finditer(prog) if not exempt(reef_project(m.group(0).strip("'\""), here), ctx)), None)
+        if hit:
             deny(f"an inline program writes {hit.group(1)!r}: the guard's own files and the roles/caps/gates/tiers/worktree keys "
                  "change only under a tier: critical task (none is in flight) or inside Reef's own repository. A config "
                  "command that does not run here (a gate, worktree.setup) is the owner's to change — file it as the owner's "
@@ -719,7 +847,8 @@ def check_reviewer_lock(seg, ctx):
             if sub in MUTATING_GIT and not (sub in ("worktree", "stash", "submodule") and verb in ("list", "show", "status")):
                 deny(f"{who} is read-only: `git {sub}` mutates the tree or the refs the orchestrator hash-checks")
             if sub in ("branch", "tag") and any(a in ("-d", "-D", "-m", "-M", "-c", "-C", "-f") for a in args) \
-               or sub == "config" and not any(a in ("--get", "--get-all", "--list", "-l", "get", "list") for a in args):
+               or sub == "config" and not any(a in ("--get", "--get-all", "--list", "-l", "get", "list") for a in args) \
+               and not (len([a for a in args if not a.startswith("-")]) <= 2 and not any(a.startswith(("--unset", "--add", "--replace", "--remove", "--rename", "-e", "--edit")) for a in args)):
                 deny(f"{who} is read-only: `git {sub} {' '.join(args[1:3])}` writes")
             break
     targets = write_targets(seg)
@@ -1283,6 +1412,8 @@ def check_git_config(seg):
     key = touches[0]
     idx = seg.index(key)
     value = next((t for t in seg[idx + 1:] if not t.startswith("-")), None)
+    if value is None:
+        return   # `git config core.hooksPath` with no value READS it (2026-11-07: refused as "points hooks away")
     if value == ".githooks":
         return   # reef-init's own install — explicitly allowed
     deny(f"git config core.hooksPath {value!r} points hooks away from the gate (.githooks is the only allowed value)")
@@ -1790,6 +1921,9 @@ def check_edit(tool_input, payload, ctx):
         # 2026-10-29 (row 9 on the current adoption): the implementer refreshed the line numbers in `## Read first`, every
         # close carried the edit, the plan's digest moved and the owner re-approved an unchanged plan three times
         deny(PLAN_DENIAL.format(rel=rel))
+    project = reef_project(path, ctx["cwd"])
+    if not project:
+        return   # the reach (2026-11-07): a file outside every Reef project is not the guard's, whatever its shape
     if RECORD_DIRS.search(path) or RECORD_DIRS.search(rel):
         deny("editing under .reef/approvals/, .reef/review/, .reef/night/ or .reef/evidence/, or .reef/graph/gate.json — these records are written by the AskUserQuestion "
              "hook, scripts/reef-record, scripts/reef-run.py and scripts/reef-gate.sh, bound to a digest, a forge SHA or a tree snapshot; "
@@ -1797,14 +1931,14 @@ def check_edit(tool_input, payload, ctx):
     if ctx.get("main_session") and (EVIDENCE.search(path) or EVIDENCE.search(rel)):
         deny(EVIDENCE_DENIAL.format(path=rel))
     if not ctx.get("main_session"):
-        qrel = str((read_config(main_checkout(ctx.get("cwd") or os.getcwd())).get("paths") or {}).get("queue", "docs/queue.md") or "docs/queue.md").strip("/")
+        qrel = str((read_config(project if project != "?" else main_checkout(ctx.get("cwd") or os.getcwd())).get("paths") or {}).get("queue", "docs/queue.md") or "docs/queue.md").strip("/")
         if rel.replace(os.sep, "/") in (qrel, qrel.rsplit("/", 1)[0] + "/queue-archive.md") or path.replace(os.sep, "/").endswith("/" + qrel):
             deny(f"{qrel} is edited by commands only (scripts/reef-queue.py footnote|add-row|note|drop-row …), never by an agent's Edit or Write (the review, 2026-10-27)")
     if is_project_handoff(path, ctx.get("cwd") or ""):
         deny(HANDOFF_DENIAL)
     if not (GUARD_FILES.search(path) or GUARD_FILES.search(rel)):
         return
-    if ctx["plugin_root"] or ctx["critical_inflight"]:
+    if exempt(project, ctx):
         return
     if os.path.basename(path) == "config.json":
         try:
@@ -2067,7 +2201,8 @@ def main():
     elif tool in ("Edit", "Write", "MultiEdit"):
         step("the edit checks")
         try:
-            check_edit(tool_input, payload, context_for(payload))
+            CTX.update(context_for(payload))   # the helpers that read CTX (the handoff's roots, the reach) see this call's cwd
+            check_edit(tool_input, payload, CTX)
         except SystemExit:
             raise
         except Exception as e:
