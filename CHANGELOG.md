@@ -2,6 +2,8 @@
 
 ## 0.7.5 (unreleased)
 
+- **The merge guard reads only this PR's own review record when the head has moved.** In an adopted project on 2026-11-05 (row 235, PR #376), the head moved by a clean merge of the base. The guard then judged it against an EARLIER feature's GREEN record (PR #307), which is in every later head because it was merged. It saw code changes since that record and denied, without reading PR #376's own record, which would have carried over. Every base move cost a full re-review: rows 13, 16, 34 and 235 each paid one. Now only records whose `pr` is this PR's number (or legacy records with no `pr`) are considered for the carry-over. tests/size-budget.json raised: `script_lines` 19,830 → 19,835.
+
 - **converge reads `` `<command>` exits N `` as a command.** In an adopted project on 2026-11-07 (row 38, task 3801 AC-5), a Proof cell read `` `npx vitest run src/lib/server-context.test.ts` exits 0 ``, the form plan-check's own help names ("a command that exits 0 iff it holds"). plan-check passed it; converge took the whole cell for ONE test name, found none, and reported AC-5 `missing` while the command passed 75 of 75. The session then proposed amending the approved plan over it. converge now runs the command and compares its exit code with N, like the `prints` form: a different code is `contradicts`, exit 127 is `missing`. tests/size-budget.json raised: `script_lines` 19,817 → 19,830.
 
 - **The day loop's approvals land.** In an adopted project on 2026-11-06, rows 239 and 241 stopped four times in one day for a terminal `reef-approval.py --owner`. The owner had approved `reef/proxy.md` with `Decides: plan, …`, and each stop came from a different strict check:
