@@ -8,7 +8,7 @@ Usage: reef-update.py [--repo DIR] [--plugin DIR] [--commit] [--push] [--dry-run
    `git pull --ff-only` brings it up and the old..new range is printed.
 2. `reef-init.py --root <project> --plugin <plugin>` refreshes the project's copies (scripts/reef-*, the rendered
    files); its summary line is printed. Proposals (files you edited) are listed with their accept/keep commands,
-   never applied.
+   never applied. A scripts/reef-* file Reef no longer ships is named (`no longer shipped: … — git rm …`), never deleted.
 3. --commit stages ONLY Reef's own paths (scripts/reef-*, .reef/init-manifest.json, .reef/version, .githooks/*, .gitignore, the
    rendered map) and commits `reef: scripts <version> (<plugin sha>)`; --push pushes the current branch — a rejected push
    prints the line that lands it (`git pull --rebase --autostash origin <branch> && git push`, the branch filled in).
@@ -50,6 +50,32 @@ def push_hint(root, out):
 
 
 MARKET = __import__("re").compile(r"[A-Za-z0-9._-]+")
+
+
+def shipped_scripts(init_path):
+    """reef-init's copied list (`SCRIPTS = [...]`), read as data from the plugin's own reef-init.py; None when unreadable."""
+    import ast
+    try:
+        with open(init_path, encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+    except (OSError, SyntaxError, ValueError):
+        return None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "SCRIPTS" for t in node.targets):
+            try:
+                return set(ast.literal_eval(node.value))
+            except ValueError:
+                return None
+    return None
+
+
+def leftovers(root, shipped):
+    """The project's scripts/reef, reef-* and reef_* files Reef no longer ships (2026-11-07: the converge script outlived its removal in 0.7.5)."""
+    d = os.path.join(root, "scripts")
+    if shipped is None or not os.path.isdir(d):
+        return []
+    return sorted(f for f in os.listdir(d) if (f == "reef" or f.startswith(("reef-", "reef_"))) and not f.endswith(".pyc")
+                  and os.path.isfile(os.path.join(d, f)) and f not in shipped)
 
 
 def marketplace_name(plugin):
@@ -173,6 +199,8 @@ def main(argv):
         props += [os.path.relpath(os.path.join(dp, f), pdir) for f in fn if not f.endswith(".diff")]
     for p in props[:6]:
         print(f"proposal: {p} — accept: python3 {init} --root {root} --accept {p}   keep yours: --keep {p}")
+    for f in leftovers(root, shipped_scripts(init)):   # named, never deleted: the owner removes it in his own commit
+        print(f"no longer shipped: scripts/{f} — `git rm scripts/{f}`")
     try:
         with open(os.path.join(plugin, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
             version = str(json.load(f).get("version") or "?")

@@ -300,7 +300,8 @@ def print_rules(cfg):
     print(f"prose: every sentence <= writing.sentence_words {w.get('sentence_words', 25)} words (fenced code ignored); a task file <=")
     print(f"         writing.task_words per tier {tw or {'light': 600, 'full': 2500, 'design': 2500, 'critical': 2500}} (plan.max_words {plan.get('max_words', 0)} otherwise)")
     print("tiers: light (mech only, allowlisted paths, no risk path) | full (default) | design (judge; `## Decision` non-empty) | critical;")
-    print("         design/critical -> verify: judge; a design task needs `adversarial-plan:` (the loophole-hunter's plan pass) before dispatch")
+    print("         design/critical -> verify: judge; a design task needs `adversarial-plan:` (the loophole-hunter's plan pass) before dispatch;")
+    print("         a fast-path row (every task light/full, no risk touch) runs no verifier: verify: gate-only, or tier: design for a judge")
     print(f"rails: touches pii|money|auth -> critical; migration -> at least design + a `Rollback:` line in ## Decision; paths {dpaths} -> design,")
     print(f"         {cpaths} -> critical; a tier only gets heavier")
     print("graph: blocked-by ids resolve (tasks/ or tasks/done/), no cycles; a rollup R<NN>-<slug>.md is one per feature")
@@ -1078,6 +1079,25 @@ def main():
             words = len(re.findall(r"\S+", plan_text[fmm.end():] if fmm else plan_text))
             if words > cap:
                 a_fail(f"{rel}: {words} words > {cap_name} {cap} (the Log does not count) — split the slice")
+        # 2026-11-07 (an adopted project, task 4701: complexity design, tier full, verify judge): on the fast path reef-attempt runs no
+        # verifier — the row's one acceptance review judges it — so `verify: judge` there promises a judge that never runs.
+        # The same rule reef-attempt reads (row_mode). A plan approved before this rule is warned, not blocked.
+        fast_row = False
+        if not rollup:
+            try:
+                pth_, folder_ = row_mode(fm["_path"])
+                fast_row = pth_ == "fast" and folder_
+            except Exception:
+                fast_row = False
+        if fast_row and fm.get("verify") == "judge":
+            msg = (f"{rel}: verify: judge on a fast-path row (light/full, no risk touch) — no verifier runs there; write "
+                   "`verify: gate-only` (the row's one acceptance review judges it) or `tier: design` (the row takes the critical path and its verifier)")
+            if os.path.isfile(os.path.join(main_checkout(root), ".reef", "approvals", f"{fm.get('feature', '')}.json")):
+                a_print(f"warning: {msg} (approved before this rule — not enforced)")
+            else:
+                a_fail(msg)
+        elif fast_row and fm.get("complexity") == "design" and fm.get("verify") == "gate-only":
+            a_ok(f"{rel}: design on the fast path -> verify: gate-only")
         if fm.get("complexity") == "design" and not rollup:
             dec = section(text, "Decision")
             # comments don't count: the untouched template placeholder is an HTML comment,
@@ -1086,7 +1106,9 @@ def main():
                 a_fail(f"{rel}: complexity design but ## Decision has no human-written content")
             else:
                 a_ok(f"{rel}: design has non-empty ## Decision")
-            if fm.get("verify") != "judge":
+            if fast_row:
+                pass        # the fast-path rule below judges `verify:` here
+            elif fm.get("verify") != "judge":
                 fail(f"{rel}: complexity design requires verify: judge (got {fm.get('verify')!r})")
             else:
                 ok(f"{rel}: design -> verify: judge")
