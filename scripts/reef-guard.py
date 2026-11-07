@@ -1156,7 +1156,12 @@ def check_forge_merge(seg, ctx):
     if not records:
         deny(f"no PASS/GREEN review record under .reef/review/ for PR head {head[:12]} — run {os.path.join(OWN_SCRIPTS, 'reef-record')} <feature> GREEN after the review")
     owner, repo = m.group(1), m.group(2)
-    for rec in records:
+    # only THIS PR's records carry over (2026-11-05, PR #376): an earlier feature's GREEN is in every later head, and
+    # judging the head against it denied a clean base merge — a re-review for nothing. A record with no pr is legacy
+    mine = [rec for rec in records if str(rec.get("pr", "")) in ("", m.group(3))]
+    if not mine:
+        deny(f"no PASS/GREEN review record for PR #{m.group(3)} under .reef/review/ — run {os.path.join(OWN_SCRIPTS, 'reef-record')} <feature> GREEN after the review")
+    for rec in mine:
         anc = subprocess.run(["git", "merge-base", "--is-ancestor", rec["sha"], head], cwd=cwd, capture_output=True)
         if anc.returncode != 0:
             continue   # a rebase or an unrelated record: the reviewed commit is not in this head

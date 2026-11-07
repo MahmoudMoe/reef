@@ -156,6 +156,24 @@ class ForgeMerge(_Repo, unittest.TestCase):
         git(self.d, "commit", "-qm", "claims")
         self.assertEqual(self.merge().returncode, 0, self.merge().stderr)
 
+    def test_an_earlier_features_record_never_stands_in_for_this_prs(self):
+        """2026-11-05 (an adopted project, row 235, PR #376): after a clean base merge the guard compared the head with an
+        EARLIER feature's GREEN record (PR #307, merged, so its commit is in every later head), saw code since it, and
+        denied without reading this PR's own record — a full re-review for nothing. Rows 13, 16 and 34 paid the same."""
+        self.record()
+        with open(os.path.join(self.d, ".reef", "review", "aaa-earlier-feature.json"), "w") as f:
+            json.dump({"sha": git(self.d, "rev-parse", "main"), "tree": git(self.d, "rev-parse", "main^{tree}"), "verdict": "GREEN",
+                       "base": "main", "pr": 5}, f)
+        git(self.d, "checkout", "-q", "main")
+        with open(os.path.join(self.d, "other.py"), "w") as f:
+            f.write("z = 9\n")
+        git(self.d, "add", "other.py")
+        git(self.d, "commit", "-qm", "main moved")
+        git(self.d, "checkout", "-q", "feat")
+        git(self.d, "merge", "-q", "--no-edit", "main")
+        r = self.merge()
+        self.assertEqual(r.returncode, 0, f"PR 7's own record carries over a clean base merge: {r.stderr}")
+
     def test_clean_base_merge_allowed_rebase_denied(self):
         self.record()
         git(self.d, "checkout", "-q", "main")
