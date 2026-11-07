@@ -389,7 +389,11 @@ class Driver:
         task = self.task_path(tid)
         name = os.path.basename(task)
         if crash in ("fm", "mv"):
-            # reef-merge-close killed after it rewrote the task file (status done + the journal block), [and after its git mv]
+            # reef-merge-close killed after it rewrote the task file (status done + the journal block), [and after its git mv];
+            # its first effect is the recovery note the next close restores from
+            gd = subprocess.run(["git", "rev-parse", "--absolute-git-dir"], cwd=self.co, capture_output=True, text=True).stdout.strip()
+            with open(os.path.join(gd, f"reef-close-{name[:-3]}.json"), "w") as f:
+                json.dump({"task": task, "dest": os.path.join(os.path.dirname(task), "done", name), "text": open(task).read()}, f)
             git(self.co, "add", "-A")
             text = open(task).read().replace("status: in-progress", "status: done").replace("status: pending", "status: done")
             text += f"\n<!-- journal -->\n{open(journal).read().strip()}\n<!-- /journal -->\n"
