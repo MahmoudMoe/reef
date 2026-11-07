@@ -119,7 +119,7 @@ def proofs(text):
             elif (p0 := without_notes(p)) != p:
                 rows[ac_id] = p0   # a note in parentheses is commentary (2026-10-24, note n45): read the cell without it
                 out += proofs_of(ac_id, p0)
-            elif re.fullmatch(r"`[^`]+`\s+prints\s+`[^`]*`", p) or not p.startswith("`"):
+            elif re.fullmatch(r"`[^`]+`\s+(prints\s+`[^`]*`|exits\s+\d+)", p) or not p.startswith("`"):
                 out += proofs_of(ac_id, p)
             elif len(re.findall(r"`[^`]+`", p)) > 1 and not re.sub(r"`[^`]+`|[,;]|\band\b|\s", "", p):
                 # `a`, `b` in one cell is two proofs, each checked (2026-10-24, the trial's row 5 rollup: read as one name)
@@ -159,6 +159,9 @@ def proofs_of(ac_id, p):
     m = re.fullmatch(r"`([^`]+)`\s+prints\s+`([^`]*)`", p)
     if m:
         return [(ac_id, f"{m.group(1)}\0{m.group(2)}", "prints")]
+    m = re.fullmatch(r"`([^`]+)`\s+exits\s+(\d+)", p)   # plan-check's own form (2026-11-07: read as a test name)
+    if m:
+        return [(ac_id, f"{m.group(1)}\0{m.group(2)}", "exits")]
     if not p.startswith("`"):
         return [(ac_id, p, "prose")]
     if len(re.findall(r"`[^`]+`", p)) > 1 and not re.sub(r"`[^`]+`|[,;]|\band\b|\s", "", p):
@@ -293,6 +296,16 @@ def main(argv):
                     findings.append(f"{label}: missing — `{cmd}` (exit 127)")
                 elif r.stdout.strip() != want:
                     findings.append(f"{label}: contradicts — `{cmd}` prints {r.stdout.strip()[:40]!r}, not {want!r}")
+                continue
+            if kind == "exits":
+                cmd, want = proof.split("\0", 1)
+                r = run(cmd)
+                if r.returncode == 75 and want != "75":
+                    busy.append(label)
+                elif r.returncode == 127 and want != "127":
+                    findings.append(f"{label}: missing — `{cmd}` (exit 127)")
+                elif r.returncode != int(want):
+                    findings.append(f"{label}: contradicts — `{cmd}` exit {r.returncode}, not {want}")
                 continue
             if kind == "mechanic":
                 mechanic_rows.append(f"{label}: `{proof}`")   # writes files: the mechanic runs it, converge never does
