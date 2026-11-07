@@ -33,7 +33,7 @@
   },
   "hunter": {
       "plan_rounds": 2,
-      "plan_pass": "critical",
+      "plan_pass": "design",
       "guard_pass": "feature"
   },
   "review": {

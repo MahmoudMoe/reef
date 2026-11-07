@@ -121,7 +121,8 @@ class RoundCap(unittest.TestCase):
 
 
 class DesignTierUnderDefaults(unittest.TestCase):
-    """templates/config.json ships hunter.plan_pass `critical` and guard_pass `feature`. skills/reef-plan/SKILL.md:41: the plan
+    """templates/config.json ships hunter.plan_pass `design` (0.7.5: the plan-reviewer is gone, so the hunter reads every
+    critical-path plan) and guard_pass `feature`; these tests pin the `critical` mode, which a project may still choose. skills/reef-plan/SKILL.md:41: the plan
     hunter runs on every `critical` task ("every `design` task too under hunter.plan_pass: design"). skills/reef-review/SKILL.md:46
     and reef-record: every design/critical task takes the guard record before GREEN. skills/reef-task/SKILL.md:34: per task,
     the guard PASS is recorded with reef-adversarial <task> guard (the pre-commit refuses a design-tier close without it)."""
@@ -137,7 +138,8 @@ class DesignTierUnderDefaults(unittest.TestCase):
     def test_the_feature_guard_pass_stamps_a_design_task_that_never_needed_a_plan_pass(self):
         with open(os.path.join(ROOT, "templates", "config.json"), encoding="utf-8") as f:
             hunter = json.load(f)["hunter"]
-        self.assertEqual((hunter.get("plan_pass"), hunter.get("guard_pass")), ("critical", "feature"), "the shipped defaults")
+        self.assertEqual((hunter.get("plan_pass"), hunter.get("guard_pass")), ("design", "feature"), "the shipped defaults")
+        hunter = dict(hunter, plan_pass="critical")   # the mode this test is about: a design task with no plan pass
         d = project({"gates": {"test": "true"}, "hunter": hunter, "paths": {"features": "reef/features"}})
         tdir = "reef/features/demo/tasks"
         p1 = task(d, rel=f"{tdir}/001-a.md", tier="critical", extra="adversarial-plan: aaaaaaaaaaaa\n")

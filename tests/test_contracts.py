@@ -612,6 +612,16 @@ class ThePathSizesTheBuild(unittest.TestCase):
         self.assertLessEqual(len(text.splitlines()), 60)
 
 
+class TheHunterReadsEveryCriticalPathPlan(unittest.TestCase):
+    """0.7.5: with the plan-reviewer gone, a design-tier plan (auth, crypto, migrations, tenant code) would reach the owner's
+    gate with plan-check alone under plan_pass `critical`; the shipped default is `design` — the same plans the
+    plan-reviewer read, now read by the hunter."""
+
+    def test_the_shipped_plan_pass_covers_design_and_critical(self):
+        with open(os.path.join(ROOT, "templates", "config.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["hunter"]["plan_pass"], "design")
+
+
 class ThePathSizesThePlanReview(unittest.TestCase):
     """v3 phase 3a: on the fast path reef-plan-check alone is the review; on the critical path the hunter's plan pass.
     0.7.5: the plan-reviewer is gone (ai-coach, 2026-11-07: 47 runs over 11 rows, 8 of 8 stored reports PASS with no
