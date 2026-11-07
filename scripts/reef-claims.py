@@ -230,7 +230,7 @@ def cmd_verdict(path):
             text = f.read()
     except OSError as e:
         die(f"cannot read: {e}")
-    keep = re.compile(r"^(RUN:|REJUDGE:|HEAD:|VERDICT:|BLOCK|NEW-ROW|NOTED)|^\W*AC-?\d+\b.*\bFAIL\b")
+    keep = re.compile(r"^(RUN:|REJUDGE:|HEAD:|VERDICT:|BLOCK|HALT|NEW-ROW|NOTED)|^\W*AC-?\d+\b.*\bFAIL\b")
     lines = [l.rstrip() for l in text.splitlines() if keep.search(l.strip()) and not l.strip().startswith("RULE")]
     print("\n".join(lines) or "(no RUN, VERDICT or BLOCKER line)")
     print(f"({len(text.splitlines())} lines in {path}: open it only for a blocker's detail)")

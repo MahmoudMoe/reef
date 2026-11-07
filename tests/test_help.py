@@ -43,7 +43,7 @@ class HelpIsNeverData(unittest.TestCase):
         before = snapshot(d)
         for script, args in (("reef-queue.py", ["footnote", "--help"]), ("reef-queue.py", ["note", "-h", "--row", "1"]),
                              ("reef-queue.py", ["add-row", "--item", "--help"]), ("reef-loop.py", ["wait", "--help"]),
-                             ("reef-record", ["--help"]), ("reef-record", ["plan-review", "x", "--help"])):
+                             ("reef-record", ["--help"]), ("reef-record", ["security", "--help"])):
             with self.subTest(script=script, args=args):
                 r = subprocess.run([sys.executable, os.path.join(S, script), *args, "--repo", d], capture_output=True, text=True,
                                    cwd=d, env=dict(os.environ, PATH="/nonexistent-gh:" + os.environ["PATH"]))

@@ -121,6 +121,22 @@ class Record(unittest.TestCase):
                 self.assertIn(msg, r.stderr)
                 self.assertNotIn("adversarial-plan", fm_of(self.t))
 
+    def test_a_halt_goes_to_the_owner_never_into_a_plan_pass_record(self):
+        # 0.7.5: the plan-reviewer is gone (ai-coach, 2026-11-07: 47 runs, 8 of 8 stored reports PASS); the hunter's plan
+        # pass reads SPEC, tasks and ADRs against each other and writes `HALT:` where two sources of truth contradict. A
+        # HALT is the owner's ruling: a PASS carrying one is not recorded, and `reef-claims verdict` shows it verbatim
+        halt = "HALT: tasks/001-t.md:12 says the export is CSV vs docs/adr/0003-x.md:7 says JSON — the owner decides"
+        rp = write(self.d, "halt.txt", REPORT_PASS.format(p="plan").replace("NONE: tried y", halt + "\nNONE: tried y"))
+        r = adv(self.t, "plan", rp)
+        self.assertEqual(r.returncode, 2, "a HALT is not a PASS: " + r.stdout)
+        self.assertIn("HALT", r.stderr)
+        self.assertIn("--decided", r.stderr, "the refusal names the way out: the owner's footnote")
+        self.assertNotIn("adversarial-plan", fm_of(self.t))
+        v = subprocess.run([sys.executable, CLAIMS, "verdict", rp], capture_output=True, text=True)
+        self.assertIn(halt, v.stdout, "the orchestrator reads reports through `verdict`: the HALT line must reach it")
+        rp = write(self.d, "halt0.txt", REPORT_PASS.format(p="plan").replace("NONE: tried y", "HALT: none\nNONE: tried y"))
+        self.assertEqual(adv(self.t, "plan", rp).returncode, 0, "`HALT: none` is no halt")
+
     def test_guard_pass_needs_plan_pass_first(self):
         g = write(self.d, "g.txt", REPORT_PASS.format(p="guard"))
         r = adv(self.t, "guard", g)

@@ -152,9 +152,6 @@ class Project:
         r = subprocess.run([sys.executable, pc, wt], capture_output=True, text=True)
         assert r.returncode == 0, r.stdout + r.stderr
         if critical:
-            r = subprocess.run([sys.executable, os.path.join(self.main, "scripts", "reef-record"), "plan-review", slug, "PASS", "--root", wt],
-                               capture_output=True, text=True)
-            assert r.returncode == 0, r.stdout + r.stderr
             for tid in tids:
                 hunt = write(self.tmp, f"hunt-{tid}.md", f"RUN: agent=loophole-hunter task={tid} pass=plan round=1\nBLOCKER: none\nVERDICT: PASS\n")
                 r = subprocess.run([sys.executable, os.path.join(self.main, "scripts", "reef-adversarial"),

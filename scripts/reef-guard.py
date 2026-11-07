@@ -42,7 +42,7 @@ Reads the hook JSON on stdin. Two duties:
    tier table (tiers.<tier>.roles.<role>, from the REEF-TASK: or REEF-FEATURE: line every
    role dispatch carries; without the line, roles.* as in 0.5); `critical` needs the
    adversarial plan pass like `design`. REVIEWER LOCK (payload agent_type, verified in
-   docs/perf/payloads-2026-10-16.md): a verifier, loophole-hunter, plan-reviewer or Explore
+   docs/perf/payloads-2026-10-16.md): a verifier, loophole-hunter or Explore
    sub-agent gets no mutating git, no Bash write, no CI wait; a typeless sub-agent call is
    locked too while .reef/verifying/<task> exists (written here when a verifier/hunter
    dispatch is allowed). The guard GUARDS ITSELF (Edit/Write/MultiEdit matcher and Bash
@@ -62,7 +62,7 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout as _main_checkout, read_config, read_hold, write_hold, HOLD_MINUTES, bump_dispatches, task_tier, process_alive, spec_row, GUARD_FILES, PROTECTED_KEYS  # noqa: E402
+from reef_common import main_checkout as _main_checkout, read_config, read_hold, write_hold, HOLD_MINUTES, bump_dispatches, task_tier, process_alive, GUARD_FILES, PROTECTED_KEYS  # noqa: E402
 
 # 0.7: native Windows has no fcntl locks, no SIGALRM deadline and no process groups, and the guard cannot run there.
 # Inside a Reef project it stops with the one sentence that helps; anywhere else it steps aside (the plugin's hook runs
@@ -105,7 +105,7 @@ DISPATCH_DEADLINE = min(25.0, float(os.environ.get("REEF_GUARD_DEADLINE") or "25
 STARTED = time.monotonic()
 STEP = ["start", STARTED]   # the check in progress, named in a deadline denial
 TIER_ORDER = ["light", "full", "design", "critical"]
-LOCKED_TYPES = ("verifier", "loophole-hunter", "plan-reviewer", "Explore", "security", "mahmoud", "acceptance")
+LOCKED_TYPES = ("verifier", "loophole-hunter", "Explore", "security", "mahmoud", "acceptance")
 AGENT_TYPES = LOCKED_TYPES + ("implementer", "mechanic")
 MUTATING_GIT = {"commit", "add", "rm", "mv", "checkout", "switch", "restore", "reset", "merge", "rebase", "push",
                 "stash", "apply", "am", "cherry-pick", "revert", "clean", "worktree", "submodule", "init", "clone"}
@@ -119,10 +119,10 @@ RECORD_DIRS = re.compile(r"(^|[/=])\.reef/((approvals|review|night|evidence|run/
 RECORD_NAMES = {"approvals", "review", "night", "evidence", "graph"}
 HANDOFF_DENIAL = ("HANDOFF.md is rendered whole from measured state by scripts/reef-handoff --write (python3 scripts/reef-loop.py wait "
                   "\"<reason>\" runs it) — never written by hand: a handoff from memory is a map that lies (v3 phase 5)")
-# evidence an AGENT produced: a hand-back, a verifier/hunter report, a plan review. The main session (no agent_id in
+# evidence an AGENT produced: a hand-back, a verifier/hunter report. The main session (no agent_id in
 # the payload) may copy one (cp/mv from the scratchpad) but never write its content (2026-10-17: a hunter report and
 # a hand-back were typed by the orchestrator "from the agent's message" — evidence nobody but the orchestrator wrote).
-EVIDENCE = re.compile(r"(^|/)\.reef/(ci-local/(handback|report|hunt|plan-review)-[^/]+\.md|hunt/[^/]+\.md)$", re.I)   # re.I: a macOS disk opens .reef/CI-LOCAL/ as the same folder
+EVIDENCE = re.compile(r"(^|/)\.reef/(ci-local/(handback|report|hunt)-[^/]+\.md|hunt/[^/]+\.md)$", re.I)   # re.I: a macOS disk opens .reef/CI-LOCAL/ as the same folder
 SCRATCH = re.compile(r"(^|/)(scratchpad|reef-graph-[0-9a-f]{8})(/|$)|/\.claude/jobs/[A-Za-z0-9_-]+/tmp(/|$)")   # where an agent writes its report: the session
 # scratchpad, the graph's report dirs, a runner session's ~/.claude/jobs/<id>/tmp (the place in_scratch already lets it write;
 # 2026-11-06, an adopted project: the copy from there was refused, four re-runs in one day)
@@ -378,7 +378,7 @@ def write_targets(seg):
 
 def is_scratch(path):
     """Under the temp dir or a Claude scratchpad: /tmp/claude-…/…/scratchpad (/private/tmp/… on macOS), or a session's
-    ~/.claude/jobs/<id>/tmp/ (2026-10-21: a plan reviewer's report there was refused as a project write)."""
+    ~/.claude/jobs/<id>/tmp/ (2026-10-21: a judge's report there was refused as a project write)."""
     p = os.path.abspath(os.path.expanduser(path)) if path.startswith(("/", "~")) else ""
     if not p:
         return False
@@ -714,7 +714,7 @@ def check_reviewer_lock(seg, ctx):
             args = seg[j + 1:]
             sub = next((a for a in args if not a.startswith("-")), None)
             # `git worktree list` and `git stash list` read; the other verbs of those commands write (first contact,
-            # 2026-10-17: the plan-reviewer was refused `git worktree list` and re-ran its whole command without it)
+            # 2026-10-17: a read-only judge was refused `git worktree list` and re-ran its whole command without it)
             verb = next((a for a in args[args.index(sub) + 1:] if not a.startswith("-")), None) if sub in ("worktree", "stash", "submodule") else None
             if sub in MUTATING_GIT and not (sub in ("worktree", "stash", "submodule") and verb in ("list", "show", "status")):
                 deny(f"{who} is read-only: `git {sub}` mutates the tree or the refs the orchestrator hash-checks")
@@ -1420,8 +1420,8 @@ def check_stamp(root, feature, cwd):
         deny(f"plan stamp could not be checked ({e}) — the plugin's scripts/reef-plan-check.py did not run")
     if r.returncode != 0:
         out = (r.stdout or r.stderr).strip()
-        deny("plan stamp is stale or missing — the plan changed since its last review; "
-             "run the reef-plan-review skill in the task's own worktree before dispatching (" + out + ")")
+        deny("plan stamp is stale or missing, or its approval or hunter pass is — the plan changed since its last check; "
+             "run scripts/reef-plan-check.py --feature <slug> in the task's own worktree, then what its lines name (" + out + ")")
 
 
 ROLLUP_NAME = re.compile(r"^R\d+-.*\.md$")
@@ -1456,7 +1456,7 @@ def check_single_rollup(path, fm):
 # subagent name -> the .reef/config.json roles.* key whose model it must run on. The owner's
 # routing (2026-10-04, opus everywhere since 2026-10-17): opus plans, writes, attacks, verifies and reviews; sonnet does light
 # mechanical work. Each project overrides per role; an unset role is not checked.
-ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "plan_reviewer",
+ROLE_OF = {"implementer": "author", "verifier": "verifier",
            "loophole-hunter": "adversary", "mechanic": "mechanic", "Explore": "mechanic", "security": "security",
            "planner": "planner", "mahmoud": "proxy", "acceptance": "reviewer"}
 
@@ -1486,35 +1486,6 @@ def feature_tier(root, feature):
                     if t in TIER_ORDER and (best is None or TIER_ORDER.index(t) > TIER_ORDER.index(best)):
                         best = t
     return best
-
-
-def feature_path(root, feature):
-    """fast | critical | None (no task): workflow v3 — the tier names the path. ONE rule: scripts/reef-plan-check.py's
-    feature_path over the feature's task files (the review, 2026-10-25: three readers of the same plan must not differ)."""
-    graph = load_graph_module()
-    cfg = read_config(root)
-    dirs = [graph.tasks_dir_for(root, cfg)]
-    feat_dir = os.path.join(root, (cfg.get("paths") or {}).get("features", "reef/features"), feature, "tasks")
-    if os.path.isdir(feat_dir):
-        dirs.append(feat_dir)
-    paths = []
-    for base in dirs:
-        for d in (base, os.path.join(base, "done")):
-            if not os.path.isdir(d):
-                continue
-            for f in os.listdir(d):
-                if not f.endswith(".md"):
-                    continue
-                try:
-                    fm, _ = read_frontmatter(os.path.join(d, f))
-                except Exception:
-                    continue
-                if fm and fm.get("feature") == feature:
-                    paths.append(os.path.join(d, f))
-    if not paths:
-        return None
-    sys.dont_write_bytecode = True
-    return load_plugin_module("reef-plan-check.py", "reef_plan_check").feature_path(paths)[0]
 
 
 def dispatch_tier(prompt, cwd):
@@ -1586,22 +1557,11 @@ def check_dispatch(tool_input, payload):
 
 
 def rounds_cap(cfg, section):
-    """<section>.plan_rounds — the hunter's and the reviewer's round caps read the same way (default 2; 0 = no cap)."""
+    """<section>.plan_rounds — the hunter's round cap (default 2; 0 = no cap)."""
     try:
         return int(((cfg.get(section) or {}).get("plan_rounds", 2)) or 0)
     except (TypeError, ValueError, AttributeError):
         return 2
-
-
-def feature_row(main, slug):
-    """The queue row a feature folder belongs to: its SPEC.md `Row:` line, or "" (reef-queue.py reads it the same way)."""
-    cfg = read_config(main)
-    spec = os.path.join(main, (cfg.get("paths") or {}).get("features", "reef/features"), slug, "SPEC.md")
-    try:
-        with open(spec, encoding="utf-8") as f:
-            return spec_row(f.read())
-    except OSError:
-        return ""
 
 
 def _check_dispatch(tool_input, payload):
@@ -1610,30 +1570,6 @@ def _check_dispatch(tool_input, payload):
     prompt = str(tool_input.get("prompt") or "")
     tier, troot = dispatch_tier(prompt, cwd)
     check_role_model(sub, tool_input, troot if tier else cwd, tier)
-    if "plan-reviewer" in sub:   # v3 phase 3a: the fast path has no plan-reviewer — the deterministic check is the review
-        fm_ = re.search(r"^REEF-FEATURE:[ \t]*(\S+)", prompt, re.M)
-        if fm_ and feature_path(cwd, fm_.group(1)) == "fast":
-            deny(f"plan-reviewer is not dispatched for feature {fm_.group(1)!r}: it is on the fast path (every task light or full, no "
-                 "auth/pii/money/migration touch) — scripts/reef-plan-check.py is the review; the plan-reviewer runs on the critical path only")
-        if fm_:
-            # 2026-10-30 (row 7 on the current adoption): the reviewer and the planner traded blockers for five rounds. Like the
-            # hunter's `hunter.plan_rounds`: after `review.plan_rounds` FAILED rounds (default 2: the review, one fix, one re-review)
-            # no further reviewer round — the open findings are the owner's decision, filed as his question
-            main = main_checkout(cwd)
-            slug = fm_.group(1)
-            try:
-                with open(os.path.join(main, ".reef", "review", f"plan-{slug}.json"), encoding="utf-8") as f:
-                    rec_ = json.load(f)
-                rounds = int(rec_.get("rounds") or 0) if str(rec_.get("verdict", "")).upper() == "FAIL" else 0
-            except (OSError, ValueError, TypeError):
-                rounds = 0
-            cap_ = rounds_cap(read_config(main), "review")
-            if cap_ and rounds >= cap_:
-                row_ = feature_row(main, slug)
-                deny(f"plan review round {rounds + 1} > review.plan_rounds {cap_}: the plan gets no further reviewer round — the open "
-                     f"findings are the owner's decision: python3 scripts/reef-queue.py ask \"<the finding, one line>\"{' --row ' + row_ if row_ else ''} "
-                     f"--recommended \"<the reviewer's remedy>\"; his ruling is a queue footnote, then "
-                     f"{os.path.join(OWN_SCRIPTS, 'reef-record')} plan-review {slug} PASS --report <the review> --decided <the footnote's mark>")
     if "implementer" not in sub:
         if tier and any(t in sub for t in ("verifier", "loophole-hunter")):
             m = re.search(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", prompt, re.M)

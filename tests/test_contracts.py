@@ -99,7 +99,7 @@ class ConfigTemplate(unittest.TestCase):
     def test_model_per_role_defaults_match_agent_frontmatter(self):
         roles = self.cfg["roles"]
         for role, agent in (("author", "implementer"), ("verifier", "verifier"),
-                            ("plan_reviewer", "plan-reviewer"), ("mechanic", "mechanic"), ("security", "security"), ("proxy", "mahmoud")):
+                            ("mechanic", "mechanic"), ("security", "security"), ("proxy", "mahmoud")):
             front = re.search(r"^model:\s*(\S+)", read("agents", f"{agent}.md"), re.M).group(1)
             self.assertEqual(roles[role], front, f"roles.{role} default must equal the agent's frontmatter")
 
@@ -205,7 +205,7 @@ class BulletsNotParagraphs(unittest.TestCase):
     structured lines the scripts parse stay exact."""
 
     def test_every_writing_agent_the_orchestrator_and_the_templates_ask_for_bullets(self):
-        for name in ("implementer", "verifier", "loophole-hunter", "plan-reviewer", "planner", "security", "mahmoud"):
+        for name in ("implementer", "verifier", "loophole-hunter", "planner", "security", "mahmoud"):
             text = read("agents", f"{name}.md")
             self.assertIn("**Bullets, not paragraphs (0.7, the owner's rule).**", text, name)
             self.assertIn("`RUN:`, `RULE AC<n>`, `VERDICT`, Proof rows, frontmatter", text, name)
@@ -427,7 +427,7 @@ class SizeBudget(unittest.TestCase):
     skill, agent, hook, command, template or other script names. A new duplicate or orphan is a raise someone has to write down."""
 
     SCRIPT_FILES = staticmethod(lambda root: sorted(glob.glob(os.path.join(root, "scripts", "reef-*")) + glob.glob(os.path.join(root, "scripts", "reef_common.py")) + [os.path.join(root, "scripts", "reef")]))
-    GUARD_OWN = {"main_checkout", "merge_by", "read_frontmatter", "feature_row", "lock_path_for", "check_single_rollup", "feature_path", "gh"}   # the guard keeps its own copies of helpers other scripts own, on purpose: it must run when any other script is broken (the critical path)
+    GUARD_OWN = {"main_checkout", "merge_by", "read_frontmatter", "lock_path_for", "check_single_rollup", "gh"}   # the guard keeps its own copies of helpers other scripts own, on purpose: it must run when any other script is broken (the critical path)
 
     @classmethod
     def duplicate_defs(cls, root=None):
@@ -613,15 +613,40 @@ class ThePathSizesTheBuild(unittest.TestCase):
 
 
 class ThePathSizesThePlanReview(unittest.TestCase):
-    """v3 phase 3a: /reef-plan runs the plan-reviewer and the hunter's plan pass on the critical path only; on the fast path
-    reef-plan-check alone is the review, and the gate accepts `review: not required`."""
+    """v3 phase 3a: on the fast path reef-plan-check alone is the review; on the critical path the hunter's plan pass.
+    0.7.5: the plan-reviewer is gone (ai-coach, 2026-11-07: 47 runs over 11 rows, 8 of 8 stored reports PASS with no
+    BLOCKER; the hunter failed 6 of 8 first rounds on the same plans, the reviewer's kind of finding included). Its one
+    useful duty, a HALT on two sources of truth contradicting, is the hunter's plan pass now."""
 
-    def test_reef_plan_names_the_path_and_the_gate_accepts_not_required(self):
+    def test_reef_plan_names_the_path_and_the_hunter_is_the_critical_review(self):
         text = read("skills", "reef-plan", "SKILL.md")
         self.assertIn("scripts/reef-tier.py path", text)
         self.assertRegex(text, r"(?i)fast.{0,120}reef-plan-check\.py.{0,40}(alone|is the review)")
-        self.assertIn("review: not required", text)
+        self.assertRegex(text, r"(?i)ONE fix round by `reef:planner`")
+        self.assertRegex(text, r"(?i)HALT.{0,200}owner verbatim")
         self.assertLessEqual(len(text.splitlines()), 60)
+
+    def test_no_agent_or_skill_mentions_the_plan_reviewer(self):
+        import json as _json
+        self.assertFalse(os.path.exists(os.path.join(ROOT, "agents", "plan-reviewer.md")))
+        self.assertFalse(os.path.exists(os.path.join(ROOT, "skills", "reef-plan-review")))
+        for top in ("agents", "skills"):
+            for dp, _dn, fn in os.walk(os.path.join(ROOT, top)):
+                for f in fn:
+                    with open(os.path.join(dp, f), encoding="utf-8") as fh:
+                        body = fh.read()
+                    for word in ("plan-reviewer", "plan_reviewer", "plan reviewer", "reef-plan-review", "record plan-review"):
+                        self.assertNotIn(word, body.lower(), os.path.join(dp, f))
+        cfg = _json.loads(read("templates", "config.json"))
+        self.assertNotIn("plan_reviewer", _json.dumps(cfg))
+        self.assertNotIn("plan_rounds", cfg.get("review", {}), "review.plan_rounds capped the reviewer's rounds")
+        self.assertEqual(cfg["hunter"]["plan_rounds"], 2, "the hunter keeps its own cap")
+
+    def test_the_hunters_plan_pass_cross_reads_the_sources_of_truth_and_halts(self):
+        text = read("agents", "loophole-hunter.md")
+        self.assertRegex(text, r"(?s)pass=plan.{0,600}SPEC.{0,200}ADR")
+        self.assertIn("HALT:", text)
+        self.assertRegex(text, r"(?i)owner decides")
 
 
 class EvidenceIsReadNotMade(unittest.TestCase):
@@ -1166,14 +1191,6 @@ class TheScreenIsDocumented(unittest.TestCase):
         self.assertIn("reef screen --once", readme)
         self.assertIn("inbox", read("docs", "manual", "ar", "index.html").lower())
 
-
-class PlanReviewRoundsAreCapped(unittest.TestCase):
-    def test_the_template_and_the_skill_name_the_cap(self):
-        import json as _json
-        cfg = _json.loads(read("templates", "config.json"))
-        self.assertEqual(cfg["review"]["plan_rounds"], 2)
-        self.assertIn("review.plan_rounds", read("skills", "reef-plan-review", "SKILL.md"))
-        self.assertLessEqual(len(read("skills", "reef-plan-review", "SKILL.md").splitlines()), 60)
 
 class NoLineNumbersInCriteria(unittest.TestCase):
     def test_the_plan_skill_and_the_planner_say_lines_live_in_read_first(self):

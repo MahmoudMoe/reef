@@ -626,10 +626,8 @@ DESIGN_TASK = TASK.replace("complexity: mech", "complexity: design\ntier: critic
 
 
 class PathDecidesTheReview(unittest.TestCase):
-    """Workflow v3, phase 3a (2026-10-25): the plan-reviewer agent reviewed every row heavier than light — one more judge on
-    rows whose risk the tier already said was ordinary. On the FAST path (every task light or full, no auth/pii/money/
-    migration touch) the deterministic check is the review: --verify-stamp says `review: not required`, --needs-agent
-    exits 3. A risk touch or a design/critical task is the CRITICAL path: the record is required, as before."""
+    """Workflow v3, phase 3a (2026-10-25): on the FAST path the deterministic check is the review. 0.7.5: on the CRITICAL path
+    the hunter's plan pass is — the plan-reviewer's record is gone (ai-coach, 2026-11-07: 8 of 8 stored reports PASS)."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="reef-pc-path.")
@@ -639,19 +637,17 @@ class PathDecidesTheReview(unittest.TestCase):
             f.write(DESIGN_TASK.replace("tier: critical", "tier: full").format(id=2, acs="- test_full_works goes red then green"))
         self.assertEqual(run(self.tmp).returncode, 0, run(self.tmp).stdout)
 
-    def test_fast_path_needs_no_plan_reviewer_and_a_risk_touch_makes_it_critical(self):
+    def test_no_plan_review_record_on_either_path_and_the_hunter_names_the_critical_one(self):
         out = run(self.tmp, "--verify-stamp", "--feature", "demo").stdout
-        self.assertIn("review: not required for 'demo' (fast path: tiers light, full; no risk touch", out)
-        r = run(self.tmp, "--needs-agent", "--feature", "demo")
-        self.assertEqual(r.returncode, 3, r.stdout)
-        self.assertIn("plan-reviewer: none (fast path", r.stdout)
-        edit(self.p, "tier: full\n", "tier: design\n")   # a risk touch forces at least design, so a design task is the critical path's shape
+        self.assertNotIn("review:", out)
+        self.assertIn("hunter: n/a", out)
+        edit(self.p, "tier: full\n", "tier: critical\n")
         self.assertEqual(run(self.tmp).returncode, 0, run(self.tmp).stdout)
         out = run(self.tmp, "--verify-stamp", "--feature", "demo").stdout
-        self.assertIn("review: MISSING for 'demo'", out, "a design task is the critical path: the plan-reviewer's record is required")
-        r = run(self.tmp, "--needs-agent", "--feature", "demo")
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("plan-reviewer: model=", r.stdout)
+        self.assertNotIn("review:", out, "the critical path needs no plan-review record")
+        self.assertIn("hunter: MISSING 2", out, "the hunter's plan pass is the critical path's review")
+        r = run(self.tmp, "--needs-agent")
+        self.assertEqual(r.returncode, 1, "the plan-reviewer's flag is gone: " + r.stdout)
 
 
 class BracketlessTouches(unittest.TestCase):
@@ -948,25 +944,14 @@ class Config(unittest.TestCase):
             json.dump({"gates": {"fast": "true"}, "paths": {}}, f)
         self.assertEqual(run(tmp).returncode, 1)
 
-    def test_plan_reviewer_model_printed_from_config_on_the_critical_path(self):
-        # changed on purpose for v3 phase 3a (2026-10-25): the fixture's one mech task is the fast path, which dispatches no
-        # plan-reviewer; the configured model is printed for a plan on the critical path
-        r = self.check({"roles": {"plan_reviewer": "opus"}}, True)
-        self.assertIn("plan-reviewer: none (fast path", r.stdout)
-        tmp = repo(tempfile.mkdtemp(prefix="reef-pc."), extra_cfg={"roles": {"plan_reviewer": "opus"}})
+    def test_an_old_plan_reviewer_role_is_ignored_and_no_model_line_is_printed(self):
+        # 0.7.5: an existing project's config still holds roles.plan_reviewer; the check ignores it
+        tmp = repo(tempfile.mkdtemp(prefix="reef-pc."), extra_cfg={"roles": {"plan_reviewer": "opus"}, "review": {"plan_rounds": 2}})
         with open(os.path.join(tmp, "tasks", "002-crit.md"), "w") as f:
             f.write(DESIGN_TASK.format(id=2, acs="- test_crit_works goes red then green"))
         r = run(tmp)
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("plan-reviewer: model=opus", r.stdout)
-
-    def test_plan_reviewer_model_defaults_to_agent_default(self):
-        tmp = repo(tempfile.mkdtemp(prefix="reef-pc."))
-        with open(os.path.join(tmp, "tasks", "002-crit.md"), "w") as f:
-            f.write(DESIGN_TASK.format(id=2, acs="- test_crit_works goes red then green"))
-        r = run(tmp)
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("plan-reviewer: model=opus", r.stdout)
+        self.assertNotIn("plan-reviewer", r.stdout)
 
 
 class MaxWords(unittest.TestCase):

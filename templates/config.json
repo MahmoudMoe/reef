@@ -17,7 +17,6 @@
   "roles": {
     "author": "opus",
     "verifier": "opus",
-    "plan_reviewer": "opus",
     "planner": "opus",
     "adversary": "opus",
     "reviewer": "sonnet",
@@ -38,7 +37,6 @@
       "guard_pass": "feature"
   },
   "review": {
-      "plan_rounds": 2,
       "split_lines": 4000,
       "security_per_item": "on"
   },
@@ -76,7 +74,6 @@
     "critical": {
       "roles": {
         "planner": "opus",
-        "plan_reviewer": "opus",
         "adversary": "opus",
         "verifier": "opus",
         "reviewer": "opus",
@@ -95,7 +92,6 @@
     "design": {
       "roles": {
         "planner": "opus",
-        "plan_reviewer": "opus",
         "adversary": "opus",
         "verifier": "opus",
         "reviewer": "opus",
@@ -115,7 +111,6 @@
     "full": {
       "roles": {
         "planner": "opus",
-        "plan_reviewer": "opus",
         "adversary": "opus",
         "verifier": "opus",
         "reviewer": "sonnet",
@@ -125,9 +120,6 @@
       "effort": "medium"
     },
     "light": {
-      "roles": {
-        "plan_reviewer": "none"
-      },
       "effort": "low",
       "allow": [
         "docs/**",

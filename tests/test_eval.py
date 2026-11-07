@@ -19,7 +19,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EVAL = os.path.join(ROOT, "tests", "eval", "reef-eval")
 FIX = os.path.join(ROOT, "tests", "eval", "fixtures")
-AGENTS = ("verifier", "hunter", "plan-reviewer", "acceptance")
+AGENTS = ("verifier", "hunter", "acceptance")
 
 
 def load_eval():
@@ -162,10 +162,6 @@ class Corpus(unittest.TestCase):
                             self.assertIn(ev_.returncode, (0, 2), "the reviewer's GATE line comes from reef-evidence.py: " + ev_.stderr[-300:])
                             for k in e["truth"].get("nits", []):
                                 self.assertEqual(e["truth"]["verdict"], "PASS", "a NIT entry is a correct diff")
-                        if agent == "plan-reviewer":
-                            pc = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-plan-check.py"), wt],
-                                                capture_output=True, text=True)
-                            self.assertEqual(pc.returncode, 0, "the reviewer runs only after plan-check passed:\n" + pc.stdout)
                     finally:
                         shutil.rmtree(wt, ignore_errors=True)
 

@@ -228,14 +228,10 @@ def plan_gate(root, scripts, py, tasks):
         if feat in verdict:
             continue
         rc, out = run([py, pc, root, "--verify-stamp", "--feature", feat], root, timeout=60)
-        # v2 order (2026-10-17): the machines review first, the owner approves LAST — so a missing review is named
+        # v2 order (2026-10-17): the machines review first, the owner approves LAST — so a missing hunter pass is named
         # before a missing approval, and nothing after the gate but a HALT voids it
         hm = re.search(r"^hunter: (STALE|MISSING) (\S+)", out, re.M)
-        if re.search(r"^review: FAILED", out, re.M):
-            verdict[feat] = "plan review FAILED (fix the findings)"
-        elif re.search(r"^review: (MISSING|STALE)", out, re.M):
-            verdict[feat] = "machine review (hunter ‖ plan reviewer) before the gate"
-        elif hm and hm.group(1) == "MISSING":
+        if hm and hm.group(1) == "MISSING":
             verdict[feat] = f"hunter plan pass on {hm.group(2)} before the gate"
         elif hm and hm.group(1) == "STALE":
             # 2026-10-18: 202 and 203 were "dispatch now" with stamps their review-round edits had staled; the guard denied

@@ -12,4 +12,4 @@ Each line is a command or a gate. Tick it when the gate is green, not when it fe
 - [ ] Every port, host and database parameterised; tests have a local database; `.env.example` holds the shape, `.env` is ignored
 - [ ] CI: `.github/workflows/ci.yml` on PRs into `{{release}}` only; `sh scripts/reef-ci-local.sh` green locally; Dependabot targets `{{base}}`
 - [ ] `tiers.light.allow` in `.reef/config.json` names the safe paths (nothing touching privacy, money, auth, tenancy, data)
-- [ ] First row: `/reef-plan` → `/reef-plan-review` → `/reef-task` → `/reef-review`
+- [ ] First row: `/reef-plan` → `/reef-task` → `/reef-review`
