@@ -918,6 +918,23 @@ class Converge(unittest.TestCase):
         self.assertIn("1 prose row(s) not run here", r.stdout)
         self.assertNotIn("missing", r.stdout)
 
+    def test_a_command_followed_by_exits_n_is_run_and_its_exit_code_checked(self):
+        """2026-11-07 (an adopted project, row 38, task 3801 AC-5): the cell read `npx vitest run <file>` exits 0 — the
+        form plan-check's own help names. converge read it as ONE test named "<cmd>` exits 0", found none, and reported
+        it missing while the command passed 75/75; the session nearly amended an approved plan over it."""
+        def cell(c):
+            task = TASK_NEW.replace("| AC-2 | `test_csv_two_decimals` |", f"| AC-2 | {c} |")
+            write(self.d, "reef/features/csv-export-for-orders/tasks/1201-write-csv.md", task)
+            return self.converge()
+        r = cell("`python3 -c \"import sys; sys.exit(0)\"` exits 0")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("missing", r.stdout)
+        r = cell("`python3 -c \"import sys; sys.exit(3)\"` exits 0")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("AC-2: contradicts — `python3 -c \"import sys; sys.exit(3)\"` exit 3, not 0", r.stdout)
+        r = cell("`python3 -c \"import sys; sys.exit(3)\"` exits 3")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def test_a_cell_with_two_backticked_names_checks_each(self):
         # 2026-10-24, the trial's row 5 rollup: a Proof cell holding two names, `a`, `b`, was read as ONE name
         # ("a`, `b") and reported missing although both tests existed
