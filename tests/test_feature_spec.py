@@ -656,34 +656,39 @@ class HandbackAndReport(unittest.TestCase):
         self.assertEqual(self.claims("report", rp, "--task", self.task).returncode, 0)
 
 
-class BlockingFixed(unittest.TestCase):
-    def test_a_cited_line_left_unchanged_is_named_a_changed_one_passes(self):
-        # first contact (2026-10-17): the orchestrator amended six files for the reviewer's BLOCKING items and left one
-        # cited ADR line as it was; the fresh reviewer failed on that line again and the round rule stopped the loop
-        d = tempfile.mkdtemp(prefix="reef-bf.")
-        g = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], capture_output=True, text=True, check=True)
-        subprocess.run(["git", "init", "-q", "-b", "main", d], check=True)
-        write(d, "reef/architecture/adr/draft-1-storage.md", "# Storage\n\n## Consequences\nSC-1 and SC-2 prove real Supabase Storage.\nPreview and Production each get a bucket.\n")
-        write(d, "AGENTS.md", "# brief\nThe app is deployed to Vercel.\n")
-        g("add", "-A"); g("commit", "-qm", "before")
-        since = subprocess.run(["git", "-C", d, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-        report = write(d, "review.md", "RUN: agent=plan-reviewer feature=demo\nVERDICT: FAIL\n\nBLOCKING\n"
-                       "B1 — reef/architecture/adr/draft-1-storage.md:4 says SC-1/SC-2 prove real storage; withdrawn.\n"
-                       "B2 — AGENTS.md:2 says deployed to Vercel; the owner says never.\n\nADVISORY\n- none\n")
-        write(d, "AGENTS.md", "# brief\nThe app is not deployed in this trial.\n")   # B2 fixed, B1 missed
-        r = subprocess.run([sys.executable, CLAIMS, "blocking-fixed", report, since, "--repo", d], capture_output=True, text=True)
+class NoJudgeOnTheFastPath(unittest.TestCase):
+    """2026-11-07 (an adopted project, task 4701: complexity design, tier full, verify judge): on the fast path reef-attempt runs no
+    verifier, so the task file promised a judge it never got. The plan check refuses that combination for a new plan."""
+    DESIGN = (TASK_NEW.replace("complexity: mech", "complexity: design").replace("tier: light", "tier: full")
+              .replace("verify: gate-only", "verify: judge").replace("## Scope\n", "## Decision\nKeep it simple.\n\n## Scope\n"))
+
+    def test_judge_on_a_fast_row_fails_naming_both_honest_choices(self):
+        d = project()
+        feature(d, tasks={"1201-write-csv.md": self.DESIGN})
+        r = check(d)
         self.assertEqual(r.returncode, 1, r.stdout)
-        self.assertIn("NOT FIXED", r.stdout)
-        self.assertIn("draft-1-storage.md:4 unchanged", r.stdout)
-        self.assertNotIn("AGENTS.md:2", r.stdout)
-        write(d, "reef/architecture/adr/draft-1-storage.md", "# Storage\n\n## Consequences\nSC-1 and SC-2 are withdrawn: storage is only ever stubbed.\nPreview and Production each get a bucket.\n")
-        r = subprocess.run([sys.executable, CLAIMS, "blocking-fixed", report, since, "--repo", d], capture_output=True, text=True)
+        line = [l for l in fails(r) if "fast-path row" in l]
+        self.assertTrue(line and line[0].startswith("FAIL"), r.stdout)
+        self.assertIn("verify: gate-only", line[0])
+        self.assertIn("tier: design", line[0])
+
+    def test_gate_only_on_the_fast_row_or_tier_design_passes(self):
+        d = project()
+        feature(d, tasks={"1201-write-csv.md": self.DESIGN.replace("verify: judge", "verify: gate-only")})
+        r = check(d)
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("ok: 2 cited line(s) changed", r.stdout)
-        shorthand = write(d, "review2.md", "RUN: agent=plan-reviewer feature=demo\nVERDICT: FAIL\n\nBLOCKING\nB1 — prisma:34 still says so.\n")
-        r = subprocess.run([sys.executable, CLAIMS, "blocking-fixed", shorthand, since, "--repo", d], capture_output=True, text=True)
-        self.assertEqual(r.returncode, 0)
-        self.assertIn("cannot be checked", r.stdout)
+        d = project()
+        feature(d, tasks={"1201-write-csv.md": self.DESIGN.replace("tier: full", "tier: design")})
+        r = check(d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_an_approved_plan_is_warned_not_blocked(self):
+        d = project()
+        feature(d, tasks={"1201-write-csv.md": self.DESIGN})
+        write(d, ".reef/approvals/csv-export-for-orders.json", json.dumps({"digest": "0" * 64}))
+        r = check(d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertTrue([l for l in fails(r) if l.startswith("warning") and "fast-path row" in l and "approved" in l], r.stdout)
 
 
 class AProofTheGuardRefusesFailsAtPlanning(unittest.TestCase):

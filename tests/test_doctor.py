@@ -239,6 +239,21 @@ class Update(unittest.TestCase):
         git(clone, "add", "-A"); git(clone, "commit", "-qm", "plugin")
         return clone
 
+    def test_a_script_reef_no_longer_ships_is_named_never_deleted(self):
+        # 2026-11-07: 0.7.5 removed scripts/reef-converge; an adopted project kept its copy through every update, unnamed
+        d, clone = project(), self._clone()
+        with open(os.path.join(d, "scripts", "reef-converge"), "w") as f:
+            f.write("#!/bin/sh\n")
+        with open(os.path.join(d, "scripts", "build.sh"), "w") as f:
+            f.write("#!/bin/sh\n")
+        git(d, "add", "-A"); git(d, "commit", "-qm", "old reef script")
+        r = subprocess.run([sys.executable, UPDATE, "--repo", d, "--plugin", clone, "--dry-run"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no longer shipped: scripts/reef-converge — `git rm scripts/reef-converge`", r.stdout)
+        self.assertTrue(os.path.isfile(os.path.join(d, "scripts", "reef-converge")), "named, never deleted")
+        self.assertNotIn("scripts/reef-queue.py —", r.stdout, "a shipped script is not a leftover")
+        self.assertNotIn("build.sh", r.stdout, "the project's own scripts are not Reef's")
+
     def test_the_reload_line_names_the_marketplace_and_the_push_hint_rebases_first(self):
         # 2026-10-29 (the owner's update): the last line read `/plugin marketplace update <marketplace>` — a placeholder in a
         # command, against the owner's rule — and when his push was rejected (the loop had pushed meanwhile) the hint said
