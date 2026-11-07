@@ -37,8 +37,8 @@ run_gate() { ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_CONFIG_
 # A tier: design (or critical) task closes only after the loophole-hunter's SECOND pass, on the finished
 # guard (scripts/reef-adversarial <task> guard <report> writes adversarial-guard:). Checked on
 # the STAGED blob of every task file entering a done/ directory, before anything else runs.
-# hunter.guard_pass = feature (0.7): the pass runs ONCE on the feature's merged diff and reef-record refuses GREEN
-# without it (scripts/reef-adversarial --feature <slug> guard <report>); a task then closes without the key.
+# hunter.guard_pass = feature (0.7): the pass is the acceptance review's `## Guard pass` on the feature's diff, and
+# reef-record refuses GREEN without it (0.7.5, one review); a task then closes without the key.
 # the MAIN checkout's config: loop policy has one home (a worktree's copy predates the owner's edit until its next merge)
 MAIN_CO=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); [ -f "$MAIN_CO/.reef/config.json" ] || MAIN_CO=.
 GUARD_PASS=$(command -v python3 >/dev/null 2>&1 && python3 -c 'import json,sys;print(str((json.load(open(sys.argv[1])).get("hunter") or {}).get("guard_pass","task")).lower())' "$MAIN_CO/.reef/config.json" 2>/dev/null || echo task)

@@ -463,7 +463,7 @@ def hunter_state(task_paths, tiers=("critical",)):
         if fm_value(text, "tier") not in tiers or fm_value(text, "status") == "done":
             continue
         if is_rollup(p):
-            continue   # a review rollup gets no plan pass (2026-10-24): the feature's guard pass reads its diff
+            continue   # a review rollup gets no plan pass (2026-10-24): the review's guard pass reads its diff
         tid = fm_value(text, "id") or os.path.basename(p)
         got = fm_value(text, "adversarial-plan")
         if not got:

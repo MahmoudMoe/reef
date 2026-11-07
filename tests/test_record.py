@@ -82,14 +82,14 @@ class _Repo:
         e.update(kw)
         return e
 
-    def record(self, verdict="GREEN", report="ok", **kw):
+    def record(self, verdict="GREEN", report="ok", body="", **kw):
         """A GREEN/PASS record carries its reviewer's report (2026-10-24): the VERDICT line and the head it reviewed."""
         args = [sys.executable, RECORD, "demo", verdict, "--root", self.d]
         if report and verdict in ("GREEN", "PASS"):
             p = os.path.join(self.tmp, "review.md")
             head = git(self.d, "rev-parse", "feat")[:12] if report != "old-head" else "0123456789ab"
             with open(p, "w") as f:
-                f.write(f"RUN: agent=acceptance feature=demo\nHEAD: {head}\n" + ("VERDICT: FAIL\n" if report == "fail" else f"VERDICT: {verdict}\n"))
+                f.write(f"RUN: agent=acceptance feature=demo\nHEAD: {head}\n" + body + ("VERDICT: FAIL\n" if report == "fail" else f"VERDICT: {verdict}\n"))
             args += ["--report", p]
         return subprocess.run(args, capture_output=True, text=True, env=self.env(**kw))
 
@@ -110,30 +110,65 @@ class ForgeMerge(_Repo, unittest.TestCase):
         self.assertEqual(self.merge().returncode, 0, self.merge().stderr)
         self.assertEqual(self.merge("gh api -X PUT repos/o/r/pulls/7/merge -f merge_method=squash").returncode, 0)
 
-    def test_green_needs_the_feature_guard_pass_under_feature_mode(self):
-        # 0.7 hunter.guard_pass = feature: the merge's GREEN record is the enforcement point (the pre-commit no longer is)
+    GUARD = "## Guard pass\nDEFECT: a renamed re-export slips the module guard\nBLOCKER: none\n"
+    SECURITY = "## Security\nSPINE: reef/architecture/threat-model.md\nNIT none\n"
+
+    def critical_feature(self, mode="feature", touches="", tier="critical"):
         with open(os.path.join(self.d, ".reef", "config.json"), "w") as f:
             json.dump({"gates": {"full": "true"}, "merge": {"by": "loop"}, "branches": {"base": "main", "release": "release"},
-                       "hunter": {"guard_pass": "feature"}, "paths": {"features": "reef/features"}}, f)
+                       "hunter": {"guard_pass": mode}, "paths": {"features": "reef/features"}}, f)
         tasks = os.path.join(self.d, "reef", "features", "demo", "tasks", "done")
-        os.makedirs(tasks)
-        tp = os.path.join(tasks, "001-a.md")
-        with open(tp, "w") as f:
-            f.write("---\nid: 1\nfeature: demo\nstatus: done\ncomplexity: design\ntier: critical\nverify: judge\nattempts: 0\n"
-                    "adversarial-plan: aaaaaaaaaaaa\n---\n# 1\n\n## Log\n")
+        os.makedirs(tasks, exist_ok=True)
+        with open(os.path.join(tasks, "001-a.md"), "w") as f:
+            f.write(f"---\nid: 1\nfeature: demo\nstatus: done\ncomplexity: design\ntier: {tier}\nverify: judge\nattempts: 0\n"
+                    f"adversarial-plan: aaaaaaaaaaaa\n{touches}---\n# 1\n\n## Log\n")
+
+    def test_one_review_a_critical_features_green_report_carries_the_guard_pass(self):
+        # 0.7.5 (an adopted project, 2026-11-07: 4 guard-pass, 6 per-feature security and 19 acceptance reports on the same heads):
+        # on the critical path the acceptance review IS the guard pass — no separate adversarial-guard record; its section is checked
+        self.critical_feature()
         r = self.record()
-        self.assertNotEqual(r.returncode, 0, "GREEN recorded without the feature's guard pass")
-        self.assertIn("--feature demo guard", r.stderr)
-        self.assertIn("task(s) 1", r.stderr)
+        self.assertNotEqual(r.returncode, 0, "GREEN recorded on a critical-path feature with no guard pass in the review")
+        self.assertIn("## Guard pass", r.stderr)
+        self.assertNotIn("## Security", r.stderr, "no risk touch: no security part asked")
         self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "review", "demo.json")))
-        with open(os.path.join(self.d, "guard.md"), "w") as f:
-            f.write("RUN: agent=loophole-hunter task=1 pass=guard\nBLOCKER: none\nVERDICT: PASS\n")
-        a = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-adversarial"), "--feature", "demo", "guard", os.path.join(self.d, "guard.md")],
-                           capture_output=True, text=True, cwd=self.d)
-        self.assertEqual(a.returncode, 0, a.stderr)
+        r = self.record(body="## Guard pass\n\n")
+        self.assertNotEqual(r.returncode, 0, "an empty section is no guard pass")
+        r = self.record(body=self.GUARD)
+        self.assertEqual(r.returncode, 0, "the section is the record; no adversarial-guard on the task: " + r.stderr)
+        self.assertEqual(self.record("FAIL").returncode, 0, "a FAIL record never needs the parts")
+
+    def test_one_review_a_risk_touching_feature_also_carries_security(self):
+        self.critical_feature(touches="touches: [auth]\n", tier="full")   # a risk touch alone puts it on the critical path
+        r = self.record(body=self.GUARD)
+        self.assertNotEqual(r.returncode, 0, "GREEN recorded on an auth-touching feature with no security part")
+        self.assertIn("## Security", r.stderr)
+        self.assertNotIn("## Guard pass", r.stderr)
+        r = self.record(body=self.SECURITY)
+        self.assertIn("## Guard pass", r.stderr, "the missing part is named")
+        r = self.record(body=self.GUARD + self.SECURITY)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_one_review_task_mode_keeps_its_per_task_records_and_still_folds_security_in(self):
+        # hunter.guard_pass: task — the pre-commit holds the guard record per task; the review adds only the security part
+        self.critical_feature(mode="task", touches="touches: [money]\n")
+        r = self.record()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("## Security", r.stderr)
+        self.assertNotIn("## Guard pass", r.stderr, "task mode: the guard pass is per task, not the review's")
+        r = self.record(body=self.SECURITY)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_one_review_a_fast_path_feature_needs_neither(self):
+        self.critical_feature(tier="full")   # complexity: design at tier full — the fast path (2026-10-24, row 18)
         r = self.record()
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.record("FAIL").returncode, 0, "a FAIL record never needs the pass")
+
+    def test_one_review_a_critical_feature_not_found_fails_closed(self):
+        self.critical_feature()
+        r = subprocess.run([sys.executable, RECORD, "other", "GREEN", "--root", self.d], capture_output=True, text=True, env=self.env())
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("feature not found", r.stderr)
 
     def test_no_record_denied(self):
         r = self.merge()

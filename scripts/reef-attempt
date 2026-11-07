@@ -345,9 +345,9 @@ def run_attempt(cap_flag, path, failure):
                 print(rejudge_line(task.text, attempts + 1))
         if tier in ("design", "critical"):
             # hunter.guard_pass = feature (0.7): no hunter per task — graph-run and the task skill read the absence of the
-            # `adversary:` line; the one pass runs on the feature's diff in /reef-review (2026-10-18: two judges, 96k, 20 lines)
+            # `adversary:` line; the guard pass is the acceptance review's `## Guard pass` in /reef-review (0.7.5, one review)
             if str((policy.get("hunter") or {}).get("guard_pass", "task") or "task").lower() == "feature":
-                print("guard-pass: feature (no hunter on this task; ONE loophole-hunter pass on the feature's diff before the GREEN record)")
+                print("guard-pass: feature (no hunter on this task; the acceptance review's `## Guard pass` on the feature's diff, before the GREEN record)")
             else:
                 print(f"adversary: model={adversary}")
                 if rw:
