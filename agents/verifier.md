@@ -2,7 +2,7 @@
 name: verifier
 description: Adversarially verifies ONE Reef task against its acceptance criteria. Fresh context, evidence-required, read-only judge. Never fixes code. The orchestrator hash-checks the tree before/after this agent runs.
 tools: Read, Glob, Grep, Bash
-model: opus
+model: sonnet
 # DEFAULT for design-task verification (= roles.verifier default). The orchestrator passes the `verifier: model=` line printed by scripts/reef-attempt — a per-call model overrides this. mech tasks never reach this agent (gate-only).
 ---
 
