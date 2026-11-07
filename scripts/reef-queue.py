@@ -253,6 +253,10 @@ def sync(root):
     if root in _SNAPS:
         return _SNAPS[root]
     snap_p = os.path.join(root, ".reef", "queue.json")
+    since = os.environ.get("REEF_QUEUE_SNAPSHOT_SINCE", "")   # one sync per tick (2026-11-07: three cost 13 s of 16)
+    if re.fullmatch(r"\d+(\.\d+)?", since) and os.path.isfile(snap_p) and os.path.getmtime(snap_p) >= float(since):
+        _SNAPS[root] = json.loads(read(snap_p))
+        return _SNAPS[root]
     try:
         issues = json.loads(gh(root, "issue", "list", "--label", LABEL, "--state", "all", "--limit", "1000",
                                "--json", "number,title,body,state,stateReason,labels,milestone,createdAt,author", read=True))

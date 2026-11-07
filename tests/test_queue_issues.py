@@ -176,6 +176,30 @@ class Base(unittest.TestCase):
         return next(i for i in self.gh()["issues"] if i["title"].startswith(f"[{rid}]"))
 
 
+class OneSyncPerTick(Base):
+    """2026-11-07 (an adopted project): one tick took 16 s, 13 of them three full syncs of the same 1000 issues (`ready`,
+    `status`, `triage --count`, each its own process). Within one tick a snapshot written since the tick began is read
+    as is: REEF_QUEUE_SNAPSHOT_SINCE, set by the tick after its first read."""
+
+    def lists(self):
+        return len([c for c in self.gh()["calls"] if c[:2] == ["issue", "list"] and "reef-row" in c])
+
+    def test_a_snapshot_written_since_the_tick_began_is_reused_an_older_one_is_not(self):
+        import time
+        t0 = time.time() - 1
+        self.assertEqual(self.q("ready").returncode, 0)
+        n = self.lists()
+        r = self.q("status", REEF_QUEUE_SNAPSHOT_SINCE=str(t0))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("exact totals", r.stdout)
+        self.assertEqual(self.q("triage", "--count", REEF_QUEUE_SNAPSHOT_SINCE=str(t0)).returncode in (0, 1), True)
+        self.assertEqual(self.lists(), n, "a second full sync within the tick")
+        self.q("status", REEF_QUEUE_SNAPSHOT_SINCE=str(time.time() + 60))
+        self.assertEqual(self.lists(), n + 1, "a snapshot older than the tick is synced again")
+        self.q("status")
+        self.assertEqual(self.lists(), n + 2, "outside a tick every read syncs, as before")
+
+
 class ReadsFromIssues(Base):
     def test_status_and_ready_read_the_labelled_issues(self):
         r = self.q("status")
