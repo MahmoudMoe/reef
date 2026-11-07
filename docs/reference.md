@@ -174,7 +174,7 @@ guard pass and the security agent once per feature, all reading the same test re
 1. **Plan.** `/reef-plan` asks only what the spec leaves open, in the batch's one question set. A lean planner then
    drafts the feature folder in the feature's own worktree: a spec with keyed requirements, one decision record with a
    diagram, and small vertical-slice tasks (at most `plan.max_acs` criteria each) whose criteria cite those keys and
-   whose proof is a **named test**, run by your runner with a name filter (`converge.test_cmd`); a shell proof is the
+   whose proof is a **named test**, run by the full gate; a shell proof is the
    tagged exception. The deterministic check (`reef-plan-check.py`) must be green before the planner returns.
 2. **Machine review, before you — on the critical path.** The loophole-hunter and a plan reviewer read the draft in
    parallel, in fresh contexts: one round, a second only on a blocker, and one fix round by the planner. A fast-path
@@ -344,7 +344,6 @@ Every cap, model, branch name and path Reef uses is a key in this one file, writ
 | `writing.task_words.<tier>` · `handback_words` · **`report_words`** · `journal_words` / `queue_words` · **`sentence_words`** / **`criterion_words`** · **`session_start_tokens`** | `0` everywhere (off; 0.7 — a budget rejected honest hand-backs and reports into rewrite rounds; set a number to enforce) · `40000` / `35000` · `8000` | caps; `task_words`, the sentence and criterion rules fail only under 0.6 |
 | **`loop.inflight_stale_minutes`** / **`loop.no_progress_ticks`** / **`loop.rows_in_flight`** | `90` / `3` / `2` | an in-flight marker older than this is "returned"; identical ticks before the loop parks; rows between plan and close before a new one is planned (0 = no cap; v3) |
 | **`context.failure_lines` / `context.explore_files`** | `60` / `40` | the failing block's cap; (the Read tripwire was cut — the key is reserved); an Explore agent's file budget |
-| **`converge.test_cmd`** | `""` | how `reef-converge` runs one named test (`{name}`, your runner's name filter — the v3 proof); empty = the full gate once |
 | **`review.security_per_item`** | `on` | the security agent once per feature on the critical path, before the green record (`off`: the release pass alone) |
 
 0.5 configs keep working: `gates.test` is an alias of `gates.full`; every new key defaults to the old behaviour;
@@ -384,8 +383,8 @@ mahmoud) · `scripts/` (`reef-init.py`, `reef-update.py`, `reef-doctor.py`, `ree
 `reef-graph-run.py` [probe|generate|row|settle], `reef-evidence.py`, `reef-factory.py`,
 `reef-migrate`, `reef-loop.py` [tick|start|stop|wait|unlock], `reef-handoff`, `reef-gate.sh` [fast|full|--failures],
 `reef-attempt`, `reef-guard.py`, `reef-approval.py`, `reef-record`, `reef-graph.py`, `reef-plan-check.py`
-[--rules|--digest|--needs-agent|--verify-stamp], `reef-converge`, `reef-adversarial`, `reef-claims.py`
-[check|--handback|skeleton|report|claims-only], `reef-tier.py`, `reef-queue.py` [status|ready|check|adr-number|index|footnote|add-row|set-depends|triage|set-batch|drop-row|close|admit|set-priority|demote|journal|migrate-to-issues],
+[--rules|--digest|--needs-agent|--verify-stamp], `reef-adversarial`, `reef-claims.py`
+[check|--handback|skeleton|report|claims-only|refactor-preserved], `reef-tier.py`, `reef-queue.py` [status|ready|check|adr-number|index|footnote|add-row|set-depends|triage|set-batch|drop-row|close|admit|set-priority|demote|journal|migrate-to-issues],
 `reef-structure`, `reef-recalibrate`, `reef-repo`, `reef-c4.py`, `reef-threat.py`, `reef-ci-local.sh` [--ci|--release],
 `reef-snapshot.sh`, `reef-cost.py` [rows|growth|--live]; `tests/eval/reef-eval` is a test tool) · `hooks/hooks.json` (PreToolUse Bash ·
 Task|Agent · Edit|Write|MultiEdit; PostToolUse AskUserQuestion; Stop; SessionStart) · `migrations/` ·
@@ -432,7 +431,7 @@ adapter (`scripts/reef-opencode.py`) · **Claude Code** when it needs a hook eve
 | Plan edited after approval → re-review; the stamp covers the WHOLE feature folder (spec, child specs, ADRs, tasks) | `reef-plan-check.py --verify-stamp`, per feature, re-checked by the guard at every dispatch against the task file's own worktree | portable | **code** |
 | A feature folder is well-formed: a descriptive slug, `SPEC.md` with `Row:` and layered `FR-n` keys, child specs with `Parent:`, ACs citing keys of their own folder, ≤ `plan.max_tasks` tasks, nothing else inside | `reef-plan-check.py` (`--rules` prints every rule with the project's numbers); `reef-queue.py check` (structure, slug); `reef-structure --check` | portable | **code** |
 | Criterion and proof split (new shape): one declarative sentence ≤ `writing.criterion_words`, its proof in the `## Proof` row; old shape stays valid; sentences ≤ `writing.sentence_words` | `reef-plan-check.py` (fails under 0.6, warns older); the claimed-twice check reads Proof rows | portable | **code** |
-| Every Proof row holds on the branch before acceptance (`missing` / `contradicts` under the one cap) | `scripts/reef-converge <feature>` | portable | **code** when run (reef-review prose) |
+| Every Proof row holds on the head that merges: a named test by the full gate, a command run by the acceptance review with its exit code; a `kind: refactor` changes no existing test's assertion line | `scripts/reef-gate.sh full`; `reef:acceptance`; `reef-claims.py refactor-preserved <base>...HEAD` | portable | **code** for the gate and the refactor check, **prose** for the commands |
 | A tier only gets heavier: path classes (`tiers.design.paths`, `tiers.critical.paths`) and `touches:` (pii/money/auth → critical, migration → design + `Rollback:`) | `scripts/reef-tier.py` from the diff; `reef-plan-check.py` on the declaration; `reef-init` lists older tasks the rails would move | portable | **code** when run |
 | Adversarial pass on the PLAN before code and on the finished GUARD before close (`design` and `critical`) | `scripts/reef-adversarial` records a PASS bound to the plan's content (`BLOCKER: none` is no blocker; a bold one is); the guard refuses a dispatch without it; the pre-commit refuses a design/critical task entering `done/` without `adversarial-guard:` | portable | **code** |
 | A critical `touches: auth\|pii\|money` task needs a threat model at least as new as the architecture | `reef-plan-check.py`; `scripts/reef-threat.py lint\|fresh` (every boundary crossing has a mitigated or accepted STRIDE row) | portable | **code** |

@@ -104,7 +104,7 @@ def parse_args(argv):
 
 def proof_is_test(cell):
     """A Proof cell is a test name unless it reads like a command ([mechanic], shell operators, a runner, a path) —
-    the same reading scripts/reef-converge gives it."""
+    the same reading plan-check and the acceptance review give it."""
     body = cell.strip().strip("`").strip()
     if re.match(r"^\[mechanic\]", body):
         return False

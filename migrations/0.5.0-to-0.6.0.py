@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """0.5.0 -> 0.6.0: ADDITIVE keys only. Idempotent. Exit 0 = applied or nothing to do, 1 = refused, 2 = usage.
 Adds, when absent: the tier table (tiers.<tier>.{roles,effort,paths}), paths.features (only when the project uses
-the 0.6 tree), writing.* caps, caps.{feature_tokens,batch_tokens,context_tokens,context_warn}, loop.*, context.*,
-converge.*; keeps gates.test as the alias it is; writes .reef/version; offers --layout. Never changes a value."""
+the 0.6 tree), writing.* caps, caps.{feature_tokens,batch_tokens,context_tokens,context_warn}, loop.*, context.*
+(converge.* until 0.7.5, which removed reef-converge); keeps gates.test as the alias it is; writes .reef/version; offers --layout. Never changes a value."""
 import json
 import os
 import sys
@@ -25,7 +25,7 @@ def main(root, plugin):
                 dst[k] = v
             elif isinstance(dst[k], dict) and isinstance(v, dict):
                 add(dst[k], v)
-    for section in ("tiers", "writing", "loop", "context", "converge"):
+    for section in ("tiers", "writing", "loop", "context"):
         cfg.setdefault(section, {})
         add(cfg[section], tpl.get(section, {}))
     cfg.setdefault("caps", {})

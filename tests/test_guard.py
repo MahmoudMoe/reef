@@ -1356,7 +1356,7 @@ class AJobIsNotAWayAroundTheGate(unittest.TestCase):
         self.assertEqual(r.returncode, 2, r.stderr)
         r = bash("python3 scripts/reef-run.py job gate-4 -- sh scripts/reef-gate.sh full --failures")
         self.assertEqual(r.returncode, 0, "the gate as a job is the normal case: " + r.stderr)
-        r = bash("python3 scripts/reef-run.py job converge-4 -- python3 scripts/reef-converge move-specs")
+        r = bash("python3 scripts/reef-run.py job evidence-4 -- python3 scripts/reef-evidence.py --repo .")
         self.assertEqual(r.returncode, 0, r.stderr)
         for spelled in ("python3 scripts/reef-run.py --repo . _job-run gate-4 -- true", "python3 scripts/reef-run.py --repo=. _job-run gate-4 -- true",
                         "python3 scripts/reef-run.py '_job-run' gate-4 -- true", "python3 scripts/reef-run.py --night _job-run gate-4 -- true"):

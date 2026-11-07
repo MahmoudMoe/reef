@@ -101,7 +101,7 @@ PROMPT = ("/reef-loop — a reef-run iteration: headless, AskUserQuestion does n
           "At the context ceiling `python3 scripts/reef-loop.py wait \"/clear requested …\"` (it renders the handoff). "
           "When no row can move without the owner, `python3 scripts/reef-loop.py wait \"owner: <what>\"` and end. A filed question is "
           "answered when the row's state moved past it (`reef-row.py state <row>`): clear it, never re-record it. "
-          "LONG WORK IS THE RUNNER'S: a command that may run longer than two minutes (the full gate, reef-converge, a CI wait) is a runner job — "
+          "LONG WORK IS THE RUNNER'S: a command that may run longer than two minutes (the full gate, a CI wait) is a runner job — "
           "`python3 scripts/reef-run.py job <name> -- <command…>` (letters, digits, dashes) — then `python3 scripts/reef-loop.py wait \"job: <name> — <what it proves>\"` "
           "and END the turn; never a background shell here (it keeps this process alive and the runner waiting). The runner waits for the job, then resumes "
           "this conversation (a short job) or starts the next session, with JOBS DONE and its rc; the log is .reef/run/jobs/<name>.log.")

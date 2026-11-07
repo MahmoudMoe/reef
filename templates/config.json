@@ -165,9 +165,6 @@
     "failure_lines": 60,
     "explore_files": 40
   },
-  "converge": {
-    "test_cmd": ""
-  },
   "assess": {
     "exclude": [],
     "large_file": 800

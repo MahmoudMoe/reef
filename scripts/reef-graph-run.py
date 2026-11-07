@@ -18,7 +18,7 @@ Usage:
   reef-graph-run.py row         <row-id|slug> [--repo DIR]   (v3 phase 5b)
                                                       ONE workflow for a FAST-PATH row in build: its open tasks in id order —
                                                       implementer, gate, the close in place (reef-merge-close by the mechanic) —
-                                                      then merge-base + push + PR, the full gate and converge on that head, and
+                                                      then merge-base + push + PR, the full gate on that head, and
                                                       the ONE reviewer; .reef/graph/row-<slug>-<hash>.js. Refused for the
                                                       critical path (a worktree per task and its judges: /reef-graph, then
                                                       /reef-review), at any other state, with a task in flight, gate not ok.
@@ -29,7 +29,7 @@ Usage:
                                                       READY TO MERGE <id> or FAIL <id>: <why> (attempt counted). A row's
                                                       result: the row's identity, every close (a Closes-task commit, the file
                                                       under done/), a clean tree and no open task read from DISK; the evidence
-                                                      re-read, converge re-checked; the review report (from the run's scratch
+                                                      re-read; the review report (from the run's scratch
                                                       dir, its VERDICT line) copied and recorded (reef-record); then ROW <id>
                                                       READY TO MERGE and the row script's one bare merge command the
                                                       orchestrator runs (the guard checks it there; settle never merges) — or
@@ -188,8 +188,8 @@ JUDGE_SCHEMA = {"type": "object", "properties": {"verdict": {"type": "string", "
 REVIEW_SCHEMA = {"type": "object", "properties": {"verdict": {"type": "string", "enum": ["GREEN", "FAIL"]}, "report_path": {"type": "string"},
                                                   "summary": {"type": "string"}}, "required": ["verdict", "report_path"]}
 CLOSE_SCHEMA = {"type": "object", "properties": {"closed": {"type": "boolean"}, "output": {"type": "string"}}, "required": ["closed", "output"]}
-EVIDENCE_SCHEMA = {"type": "object", "properties": {"gate_exit": {"type": "integer"}, "converge_exit": {"type": "integer"}, "evidence_exit": {"type": "integer"},
-                                                    "evidence": {"type": "string"}, "notes": {"type": "string"}}, "required": ["gate_exit", "converge_exit", "evidence_exit", "evidence"]}
+EVIDENCE_SCHEMA = {"type": "object", "properties": {"gate_exit": {"type": "integer"}, "evidence_exit": {"type": "integer"},
+                                                    "evidence": {"type": "string"}, "notes": {"type": "string"}}, "required": ["gate_exit", "evidence_exit", "evidence"]}
 PR_SCHEMA = {"type": "object", "properties": {"merged_base": {"type": "boolean"}, "number": {"type": ["integer", "null"]}, "head": {"type": "string"},
                                               "output": {"type": "string"}}, "required": ["merged_base", "number", "head", "output"]}
 MODELS = {"opus", "sonnet", "haiku"}
@@ -582,7 +582,7 @@ def open_tasks(fdir):
 
 def cmd_row(root, key):
     """ONE workflow for a FAST-PATH row (v3 phase 5b): its open tasks in id order, each implemented, gated and closed in place
-    by the mechanic before the next starts; then merge-base + push + PR, the full gate and converge on that head, and the one
+    by the mechanic before the next starts; then merge-base + push + PR, the full gate on that head, and the one
     reviewer. The orchestrator makes three calls per row: this, the Workflow tool, settle. The critical path keeps the
     per-task graph and /reef-review (the review, 2026-10-26: a judged task's close needs records settle writes after the
     judges, and a task worktree cut at generation lacks the previous close) — refused here with the next command. Also
@@ -646,8 +646,7 @@ def cmd_row(root, key):
                      f"for a person: merged_base false, say so in output, do nothing more; (2) git push -u origin {prefix}{slug}; (3) `gh pr view --json number` — "
                      f"none: `gh pr create --fill --base {base}`; no remote or no gh: number null, say so. head is `git rev-parse HEAD` here afterwards. Return the JSON only.",
         "evidence_prompt": f"REEF-FEATURE: {slug}\nMechanic, in {co}, each output to a file: (1) sh scripts/reef-gate.sh full --failures — its exit code in gate_exit and, "
-                           f"when red, the failing block (under 60 lines) in notes; (2) python3 scripts/reef-converge {slug} --repo {co} — its exit code in converge_exit, "
-                           f"its `missing`/`contradicts` lines in notes; (3) python3 scripts/reef-evidence.py --repo {co} — its exit code in evidence_exit, its one line in "
+                           f"when red, the failing block (under 60 lines) in notes; (2) python3 scripts/reef-evidence.py --repo {co} — its exit code in evidence_exit, its one line in "
                            f"evidence. Change no file. Return the JSON only.",
         "review_prompt": f"REEF-FEATURE: {slug}\nReview the feature {slug}: folder {fdir}, worktree {co}, PR head {{HEAD}} — against its SPEC.md, its diff "
                          f"against {base}, and every Proof row against the evidence (`python3 scripts/reef-evidence.py {{HEAD}}` in {co}). Write your report FILE to "
@@ -681,7 +680,6 @@ out.pr = await agent(ROW.pr_prompt, {{ label: 'pr', phase: 'PR', agentType: 'ree
 if (!out.pr.merged_base) {{ out.stopped = 'merge-base'; return out }}
 out.evidence = await agent(ROW.evidence_prompt, {{ label: 'evidence', phase: 'Evidence', agentType: 'reef:mechanic', schema: EVIDENCE, effort: 'low' }})
 if (out.evidence.gate_exit !== 0) {{ out.stopped = 'evidence'; return out }}
-if (out.evidence.converge_exit !== 0) {{ out.stopped = 'converge'; return out }}
 if (out.evidence.evidence_exit !== 0) {{ out.stopped = out.evidence.evidence_exit === 3 ? 'evidence (CI running)' : 'evidence'; return out }}
 const head = String(out.pr.head || '').slice(0, 12)
 out.review = await agent(ROW.review_prompt.split('{{HEAD}}').join(head), opt({{ label: 'review', phase: 'Review', agentType: 'reef:acceptance', schema: REVIEW, model: ROW.reviewer_model }}))
@@ -711,7 +709,7 @@ def verdict_of(path):
 def settle_row(root, res):
     """A row's result against the DISK (the result is a summary): the row's identity from its feature folder, every task's
     close as a `Closes-task:` commit on the branch with the file under done/, no open task and a clean tree, the evidence
-    re-read, converge re-checked, the review report from the run's own scratch dir and its VERDICT line, recorded by
+    re-read, the review report from the run's own scratch dir and its VERDICT line, recorded by
     reef-record; then the row script's own next command — the one bare merge the orchestrator runs where the guard sees
     it (settle never merges) — or ROW WAITS <state>: <why>."""
     rm = load_sibling("reef-row.py")
@@ -778,13 +776,6 @@ def settle_row(root, res):
         return 1
     if rc != 0:
         print(f"ROW {rid} WAITS evidence: {(ev.strip().splitlines() or ['no evidence'])[0]} — sh scripts/reef-gate.sh full in {co}")
-        return 1
-    rc, cout, cerr = run([sys.executable, project_script(root, "reef-converge"), slug, "--repo", co, "--dry-run"], co, timeout=1200)
-    if rc == 3:
-        print(f"ROW {rid} WAITS evidence: a gates.resources slot was busy — run settle again")
-        return 1
-    if rc != 0:
-        print(f"ROW {rid} WAITS review: converge — {(cout.strip().splitlines() or [cerr.strip()[:200]])[-1][:200]} — on the rollup, then /reef-task")
         return 1
     rev = res.get("review") if isinstance(res.get("review"), dict) else {}
     rp = str(rev.get("report_path") or "")

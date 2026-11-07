@@ -455,9 +455,9 @@ def process_tree():
 
 def session_doing(spid, tree=None):
     """What the runner's session is doing now: the longest-running command under its pid — a Reef script with its first argument
-    where one is in the chain (`reef-converge legacy-queue-to-issues`), else the deepest command — and how long it has run; "" when
+    where one is in the chain (`reef-merge-close 0412-split.md`), else the deepest command — and how long it has run; "" when
     the session has no child (it is thinking, or waiting on the model). The owner's question (2026-10-31): a silent log for twenty
-    minutes was a converge run, not a hang; the screen now says so."""
+    minutes was a long Reef script, not a hang; the screen now says so."""
     if not spid or spid <= 0:
         return ""
     tree = process_tree() if tree is None else tree

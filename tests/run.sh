@@ -18,7 +18,7 @@ export REEF_NO_RESUME=1   # a typed approval or answer in a test must not start 
 #   test_eval.py        tests/eval/reef-eval: verdict parser (GREEN = PASS), the NIT rate, comparison rule, fixture replay (trusting the hand-off drops the catch-rate), corpus builds green
 #   test_tiers_lock.py  0.6 phase 1: four tiers at dispatch, digest-bound approval, reviewer lock, guard deadline, the guard guards itself
 #   test_record.py      0.6 phase 1: review records bound to the forge SHA (fake gh): push after GREEN, rebase, slow gh all DENY
-#   test_feature_spec.py 0.6 phase 2: feature folder + SPEC keys, proof split, rails/touches, hand-back/report checks, reef-converge
+#   test_feature_spec.py 0.6 phase 2: feature folder + SPEC keys, proof split, rails/touches, hand-back/report checks, the refactor check
 #   test_dayzero.py     0.6 phase 3: reef-repo (mocked gh), the Explore lock, reef-recalibrate plan/apply/revert, reef-structure
 #   test_c4_threat.py   0.6 phase 4: reef-c4 detection/lint/drift, the threat lint and freshness, security gates as proposals
 #   test_loop.py        0.6 phase 5: the tick, the Stop hook (refused once per state), parking and budgets, the context ceiling, handoff, session start
