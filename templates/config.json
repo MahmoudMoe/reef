@@ -17,7 +17,7 @@
   "roles": {
     "author": "sonnet",
     "verifier": "sonnet",
-    "planner": "sonnet",
+    "planner": "opus",
     "adversary": "opus",
     "reviewer": "sonnet",
     "security": "opus",
@@ -109,7 +109,7 @@
     },
     "full": {
       "roles": {
-        "planner": "sonnet",
+        "planner": "opus",
         "adversary": "opus",
         "verifier": "sonnet",
         "reviewer": "sonnet",

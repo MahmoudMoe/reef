@@ -630,8 +630,9 @@ class ThePathSizesTheBuild(unittest.TestCase):
 class OpusForTheCriticalPathSonnetForTheRest(unittest.TestCase):
     """0.7.5 (the owner, 2026-11-07: "opus for critical, sonnet for the normal"): an adopted project ran every role on opus,
     the implementer and verifier of a one-line copy fix included. The template's design and critical tiers keep opus for
-    every role; the full tier and the tier-less defaults build, verify and plan on sonnet. The adversary, security and the
-    owner's proxy keep opus wherever they run."""
+    every role; the full tier and the tier-less defaults build and verify on sonnet. The planner stays on opus everywhere
+    (the owner, the same day): it runs once per row, and on the fast path no hunter reads its plan, so a weak plan is the
+    costliest mistake. The adversary, security and the owner's proxy keep opus wherever they run."""
 
     def test_the_template_puts_opus_on_the_critical_path_only(self):
         with open(os.path.join(ROOT, "templates", "config.json"), encoding="utf-8") as f:
@@ -639,8 +640,9 @@ class OpusForTheCriticalPathSonnetForTheRest(unittest.TestCase):
         for tier in ("critical", "design"):
             self.assertEqual(set(cfg["tiers"][tier]["roles"].values()), {"opus"}, tier)
         for roles in (cfg["tiers"]["full"]["roles"], cfg["roles"]):
-            for role in ("author", "verifier", "planner"):
+            for role in ("author", "verifier"):
                 self.assertEqual(roles[role], "sonnet", role)
+            self.assertEqual(roles["planner"], "opus", "the planner")
         for role in ("adversary", "security", "proxy"):
             self.assertEqual(cfg["roles"][role], "opus", role)
 
