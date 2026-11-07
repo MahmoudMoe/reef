@@ -123,8 +123,8 @@ class RoundCap(unittest.TestCase):
 class DesignTierUnderDefaults(unittest.TestCase):
     """templates/config.json ships hunter.plan_pass `design` (0.7.5: the plan-reviewer is gone, so the hunter reads every
     critical-path plan) and guard_pass `feature`; these tests pin the `critical` mode, which a project may still choose. skills/reef-plan/SKILL.md:41: the plan
-    hunter runs on every `critical` task ("every `design` task too under hunter.plan_pass: design"). skills/reef-review/SKILL.md:46
-    and reef-record: every design/critical task takes the guard record before GREEN. skills/reef-task/SKILL.md:34: per task,
+    hunter runs on every `critical` task ("every `design` task too under hunter.plan_pass: design"). skills/reef-review/SKILL.md 4b
+    and reef-record (0.7.5): a critical-path feature's GREEN report carries `## Guard pass`. skills/reef-task/SKILL.md:34: per task,
     the guard PASS is recorded with reef-adversarial <task> guard (the pre-commit refuses a design-tier close without it)."""
 
     def test_a_design_task_takes_its_per_task_guard_pass_without_a_plan_pass(self):
@@ -135,19 +135,17 @@ class DesignTierUnderDefaults(unittest.TestCase):
                          "pre-commit can never close it: " + r.stderr)
         self.assertIn("adversarial-guard:", fm_of(t))
 
-    def test_the_feature_guard_pass_stamps_a_design_task_that_never_needed_a_plan_pass(self):
+    def test_under_the_shipped_defaults_a_design_only_feature_is_green_on_its_reviews_guard_pass(self):
         with open(os.path.join(ROOT, "templates", "config.json"), encoding="utf-8") as f:
             hunter = json.load(f)["hunter"]
         self.assertEqual((hunter.get("plan_pass"), hunter.get("guard_pass")), ("design", "feature"), "the shipped defaults")
         hunter = dict(hunter, plan_pass="critical")   # the mode this test is about: a design task with no plan pass
         d = project({"gates": {"test": "true"}, "hunter": hunter, "paths": {"features": "reef/features"}})
-        tdir = "reef/features/demo/tasks"
-        p1 = task(d, rel=f"{tdir}/001-a.md", tier="critical", extra="adversarial-plan: aaaaaaaaaaaa\n")
-        p2 = task(d, rel=f"{tdir}/002-b.md", tier="design", tid="2")
-        r = adv("--feature", "demo", "guard", write(d, "g.md", PASS_PLAN.format(p="guard")), cwd=d)
-        self.assertEqual(r.returncode, 0, "under the shipped defaults a feature holding a design task can never be GREEN: " + r.stderr)
-        self.assertIn("adversarial-guard:", fm_of(p2))
-        self.assertIn("adversarial-guard:", fm_of(p1))
+        task(d, rel="reef/features/demo/tasks/002-b.md", tier="design", tid="2")
+        rep = write(d, "review.md", "RUN: agent=acceptance feature=demo\nHEAD: 0000000\nVERDICT: GREEN\n")
+        r = subprocess.run([sys.executable, RECORD, "demo", "GREEN", "--report", rep, "--root", d], cwd=d, capture_output=True, text=True, timeout=30)
+        self.assertIn("## Guard pass", r.stderr, "a design-only feature is on the critical path: its review carries the guard pass")
+        self.assertNotIn("adversarial-plan", r.stderr, "no plan-pass record stands between it and GREEN")
 
 
 def main_with_feature_worktree():
@@ -168,10 +166,10 @@ def main_with_feature_worktree():
 
 
 class FeatureRecordAcrossCheckouts(unittest.TestCase):
-    def test_green_through_root_main_refuses_while_the_worktrees_task_lacks_the_guard_pass(self):
+    def test_green_through_root_main_refuses_while_the_review_lacks_the_guard_pass(self):
         # reef-graph-run.py settle_row runs `reef-record <slug> GREEN --pr N --report … --root <main>` from the feature
-        # worktree; reef-record:244 reads the feature's tasks under --root (config_near(main)), where the plan does not live.
-        # skills/reef-review/SKILL.md:46: "`reef-record … GREEN` refuses while one lacks it".
+        # worktree; reef-record reads the feature's tasks where the plan lives (feature_home), not under --root.
+        # skills/reef-review/SKILL.md 4b (0.7.5): "`reef-record … GREEN` refuses a report without them".
         main, wt, _ = main_with_feature_worktree()
         rep = write(wt, ".reef/ci-local/review-demo.md", "HEAD: 0000000\nVERDICT: GREEN\n")
         fake = tempfile.mkdtemp(prefix="reef-fake-gh.")
@@ -180,18 +178,17 @@ class FeatureRecordAcrossCheckouts(unittest.TestCase):
         env = dict(os.environ, PATH=fake + os.pathsep + os.environ.get("PATH", ""))
         r = subprocess.run([sys.executable, RECORD, "demo", "GREEN", "--pr", "1", "--report", rep, "--root", main],
                            cwd=wt, capture_output=True, text=True, env=env, timeout=30)
-        self.assertIn("guard pass is not recorded", r.stderr,
-                      "GREEN went on to gh with task 1 unstamped (the check read main, which holds no copy): " + r.stderr[-300:])
+        self.assertIn("## Guard pass", r.stderr,
+                      "GREEN went on to gh without the review's guard pass (the check read main, which holds no copy): " + r.stderr[-300:])
 
-    def test_the_feature_guard_pass_run_from_main_finds_the_tasks_in_the_feature_worktree(self):
-        # reef-adversarial:249 config_near(os.getcwd()): from the main checkout (where the loop session runs) the feature's tasks
-        # are not found and the refusal says "no guard pass is required ... the GREEN record does not ask for one" — false for a
-        # feature with a critical task. Docstring: "recorded on every design/critical task of the feature". # contract silent on cwd
+    def test_green_run_from_main_finds_the_tasks_in_the_feature_worktree(self):
+        # the loop session runs in the main checkout: the feature's tasks live only in its worktree, and a GREEN from main must
+        # still read the path there — never "feature not found", never a pass because main holds no critical task
         main, wt, p = main_with_feature_worktree()
-        r = adv("--feature", "demo", "guard", write(main, "g.md", PASS_PLAN.format(p="guard")), cwd=main)
-        self.assertNotIn("no guard pass is required", r.stderr, "a critical feature was told it needs no guard pass")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("adversarial-guard:", fm_of(p))
+        rep = write(main, "review.md", "RUN: agent=acceptance feature=demo\nHEAD: 0000000\nVERDICT: GREEN\n")
+        r = subprocess.run([sys.executable, RECORD, "demo", "GREEN", "--report", rep], cwd=main, capture_output=True, text=True, timeout=30)
+        self.assertNotIn("feature not found", r.stderr)
+        self.assertIn("## Guard pass", r.stderr)
 
 
 class PreCommitTrust(unittest.TestCase):

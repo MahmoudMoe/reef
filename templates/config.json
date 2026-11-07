@@ -37,8 +37,7 @@
       "guard_pass": "feature"
   },
   "review": {
-      "split_lines": 4000,
-      "security_per_item": "on"
+      "split_lines": 4000
   },
   "plan": {
     "max_acs": 0,

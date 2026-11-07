@@ -648,7 +648,7 @@ def cmd_row(root, key):
         "evidence_prompt": f"REEF-FEATURE: {slug}\nMechanic, in {co}, each output to a file: (1) sh scripts/reef-gate.sh full --failures — its exit code in gate_exit and, "
                            f"when red, the failing block (under 60 lines) in notes; (2) python3 scripts/reef-evidence.py --repo {co} — its exit code in evidence_exit, its one line in "
                            f"evidence. Change no file. Return the JSON only.",
-        "review_prompt": f"REEF-FEATURE: {slug}\nReview the feature {slug}: folder {fdir}, worktree {co}, PR head {{HEAD}} — against its SPEC.md, its diff "
+        "review_prompt": f"REEF-FEATURE: {slug}\ncritical path: no · risk touches: none\nReview the feature {slug}: folder {fdir}, worktree {co}, PR head {{HEAD}} — against its SPEC.md, its diff "
                          f"against {base}, and every Proof row against the evidence (`python3 scripts/reef-evidence.py {{HEAD}}` in {co}). Write your report FILE to "
                          f"{report_dir}/review-{slug}.md: first line `HEAD: <12 hex>`, last line `VERDICT: GREEN|FAIL`; return verdict and report_path.",
     }

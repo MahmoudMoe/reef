@@ -263,7 +263,7 @@ printf -- '---\nid: 9\nfeature: f\nstatus: pending\ncomplexity: design\ntier: cr
 git add -A && git commit -qm plan >/dev/null 2>&1
 git mv tasks/009-c.md tasks/done/009-c.md
 git commit -qm close >/dev/null 2>&1
-t "guard_pass feature: a critical task closes WITHOUT adversarial-guard (the pass is recorded per feature, GREEN refuses without it)" 0
+t "guard_pass feature: a critical task closes WITHOUT adversarial-guard (the pass is the review's ## Guard pass, GREEN refuses without it)" 0
 
 # the mode is the MAIN checkout's: a feature worktree whose config predates the owner's edit closes under feature mode too
 # (2026-10-18: the fix round of 202 dispatched a hunter per task because the worktree's config lacked the key)

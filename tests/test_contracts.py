@@ -371,15 +371,30 @@ class AdoptionHandOff(unittest.TestCase):
         self.assertIn("The plan refuses while the old loop has work in flight", skill)
 
 
-class SecurityPerItem(unittest.TestCase):
-    def test_a_design_or_critical_tasks_review_dispatches_the_security_agent(self):
-        # 0.7.2 (ai-coach, 2026-10-24, item 22): the release pass alone reached the sensitive code once per release
+class OneFinalReview(unittest.TestCase):
+    def test_the_acceptance_agent_does_the_guard_pass_and_the_features_security_in_one_report(self):
+        # 0.7.5 (an adopted project, 2026-11-07): three read-only agents on one head — 4 guard-pass reports (one real bug the
+        # verifier missed), 6 per-feature security (all PASS), 19 acceptance. One review now; the hunter's question opens it.
+        agent = read("agents", "acceptance.md")
+        self.assertIn("how can this be green while the defect happens?", agent)
+        self.assertIn("## Guard pass", agent)
+        self.assertIn("## Security", agent)
+        self.assertLess(agent.index("## Guard pass"), agent.index("For each FR/SC key"), "the hunter's question comes first")
+        for word in ("untrusted input", "authenticated attacker", "fails closed", "will happen", "NEW-ROW", "NOTED"):
+            self.assertIn(word, agent)
         skill = read("skills", "reef-review", "SKILL.md")
-        # v3 phase 3c: phrased by the path (a design/critical task, or a risk touch, IS the critical path)
-        self.assertIn("the critical path — dispatches `reef:security` (model `roles.security`) on that feature diff before the GREEN record", skill)
-        self.assertIn("`review.security_per_item: off` in `.reef/config.json` opts a project out", skill)
+        self.assertIn("critical path: yes", skill)
+        self.assertIn("risk touches:", skill)
+        for gone in ("--feature <slug> guard", "security_per_item", "dispatches `reef:security`"):
+            self.assertNotIn(gone, skill)
+        for p in (("skills", "reef-task", "SKILL.md"), ("skills", "reef-loop", "SKILL.md"), ("skills", "reef-graph", "SKILL.md"),
+                  ("templates", "pre-commit"), ("scripts", "reef-attempt"), ("scripts", "reef-graph-run.py")):
+            self.assertNotIn("--feature <slug> guard", read(*p), "/".join(p))
         with open(os.path.join(ROOT, "templates", "config.json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["review"]["security_per_item"], "on", "the default is on; the project opts out")
+            self.assertNotIn("security_per_item", json.load(f)["review"], "the key is gone with the dispatch")
+        # the release's security pass stays: the agent, its record and the guard's refusal of the release PR
+        self.assertIn("reef-record security", read("skills", "reef-loop", "SKILL.md"))
+        self.assertIn("no PASS security record for that commit", read("scripts", "reef-guard.py"))
 
 
 class OneReviewer(unittest.TestCase):
