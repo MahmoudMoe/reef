@@ -25,9 +25,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared he
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
 from reef_common import die as _die  # noqa: E402
 
-ROLE_OF = {"implementer": "author", "verifier": "verifier", "plan-reviewer": "plan_reviewer", "loophole-hunter": "adversary",
+ROLE_OF = {"implementer": "author", "verifier": "verifier", "loophole-hunter": "adversary",
            "mechanic": "mechanic", "security": "security", "planner": "planner", "mahmoud": "proxy", "acceptance": "reviewer"}
-JUDGES = ("verifier", "loophole-hunter", "plan-reviewer", "security", "mahmoud", "acceptance")
+JUDGES = ("verifier", "loophole-hunter", "security", "mahmoud", "acceptance")
 IGNORE = [".opencode/plugins/reef-guard.js", ".opencode/agents/reef:*", ".opencode/skills/reef-*", ".opencode/commands/reef*",
           ".opencode/reef-host.md"]
 

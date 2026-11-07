@@ -21,8 +21,8 @@ Exit 0 ok · 1 refused · 2 usage/git error.
 
   reef-tier.py path <task-file>...     (workflow v3, phase 3) the PATH the tier decides for a feature's tasks:
          `fast` when every task is light or full and none touches auth/pii/money/migration — the deterministic
-         check is the plan review, one worktree per row, no per-task verifier, one reviewer at the end;
-         `critical` otherwise — the hunter's plan pass, the plan-reviewer, a verifier per task, security per feature.
+         check is the plan's review, one worktree per row, no per-task verifier, one reviewer at the end;
+         `critical` otherwise — the hunter's plan pass, a verifier per task, security per feature.
          Rollups (R*) are fix rounds, not tasks of the plan. Prints one line; exit 2 without a task file.
 """
 import fnmatch

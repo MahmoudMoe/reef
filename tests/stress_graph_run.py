@@ -51,15 +51,12 @@ def results(d, tid="101", **gate):
 
 
 def judged(d, attempts=0):
-    """101 as a judged (full-tier) task, approved and plan-reviewed at its digest — the shape test_graph_run uses."""
+    """101 as a judged (full-tier) task, approved at its digest — the shape test_graph_run uses."""
     t = (T.task(101, "1").replace("complexity: mech", "complexity: design").replace("tier: light", "tier: full")
          .replace("verify: gate-only", "verify: judge").replace("## Scope\nx", "## Scope\nx\n\n## Decision\nhuman words")
          .replace("attempts: 0", f"attempts: {attempts}"))
     T.write(d, "tasks/101-a.md", t)
     T.approve(d, "1")
-    r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-record"), "plan-review", "1", "PASS", "--root", d],
-                       capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr
 
 
 class Bookkeeping(unittest.TestCase):

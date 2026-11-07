@@ -21,11 +21,11 @@ CHECK = os.path.join(ROOT, "scripts", "reef-plan-check.py")
 APPROVAL = os.path.join(ROOT, "scripts", "reef-approval.py")
 RECORD = os.path.join(ROOT, "scripts", "reef-record")
 
-TIERS = {"critical": {"roles": {"author": "opus", "verifier": "fable", "adversary": "fable", "plan_reviewer": "fable"}, "effort": "high"},
-         "design": {"roles": {"author": "opus", "verifier": "opus", "adversary": "opus", "plan_reviewer": "fable"}, "effort": "high"},
-         "full": {"roles": {"author": "opus", "verifier": "opus", "plan_reviewer": "fable"}, "effort": "medium"},
-         "light": {"roles": {"author": "sonnet", "plan_reviewer": "none"}, "effort": "low"}}
-ROLES = {"author": "opus", "verifier": "opus", "plan_reviewer": "fable", "adversary": "opus", "mechanic": "sonnet"}
+TIERS = {"critical": {"roles": {"author": "opus", "verifier": "fable", "adversary": "fable", "planner": "fable"}, "effort": "high"},
+         "design": {"roles": {"author": "opus", "verifier": "opus", "adversary": "opus", "planner": "fable"}, "effort": "high"},
+         "full": {"roles": {"author": "opus", "verifier": "opus", "planner": "fable"}, "effort": "medium"},
+         "light": {"roles": {"author": "sonnet"}, "effort": "low"}}
+ROLES = {"author": "opus", "verifier": "opus", "planner": "fable", "adversary": "opus", "mechanic": "sonnet"}
 
 
 def guard(payload, env=None):
@@ -79,9 +79,6 @@ def approve(d, feature):
     os.makedirs(os.path.join(d, ".reef", "approvals"), exist_ok=True)
     with open(os.path.join(d, ".reef", "approvals", f"{feature}.json"), "w") as f:
         json.dump({"digest16": digest[:16], "digest": digest, "approved_at": "2026-10-16T00:00:00Z"}, f)
-    # and reviewed: the plan reviewer's PASS, recorded the way the skill records it (0.7)
-    r = subprocess.run([sys.executable, RECORD, "plan-review", feature, "PASS", "--root", d], capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr
     return digest
 
 
@@ -132,43 +129,18 @@ class FourTiers(unittest.TestCase):
         self.assertEqual(dispatch(self.d, "reef:verifier", "verify something", model="fable").returncode, 2)
 
     def test_feature_line_resolves_the_heaviest_tier(self):
-        r = dispatch(self.d, "reef:plan-reviewer", "REEF-FEATURE: demo\nreview", model="fable")
+        # 0.7.5: shown on the planner (the plan-reviewer it was shown on is gone)
+        r = dispatch(self.d, "reef:planner", "REEF-FEATURE: demo\nplan", model="fable")
         self.assertEqual(r.returncode, 0, r.stderr)
-        r = dispatch(self.d, "reef:plan-reviewer", "REEF-FEATURE: nope-only-light\nreview", model="fable")
+        r = dispatch(self.d, "reef:planner", "REEF-FEATURE: demo\nplan", model="opus")
+        self.assertEqual(r.returncode, 2, "demo holds a critical task: the critical table's planner")
+        self.assertIn("tiers.critical.roles.planner = 'fable'", r.stderr)
+        r = dispatch(self.d, "reef:planner", "REEF-FEATURE: nope-only-light\nplan", model="fable")
         self.assertEqual(r.returncode, 0, "an unknown feature falls back to roles.* (fable)")
-        with open(os.path.join(self.d, "tasks", "004-l2.md"), "w") as f:
-            f.write(task_text(4, "lightonly", "light", "mech"))
-        r = dispatch(self.d, "reef:plan-reviewer", "REEF-FEATURE: lightonly\nreview", model="fable")
-        self.assertEqual(r.returncode, 2, "an all-light feature needs no plan-reviewer agent")
-        self.assertIn("none", r.stderr)
-        # v3 phase 3a: a full-tier feature with no risk touch is the fast path — the check is the review, no plan-reviewer
-        r = dispatch(self.d, "reef:plan-reviewer", "REEF-FEATURE: other\nreview", model="fable")
-        self.assertEqual(r.returncode, 2, "the fast path dispatches no plan-reviewer: " + r.stderr)
-        self.assertIn("fast path", r.stderr)
-        # the review (2026-10-25): a risk touch on an otherwise full feature is the critical path — the sabotage test of
-        # the touches branch (delete it and this dispatch is refused as fast)
-        with open(os.path.join(self.d, "tasks", "005-risky.md"), "w") as f:
-            f.write(task_text(5, "risky", "full", "design", extra="touches: [auth]\n"))
-        r = dispatch(self.d, "reef:plan-reviewer", "REEF-FEATURE: risky\nreview", model="fable")
-        self.assertEqual(r.returncode, 0, "a risk touch is the critical path: the plan-reviewer is dispatched: " + r.stderr)
 
     def test_explore_is_a_mechanic(self):
         self.assertEqual(dispatch(self.d, "Explore", "look around", model="opus").returncode, 2)
         self.assertEqual(dispatch(self.d, "Explore", "look around", model="sonnet").returncode, 0)
-
-    def test_needs_agent_on_the_critical_path_and_none_on_the_fast_path(self):
-        # changed on purpose for v3 phase 3a (2026-10-25): `other` holds one full task and no risk touch — the fast path;
-        # before, every task heavier than light called the plan-reviewer agent
-        r = plan_check(self.d, "--needs-agent", "--feature", "other")
-        self.assertEqual(r.returncode, 3, r.stdout)
-        self.assertIn("plan-reviewer: none (fast path: heaviest tier full", r.stdout)
-        with open(os.path.join(self.d, "tasks", "004-l2.md"), "w") as f:
-            f.write(task_text(4, "lightonly", "light", "mech"))
-        r = plan_check(self.d, "--needs-agent", "--feature", "lightonly")
-        self.assertEqual(r.returncode, 3, r.stdout)
-        self.assertIn("plan-reviewer: none", r.stdout)
-        r = plan_check(self.d, "--needs-agent", "--feature", "demo")
-        self.assertEqual(r.returncode, 0, "demo holds a critical task: the agent is needed")
 
     def test_attempt_prints_tier_resolved_roles_and_effort(self):
         r = subprocess.run([sys.executable, ATTEMPT, os.path.join(self.d, "tasks", "002-crit.md")], capture_output=True, text=True)
@@ -312,10 +284,6 @@ class HumanOnlyApproval(unittest.TestCase):
         self.assertEqual(self._hook(f"Approve plan demo at {digest[:16]}?", "Approve").returncode, 0)
         with open(rec) as f:
             self.assertEqual(json.load(f)["digest"], digest, "the record carries the full digest of the plan approved")
-        rr = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", self.d], capture_output=True, text=True)
-        self.assertEqual(rr.returncode, 0, rr.stderr)
-        with open(os.path.join(self.d, ".reef", "review", "plan-demo.json")) as f:
-            self.assertEqual(json.load(f)["digest"], digest, "so does the review record")
         self.assertEqual(plan_check(self.d, "--verify-stamp", "--feature", "demo").returncode, 0)
         collided = digest[:16] + ("0" if digest[16] != "0" else "1") + digest[17:]
         with open(rec, "w") as f:
@@ -360,11 +328,6 @@ class HumanOnlyApproval(unittest.TestCase):
         r = dispatch(self.d, "reef:implementer", "REEF-TASK: tasks/007-demo.md\nimplement")
         self.assertEqual(r.returncode, 2, "the copy's green --verify-stamp opens no gate")
         self.assertIn("approval: MISSING", r.stderr)
-        rr = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", self.d], capture_output=True, text=True)
-        self.assertEqual(rr.returncode, 0, rr.stderr)
-        real = subprocess.run([sys.executable, CHECK, self.d, "--digest", "--feature", "demo"], capture_output=True, text=True).stdout.split()[-1]
-        with open(os.path.join(self.d, ".reef", "review", "plan-demo.json")) as f:
-            self.assertEqual(json.load(f)["digest16"], real[:16], "reef-record binds the review to the real digest, not the copy's")
 
     def test_hook_refuses_while_plan_check_fails(self):
         # 2026-10-17: five sentences over the word ceiling surfaced AFTER the owner approved; fixing them voided the approval
@@ -420,9 +383,6 @@ class ApprovalInAWorktree(unittest.TestCase):
         with open(rec) as f:
             self.assertEqual(json.load(f)["digest16"], wt_digest[:16])
         self.assertFalse(os.path.exists(os.path.join(wt, ".reef", "approvals", "demo.json")), "the record lives in the main checkout only")
-        rr = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", wt], capture_output=True, text=True)
-        self.assertEqual(rr.returncode, 0, rr.stderr)
-        self.assertTrue(os.path.isfile(os.path.join(d, ".reef", "review", "plan-demo.json")), "the review record lives in the main checkout too")
         self.assertEqual(plan_check(wt, "--verify-stamp", "--feature", "demo").returncode, 0, "the guard's check in the worktree passes")
         # a digest nobody's checkout holds still writes nothing
         q2 = f"Approve plan demo at {'f' * 16}?"
@@ -467,68 +427,44 @@ class ApprovalInAWorktree(unittest.TestCase):
         with open(rec) as f:
             self.assertEqual(json.load(f)["digest16"], dg[:16])
 
-class PlanReviewVerdictIsARecord(unittest.TestCase):
-    """0.7: the deterministic stamp never meant the semantic review passed. For a feature with a task above light the
-    guard's check needs `scripts/reef-record plan-review <slug> PASS` at the current digest."""
+class CriticalPlanNeedsNoPlanReviewRecord(unittest.TestCase):
+    """0.7.5: the plan-reviewer is gone (ai-coach, 2026-11-07: 47 runs over 11 rows, 8 of 8 stored reports PASS with no
+    BLOCKER, while the hunter's plan pass failed 6 of 8 first rounds on the same plans). A critical plan the hunter passed
+    and the owner approved dispatches with no `.reef/review/plan-<slug>.json`; an old record or an old config key is ignored."""
 
-    def test_missing_stale_failed_and_light_only(self):
-        d = project({"gates": {"test": "true"}}, {"007-demo.md": task_text(7, "demo", "design", "design")})
-        self.assertEqual(plan_check(d).returncode, 0)
+    def test_hunter_pass_and_approval_open_the_gate_without_a_plan_review_record(self):
+        cfg = {"gates": {"test": "true"}, "roles": dict(ROLES, plan_reviewer="fable"), "review": {"plan_rounds": 2},
+               "tiers": {"critical": {"roles": {"author": "opus", "plan_reviewer": "fable"}}, "light": {"roles": {"plan_reviewer": "none"}}}}
+        d = project(cfg, {"007-demo.md": task_text(7, "demo", "critical", "design")})
+        self.assertEqual(plan_check(d).returncode, 0, plan_check(d).stdout)
         digest = plan_check(d, "--digest", "--feature", "demo").stdout.split()[-1]
         os.makedirs(os.path.join(d, ".reef", "approvals"), exist_ok=True)
         with open(os.path.join(d, ".reef", "approvals", "demo.json"), "w") as f:
-            json.dump({"digest16": digest[:16], "digest": digest, "approved_at": "2026-10-16T00:00:00Z"}, f)
+            json.dump({"digest16": digest[:16], "digest": digest, "approved_at": "2026-11-07T00:00:00Z"}, f)
+        tp = os.path.join(d, "tasks", "007-demo.md")
+        rp = os.path.join(d, "hunt.md")
+        with open(rp, "w") as f:
+            f.write("RUN: agent=loophole-hunter task=7 pass=plan round=1\nDEFECT: x\nBLOCKER: none\nHALT: none\nVERDICT: PASS\n")
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-adversarial"), tp, "plan", rp], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
         r = plan_check(d, "--verify-stamp", "--feature", "demo")
-        self.assertEqual(r.returncode, 1, r.stdout)
-        self.assertIn("review: MISSING for 'demo'", r.stdout)
-        self.assertIn("approval: OK", r.stdout)
-        rec = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", d], capture_output=True, text=True)
-        self.assertEqual(rec.returncode, 0, rec.stderr)
-        self.assertTrue(os.path.isfile(os.path.join(d, ".reef", "review", "plan-demo.json")))
+        self.assertEqual(r.returncode, 0, "the critical path's review is the hunter's plan pass: " + r.stdout)
+        self.assertNotIn("review:", r.stdout, "no plan-review line is printed or required")
+        self.assertIn("hunter: OK", r.stdout)
+        r = dispatch(d, "reef:implementer", "REEF-TASK: tasks/007-demo.md\nimplement", model="opus")
+        self.assertEqual(r.returncode, 0, "the guard dispatches a critical plan with no plan-review record: " + r.stderr)
+        # an existing project's old FAILED plan-review record is ignored, never an error
+        os.makedirs(os.path.join(d, ".reef", "review"), exist_ok=True)
+        with open(os.path.join(d, ".reef", "review", "plan-demo.json"), "w") as f:
+            json.dump({"digest16": "0" * 16, "digest": "0" * 64, "verdict": "FAIL", "rounds": 9}, f)
         r = plan_check(d, "--verify-stamp", "--feature", "demo")
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("review: OK for 'demo'", r.stdout)
-        # the review binds the full digest too: the same 16 hex with another full digest is another plan
-        rp = os.path.join(d, ".reef", "review", "plan-demo.json")
-        with open(rp) as f:
-            good = json.load(f)
-        self.assertEqual(good["digest"], digest)
-        with open(rp, "w") as f:
-            json.dump(dict(good, digest=digest[:16] + ("0" if digest[16] != "0" else "1") + digest[17:]), f)
-        r = plan_check(d, "--verify-stamp", "--feature", "demo")
-        self.assertEqual(r.returncode, 1, r.stdout)
-        self.assertIn("review: STALE", r.stdout)
-        with open(rp, "w") as f:
-            json.dump(good, f)
-        # a FAIL verdict blocks
-        subprocess.run([sys.executable, RECORD, "plan-review", "demo", "FAIL", "--root", d], capture_output=True, text=True)
-        r = plan_check(d, "--verify-stamp", "--feature", "demo")
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("review: FAILED", r.stdout)
-        # the plan changes after a PASS: stale
-        subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", d], capture_output=True, text=True)
-        tp = os.path.join(d, "tasks", "007-demo.md")
+        # the hunter's pass missing is what the tick and the gate name now
         with open(tp) as f:
             t = f.read()
         with open(tp, "w") as f:
-            f.write(t.replace("## Scope\nx", "## Scope\nx and a new line"))
-        plan_check(d)
-        approve_digest = plan_check(d, "--digest", "--feature", "demo").stdout.split()[-1]
-        with open(os.path.join(d, ".reef", "approvals", "demo.json"), "w") as f:
-            json.dump({"digest16": approve_digest[:16], "digest": approve_digest, "approved_at": "2026-10-16T00:00:00Z"}, f)
-        r = plan_check(d, "--verify-stamp", "--feature", "demo")
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("review: STALE", r.stdout)
-        # all-light: not required
-        d2 = project({"gates": {"test": "true"}}, {"008-mech.md": task_text(8, "lite", "light", "mech")})
-        plan_check(d2)
-        dg = plan_check(d2, "--digest", "--feature", "lite").stdout.split()[-1]
-        os.makedirs(os.path.join(d2, ".reef", "approvals"), exist_ok=True)
-        with open(os.path.join(d2, ".reef", "approvals", "lite.json"), "w") as f:
-            json.dump({"digest16": dg[:16], "digest": dg, "approved_at": "2026-10-16T00:00:00Z"}, f)
-        r = plan_check(d2, "--verify-stamp", "--feature", "lite")
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("review: not required", r.stdout)
+            f.write(re.sub(r"^adversarial-plan:.*\n", "", t, flags=re.M))
+        self.assertIn("hunter: MISSING 7", plan_check(d, "--verify-stamp", "--feature", "demo").stdout)
 
 
 class GuardPassRecordDoesNotStaleTheStamp(unittest.TestCase):
@@ -636,7 +572,7 @@ class ReviewerLock(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertEqual(bash(self.d, cmd, agent_type="implementer", agent_id="a2").returncode, 0, cmd)
                 self.assertEqual(bash(self.d, cmd).returncode, 0, "the main session is not locked")
-        for t in ("loophole-hunter", "plan-reviewer", "Explore"):
+        for t in ("loophole-hunter", "Explore"):
             self.assertEqual(bash(self.d, "git commit -m x", agent_type=t, agent_id="a3").returncode, 2, t)
 
     def test_ci_wait_denied_for_every_subagent(self):
@@ -798,41 +734,6 @@ class GuardGuardsItself(unittest.TestCase):
         self.assertEqual(self.edit(".reef/config.json", content=json.dumps(bad)).returncode, 0)
 
 
-class PlanReviewRounds(unittest.TestCase):
-    def test_the_record_counts_the_rounds(self):
-        # 2026-10-30 (row 7 on the current adoption): five review rounds; the hunter's pass has a cap, the reviewer's had none
-        d = project({"gates": {"test": "true"}}, {"101-a.md": task_text(101, "demo", "full", "mech")})
-        # the cap at 3 here, so the sequence FAIL, FAIL, PASS, FAIL counts 1, 2, 3, 1: a PASS closes the series (the review)
-        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
-            json.dump({"gates": {"test": "true"}, "review": {"plan_rounds": 3}}, f)
-        for verdict, rounds in (("FAIL", 1), ("FAIL", 2), ("PASS", 3), ("FAIL", 1)):
-            r = subprocess.run([sys.executable, RECORD, "plan-review", "demo", verdict, "--root", d], capture_output=True, text=True)
-            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-            rec = json.load(open(os.path.join(d, ".reef", "review", "plan-demo.json")))
-            self.assertEqual(rec["rounds"], rounds, f"a review is a round; a PASS closes the series: {rec}")
-            self.assertEqual(rec["verdict"], verdict)
-
-    def test_a_pass_past_the_cap_is_the_owners_ruling_bound_to_his_footnote(self):
-        # the security review: past the cap the reviewer runs no more — a bare PASS would dissolve the cap it answers; the
-        # PASS carries the owner's footnote mark, present in the queue, like the hunter's `plan --decided`
-        d = project({"gates": {"test": "true"}, "review": {"plan_rounds": 2}, "paths": {"queue": "docs/queue.md"}}, {"101-a.md": task_text(101, "demo", "full", "mech")})
-        for _ in range(2):
-            subprocess.run([sys.executable, RECORD, "plan-review", "demo", "FAIL", "--root", d], capture_output=True, text=True, check=True)
-        r = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", d], capture_output=True, text=True)
-        self.assertNotEqual(r.returncode, 0, "refused: " + r.stdout + r.stderr)
-        self.assertIn("--decided", r.stdout + r.stderr)
-        r = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", d, "--decided", "68"], capture_output=True, text=True)
-        self.assertNotEqual(r.returncode, 0, "no such footnote yet: " + r.stdout + r.stderr)
-        os.makedirs(os.path.join(d, "docs"), exist_ok=True)
-        with open(os.path.join(d, "docs", "queue.md"), "a") as f:
-            f.write("\n⁶⁸ the owner rules: the finding is accepted as is (2026-10-30)\n")
-        r = subprocess.run([sys.executable, RECORD, "plan-review", "demo", "PASS", "--root", d, "--decided", "68"], capture_output=True, text=True)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        rec = json.load(open(os.path.join(d, ".reef", "review", "plan-demo.json")))
-        self.assertEqual((rec["verdict"], rec["decided"]), ("PASS", "68"))
-
-
-
 class SonnetReviewsTheFastTiers(unittest.TestCase):
     """Step 3 of the adoption plan of 2026-11-01, the owner's go (2026-11-01: Sonnet if it holds and saves
     money and time). docs/perf/eval-acceptance-2026-11-01.md: sonnet held catch-rate, precision and NIT rate at 1.00 at
@@ -854,7 +755,7 @@ class SonnetReviewsTheFastTiers(unittest.TestCase):
         t = self.cfg["tiers"]
         self.assertEqual(self.cfg["roles"]["reviewer"], "sonnet")
         self.assertEqual(t["full"]["roles"]["reviewer"], "sonnet")
-        self.assertNotIn("reviewer", t["light"]["roles"], "light falls back to roles.reviewer: no key of its own")
+        self.assertNotIn("reviewer", t["light"].get("roles", {}), "light falls back to roles.reviewer: no key of its own")
         self.assertEqual((t["design"]["roles"]["reviewer"], t["critical"]["roles"]["reviewer"]), ("opus", "opus"))
 
     def test_the_guard_holds_the_reviewer_to_its_features_tier(self):

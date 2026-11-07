@@ -17,7 +17,7 @@ import sys
 import tempfile
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/eval/ → the plugin root
-AGENTS = {"verifier": "verifier", "hunter": "loophole-hunter", "plan-reviewer": "plan-reviewer", "acceptance": "acceptance"}
+AGENTS = {"verifier": "verifier", "hunter": "loophole-hunter", "acceptance": "acceptance"}
 VERDICT = re.compile(r"^[\s`*#_>-]*VERDICT[`*_]*:[\s`*_]*(PASS|FAIL|GREEN)\b", re.M | re.I)   # GREEN: acceptance's PASS
 NIT_LINE = re.compile(r"^\s*(?:[-*|]\s*)?\**NIT\b", re.I)
 SECTION = re.compile(r"^[\s`*#_]*(BLOCKING|ADVISORY|NEW-ROW|NOTED|NONE|VERDICT)\b", re.I)
@@ -50,7 +50,7 @@ def agent_prompt(agent):
 def parse(report):
     """(verdict or None, [blocking lines]). The LAST verdict line decides. A finding is a BLOCKER:/HALT/`AC<n> FAIL`
     line anywhere, or any non-empty line inside a BLOCKING section (a `**BLOCKING**` / `## BLOCKING` heading up to
-    the next ADVISORY/NEW-ROW/NONE/VERDICT heading) — the plan-reviewer's shape."""
+    the next ADVISORY/NEW-ROW/NONE/VERDICT heading)."""
     vs = VERDICT.findall(report)
     blocking, in_section, in_blocker = [], False, False
     for l in report.splitlines():

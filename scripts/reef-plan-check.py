@@ -11,7 +11,6 @@ Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
   rule ran on rows already closed and no new plan could be approved). A `--feature` run writes only that feature's
   digest into the stamp; the other entries carry over (their rules did not run).
 - One line per check: OK / FAIL: <what and where>. Exit 0 = all pass, 1 = at least one FAIL.
-  On success the last line names the plan-reviewer's model (roles.plan_reviewer, default opus).
 - On success writes <tasks>/.plan-review.json: one sha256 PER FEATURE over that feature's task
   files plus the ADRs it OWNS or CITES (its drafts, the numbered ADRs its plan names — never every decision in the
   project: 2026-10-28, a close's ADR edits on the base voided the other row's approval), and the check count. The stamp is per-worktree state and must be
@@ -34,9 +33,6 @@ Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
 - --digest FEATURE: print `digest: <feature> <sha256>` — the same digest the stamp uses — and exit.
 - --summary --feature SLUG (0.7): one readable line for the owner's gate — tasks, criteria, draft ADRs, and the plan
   files changed since the last recorded approval (the approval record's `files`); --plan-files prints that map.
-- --needs-agent: exit 0 when the plan-reviewer agent is needed (the CRITICAL path: a design/critical task, or a
-  touch of auth/pii/money/migration — workflow v3), 3 on the fast path (every task light or full, no risk touch:
-  the deterministic check alone stamps) or when the tier table says "none".
 Rule for the orchestrator: this script is deterministic; never argue with it, never work around it.
 """
 import hashlib, json, os, re, subprocess, sys
@@ -200,7 +196,7 @@ def read_first_errors(root, body):
 # CommonMark: 0-3 leading spaces is still a sibling list item; 4+ is continuation/code
 BULLET = re.compile(r"^ {0,3}[-*+] +|^ {0,3}\d+[.)] +")
 LOG_HEADING = re.compile(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$", re.M)
-# 0.7: `## Reviewer notes` holds the plan review's ADVISORY findings for the implementer and the verifier; like the Log it
+# 0.7: `## Reviewer notes` holds the machine review's ADVISORY findings for the implementer and the verifier; like the Log it
 # is outside the digest, so carrying advisories into a task voids no approval (2026-10-17: 28 advisories applied as plan
 # edits re-ran three hunters, three approvals and three reviews). Only the Log may follow it.
 NOTES_HEADING = re.compile(r"^##[ \t]+Reviewer notes[ \t]*$", re.M)
@@ -247,7 +243,7 @@ FEATURE_GATE = ("ci", "local")
 
 def parse_check_args(argv):
     verify, feature, args = False, None, []
-    flags = {"digest": False, "needs_agent": False, "rules": False, "quiet": False,
+    flags = {"digest": False, "rules": False, "quiet": False,
              "summary": False, "plan_files": False}
     i = 0
     while i < len(argv):
@@ -260,8 +256,6 @@ def parse_check_args(argv):
             flags["summary"] = True       # 0.7: the readable line beside the digest at the owner's gate
         elif a == "--plan-files":
             flags["plan_files"] = True    # 0.7: {file: sha12} over the digest's own files, for the approval record
-        elif a == "--needs-agent":
-            flags["needs_agent"] = True
         elif a == "--rules":
             flags["rules"] = True
         elif a == "--quiet":
@@ -435,26 +429,6 @@ def row_mode(task_path):
             features = "reef/features"
         folder = folder and os.path.dirname(os.path.abspath(fdir)) == os.path.abspath(os.path.join(root, features))
     return feature_path(feature_task_paths(task_path))[0], folder
-
-
-def review_state(root, feat, digest, task_paths):
-    """(ok, line, required): the plan reviewer's verdict, a record `scripts/reef-record plan-review` writes, must be
-    PASS at this digest on the CRITICAL path (workflow v3, phase 3a: before, for any task above light — one more judge
-    on rows whose risk the tier already called ordinary). On the fast path the deterministic check is the review."""
-    path, why = feature_path(task_paths)
-    if path == "fast":
-        return True, f"review: not required for {feat!r} (fast path: {why} — the deterministic check is the review)", False
-    p = os.path.join(main_checkout(root), ".reef", "review", f"plan-{feat}.json")
-    try:
-        with open(p, encoding="utf-8") as f:
-            rec = json.load(f)
-    except Exception:
-        return False, f"review: MISSING for {feat!r} ({os.path.relpath(p, root)}) — run /reef-plan-review; it records the verdict with scripts/reef-record plan-review", True
-    if not record_binds(rec, digest):
-        return False, f"review: STALE for {feat!r} (reviewed {bound_to(rec)}, plan is {digest if 'digest' in rec else digest[:16]}) — re-run /reef-plan-review", True
-    if str(rec.get("verdict", "")).upper() != "PASS":
-        return False, f"review: FAILED for {feat!r} ({rec.get('verdict')}, {rec.get('recorded_at', '?')}) — fix the findings and re-run /reef-plan-review", True
-    return True, f"review: OK for {feat!r} ({digest[:16]}, {rec.get('recorded_at', '?')})", True
 
 
 # 2026-10-18: the 203 implementer spent 35 of 54 turns (145k context) researching the Anthropic SDK — model id, image
@@ -661,7 +635,7 @@ def main():
         if m:
             # what EXECUTION writes: the status keys, the worktree, and the hunter's records — the guard pass (written
             # after the code exists — first contact, 2026-10-16: it staled the stamp the moment 101 merged, and the
-            # guard refused 102) and, since 2026-10-18, the plan pass too: like the plan review's verdict it is a
+            # guard refused 102) and, since 2026-10-18, the plan pass too: like the approval it is a
             # record BOUND to the digest (`--verify-stamp` prints `hunter:`; the guard denies a stale one at dispatch),
             # not inside it — inside, `plan --decided` after Approve and a stamp migration voided the approval of a
             # plan nobody had changed.
@@ -838,14 +812,6 @@ def main():
                 rc = 1
             else:
                 print(f"warning: {line} (feature planned before 0.6 — not enforced)")
-            okr, rline, _required = review_state(root, feat, digest_for(feat), by_feature.get(feat, []))
-            if okr:
-                print(rline)
-            elif enforced:
-                print(rline)
-                rc = 1
-            else:
-                print(f"warning: {rline} (feature planned before 0.6 — not enforced)")
             pp = str((cfg.get("hunter") or {}).get("plan_pass", "critical") or "critical").lower() if isinstance(cfg.get("hunter"), dict) else "critical"
             print(hunter_state(by_feature.get(feat, []), ("design", "critical") if pp == "design" else ("critical",)))
         sys.exit(rc)
@@ -1438,24 +1404,6 @@ def main():
     with open(stamp_path, "w") as f:
         json.dump({"features": written, "checks": len(results), "planned_under": planned, "finished": finished}, f, indent=2, sort_keys=True)
         f.write("\n")
-    # the plan-reviewer's model comes from the heaviest tier among the stamped features' tasks
-    # (tiers.<tier>.roles.plan_reviewer, then roles.plan_reviewer, then opus); "none" on an
-    # all-light plan means the deterministic check alone stamps
-    roles = cfg.get("roles", {}) if isinstance(cfg.get("roles", {}), dict) else {}
-    tiers_cfg = cfg.get("tiers", {}) if isinstance(cfg.get("tiers", {}), dict) else {}
-    present = [fm.get("tier") or ("light" if fm.get("complexity") == "mech" else "full") for rel, fm in tasks.items()
-               if not is_rollup(rel) and (feature_filter is None or fm.get("feature") == feature_filter)]
-    heaviest = max(present, key=lambda t: TIER_ORDER.index(t) if t in TIER_ORDER else 1, default="full")
-    path, _why = feature_path([os.path.join(root, rel) for rel, fm in tasks.items() if feature_filter is None or fm.get("feature") == feature_filter])
-    if path == "fast" and present:   # v3 phase 3a: the fast path has no plan-reviewer; the check alone stamps
-        print(f"plan-reviewer: none (fast path: heaviest tier {heaviest}, no risk touch — the deterministic check alone stamps)")
-        sys.exit(3 if flags["needs_agent"] else 0)
-    trole = (tiers_cfg.get(heaviest, {}) or {}).get("roles", {}) if isinstance(tiers_cfg.get(heaviest, {}), dict) else {}
-    model = str((trole or {}).get("plan_reviewer") or roles.get("plan_reviewer") or "opus")
-    if model.lower() == "none":
-        print(f"plan-reviewer: none (heaviest tier {heaviest}: the deterministic check alone stamps)")
-        sys.exit(3 if flags["needs_agent"] else 0)
-    print(f"plan-reviewer: model={model} (heaviest tier {heaviest})")
     sys.exit(0)
 
 

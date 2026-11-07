@@ -27,8 +27,9 @@ frontmatter key the mechanisms read:
                     a design-tier task file staged into tasks/done/ without this key
 
 What is recorded: only a report that is the hunter's (RUN: agent=loophole-hunter ...
-pass=<same pass>), ends VERDICT: PASS, and carries no BLOCKER line. A FAIL is not
-recorded — it goes back to the plan or the implementer. A mech/light task is refused:
+pass=<same pass>), ends VERDICT: PASS, and carries no BLOCKER or HALT line. A FAIL is not
+recorded — it goes back to the plan or the implementer; a HALT (0.7.5: two sources of truth contradicting) goes to
+the owner verbatim, and his footnoted ruling is recorded with `plan --decided <mark>`. A mech/light task is refused:
 the adversarial stage never runs on mech (the cost lesson), and recording one would
 only decorate the file.
 
@@ -47,7 +48,7 @@ sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project
 from reef_common import read_crlf as read, die as _die, task_frontmatter as frontmatter, report_verdict, BLOCKER_LINE, main_checkout, checkouts  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
-# the Reviewer notes (plan-review advisories) are outside the plan, like the Log — reef-plan-check cuts the same way
+# the Reviewer notes (the machine review's advisories) are outside the plan, like the Log — reef-plan-check cuts the same way
 # (2026-10-18: notes added after the hunter's pass changed this hash and the orchestrator reverted the notes to match)
 CUT_HEADING = re.compile(r"^##[ \t]+(?:[Ll][Oo][Gg]|Reviewer notes)[ \t]*$", re.M)
 EXEC_KEYS = r"^(status|attempts|last_failure_sig|dispatches|worktree|adversarial-plan|adversarial-guard|adversarial-decided):.*(?:\r?\n|\Z)"
@@ -120,9 +121,9 @@ def guard_pass_mode(path):
 
 
 def plan_pass_tiers(path):
-    """The tiers whose plan needs the hunter's pass before code: hunter.plan_pass `critical` (default, 0.7 — a design
-    task gets the plan reviewer; measured 2026-10-17/18, the plan hunter's rounds were the planning sessions' cost) or
-    `design` (design and critical, the 0.6 behaviour). Read from the MAIN checkout like guard_pass. A review ROLLUP
+    """The tiers whose plan needs the hunter's pass before code: hunter.plan_pass `critical` (default, 0.7 — measured
+    2026-10-17/18, the plan hunter's rounds were the planning sessions' cost) or `design` (design and critical, the 0.6
+    behaviour). Read from the MAIN checkout like guard_pass. A review ROLLUP
     (R<NN>-…) needs none (the owner's go, 2026-10-24: qassimha's R4 took three plan rounds; the feature's guard pass reads
     its diff before GREEN)."""
     if re.match(r"R\d+[-.]", os.path.basename(path)):
@@ -253,6 +254,12 @@ def check_report(report, want_pass):
         rest = re.sub(r"^\W*BLOCKER\W*", "", line, flags=re.I).strip().rstrip(".").lower()
         if rest and not re.match(r"^(none|no blockers?|nothing)\b", rest):   # "none found." / "none — all NEW-ROW" (seen live, first contact)
             die("a BLOCKER line with VERDICT: PASS is a contradiction — not recorded")
+    # 0.7.5: a HALT names two sources of truth that contradict; nobody picks the winner but the owner
+    for line in report.splitlines():
+        m = re.match(r"^\W*HALT\b\W*(.*)$", line, re.I)
+        if m and m.group(1).strip().rstrip(".") and not re.match(r"^(none|no halts?|nothing)\b", m.group(1).strip(), re.I):
+            die("a HALT is the owner's decision, never a pass: relay it to him verbatim; his ruling, as a queue footnote, is recorded "
+                "with `reef-adversarial <task> plan --decided <mark>`")
 
 
 def head_of(path):

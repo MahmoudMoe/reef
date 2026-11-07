@@ -142,8 +142,6 @@ class Generate(unittest.TestCase):
              .replace("attempts: 0", f"attempts: {attempts}"))
         T.write(d, "tasks/101-a.md", t.rstrip("\n") + ("\n" + log + "\n" if log else "\n"))
         T.approve(d, "1")
-        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-record"), "plan-review", "1", "PASS", "--root", d], capture_output=True, text=True)
-        self.assertEqual(r.returncode, 0, r.stderr)   # a task above light dispatches only on a plan-review PASS at its digest
 
     def script_of(self, d):
         js = open(sorted(glob.glob(os.path.join(d, ".reef", "graph", "run-*.js")), key=os.path.getmtime)[-1]).read()

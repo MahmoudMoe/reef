@@ -288,7 +288,7 @@ class RoleModel(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="reef-guard-roles.")
         write_config(self.dir, {"gates": {"test": "true"}, "roles": {
-            "author": "opus", "verifier": "opus", "plan_reviewer": "fable", "mechanic": "sonnet"}})
+            "author": "opus", "verifier": "opus", "mechanic": "sonnet"}})
         make_task(self.dir)
 
     def test_implementer_on_wrong_model_denied(self):
@@ -329,8 +329,6 @@ class RoleModel(unittest.TestCase):
         self.assertEqual(r.returncode, 2, "the agent file's default is not the configured model")
         self.assertIn("pass model='opus'", r.stderr)
         self.assertEqual(dispatch(self.dir, "Draft the plan for row 3", subagent="reef:planner", model="opus").returncode, 0)
-        self.assertEqual(dispatch(self.dir, "Review it", subagent="reef:plan-reviewer", model="opus").returncode, 0,
-                         "plan-reviewer is not matched by 'planner'")
 
     def test_implementer_on_configured_model_allowed(self):
         # an allowed dispatch in a Reef project needs a reef-init'd layout and a fresh stamp (a missing
@@ -341,9 +339,8 @@ class RoleModel(unittest.TestCase):
         r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement", model="opus")
         self.assertEqual(r.returncode, 0, r.stderr)
 
-    def test_verifier_plan_reviewer_mechanic_checked(self):
-        for sub, want, wrong in (("reef:verifier", "opus", "fable"), ("reef:plan-reviewer", "fable", "opus"),
-                                 ("reef:mechanic", "sonnet", "opus")):
+    def test_verifier_and_mechanic_checked(self):
+        for sub, want, wrong in (("reef:verifier", "opus", "fable"), ("reef:mechanic", "sonnet", "opus")):
             with self.subTest(sub=sub):
                 self.assertEqual(dispatch(self.dir, "x", subagent=sub, model=wrong).returncode, 2)
                 self.assertEqual(dispatch(self.dir, "x", subagent=sub, model=want).returncode, 0)
@@ -352,42 +349,6 @@ class RoleModel(unittest.TestCase):
         write_config(self.dir, {"gates": {"test": "true"}, "roles": {"author": "opus"}})
         self.assertEqual(dispatch(self.dir, "x", subagent="reef:verifier", model="fable").returncode, 0)
         self.assertEqual(dispatch(self.dir, "x", subagent="reef:mechanic").returncode, 0)
-
-
-class PlanReviewRoundCap(unittest.TestCase):
-    """2026-10-30 (row 7 on the current adoption): the plan reviewer and the planner traded blockers for five rounds. The hunter's
-    pass has `hunter.plan_rounds`; the reviewer gets `review.plan_rounds` (default 2: the review, one fix, one re-review) — the
-    guard refuses the dispatch past it and the open findings become the owner's decision."""
-
-    def setUp(self):
-        self.dir = tempfile.mkdtemp(prefix="reef-guard-rounds.")
-        write_config(self.dir, {"gates": {"test": "true"}, "roles": {"plan_reviewer": "opus"}})
-        make_task(self.dir, extra="tier: critical\ncomplexity: design\n")   # the critical path: the reviewer is dispatched there
-
-    def record(self, verdict, rounds):
-        os.makedirs(os.path.join(self.dir, ".reef", "review"), exist_ok=True)
-        with open(os.path.join(self.dir, ".reef", "review", "plan-demo.json"), "w") as f:
-            json.dump({"digest16": "0123456789abcdef", "verdict": verdict, "rounds": rounds, "recorded_at": "2026-10-30T00:00:00Z"}, f)
-
-    def test_a_review_past_the_cap_is_refused_with_the_owners_line(self):
-        self.record("FAIL", 2)
-        os.makedirs(os.path.join(self.dir, "reef", "features", "demo"), exist_ok=True)
-        with open(os.path.join(self.dir, "reef", "features", "demo", "SPEC.md"), "w") as f:
-            f.write("# demo\nRow: 7\n")
-        r = dispatch(self.dir, "REEF-FEATURE: demo\nreview the plan", subagent="reef:plan-reviewer", model="opus")
-        self.assertEqual(r.returncode, 2, r.stderr)
-        self.assertIn("review.plan_rounds 2", r.stderr)
-        self.assertIn("reef-queue.py ask", r.stderr, "the open findings go to the owner, with the command")
-        self.assertIn("--row 7", r.stderr, "the row from the feature's SPEC, never a placeholder")
-        self.assertNotIn("<row>", r.stderr)
-        self.assertIn("--decided", r.stderr, "a PASS past the cap carries the owner's footnote")
-        self.record("FAIL", 1)
-        self.assertEqual(dispatch(self.dir, "REEF-FEATURE: demo\nreview the plan", subagent="reef:plan-reviewer", model="opus").returncode, 0, "round 2 is within the cap")
-        self.record("PASS", 5)
-        self.assertEqual(dispatch(self.dir, "REEF-FEATURE: demo\nreview the plan", subagent="reef:plan-reviewer", model="opus").returncode, 0, "a PASS ends the rounds; a re-review after an edit is a new question")
-        write_config(self.dir, {"gates": {"test": "true"}, "roles": {"plan_reviewer": "opus"}, "review": {"plan_rounds": 0}})
-        self.record("FAIL", 9)
-        self.assertEqual(dispatch(self.dir, "REEF-FEATURE: demo\nreview the plan", subagent="reef:plan-reviewer", model="opus").returncode, 0, "0 = no cap")
 
 
 class DispatchGuard(unittest.TestCase):
@@ -735,19 +696,19 @@ class JudgeScratch(unittest.TestCase):
         self.assertEqual(self.judge("curl -s -o /private/tmp/claude-501/x/scratchpad/r.json http://x").returncode, 0, "into the scratchpad: fine")
 
     def test_the_jobs_scratchpad_is_scratch_and_the_rest_of_dot_claude_is_not(self):
-        # 2026-10-21 (qassimha row 5): the session's scratchpad was ~/.claude/jobs/b60d6e32/tmp; the plan reviewer's
-        # `mkdir -p … && cat > …/plan-review-<slug>.md` there was refused as a project write, twice, and the
+        # 2026-10-21 (qassimha row 5): the session's scratchpad was ~/.claude/jobs/b60d6e32/tmp; a judge's
+        # `mkdir -p … && cat > …/review-<slug>.md` there was refused as a project write, twice, and the
         # orchestrator copied the report out of the reviewer's transcript instead.
         jobs = os.path.join(os.path.expanduser("~"), ".claude", "jobs", "b60d6e32", "tmp")
-        for cmd in (f"mkdir -p {jobs} && cat > {jobs}/plan-review-demo.md <<'EOF'\nRUN: agent=plan-reviewer\nEOF",
+        for cmd in (f"mkdir -p {jobs} && cat > {jobs}/review-demo.md <<'EOF'\nRUN: agent=verifier\nEOF",
                     f"printf x > ~/.claude/jobs/b60d6e32/tmp/r.md", f"S={jobs}; mkdir -p $S/r2 && printf x > $S/r2/report.md"):
             with self.subTest(cmd=cmd[:60]):
-                r = self.judge(cmd, who="reef:plan-reviewer")
+                r = self.judge(cmd, who="reef:verifier")
                 self.assertEqual(r.returncode, 0, f"FALSE POSITIVE: {cmd!r}\n{r.stderr}")
         for cmd in (f"printf x > ~/.claude/jobs/b60d6e32/r.md", "printf x > ~/.claude/settings.json",
                     f"printf x > ~/.claude/jobs/b60d6e32/tmp/../escape.md", "printf x > ~/.claude/jobs/tmp/r.md"):
             with self.subTest(cmd=cmd):
-                self.assertEqual(self.judge(cmd, who="reef:plan-reviewer").returncode, 2, f"NOT DENIED: {cmd!r}")
+                self.assertEqual(self.judge(cmd, who="reef:verifier").returncode, 2, f"NOT DENIED: {cmd!r}")
 
 
 class WorktreeStamp(unittest.TestCase):
@@ -1138,7 +1099,7 @@ class TheRecordWritersAreThePlugins(unittest.TestCase):
 
     def test_a_copy_that_is_not_the_plugins_is_denied_and_the_plugins_named(self):
         for cmd in ("python3 scripts/reef-approval.py --proxy --feature demo --report r.md",
-                    "scripts/reef-record demo GREEN --report r.md", "python3 -u scripts/reef-record plan-review demo PASS --report r.md",
+                    "scripts/reef-record demo GREEN --report r.md", "python3 -u scripts/reef-record security PASS --report r.md",
                     f"python3 {self.d}/scripts/reef-record demo GREEN --report r.md", "cd scripts && python3 reef-record demo GREEN",
                     "python3 /tmp/elsewhere/scripts/reef-approval.py --proxy --feature demo --report r.md",
                     "env A=1 python3 $HOME/scripts/reef-record demo GREEN",
@@ -1287,7 +1248,7 @@ class EvidenceIsTheAgents(unittest.TestCase):
 
     def test_main_session_cannot_author_evidence_but_may_copy_it(self):
         for cmd in ("cat > .reef/ci-local/handback-1101.md <<'EOF'\nRUN: x\nEOF", "echo 'VERDICT: PASS' > .reef/hunt/row2-plan-r4.md",
-                    "printf 'x' >> .reef/ci-local/report-1101.md", "tee .reef/ci-local/plan-review-demo.md"):
+                    "printf 'x' >> .reef/ci-local/report-1101.md", "tee .reef/ci-local/report-1102.md"):
             with self.subTest(cmd=cmd):
                 r = bash(cmd)
                 self.assertEqual(r.returncode, 2, cmd)

@@ -214,13 +214,13 @@ class Tick(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["dispatch_now"], ["101"], "the digest in the line is the plan's")
         os.unlink(os.path.join(d, ".reef", "approvals", "1.json"))
-        # v2 order: a task above light needs the review; with it missing (and the approval stale) the tick asks for
-        # the machines first, never the owner
+        # v2 order: a critical task needs the hunter's plan pass; with it missing (and the approval stale) the tick asks
+        # for the machines first, never the owner (0.7.5: the hunter's pass, the plan-reviewer is gone)
         write(d, "tasks/101-a.md", task(101, "1").replace("complexity: mech", "complexity: design").replace("tier: light", "tier: critical")
               .replace("verify: gate-only", "verify: judge").replace("## Scope\nx", "## Scope\nx\n\n## Decision\nhuman wrote this"))
         r = subprocess.run([sys.executable, os.path.join(d, "scripts", "reef-plan-check.py"), d], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["awaiting"], ["1 (machine review (hunter ‖ plan reviewer) before the gate)"])
+        self.assertEqual(json.loads(loop(d, "tick", "--json").stdout)["awaiting"], ["1 (hunter plan pass on 101 before the gate)"])
         write(d, "tasks/101-a.md", task(101, "1"))
         approve(d, "1")
         write(d, "tasks/101-a.md", task(101, "1").replace("## Scope\nx", "## Scope\nedited after the review"))
@@ -370,8 +370,6 @@ class HunterStampBeforeTheGate(unittest.TestCase):
         write(d, "tasks/.plan-review.json", "")
         os.unlink(os.path.join(d, "tasks", ".plan-review.json"))
         approve(d, "1")
-        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-record"), "plan-review", "1", "PASS", "--root", d], capture_output=True, text=True)
-        self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_missing_stale_and_legacy_stamps_hold_the_task_with_the_command(self):
         d = project()
@@ -384,12 +382,11 @@ class HunterStampBeforeTheGate(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         st = json.loads(loop(d, "tick", "--json").stdout)
         self.assertEqual(st["dispatch_now"], ["101"], st)
-        # the review round edits the plan; the review and the approval are refreshed, the hunter's stamp is not
+        # the review round edits the plan; the approval is refreshed, the hunter's stamp is not
         t = read_file(os.path.join(d, "tasks", "101-a.md"))
         write(d, "tasks/101-a.md", t.replace("## Scope\nx", "## Scope\nx, an AC added in the review round"))
         os.unlink(os.path.join(d, "tasks", ".plan-review.json"))
         approve(d, "1")
-        subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-record"), "plan-review", "1", "PASS", "--root", d], capture_output=True, text=True)
         st = json.loads(loop(d, "tick", "--json").stdout)
         self.assertEqual(st["dispatch_now"], [], "a stale hunter stamp is not dispatchable — the guard would deny it")
         self.assertEqual(st["awaiting"], ["1 (hunter plan pass stale on 101: a re-check within hunter.plan_rounds, or `reef-adversarial <task> plan --decided <mark>`)"], st)
