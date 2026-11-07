@@ -217,6 +217,25 @@ class FastRowClose(unittest.TestCase):
         r = subprocess.run([sys.executable, GRAPH, "worktree", "reef/features/demo/tasks/101-slice.md"], capture_output=True, text=True, cwd=self.feat)
         self.assertNotIn("plan committed", r.stdout, "a committed plan is left alone")
 
+    def test_a_flat_tasks_folder_commits_only_its_own_new_files_never_the_repo(self):
+        """CI, PR 370: with `tasks/` at the repo root the feature folder resolved to the root, and the plan commit took
+        every untracked file in the repository. The plan is the tasks folder there."""
+        flat = tempfile.mkdtemp(prefix="reef-flat.")
+        git(flat, "init", "-q", "-b", "main")
+        for k, v in (("user.email", "t@t"), ("user.name", "t")):
+            git(flat, "config", k, v)
+        write(flat, "tasks/101-slice.md", open(os.path.join(self.feat, "reef/features/demo/tasks/101-slice.md")).read())
+        write(flat, "README.md", "x\n")
+        git(flat, "add", "-A"); git(flat, "commit", "-qm", "init")
+        write(flat, "tasks/102-next.md", TASK.replace("id: 101", "id: 102").replace("101 — the slice", "102 — the next"))
+        write(flat, "scratch.txt", "not the plan\n")
+        r = subprocess.run([sys.executable, GRAPH, "worktree", "tasks/101-slice.md"], capture_output=True, text=True, cwd=flat)
+        self.assertIn("plan committed", r.stdout, r.stdout + r.stderr)
+        head = git(flat, "show", "--name-only", "--format=", "HEAD").stdout
+        self.assertIn("tasks/102-next.md", head)
+        self.assertNotIn("scratch.txt", head, "never a file outside the plan")
+        self.assertIn("?? scratch.txt", git(flat, "status", "--porcelain").stdout)
+
     def test_a_secret_shaped_file_is_refused_in_place_too(self):
         write(self.feat, ".env.local", "KEY=1\n")
         r = self.close()

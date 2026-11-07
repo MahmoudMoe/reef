@@ -382,9 +382,14 @@ def commit_plan(root, task_path):
     tdir = os.path.dirname(os.path.abspath(task_path))
     tdir = os.path.dirname(tdir) if os.path.basename(tdir) == "done" else tdir
     feat = os.path.dirname(tdir) if os.path.basename(tdir) == "tasks" else tdir
-    slug = os.path.basename(feat)
-    paths = [os.path.relpath(feat, root)]
+    if os.path.realpath(feat) == os.path.realpath(root):   # a flat `tasks/` at the root: the plan is that folder, never the repo
+        paths, slug = [os.path.relpath(tdir, root)], ""
+    else:
+        slug = os.path.basename(feat)
+        paths = [os.path.relpath(feat, root)]
     try:
+        if not slug:
+            raise ValueError("no feature folder")
         r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-plan-check.py"), root,
                             "--plan-files", "--feature", slug], capture_output=True, text=True, timeout=60)
         listed = json.loads(r.stdout) if r.returncode == 0 else {}
@@ -402,11 +407,11 @@ def commit_plan(root, task_path):
     except Exception:
         pass
     subprocess.run(["git", "add", "--", *new], cwd=root, capture_output=True, text=True)
-    c = subprocess.run(["git", "commit", "-q", "-m", f"reef: plan {slug}{approved} — committed before its first task", "--", *new],
+    c = subprocess.run(["git", "commit", "-q", "-m", f"reef: plan {slug or paths[0]}{approved} — committed before its first task", "--", *new],
                        cwd=root, capture_output=True, text=True, timeout=1800)
     if c.returncode != 0:
-        raise GraphError(f"the plan of {slug} is not committed and its commit was refused: {(c.stderr or c.stdout).strip()[-240:]}")
-    print(f"plan committed: {slug} ({len(new)} file(s))")
+        raise GraphError(f"the plan of {slug or paths[0]} is not committed and its commit was refused: {(c.stderr or c.stdout).strip()[-240:]}")
+    print(f"plan committed: {slug or paths[0]} ({len(new)} file(s))")
 
 
 def cmd_worktree(task_path, base):

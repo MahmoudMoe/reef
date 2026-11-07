@@ -5,7 +5,8 @@
 - **An approved plan is committed before its first task starts.** In an adopted project on 2026-11-07 (row 242), an approved plan written in the feature worktree was never committed, and the first task's close failed on `git mv` of an untracked task file; two more approved rows were in the same state. Earlier rows had worked only because an orchestrator committed the plan on its own initiative.
   - `reef-graph.py worktree`, the step every build starts with (chat mode and the graph runner), commits the feature's untracked or added plan files first, alone: `reef: plan <slug>, approved at <digest16> — committed before its first task`.
   - modified tracked files are left as they are (a task's status edits close with it); a commit the gate refuses stops the build with its reason.
-  - tests/size-budget.json: `script_lines` 19,495 → 19,531 (+36: `commit_plan`) and `prose_words` 21,502 → 21,509 (+7: the reef-task step).
+  - with a flat `tasks/` at the repo root the plan is that folder, never the whole repository (CI on the first push caught the commit taking every untracked file).
+  - tests/size-budget.json: `script_lines` 19,495 → 19,536 (+41: `commit_plan` and its flat-layout scope) and `prose_words` 21,502 → 21,509 (+7: the reef-task step).
 
 - **A report deciding several rows records each row its own decision.** In an adopted project on 2026-11-07 (ai-coach), Mahmoud triaged 38 found rows in one report and `reef-approval.py --proxy --day` recorded each row with the report's FIRST `DECIDE` line, so the decision log held 37 entries carrying row 205's decision.
   - a report with more than one `DECIDE`/`WAIT` line is read by the one line that opens `row <id>`; none, or several, for the row is refused and nothing is written.
