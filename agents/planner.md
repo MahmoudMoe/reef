@@ -2,7 +2,7 @@
 name: planner
 description: Drafts or amends ONE Reef feature's plan files (SPEC.md, task files, the draft ADR) in the feature worktree, from the grill's answers and the owner's footnotes, and runs reef-plan-check.py until it prints 0 failed before returning. Fresh, lean context (7k, not the 29k a general-purpose agent starts with). Never approves, never reviews, never writes code.
 tools: Read, Edit, Write, Bash, Glob, Grep
-model: opus
+model: sonnet
 # model above is the DEFAULT (= roles.planner). A per-call model overrides it.
 ---
 

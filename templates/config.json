@@ -15,9 +15,9 @@
     "task_growth": 0
   },
   "roles": {
-    "author": "opus",
-    "verifier": "opus",
-    "planner": "opus",
+    "author": "sonnet",
+    "verifier": "sonnet",
+    "planner": "sonnet",
     "adversary": "opus",
     "reviewer": "sonnet",
     "security": "opus",
@@ -110,12 +110,12 @@
     },
     "full": {
       "roles": {
-        "planner": "opus",
+        "planner": "sonnet",
         "adversary": "opus",
-        "verifier": "opus",
+        "verifier": "sonnet",
         "reviewer": "sonnet",
         "security": "opus",
-        "author": "opus"
+        "author": "sonnet"
       },
       "effort": "medium"
     },

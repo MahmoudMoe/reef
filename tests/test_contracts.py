@@ -612,6 +612,24 @@ class ThePathSizesTheBuild(unittest.TestCase):
         self.assertLessEqual(len(text.splitlines()), 60)
 
 
+class OpusForTheCriticalPathSonnetForTheRest(unittest.TestCase):
+    """0.7.5 (the owner, 2026-11-07: "opus for critical, sonnet for the normal"): an adopted project ran every role on opus,
+    the implementer and verifier of a one-line copy fix included. The template's design and critical tiers keep opus for
+    every role; the full tier and the tier-less defaults build, verify and plan on sonnet. The adversary, security and the
+    owner's proxy keep opus wherever they run."""
+
+    def test_the_template_puts_opus_on_the_critical_path_only(self):
+        with open(os.path.join(ROOT, "templates", "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+        for tier in ("critical", "design"):
+            self.assertEqual(set(cfg["tiers"][tier]["roles"].values()), {"opus"}, tier)
+        for roles in (cfg["tiers"]["full"]["roles"], cfg["roles"]):
+            for role in ("author", "verifier", "planner"):
+                self.assertEqual(roles[role], "sonnet", role)
+        for role in ("adversary", "security", "proxy"):
+            self.assertEqual(cfg["roles"][role], "opus", role)
+
+
 class TheHunterReadsEveryCriticalPathPlan(unittest.TestCase):
     """0.7.5: with the plan-reviewer gone, a design-tier plan (auth, crypto, migrations, tenant code) would reach the owner's
     gate with plan-check alone under plan_pass `critical`; the shipped default is `design` — the same plans the
