@@ -509,6 +509,15 @@ class Rails(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("warning: reef/features/csv-export-for-orders/tasks/1201-write-csv.md: no `files:`", r.stdout)
 
+    def test_a_files_entry_that_matches_everything_fails_the_plan_check(self):
+        """`files: ["*"]` would make the round's scope check a no-op (the orchestrator's review of PR-1)."""
+        for catch_all in ('"*"', "**", "**/*", "./", "/", "."):
+            d = project()
+            feature(d, tasks={"1201-write-csv.md": TASK_NEW.replace("files: [src/, tests/]", f"files: [src/, {catch_all}]")})
+            r = check(d)
+            self.assertNotEqual(r.returncode, 0, f"{catch_all}: {r.stdout}")
+            self.assertIn("matches every path", r.stdout)
+
     def test_one_line_diff_under_auth_tiered_light_is_refused(self):
         d = tempfile.mkdtemp(prefix="reef-rail.")
         g = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)

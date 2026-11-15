@@ -38,6 +38,8 @@ worktree that holds it (the task's work is uncommitted there: the implementer ne
    feature's `planned_under` is written only after its first passing check, so a version compare would let a planner's
    first run pass without `files:`. A 0.5 project (no `.reef/version`, no feature folder) only warns, as for every 0.6 rule.
    The round check itself stays as it was: a task without `files:` (an old plan) is not scope-checked there.
+   An entry that matches every path (`*`, `**`, `**/*`, `./`, `/`, `.`, empty) fails the plan check: it would make the
+   scope check a no-op.
 2. **Path matching.** An entry ending in `/` is a directory prefix (`src/export/` covers everything under it); any other
    entry is an `fnmatch` glob on the repo-relative path (`src/*.py`; an entry without metacharacters is an exact path; `*`
    crosses `/`, as in Python's `fnmatch`). The task folder (the directory holding the task file, `done/` included) is
@@ -70,6 +72,7 @@ New file `tests/test_round_gate.py`, real git repos in temp dirs:
 - scope: a change to a file outside `files:` is refused naming the file; a directory prefix and a glob are honoured; an
   untracked new file outside the list is refused; the task folder is always allowed.
 - scope: a task without `files:` is not scope-checked (one `scope: not declared` line, exit 0).
+- plan check: a catch-all entry (`files: ["*"]`, `[**]`, `[./]`) fails the check.
 - plan check: a new feature's task without `files:` fails the check; with `files:` it passes; a feature already in the
   stamp before the rule (or approved) only warns.
 - skip: `kind: refactor` and a Proof with no test name skip the red check.
