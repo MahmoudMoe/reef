@@ -430,6 +430,8 @@ class TheLandingIsCommittedOnTheTick(unittest.TestCase):
     def test_the_tick_is_what_commits(self):
         import test_loop as T
         d = T.project()
+        for k, v in (("user.email", "t@t"), ("user.name", "t")):   # the tick's commit needs an author; the CI runner has none
+            subprocess.run(["git", "-C", d, "config", k, v], check=True)
         write(d, "tasks/103-t.md", task(103))
         twice(d, 103)
         lessons(d, "draft", "L1", "loop: close a task only after its round check printed ok in the same session")
