@@ -24,8 +24,8 @@ Usage:
       file whose assertion lines change (moved lines, a renamed file and new test files allowed); the full gate is the other half
   reef-claims.py round <task-file> [--base REV] [--repo DIR]   (hardening PR-1) the implementer's round, its work uncommitted in
       the worktree (--repo, default .; base default HEAD): (a) each named test of the task's ## Proof table passes on the
-      round's tree and FAILS on the base's code with the round's test files in place (gates.one with {test} per test, else
-      the fast gate once); (b) every changed or untracked path matches the task's `files:` list (`dir/` a prefix, else an
+      round's tree and FAILS on the base's code with the round's test files in place (gates.one with {test} per test — a run
+      whose output says it ran no test is refused, neither green nor red — else the whole fast gate once, and it says so); (b) every changed or untracked path matches the task's `files:` list (`dir/` a prefix, else an
       fnmatch glob; the task's folder always). Exit 1, one `round: REFUSED — …` line per failure. kind: refactor, a rollup
       and a Proof naming no test skip (a); no `files:` skips (b). docs/design/hardening-pr1-plan.md.
   reef-claims.py claims-only <base>..<head> [--repo DIR]
@@ -295,17 +295,29 @@ def red_restore(repo, bk):
     shutil.rmtree(bk)
 
 
+# a gates.one run that ran no test is neither green nor red (the owner's decision 2, 2026-11-15; measured: a filter matching nothing
+# exits 5 in pytest and 0 in go, cargo, vitest and jest, which say so only in their output)
+RAN = re.compile(r"\b[1-9]\d* (?:passed|failed)\b|^--- (?:PASS|FAIL)\b|^Ran [1-9]\d* tests?\b", re.M)
+NONE = re.compile(r"no tests ran|\bdeselected\b|\[no tests to run\]|running 0 tests|\bskipped\b|^Ran 0 tests|No test files found|No tests found", re.M)
+
+
+def ran_none(rc, out):
+    """True when a run's own output (or pytest's exit 5) says it ran no test; a custom command's silence decides nothing."""
+    return not RAN.search(out) and (rc == 5 or bool(NONE.search(out)))
+
+
 def round_run(repo, cmd, log, no_cache=False):
-    """The exit of `cmd` in the worktree, its output in `log` (the git dir: never a change of the round's); 124 past gates.timeout_s."""
+    """(exit, output) of `cmd` in the worktree, the output kept in `log` (the git dir: never a change of the round's); 124 past gates.timeout_s."""
     env = dict(os.environ, **({"REEF_GATE_NO_CACHE": "1"} if no_cache else {}))
     limit = int((read_cfg(repo).get("gates") or {}).get("timeout_s", 1200) or 0) or None
+    try:
+        r = subprocess.run(["sh", "-c", cmd], cwd=repo, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=limit)
+        rc, out = r.returncode, r.stdout
+    except subprocess.TimeoutExpired as e:
+        rc, out = 124, e.stdout or b""
     with open(log, "ab") as f:
-        f.write(f"$ {cmd}\n".encode())
-        f.flush()
-        try:
-            return subprocess.run(["sh", "-c", cmd], cwd=repo, env=env, stdout=f, stderr=subprocess.STDOUT, timeout=limit).returncode
-        except subprocess.TimeoutExpired:
-            return 124
+        f.write(f"$ {cmd}\n".encode() + out + f"[exit {rc}]\n".encode())
+    return rc, out.decode("utf-8", "replace")
 
 
 def cmd_round(repo, task_path, base):
@@ -355,10 +367,17 @@ def cmd_round(repo, task_path, base):
     else:
         one = str((cfg.get("gates") or {}).get("one", "") or "").strip()
         gate = "sh " + shlex.quote(os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-gate.sh")) + " fast"
-        runs = [(n, one.replace("{test}", shlex.quote(n))) for n in names] if one else [(", ".join(names) + " (the fast gate)", gate)]
-        green = [(n, c) for n, c in runs if round_run(repo, c, log) == 0]
-        for n, _ in runs:
-            if (n, _) not in green:
+        arg = lambda n: (re.fullmatch(r"(?:it|test|describe)\((['\"])(.+)\1\)", n) or [None, None, n])[2]   # it('adds two') -> adds two
+        runs = [(n, one.replace("{test}", shlex.quote(arg(n)))) for n in names] if one else \
+            [(f"the whole fast gate, not {', '.join(names)} (no gates.one)", gate)]   # never a line that reads as the named test
+        green = []
+        for n, c in runs:
+            rc, out = round_run(repo, c, log)
+            if one and ran_none(rc, out):
+                refused.append(f"{n} ran no test (gates.one: `{one}`) — the name matches no test; neither green nor red (its output: {log})")
+            elif rc == 0:
+                green.append((n, c))
+            else:
                 refused.append(f"{n} does not pass on the round's tree — green first, then the red is checked (its output: {log})")
         code = [p for p in changed if not TEST_PATH.search(p)]
         if green:
@@ -379,8 +398,10 @@ def cmd_round(repo, task_path, base):
                     elif os.path.isfile(os.path.join(repo, p)):
                         os.remove(os.path.join(repo, p))   # new in the round: the base has no such file
                 for n, c in green:
-                    rc = round_run(repo, c, log, no_cache=True)
-                    if rc == 124:
+                    rc, out = round_run(repo, c, log, no_cache=True)
+                    if one and ran_none(rc, out):
+                        refused.append(f"{n} ran no test on the base (gates.one: `{one}`) — not counted as red (its output: {log})")
+                    elif rc == 124:
                         refused.append(f"{n} timed out on the base (gates.timeout_s) — not counted as red")
                     elif rc == 0:
                         refused.append(f"{n} does not fail on the base ({base}, the round's {len(changed) - len(code)} test files in place, "

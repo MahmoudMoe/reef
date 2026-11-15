@@ -351,6 +351,9 @@ def main(argv):
             say("OK" if rc_d == 0 else "WARN", "docker: running" if rc_d == 0 else "docker: not running", "" if rc_d == 0 else "start Docker before a task that needs the database")
         except Exception:
             say("WARN", "docker: not installed", "the project has a compose file; its tests need Docker")
+    if not str((cfg.get("gates") or {}).get("one", "") or "").strip():   # hardening PR-1, the owner's decision 2
+        say("WARN", "gates.one: not set — the round check runs the whole fast gate, not the named Proof test",
+            "set gates.one in .reef/config.json to the runner's one-test command with {test} (python3 -m pytest -q -k {test})")
     # .env (0.7.2, first adoption 2026-10-24): Prisma loads the checkout's .env; with two keys set, the base branch failed 21 tests
     # that pass in CI. One line, key NAMES only, no automatic double run.
     full = str((cfg.get("gates") or {}).get("full", "") or "")

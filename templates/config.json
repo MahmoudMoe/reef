@@ -2,6 +2,7 @@
   "gates": {
     "fast": "",
     "full": "",
+    "one": "",
     "timeout_s": 1200,
     "resources": []
   },

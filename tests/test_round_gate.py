@@ -65,7 +65,8 @@ class Round(unittest.TestCase):
                               capture_output=True, text=True, cwd=self.d)
 
     def test_a_test_that_fails_on_the_base_passes_the_round(self):
-        self.make("def add(a, b):\n    return 0\n")
+        # the named test itself, through gates.one (the owner's decision 2: without it the whole fast gate runs, and says so)
+        self.make("def add(a, b):\n    return 0\n", cfg={"gates": {"fast": "false", "full": "false", "one": "python3 -m unittest discover -s tests -q -k {test}"}})
         r = self.round()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("red first: test_add_sums", r.stdout)
