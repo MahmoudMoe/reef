@@ -88,6 +88,27 @@ class Round(unittest.TestCase):
         with open(os.path.join(self.d, ".reef/ci-local/one.log"), encoding="utf-8") as f:
             self.assertEqual(f.read(), "ran-test_add_sums\n", "gates.one ran with {test} replaced (green on the tree only)")
 
+    def test_a_refused_round_is_recorded_from_its_log_as_the_saw_verbatim(self):
+        # hardening PR-2, the owner's decision 2: the round's REFUSED lines reach the FAIL record by code, never retyped
+        self.make("def add(a, b):\n    return a + b  # already right\n")
+        r = self.round()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        refused = [l for l in r.stdout.splitlines() if l.startswith("round: REFUSED — ")]
+        self.assertTrue(refused, r.stdout)
+        gd = git(self.d, "rev-parse", "--absolute-git-dir").stdout.strip()
+        with open(os.path.join(gd, "reef-round-101.log"), encoding="utf-8") as f:
+            log = f.read()
+        for l in refused:
+            self.assertIn(l + "\n", log, "the round's log holds its REFUSED lines")
+        a = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-attempt"), "--from-round", os.path.join(self.d, "tasks", "101-add.md")],
+                           capture_output=True, text=True, cwd=self.d)
+        self.assertEqual(a.returncode, 0, a.stdout + a.stderr)
+        with open(os.path.join(self.d, "tasks", "101-add.md"), encoding="utf-8") as f:
+            t = f.read()
+        self.assertIn("  - EXPECTED: reef-claims.py round exits 0", t)
+        for l in refused:
+            self.assertIn(f"  - SAW: {l[:200]}\n", t)
+
     def test_a_round_whose_test_is_red_on_its_own_tree_is_refused(self):
         self.make("def add(a, b):\n    return 0\n")
         write(self.d, "src/calc.py", "def add(a, b):\n    return -1\n")

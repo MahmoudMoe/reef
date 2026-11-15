@@ -1281,6 +1281,52 @@ class EvidenceIsTheAgents(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class DeadEndsAtDispatch(unittest.TestCase):
+    """Hardening PR-2, the owner's decision 1: a fix round's implementer dispatch carries every line of the dead-ends block
+    reef-attempt prints — compared by content, so a header alone or only the last round's lines is refused."""
+
+    ATTEMPT = os.path.join(ROOT, "scripts", "reef-attempt")
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="reef-guard-deadends.")
+        self.p = make_task(self.dir)
+
+    def record_fail(self, expected, saw, dead):
+        r = subprocess.run([sys.executable, self.ATTEMPT, self.p, f"EXPECTED: {expected}", f"SAW: {saw}", f"DEAD END: {dead}"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def block(self):
+        out = subprocess.run([sys.executable, self.ATTEMPT, self.p], capture_output=True, text=True).stdout.splitlines()
+        i = next(k for k, l in enumerate(out) if l.startswith("dead-ends: ") and l != "dead-ends: end")
+        return out[i:out.index("dead-ends: end", i) + 1]
+
+    def dispatches(self):
+        with open(self.p) as f:
+            return f.read().split("dispatches: ", 1)[1].split("\n", 1)[0]
+
+    def test_a_fix_round_without_its_dead_ends_is_refused_and_with_them_allowed(self):
+        self.record_fail("AC-1 holds", "AssertionError round 1", "a guard in parse_a")
+        self.record_fail("AC-1 holds", "AssertionError round 2", "a default in parse_b")
+        block = self.block()
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement the fix")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("dead-ends", r.stderr)
+        self.assertEqual(self.dispatches(), "0", "a refusal moves no counter")
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\n" + block[0] + "\ndead-ends: end\nimplement")
+        self.assertEqual(r.returncode, 2, "the header alone is not the block")
+        last_only = [block[0]] + [l for l in block if l.startswith("  #2 ")] + ["dead-ends: end"]
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\n" + "\n".join(last_only) + "\nimplement")
+        self.assertEqual(r.returncode, 2, "round 3 must carry round 1's dead end too")
+        self.assertIn("#1 attempt 1", r.stderr, "the refusal names the missing line")
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nEffort: high.\n" + "\n".join(block) + "\nimplement the fix")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.dispatches(), "1")
+
+    def test_a_task_with_no_recorded_fail_needs_no_block(self):
+        self.assertEqual(dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement").returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
 

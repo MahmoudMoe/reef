@@ -490,5 +490,43 @@ class DeadEnds(unittest.TestCase):
         self.assertIn("rejudge: AC-2 (round 2", r.stdout)
 
 
+class FromRound(unittest.TestCase):
+    """Hardening PR-2, the owner's decision 2: `--from-round` reads `<git-dir>/reef-round-<id>.log` and records its REFUSED
+    lines as the SAW; no log, no REFUSED line, or a SAW of the caller's own is a 2 and the task file unchanged."""
+
+    def setUp(self):
+        self.dir = os.path.realpath(tempfile.mkdtemp(prefix="reef-attempt-round."))
+        subprocess.run(["git", "init", "-q", "-b", "main", self.dir], check=True)
+        self.p = make_task(self.dir, fm=DE_FM, body=DE_BODY)
+        self.log = os.path.join(self.dir, ".git", "reef-round-7.log")
+
+    def test_the_refused_lines_are_the_saw_and_the_round_check_is_the_expected(self):
+        with open(self.log, "w") as f:
+            f.write("Ran 1 test in 0.001s\nOK\nround: REFUSED — test_b_holds does not fail on the base (HEAD, the round's 1 test files in place, 1 code files set back) — the test is not red first\n")
+        r = run("--from-round", self.p, "DEAD END: a guard in parse_a")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        log = open(self.p).read().split("## Log\n", 1)[1]
+        self.assertIn("  - EXPECTED: reef-claims.py round exits 0 — each Proof test fails on the base and passes on the round's tree; only files: changed\n", log)
+        self.assertIn("  - SAW: round: REFUSED — test_b_holds does not fail on the base (HEAD, the round's 1 test files in place, 1 code files set back) — the test is not red first\n", log)
+        self.assertNotIn("  - SAW: OK\n", log, "the SAW is the refusals, not the runs' output")
+        self.assertIn("  - DEAD END: a guard in parse_a\n", log)
+
+    def test_no_log_no_refused_line_or_an_own_saw_is_refused_and_nothing_written(self):
+        before = open(self.p, "rb").read()
+        r = run("--from-round", self.p)
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("reef-round-7.log", r.stderr)
+        with open(self.log, "w") as f:
+            f.write("Ran 1 test in 0.001s\nOK\n")    # the last round passed
+        r = run("--from-round", self.p)
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("no `round: REFUSED", r.stderr)
+        with open(self.log, "w") as f:
+            f.write("round: REFUSED — the round changed files outside the task's files: src/a.py\n")
+        r = run("--from-round", self.p, "SAW: my own summary")
+        self.assertEqual(r.returncode, 2, "the code writes EXPECTED and SAW; a paraphrase beside them is refused")
+        self.assertEqual(open(self.p, "rb").read(), before)
+
+
 if __name__ == "__main__":
     unittest.main()
