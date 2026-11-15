@@ -29,8 +29,9 @@ def task(tid, feature="demo"):
 
 
 def project(cap=2, recur=2, quiet=2):
-    d = os.path.realpath(tempfile.mkdtemp(prefix="reef-lessons."))
+    d = os.path.realpath(git_repo(prefix="reef-lessons.", identity=True))   # a Reef project is a git checkout: a landing is a commit
     write(d, ".reef/config.json", json.dumps({"lessons": {"cap": cap, "recur": recur, "quiet_rows": quiet}}))
+    write(d, ".gitignore", ".reef/\n")
     os.makedirs(os.path.join(d, "tasks", "done"))
     for t in (101, 102, 103):
         write(d, f"tasks/{t}-t.md", task(t))
@@ -341,7 +342,7 @@ class Delivery(unittest.TestCase):
         self.assertIn("not approved (edited by hand, not delivered): reef/lessons/harness.md: - L1", rep)
 
     def test_the_session_start_carries_the_loop_lessons(self):
-        d = git_repo(prefix="reef-lessons-loop.", branch="main", config={"gates": {"full": "true"}, "lessons": {"cap": 2}})
+        d = git_repo(prefix="reef-lessons-loop.", branch="main", config={"gates": {"full": "true"}, "lessons": {"cap": 2}}, identity=True)
         write(d, "tasks/101-t.md", task(101))
         write(d, ".reef/version", "0.7.4\n")
         twice(d, 101)
@@ -351,6 +352,82 @@ class Delivery(unittest.TestCase):
                              env=dict(os.environ, PATH="/nonexistent-gh:" + os.environ["PATH"])).stdout
         self.assertIn("lessons: 1 landed (loop, reef/lessons/loop.md, approved by the owner)", out)
         self.assertIn("  L1 (round-scope): close a task only after its round check printed ok in the same session", out)
+
+
+def git_(d, *a):
+    return subprocess.run(["git", "-C", d, *a], capture_output=True, text=True)
+
+
+class TheLandingIsCommitted(unittest.TestCase):
+    """The owner's decision 5 (2026-11-15): code commits the landed or retired layer file and history.md, like commit_plan (#370)."""
+
+    def setUp(self):
+        self.d = project()
+        twice(self.d, 101)
+
+    def test_a_landing_commits_the_layer_file_alone(self):
+        write(self.d, "untouched.txt", "another change in the tree\n")
+        landed(self.d)
+        q = [e for e in ledger(self.d) if e.get("ev") == "landed"][0]["digest16"]
+        self.assertEqual(git_(self.d, "log", "-1", "--format=%s").stdout.strip(),
+                         f"reef: lesson L1 landed in reef/lessons/harness.md (approved at {q})")
+        self.assertEqual(git_(self.d, "show", "--name-only", "--format=", "HEAD").stdout.split(), ["reef/lessons/harness.md"])
+        self.assertEqual(git_(self.d, "status", "--porcelain", "--", "reef/lessons").stdout, "", "the lesson file is committed")
+        self.assertIn("?? untouched.txt", git_(self.d, "status", "--porcelain").stdout, "nothing else rides in the commit")
+
+    def test_a_retirement_commits_the_layer_file_and_the_history(self):
+        landed(self.d)
+        r = owner(self.d, question(self.d, "retire", "L1"))
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(git_(self.d, "log", "-1", "--format=%s").stdout.strip(),
+                         "reef: lesson L1 retired from reef/lessons/harness.md (kept in reef/lessons/history.md)")
+        self.assertEqual(sorted(git_(self.d, "show", "--name-only", "--format=", "HEAD").stdout.split()),
+                         ["reef/lessons/harness.md", "reef/lessons/history.md"])
+
+    def test_a_commit_the_gate_refuses_lands_nothing(self):
+        write(self.d, ".git/hooks/pre-commit", "#!/bin/sh\necho 'gate: red' >&2\nexit 1\n")
+        os.chmod(os.path.join(self.d, ".git", "hooks", "pre-commit"), 0o755)
+        lessons(self.d, "draft", "L1", "harness: name every file the fix touches in files: before the round starts")
+        r = owner(self.d, question(self.d))
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("the commit was refused", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.d, "reef", "lessons", "harness.md")), "the file is put back: not there before")
+        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "approvals", "lesson-L1.json")))
+        self.assertEqual([e for e in ledger(self.d) if e.get("ev") == "landed"], [])
+        self.assertIn("proposed: L1", lessons(self.d, "report").stdout, "still the owner's to approve once the gate is green")
+
+
+class TheGuardHoldsThePlanner(unittest.TestCase):
+    """The owner's decision 2 (2026-11-15): the graph lessons reach the planner through the guard, by content — PR-2's pattern."""
+
+    def setUp(self):
+        self.d = project()
+
+    def dispatch(self, prompt):
+        r = subprocess.run([sys.executable, GUARD], input=json.dumps({"tool_name": "Agent", "cwd": self.d, "tool_input": {
+            "subagent_type": "reef:planner", "model": "opus", "description": "plan row 1", "prompt": prompt}}), capture_output=True, text=True)
+        return r.stdout + r.stderr
+
+    def land_graph(self):
+        twice(self.d, 101)
+        landed(self.d, text="graph: split a task whose files: spans two packages into one task per package")
+        return lessons(self.d, "lessons", "graph").stdout.strip().splitlines()
+
+    def test_no_graph_lesson_needs_no_block(self):
+        self.assertNotIn("DENY", self.dispatch("REEF-FEATURE: demo\nplan row 1"))
+
+    def test_a_planner_dispatch_without_the_graph_block_is_refused(self):
+        block = self.land_graph()
+        out = self.dispatch("REEF-FEATURE: demo\nplan row 1")
+        self.assertIn("reef-guard DENY", out)
+        self.assertIn("graph lessons", out)
+        self.assertIn(block[0][:60], out, "the refusal names the first missing line")
+        self.assertIn("reef-lessons.py lessons graph", out)
+
+    def test_the_header_alone_is_refused_and_the_whole_block_is_allowed(self):
+        block = self.land_graph()
+        self.assertIn("reef-guard DENY", self.dispatch("REEF-FEATURE: demo\n" + block[0] + "\nlessons: end\nplan row 1"))
+        self.assertNotIn("DENY", self.dispatch("REEF-FEATURE: demo\n" + "\n".join(block) + "\nplan row 1"))
 
 
 class Report(unittest.TestCase):
@@ -373,7 +450,7 @@ class Report(unittest.TestCase):
         self.assertIn("- layers: harness 0/2 · loop 0/2 · graph 0/2", rep)
 
     def test_the_screens_inbox_has_the_approve_item_and_drops_it_once_landed(self):
-        d = git_repo(prefix="reef-lessons-screen.", branch="main", config={"gates": {"full": "true"}})
+        d = git_repo(prefix="reef-lessons-screen.", branch="main", config={"gates": {"full": "true"}}, identity=True)
         write(d, ".reef/version", "0.7.4\n")
         os.makedirs(os.path.join(d, ".reef", "run"), exist_ok=True)
         write(d, "tasks/101-t.md", task(101))
