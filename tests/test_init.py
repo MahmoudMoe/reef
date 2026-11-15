@@ -236,6 +236,39 @@ class WorktreeSetup(unittest.TestCase):
                          "npm ci && npx prisma generate")
 
 
+class OneTestGate(unittest.TestCase):
+    """The owner's decision 2 (2026-11-15): the round check runs the NAMED Proof test with gates.one; init writes it for the stacks
+    it knows, from the same facts that pick gates.full, and leaves it unset (and says so) where it cannot."""
+
+    def one(self, files):
+        d = tempfile.mkdtemp(prefix="reef-init-one.")
+        for rel, text in files.items():
+            write(d, rel, text)
+        subprocess.run(["git", "init", "-q", d], check=True)
+        r = init(d)
+        return json.loads(read(d, ".reef/config.json"))["gates"].get("one"), r.stdout
+
+    def test_each_known_stack_gets_its_runners_one_test_command(self):
+        cases = {
+            "uv": ({"pyproject.toml": "[project]\nname='x'\n", "uv.lock": ""}, "uv run pytest -q -k {test}"),
+            "pip": ({"pyproject.toml": "[project]\nname='x'\n"}, "python3 -m pytest -q -k {test}"),
+            "vitest": ({"package.json": json.dumps({"name": "v", "scripts": {"test": "vitest run"}, "devDependencies": {"vitest": "2"}})},
+                       "npx vitest run --exclude '**/.reef/**' -t {test}"),
+            "jest": ({"package.json": json.dumps({"name": "j", "scripts": {"test": "jest"}, "devDependencies": {"jest": "29"}})}, "npx jest -t {test}"),
+            "go": ({"go.mod": "module x\n\ngo 1.21\n"}, "go test -v -run '^{test}$' ./..."),
+            "rust": ({"Cargo.toml": "[package]\nname='x'\nversion='0.1.0'\n"}, "cargo test -q {test}"),
+        }
+        for name, (files, want) in cases.items():
+            got, _ = self.one(files)
+            self.assertEqual(got, want, name)
+
+    def test_a_stack_whose_runner_is_unknown_gets_none_and_init_says_so(self):
+        for files in ({"package.json": json.dumps({"name": "m", "scripts": {"test": "mocha"}})}, {}):
+            got, out = self.one(files)
+            self.assertEqual(got, "", files)
+            self.assertIn("gates.one: not set", out)
+
+
 class FastGate(unittest.TestCase):
     """0.7.2 (ai-coach, 2026-10-24): gates.fast was always empty, so every commit ran the full suite (66 s). From package.json,
     joined with &&, each only when present: lint, typecheck (else tsc with typescript + tsconfig), vitest --changed."""

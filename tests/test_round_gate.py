@@ -94,6 +94,40 @@ class Round(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("does not pass on the round's tree", r.stdout)
 
+    def test_without_gates_one_the_check_says_it_ran_the_whole_fast_gate(self):
+        # the owner's decision 2 (2026-11-15): no line may read as if the named test was checked when the whole gate ran
+        self.make("def add(a, b):\n    return 0\n")
+        r = self.round()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("red first: the whole fast gate, not test_add_sums (no gates.one)", r.stdout)
+
+    def test_a_named_test_that_runs_no_test_is_refused(self):
+        # unittest's own run of a name that matches nothing: `Ran 0 tests` (exit 5 on 3.12+, 0 before) — neither green nor red
+        one = "python3 -m unittest discover -s tests -q -k {test}"
+        self.make("def add(a, b):\n    return 0\n", cfg={"gates": {"fast": "false", "full": "false", "one": one}}, proof="test_not_written")
+        r = self.round()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("test_not_written ran no test", r.stdout)
+
+    def test_each_runners_run_of_no_test_is_refused_and_a_real_run_counts(self):
+        # measured 2026-11-15 (go, cargo, vitest 2.1.9, jest 29.7): a filter matching nothing exits 0 and says so only in its output
+        zero = {"go": "testing: warning: no tests to run\nPASS\nok  \tx\t0.001s [no tests to run]",
+                "cargo": "running 0 tests\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s",
+                "vitest": " Test Files  1 skipped (1)\n      Tests  1 skipped (1)",
+                "jest": "Tests:       1 skipped, 1 total",
+                "pytest": "1 deselected in 0.00s"}
+        for runner, out in zero.items():
+            stub = "printf '%s\\n' " + json.dumps(out).replace("\\t", "\t") + "; exit " + ("5" if runner == "pytest" else "0")
+            self.make("def add(a, b):\n    return 0\n", cfg={"gates": {"fast": "false", "full": "false", "one": stub + " # {test}"}})
+            r = self.round()
+            self.assertEqual(r.returncode, 1, f"{runner}: {r.stdout}{r.stderr}")
+            self.assertIn("test_add_sums ran no test", r.stdout, runner)
+        real = "if grep -q 'a + b' src/calc.py; then echo '--- PASS: {test} (0.00s)'; else echo '--- FAIL: {test} (0.00s)'; exit 1; fi"
+        self.make("def add(a, b):\n    return 0\n", cfg={"gates": {"fast": "false", "full": "false", "one": real}})
+        r = self.round()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("red first: test_add_sums fails on the base", r.stdout)
+
     def test_a_file_outside_the_declared_files_is_refused(self):
         self.make("def add(a, b):\n    return 0\n")
         write(self.d, "README.md", "drive-by\n")
