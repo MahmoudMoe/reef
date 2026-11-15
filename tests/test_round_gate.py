@@ -267,6 +267,12 @@ class HandOffs(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("tasks/102-use.md consumes 101: src/gen.py — not changed by this round", r.stdout)
 
+    def test_a_consumed_directory_the_round_creates_passes(self):
+        self.with_down("101: src/export/")
+        write(self.d, "src/export/csv.py", "X = 1\n")
+        r = self.round()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def test_a_path_the_base_already_had_may_stay_unchanged(self):
         self.with_down("101: src/__init__.py")
         r = self.round()

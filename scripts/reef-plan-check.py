@@ -303,8 +303,8 @@ def print_rules(cfg):
     print("         design/critical -> verify: judge; a design task needs `adversarial-plan:` (the loophole-hunter's plan pass) before dispatch;")
     print("         a fast-path row (every task light/full, no risk touch) runs no verifier: verify: gate-only, or tier: design for a judge")
     print("files: a new plan's task lists the paths it may change (`files: [dir/, glob]`); an older plan warns")
-    print("consumes: a new plan's blocked-by id names the artifact it reads (`consumes: [101: path[#symbol]]`), in 101's files: or a code "
-          "span in its ## Scope; an entry with no edge fails; an older plan warns")
+    print("consumes: a new plan's blocked-by id names the repo path it reads (`consumes: [101: path[#symbol]]`), in 101's files:; an entry "
+          "with no edge fails; an older plan warns; 101's close refuses a consumed path its round did not deliver")
     print(f"rails: touches pii|money|auth -> critical; migration -> at least design + a `Rollback:` line in ## Decision; paths {dpaths} -> design,")
     print(f"         {cpaths} -> critical; a tier only gets heavier")
     print("graph: blocked-by ids resolve (tasks/ or tasks/done/), no cycles; a rollup R<NN>-<slug>.md is one per feature")
@@ -1053,15 +1053,11 @@ def main():
     by_id = {fm["_id"]: fm for fm in tasks.values() if "_id" in fm}
 
     def produces(up, artifact):
-        """hardening PR-5: (a) the path is in the upstream's files: (the round check holds it to them), (b) its ## Scope names
-        the artifact as a code span (a table, an endpoint), (c) it is finished, declares no files:, and the path exists."""
+        """hardening PR-5, the owner's ruling 1 (paths only): the path (before `#`, the symbol is documentation) is in the
+        upstream's files: — the round check holds the upstream to them; the close checks it was delivered."""
         path = artifact.split("#", 1)[0]
         pats = [x.strip().strip("\"'") for x in up.get("files", "").strip("[]").split(",") if x.strip()]
-        if path and any(path.startswith(x) if x.endswith("/") else fnmatch.fnmatchcase(path, x) for x in pats):
-            return True
-        if f"`{artifact}`" in (section(up["_text"], "Scope") or ""):
-            return True
-        return not pats and is_finished(up["_path"], up) and bool(path) and os.path.exists(os.path.join(root, path))
+        return bool(path) and any(path.startswith(x) if x.endswith("/") else fnmatch.fnmatchcase(path, x) for x in pats)
 
     # per-task semantic checks, ordered by file
     for rel, fm in sorted(tasks.items()):
@@ -1191,6 +1187,8 @@ def main():
                     c_errs.append(f"consumes entry {ent!r} is not `<id>: <artifact>`")
                 elif re.search(r"[*?\[]", art) or not art.strip("/."):
                     c_errs.append(f"consumes {ent!r} is a pattern — name the one artifact consumed")
+                elif re.search(r"\s", art.split("#", 1)[0]):
+                    c_errs.append(f"consumes {ent!r} is not a repo path — name the file that makes it (the migration, the route file)")
                 else:
                     cons.append((int(cid), art))
             for x in c_errs:
@@ -1199,7 +1197,7 @@ def main():
                 if cid not in fm["_blocked"]:
                     a_fail(f"{rel}: consumes {cid} but {cid} is not in blocked-by — a hand-off with no edge lets the two run at once")
                 elif cid in by_id and not produces(by_id[cid], art):
-                    a_fail(f"{rel}: consumes {cid}: {art} — {cid} does not produce it (not in its files:, not a code span in its ## Scope)")
+                    a_fail(f"{rel}: consumes {cid}: {art} — {cid} does not produce it (the path is not in its files:)")
             for b in fm["_blocked"] if not c_errs else ():
                 if b not in {c for c, _ in cons}:
                     (a_fail if feat_ in edges_rule else a_print)(f"{'' if feat_ in edges_rule else 'warning: '}{rel}: blocked-by {b} consumes "
