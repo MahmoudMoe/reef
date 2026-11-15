@@ -314,8 +314,13 @@ def inbox(root, doctor=None, runner=None):
         if qs:
             add(approve_item(qs[0], text=f"row {r}: {qs[0]}", row=r))
     try:   # hardening PR-3: a lesson to land or retire is the owner's approval, one item each
-        for q in sibling_module("reef-lessons.py", "reef_lessons_for_screen").owner_questions(root):
+        lm = sibling_module("reef-lessons.py", "reef_lessons_for_screen")
+        for q in lm.owner_questions(root):
             add(approve_item(q, text=f"lesson: {q}"))
+        for l in lm.report_lines(root):   # the owner's decision 6: a refused commit of a lesson file is never silent
+            if l.startswith("- not committed: "):
+                add(item("look", "lesson files not committed: " + l[len("- not committed: "):], [PY, script("reef-loop.py") or "scripts/reef-loop.py", "tick"],
+                         shown="python3 scripts/reef-loop.py tick"))
     except Exception:
         pass
     for r, issue, q, rec in questions(root):

@@ -305,10 +305,9 @@ def approve(root, action, lid, digest16):
     layer = c.get("landed_layer") or c["layer"]
     lines = [l for l in file_lines(root, layer) if l.startswith("- ")]
     hp = os.path.join(root, "reef", "lessons", "history.md")
-    touched = [layer_file(root, layer)] + ([hp] if action == "retire" else [])
-    before = {p: (read(p) if os.path.isfile(p) else None) for p in touched}
+    touched = [os.path.relpath(layer_file(root, layer), root)] + (["reef/lessons/history.md"] if action == "retire" else [])
     if action == "land":
-        lines = [l for l in lines if not l.startswith(f"- {lid} · ")]   # a run cut off before its commit (the hook's timeout) left it: once
+        lines = [l for l in lines if not l.startswith(f"- {lid} · ")]   # once, whatever an earlier cut-off run left
         cap = config(root)["cap"]
         if len(lines) >= cap:
             return False, f"lesson {lid}: layer {layer} holds {len(lines)}/{cap} lessons — retire one first (lessons.cap); nothing written"
@@ -322,26 +321,56 @@ def approve(root, action, lid, digest16):
             f.write(("# Lessons — history\n\nEvery retired lesson, never deleted.\n\n" if new else "")
                     + f"- {time.strftime('%Y-%m-%d', time.gmtime())} retired {lid} ({layer}, class {c['class']}, recurred {m[0]} over {m[1]} rows, "
                     f"landed {c['landed_at'][:10]}): {c['lesson']}\n")
-    subject = (f"reef: lesson {lid} landed in reef/lessons/{layer}.md (approved at {dg[:16]})" if action == "land" else
-               f"reef: lesson {lid} retired from reef/lessons/{layer}.md (kept in reef/lessons/history.md)")
-    why = commit(root, touched, subject)
-    if why:   # the owner's decision 5: the lesson lands as a commit or not at all — the files as they were, nothing recorded
-        for p, text in before.items():
-            if text is None:
-                if os.path.exists(p):
-                    os.remove(p)
-            else:
-                with open(p, "w", encoding="utf-8") as f:
-                    f.write(text)
-        return False, f"lesson {lid}: the commit was refused — {why}; the files are as they were, nothing written"
     d = os.path.join(root, ".reef", "approvals")
     os.makedirs(d, exist_ok=True)
     with open(os.path.join(d, f"lesson-{lid}{'-retire' if action == 'retire' else ''}.json"), "w", encoding="utf-8") as f:
         json.dump({"action": action, "digest16": dg[:16], "digest": dg, "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "by": "owner"}, f, indent=1)
         f.write("\n")
-    append(root, {"ev": "landed" if action == "land" else "retired", "id": lid, "at": now(), "layer": layer, "digest16": dg[:16]})
+    # the owner's decision 6: no commit here — the AskUserQuestion hook has 30 s and the gate may not; the next tick commits
+    append(root, {"ev": "landed" if action == "land" else "retired", "id": lid, "at": now(), "layer": layer, "digest16": dg[:16], "paths": touched})
     return True, (f"lesson {lid} landed in reef/lessons/{layer}.md" if action == "land" else
-                  f"lesson {lid} retired from reef/lessons/{layer}.md (kept in reef/lessons/history.md)") + " — committed"
+                  f"lesson {lid} retired from reef/lessons/{layer}.md (kept in reef/lessons/history.md)") + " — the next tick commits it"
+
+
+def pending(root):
+    """([landed/retired events no `committed` event covers], the last refusal's why or "") — the lesson files to commit."""
+    done, out, why = set(), [], ""
+    for e in events(root):
+        if e.get("ev") in ("landed", "retired"):
+            out.append(e)
+        elif e.get("ev") == "committed":
+            done |= {tuple(x) for x in e.get("items") or []}
+            why = ""
+        elif e.get("ev") == "commit-refused":
+            why = str(e.get("why") or "")
+    out = [e for e in out if (e["ev"], e["id"]) not in done]
+    return out, (why if out else "")
+
+
+def commit_pending(start):
+    """The owner's decisions 5 and 6: on the tick, the approved lesson files written but not committed are committed — those
+    paths alone, under the pre-commit gate. Idempotent; a refusal leaves the files and is logged for the report and the inbox."""
+    root = home(start)
+    if not os.path.isdir(os.path.join(root, ".reef")):
+        return None
+    todo, last = pending(root)
+    if not todo:
+        return None
+    paths = list(dict.fromkeys(p for e in todo for p in e.get("paths") or []))
+    items = [[e["ev"], e["id"]] for e in todo]
+    st = subprocess.run(["git", "-C", root, "status", "--porcelain", "--untracked-files=all", "--", *paths], capture_output=True, text=True, timeout=60)
+    if st.returncode == 0 and not st.stdout.strip():   # committed already (by hand, or a tick cut off after its commit)
+        append(root, {"ev": "committed", "at": now(), "items": items, "paths": paths, "commit": "already"})
+        return None
+    subject = "reef: lessons " + ", ".join(f"{i} {ev}" for ev, i in items) + " — committed on the tick (the owner's approvals)"
+    why = commit(root, [os.path.join(root, p) for p in paths], subject)
+    if why:
+        if why != last:   # said once per refusal, not once per tick
+            append(root, {"ev": "commit-refused", "at": now(), "paths": paths, "why": why})
+        return why
+    append(root, {"ev": "committed", "at": now(), "items": items, "paths": paths})
+    print(f"lessons: committed {', '.join(paths)} ({', '.join(f'{i} {ev}' for ev, i in items)})", file=sys.stderr)
+    return None
 
 
 def commit(root, paths, subject):
@@ -389,6 +418,10 @@ def report_lines(start):
                    f"no recurrence over {rows} rows: the deletion test — retire it" if n == 0 and rows >= cfg["quiet_rows"] else "")
             if why:
                 out.append(f"- retire? {c['id']} — {why} — {question(c, 'retire')}")
+    todo, why = pending(root)
+    if why:
+        out.append(f"- not committed: {', '.join(dict.fromkeys(p for e in todo for p in e.get('paths') or []))} — {why} "
+                   "(the next tick commits once the gate is green)")
     for layer in LAYERS:
         out += [f"- not approved (edited by hand, not delivered): reef/lessons/{layer}.md: {l}" for l in approved(root, layer)[1]]
     count = lambda layer: len([l for l in file_lines(root, layer) if l.startswith("- ")])

@@ -261,6 +261,10 @@ def plan_gate(root, scripts, py, tasks):
 
 
 def tick(root):
+    try:   # hardening PR-3, the owner's decision 6: the approved lesson files are committed here, never in the approval hook
+        load_sibling("reef-lessons.py", "reef_lessons").commit_pending(root)
+    except Exception as e:
+        print(f"lessons: not committed — {e}", file=sys.stderr)
     cfg = config(root)
     st = load_state(root)
     scripts = os.path.join(root, "scripts")
