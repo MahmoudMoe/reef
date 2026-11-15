@@ -70,12 +70,29 @@ dead-ends: 2 recorded — pass every line through `dead-ends: end` to the implem
 dead-ends: end
 ```
 
-## The round check (PR-1) and dead ends
+## The round check (PR-1) feeds SAW by code — owner decision (2026-11-15)
 
-A round refused by `reef-claims.py round` is a FAIL; its `round: REFUSED — …` lines are the SAW, verbatim. Decision (the
-conservative one): no direct feed in this PR — `/reef-task` names the form
-`reef-attempt <task> "EXPECTED: reef-claims.py round exits 0 (the Proof test red on the base, only files:)" "SAW: <its REFUSED lines>"`.
-A `--from-round` flag that runs or reads the check itself is a later choice for the owner.
+A round refused by `reef-claims.py round` is a FAIL; its `round: REFUSED — …` lines are the SAW, verbatim, and nobody retypes them.
+- `reef-claims.py round` also appends its `round: REFUSED — …` lines to its log, `<git-dir>/reef-round-<id>.log` (truncated at
+  the start of every run, so the log holds the last run only).
+- `reef-attempt --from-round <task> [FENCE:/DEAD END: lines]` reads that log in the git dir of the task file's checkout
+  (`git rev-parse --absolute-git-dir` from the task's folder, the worktree the round ran in) and records:
+  `EXPECTED: reef-claims.py round exits 0 — each Proof test fails on the base and passes on the round's tree; only files: changed`
+  and `SAW:` = the log's REFUSED lines, verbatim, in order.
+- refused with exit 2, the task file unchanged: no git dir, no log, or a log without a REFUSED line (the last round passed,
+  or never ran). `--from-round` with its own `EXPECTED:` or `SAW:` argument is refused too: the code writes those two.
+
+## The guard enforces the block — owner decision (2026-11-15)
+
+The prose and graph mode's code pass the block; the guard makes chat mode unable to drop it.
+- `reef-guard.py`'s implementer-dispatch path (the one that refuses a blocked or at-cap task and moves `dispatches:`), under the
+  same locks: a task whose `## Log` holds ≥1 FAIL record is refused when the dispatch prompt lacks ANY line of the block
+  `reef-attempt` prints for it now. The guard builds the block with reef-attempt's own `dead_end_lines` (loaded from the
+  plugin's directory, like `reef-graph.py`), and compares line by line (trailing spaces cut) — content, not a header: a prompt
+  holding round 2's lines but not round 1's is refused, and so is one holding the `dead-ends:` header alone.
+- the refusal names the first missing line and the command (`reef-attempt <task>`, pass its `dead-ends:` block verbatim);
+  a refusal moves no counter, as every guard refusal.
+- a task with no FAIL in its Log needs no block.
 
 ## Tests (each red on the unchanged code first)
 
@@ -90,14 +107,17 @@ A `--from-round` flag that runs or reads the check itself is a later choice for 
 - `tests/test_graph_run.py`: the fix round's implementer prompt carries every dead end (round 1's too); settle's FAIL records
   EXPECTED and SAW.
 - `tests/test_contracts.py`: `agents/implementer.md` names the `dead-ends:` block; `/reef-task` names the labelled form.
+- `tests/test_guard.py`: an implementer dispatch after a recorded FAIL is refused without the block, refused with only the
+  header or only the last round's lines, allowed with the block reef-attempt printed; `dispatches:` unchanged on a refusal.
+- `tests/test_attempt.py` + `tests/test_round_gate.py`: `--from-round` records the round log's REFUSED lines as SAW verbatim;
+  refused (exit 2, file unchanged) with no log, with a log holding no REFUSED line, and with its own SAW; `reef-claims.py round`
+  writes its REFUSED lines to the log.
 
 Existing tests that record a FAIL with free text are moved to the labelled form (`EXPECTED: …` + `SAW: <the same text>`): the
 behaviour they test (cap, signature, lock, CRLF, stamps) is unchanged, only the input form.
 
 ## Out of scope
 
-- the guard refusing a chat-mode implementer dispatch whose prompt lacks the `dead-ends:` block (flagged for the owner: it is the
-  enforcement for chat mode; today the prose and graph mode's code carry it).
 - checking that SAW is really verbatim output (a paraphrase is not detectable by code).
 - the verifier's and hunter's prompts (they already read the Log on a retry).
-- a direct feed from `reef-claims.py round` (above); any refactor of reef-attempt, graph-run or the claims checker.
+- any refactor of reef-attempt, graph-run, the guard or the claims checker.
