@@ -582,7 +582,8 @@ class Rails(unittest.TestCase):
     def test_the_first_passing_check_records_the_feature_under_the_rule(self):
         d = self.edge()
         self.assertEqual(check(d).returncode, 0)
-        stamp = json.load(open(os.path.join(d, "tasks", ".plan-review.json")))
+        with open(os.path.join(d, "tasks", ".plan-review.json"), encoding="utf-8") as f:
+            stamp = json.load(f)
         self.assertIn("csv-export-for-orders", stamp.get("edges_rule", []))
 
     def test_one_line_diff_under_auth_tiered_light_is_refused(self):
