@@ -120,6 +120,17 @@ class Round(unittest.TestCase):
                            capture_output=True, text=True, cwd=self.d)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
+    def test_the_task_folder_is_allowed_when_the_task_file_is_read_from_another_checkout(self):
+        # CI on PR 372, macOS, the critical path: the close found no copy in the task worktree and passed the feature worktree's
+        self.make("def add(a, b):\n    return 0\n")
+        with open(os.path.join(self.d, "tasks/101-add.md"), "a", encoding="utf-8") as f:
+            f.write("note\n")
+        other = self.d + "-feature"
+        git(self.d, "worktree", "add", "-q", "--detach", other, "HEAD")
+        r = subprocess.run([sys.executable, CLAIMS, "round", os.path.join(other, "tasks/101-add.md"), "--repo", self.d],
+                           capture_output=True, text=True, cwd=self.d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def test_a_task_without_files_is_not_scope_checked(self):
         self.make("def add(a, b):\n    return 0\n", extra="")
         write(self.d, "README.md", "drive-by\n")

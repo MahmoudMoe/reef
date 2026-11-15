@@ -317,7 +317,9 @@ def cmd_round(repo, task_path, base):
         die(f"no task file {task_path} ({e})")
     fm, cfg = task_frontmatter(text) or {}, read_cfg(repo)
     tid = fm.get("id") or os.path.basename(task_path).split("-")[0]
-    folder = os.path.relpath(os.path.dirname(os.path.realpath(task_path)), repo).replace(os.sep, "/").rstrip("/") + "/"
+    tdir = os.path.dirname(os.path.realpath(task_path))   # the folder as the task's own checkout names it (the close may pass another's copy)
+    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=tdir, capture_output=True, text=True).stdout.strip() or repo
+    folder = os.path.relpath(tdir, os.path.realpath(top)).replace(os.sep, "/").rstrip("/") + "/"
     folder = re.sub(r"done/$", "", folder)
     gd = subprocess.run(["git", "rev-parse", "--absolute-git-dir"], cwd=repo, capture_output=True, text=True).stdout.strip()
     if not gd:

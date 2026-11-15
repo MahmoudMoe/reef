@@ -253,7 +253,7 @@ def main(argv):
         if not os.path.isdir(wt):
             fail(f"no task worktree at {wt} while {tbranch} is unmerged", 1)
         if dirty:
-            wtask = os.path.join(wt, os.path.relpath(task, root))
+            wtask = os.path.join(wt, os.path.relpath(os.path.realpath(task), os.path.realpath(root)))   # macOS: /var is /private/var
             round_check(wt, wtask if os.path.isfile(wtask) else task, git(root, "merge-base", tbranch, "HEAD").stdout.strip())
             git(wt, "add", "-A")
             staged = git(wt, "diff", "--cached", "--name-only").stdout.split()
