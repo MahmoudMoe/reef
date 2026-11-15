@@ -13,13 +13,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import test_loop as T  # noqa: E402  (the loop's project fixture: an approved, reviewed light task 101)
+from _fixtures import load_script  # noqa: E402
 
 
 def graph_project():
     d = T.project()
     for k, v in (("user.email", "t@t"), ("user.name", "t")):   # reef-graph.py worktree commits a plan a test adds (CI has no identity)
         subprocess.run(["git", "-C", d, "config", k, v], check=True)
-    for n in ("reef-attempt", "reef-claims.py", "reef-adversarial", "reef-snapshot.sh", "reef-gate.sh", "reef-graph-run.py"):
+    for n in ("reef-attempt", "reef-claims.py", "reef-adversarial", "reef-snapshot.sh", "reef-gate.sh", "reef-graph-run.py", "reef-lessons.py"):
         shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(d, "scripts", n))
     return d
 
@@ -182,6 +183,24 @@ class Generate(unittest.TestCase):
         self.assertIn("  #1 attempt 1 EXPECTED: AC-1 test_t101 passes\n", t)
         self.assertIn("  #1 attempt 1 FENCE: only src/\n", t)
         self.assertIn("dead-ends: end", t)
+
+    def test_the_implementers_prompt_carries_the_harness_lessons_the_owner_approved(self):
+        # hardening PR-3: a landed harness lesson reaches the implementer by code in graph mode too, round 1 included
+        d = graph_project()
+        pass_gate(d)
+        self.judged(d)
+        lm = load_script("reef-lessons.py")
+        lm.append(d, {"ev": "candidate", "id": "L1", "at": "2026-11-15T00:00:00.000000Z", "trigger": "same-failure", "task": "9",
+                      "feature": "x", "sig": "0123456789ab", "class": "round-scope", "facts": [], "rounds": 2})
+        lm.append(d, {"ev": "draft", "id": "L1", "at": "2026-11-15T00:00:01.000000Z", "layer": "harness",
+                      "lesson": "name every file the fix touches in files: before the round starts"})
+        ok, msg = lm.approve(d, "land", "L1", lm.digest(lm.state(d)["L1"], "land")[:16])
+        self.assertTrue(ok, msg)
+        r = g(d, "generate")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        t = self.script_of(d)["implement_prompt"]
+        self.assertIn("lessons: 1 landed (harness", t)
+        self.assertIn("  L1 (round-scope): name every file the fix touches in files: before the round starts\nlessons: end\n", t)
 
     def test_a_rejected_report_or_a_hand_back_is_re_judged_in_full_without_an_implementer(self):
         d = graph_project()
