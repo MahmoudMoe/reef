@@ -178,7 +178,8 @@ def trigger(start, path, kind, text=None, sig=None):
     with open(ledger_path(root) + ".lock", "a") as lk:   # the id: one allocation at a time
         fcntl.flock(lk, fcntl.LOCK_EX)
         st = state(root)
-        lid = f"L{1 + max([int(k[1:]) for k in st if re.fullmatch(r'L\d+', str(k))] or [0])}"
+        n = 1 + max([int(k[1:]) for k in st if re.fullmatch(r"L\d+", str(k))] or [0])
+        lid = f"L{n}"
         facts = [l for l in am.dead_end_lines(text)[1:-1]]
         append(root, {"ev": "candidate", "id": lid, "at": now(), "trigger": kind, "task": tid, "feature": feature, "sig": sig,
                       "class": classes(fields)[0], "files": str(fm.get("files") or ""), "rounds": len(recs), "facts": facts})

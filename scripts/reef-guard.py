@@ -1136,7 +1136,7 @@ def run_target(seg):
 
 OWN_SCRIPTS = os.path.dirname(os.path.realpath(__file__))
 RECORD_WRITERS = ("reef-approval.py", "reef-record")
-WRITER_LOADS = ("reef_common.py", "reef-plan-check.py", "reef-adversarial", "reef-evidence.py", "reef-run.py", "reef-queue.py")
+WRITER_LOADS = ("reef_common.py", "reef-plan-check.py", "reef-adversarial", "reef-evidence.py", "reef-run.py", "reef-queue.py", "reef-lessons.py")   # reef-lessons.py: the lesson approval lands through it (PR-3)
 PYTHON_LOADERS = re.compile(r"^PYTHON(PATH|HOME|STARTUP|USERBASE|PLATLIBDIR|EXECUTABLE|SAFEPATH|INSPECT)=")   # what changes the code Python runs
 
 
