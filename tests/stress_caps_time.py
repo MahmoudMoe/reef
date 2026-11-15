@@ -24,7 +24,9 @@ def read(p):
 
 
 def attempt(path, *failure, cap=None):
-    argv = [sys.executable, ATTEMPT] + (["--cap", str(cap)] if cap else []) + [path] + list(failure)
+    # hardening PR-2: a FAIL is labelled (EXPECTED + SAW); the text these tests record is the SAW
+    failure = ["EXPECTED: the task's criteria pass", "SAW: " + " ".join(failure)] if failure else []
+    argv = [sys.executable, ATTEMPT] + (["--cap", str(cap)] if cap else []) + [path] + failure
     return subprocess.run(argv, capture_output=True, text=True)
 
 

@@ -207,7 +207,7 @@ class Project:
 
     def fail(self, tid, home, text="gate exit 1: FAIL test_it_works"):
         time.sleep(1.1)
-        r = subprocess.run([os.path.join(self.main, "scripts", "reef-attempt"), self.task_path(tid, where=home), text],
+        r = subprocess.run([os.path.join(self.main, "scripts", "reef-attempt"), self.task_path(tid, where=home), "EXPECTED: gate exit 0", "SAW: " + text],
                            capture_output=True, text=True, cwd=home)
         assert r.returncode == 0, r.stdout + r.stderr
         return r

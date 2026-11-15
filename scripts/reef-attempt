@@ -5,6 +5,9 @@
 Usage:
   reef-attempt <task-file>                    report state; print model/effort for the NEXT dispatch
   reef-attempt <task-file> <failure-text...>  record a FAIL (increment attempts, store signature), then report
+                                              the text is LABELLED lines: EXPECTED: (required), SAW: (required,
+                                              verbatim output, may span lines), FENCE:, DEAD END: — one argument
+                                              per field works (arguments are joined by newlines)
   reef-attempt --cap N <task-file> [...]      override the cap for this call (rollup/CI loops)
 
 Exit codes: 0 = dispatch allowed (prints the dispatch line + the REEF-TASK header the
@@ -29,6 +32,10 @@ guard fires on the same failure, not on byte-identical text. Ports and other
 plain `host:port` pairs are NOT stripped — two different services failing must
 not collide into one signature.
 
+Dead ends (hardening PR-2): each FAIL's four fields are indented sub-lines under its `- attempt N FAIL:` line in
+## Log (outside every digest), FENCE and DEAD END derived when not given; every dispatch prints ALL of them as the
+`dead-ends:` block, oldest first, so round N+2 still sees round N's.
+
 This script records WHY a task fails. Enforcement does not depend on it being
 called: the PreToolUse guard (reef-guard.py) independently refuses implementer
 dispatches on blocked/at-cap task files and advances a `dispatches:` odometer,
@@ -46,7 +53,7 @@ import tempfile
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read_config, repo_root, table_cells, die as _die, load_sibling, task_copies, task_frontmatter, read  # noqa: E402
+from reef_common import main_checkout, read_config, repo_root, table_cells, die as _die, load_sibling, task_copies, task_frontmatter, read, prose_lines  # noqa: E402
 
 DEFAULT_CAP = 3
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
@@ -96,10 +103,111 @@ def parse_args(argv):
         die("usage: reef-attempt [--cap N] <task-file> [failure-text...]")
     path = rest[0]
     failure_given = len(rest) > 1
-    failure = " ".join(rest[1:]).strip()
+    failure = "\n".join(rest[1:]).strip()   # newlines, not spaces: one argument per field, and SAW keeps its lines
     if failure_given and not failure:
         die("a failure argument was passed but it is empty — a FAIL with no text cannot be recorded; pass the real failure output")
-    return cap, path, failure
+    return cap, path, (parse_fields(failure) if failure else None)
+
+
+FIELDS = ("EXPECTED", "SAW", "FENCE", "DEAD END")
+LABEL = re.compile(r"^(EXPECTED|SAW|FENCE|DEAD END):[ \t]?(.*)$")
+SAW_LINES, SAW_CHARS, FIELD_CHARS = 20, 200, 300
+
+
+def parse_fields(text):
+    """The labelled FAIL text → {field: [entries]}; SAW is its lines verbatim (trailing space cut, blanks dropped), the
+    others one whitespace-collapsed line per label. No EXPECTED or no SAW, or text before the first label, is a 2: the
+    next round cannot be told what was required and what happened (hardening PR-2)."""
+    got, cur = {f: [] for f in FIELDS}, None
+    for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        m = LABEL.match(raw.lstrip())
+        if m:
+            cur = m.group(1)
+            got[cur].append([m.group(2)])
+        elif cur is None:
+            if raw.strip():
+                die(f"the failure text starts with unlabelled text ({raw.strip()[:60]!r}) — a FAIL is labelled lines: "
+                    "`EXPECTED: <what the criterion or test required>` and `SAW: <the failing output, verbatim>` "
+                    "(FENCE: and DEAD END: optional); nothing recorded")
+        else:
+            got[cur][-1].append(raw)
+    out = {f: [" ".join(" ".join(e).split())[:FIELD_CHARS] for e in got[f]] for f in ("EXPECTED", "FENCE", "DEAD END")}
+    out = {f: [e for e in v if e] for f, v in out.items()}
+    out["SAW"] = [l.rstrip() for e in got["SAW"] for l in e if l.strip()]
+    missing = [f"{f}:" for f in ("EXPECTED", "SAW") if not out[f]]
+    if missing:
+        die(f"a FAIL record needs `EXPECTED: <what the criterion or test required>` and `SAW: <the failing output, verbatim>` "
+            f"— missing {' and '.join(missing)}; nothing recorded")
+    return out
+
+
+FAIL_LINE = re.compile(r"^\s*-\s*attempt (\d+) FAIL:[ \t]?(.*?)(?:[ \t]*· at \S+Z)?[ \t]*$")
+SUB_LINE = re.compile(r"^  - (EXPECTED|SAW|FENCE|DEAD END)( \(derived\))?: (.*)$")
+
+
+def fail_records(text):
+    """Every FAIL in ## Log, oldest first: (attempt, summary, [(field, derived, text)]). A line from before the four
+    fields has none."""
+    log = re.search(r"^##[ \t]+[Ll][Oo][Gg][ \t]*$(.*)\Z", text, re.M | re.S)
+    recs = []
+    for line in (log.group(1) if log else "").splitlines():
+        m = FAIL_LINE.match(line)
+        if m:
+            recs.append((int(m.group(1)), m.group(2), []))
+            continue
+        s = SUB_LINE.match(line)
+        if s and recs:
+            recs[-1][2].append((s.group(1), bool(s.group(2)), s.group(3)))
+    return recs
+
+
+def dead_end_lines(text):
+    """The dispatch's `dead-ends:` block: every recorded FAIL, its four fields, oldest first — never only the last."""
+    recs = fail_records(text)
+    if not recs:
+        return []
+    out = [f"dead-ends: {len(recs)} recorded — pass every line through `dead-ends: end` to the implementer verbatim: "
+           "meet EXPECTED, stay inside FENCE, retry no DEAD END"]
+    for i, (n, summary, fields) in enumerate(recs, 1):
+        if not fields:
+            out.append(f"  #{i} attempt {n} SAW (before the four fields): {summary}")
+        for f, derived, t in fields:
+            out.append(f"  #{i} attempt {n} {f}{' (derived)' if derived else ''}: {t}")
+    out.append("dead-ends: end")
+    return out
+
+
+def criterion_ids(text):
+    acs = re.search(r"^##\s+Acceptance Criteria\s*$(.*?)(?=^##\s|\Z)", text, re.M | re.S)
+    ids = []
+    for l in (acs.group(1) if acs else "").splitlines():
+        m = re.match(r"^\s*(?:[-*+]|\d+[.)])\s+.*?\bAC-?(\d+)\b", l)
+        if m and "HUMAN AC" not in l and int(m.group(1)) not in ids:
+            ids.append(int(m.group(1)))
+    return ids
+
+
+def derived_fence(task, fields):
+    """The boundary when the recorder names none: the declared files (the round check refuses any other) and the
+    criteria the failure does not name (they passed: keep them)."""
+    files = task.get("files")
+    named = {int(x) for x in re.findall(r"\bAC-?(\d+)\b", " ".join(fields["EXPECTED"] + fields["SAW"]))}
+    keep = [i for i in criterion_ids(task.text) if i not in named]
+    parts = ([f"only files: {files}"] if files and files.strip("[] ") else []) + ([f"keep passing: {', '.join(f'AC-{i}' for i in keep)}"] if keep else [])
+    return "; ".join(parts) or "keep what passed: change only what SAW shows"
+
+
+def derived_dead_ends(root, task, attempt):
+    """The approach the round took, in its own words: the claims of its hand-back (at most 5)."""
+    hb = os.path.join(root, ".reef", "ci-local", f"handback-{task.get('id')}.md")
+    claims = []
+    try:
+        claim = load_sibling("reef-claims.py", "reef_claims").CLAIM
+        with open(hb, encoding="utf-8") as f:
+            claims = [re.sub(r"^[-*+]\s+", "", l.strip()) for l in prose_lines(f.read()) if claim.match(l.strip())]
+    except Exception:
+        claims = []
+    return [" ".join(c.split())[:FIELD_CHARS] for c in claims[:5]] or [f"attempt {attempt}'s approach (no hand-back claims to name it)"]
 
 
 def proof_is_test(cell):
@@ -122,9 +230,9 @@ def rejudge_line(text, rnd):
     """Round ≥2: the criteria the verifier re-judges — those the last FAIL named, plus every criterion whose Proof is
     not a test (a command or a [mechanic] row the gate does not run). The others are carried: round 1's test name plus
     the gate's exit 0 on the new snapshot is their evidence. No criterion named in the failure → all of them."""
-    log = re.search(r"^##\s+Log\s*$(.*)\Z", text, re.M | re.S)
-    fails = [l for l in (log.group(1) if log else "").splitlines() if re.match(r"^\s*-\s*attempt \d+ FAIL:", l)]
-    named = sorted({int(x) for x in re.findall(r"\bAC-?(\d+)\b", fails[-1])}, key=int) if fails else []
+    recs = fail_records(text)
+    last = " ".join([recs[-1][1]] + [t for f, _, t in recs[-1][2] if f in ("EXPECTED", "SAW")]) if recs else ""
+    named = sorted({int(x) for x in re.findall(r"\bAC-?(\d+)\b", last)}, key=int)
     if not named:
         return f"rejudge: all (round {rnd}: the recorded failure names no criterion)"
     proof = re.search(r"^##\s+Proof\s*$(.*?)(?=^##\s|\Z)", text, re.M | re.S)
@@ -288,7 +396,8 @@ def run_attempt(cap_flag, path, failure):
                     "last_failure_sig: \"\") before any dispatch.")
 
         if failure:
-            sig = hashlib.sha1(normalize(failure).encode()).hexdigest()[:12]
+            # EXPECTED + SAW is the failure; FENCE and DEAD END are the recorder's words — a reworded fence hides no repeat
+            sig = hashlib.sha1(normalize("\n".join(failure["EXPECTED"] + failure["SAW"])).encode()).hexdigest()[:12]
             attempts += 1
             # "twice" means twice within THIS round: after a human reset
             # (attempts back to 0) a stale signature must not burn the fresh round.
@@ -300,8 +409,24 @@ def run_attempt(cap_flag, path, failure):
             # re-verified 23 criteria, 31 turns, 71k)
             # sub-second stamp (H5): a report copied then rejected in the same second must read OLDER than this FAIL
             now = time.time()
-            task.append_log(f"- attempt {attempts} FAIL: {' '.join(failure.split())[:300]} · at "
+            saw = failure["SAW"]
+            task.append_log(f"- attempt {attempts} FAIL: {' '.join(' '.join(saw).split())[:300]} · at "
                             f"{time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(now))}.{int(now % 1 * 1e6):06d}Z")
+            # the four fields, one sub-line each, always indented: a verbatim line is never a heading or a FAIL line
+            for e in failure["EXPECTED"]:
+                task.append_log(f"  - EXPECTED: {e}")
+            for l in saw[:SAW_LINES]:
+                task.append_log(f"  - SAW: {l[:SAW_CHARS]}")
+            if len(saw) > SAW_LINES:
+                task.append_log(f"  - SAW: … (+{len(saw) - SAW_LINES} more lines trimmed)")
+            for e in failure["FENCE"] or [None]:
+                task.append_log(f"  - FENCE: {e}" if e else f"  - FENCE (derived): {derived_fence(task, failure)}")
+            for e in failure["DEAD END"] or [None]:
+                if e:
+                    task.append_log(f"  - DEAD END: {e}")
+                else:
+                    for d in derived_dead_ends(root, task, attempts):
+                        task.append_log(f"  - DEAD END (derived): {d}")
             if attempts >= cap or repeated:
                 task.set("status", "blocked")
                 task.write()
@@ -322,6 +447,8 @@ def run_attempt(cap_flag, path, failure):
         print(f"author: model={model} tier={tier}")
         print(f"hand-back: .reef/ci-local/handback-{task.get('id')}.md in the task worktree — the implementer writes it; "
               f"the orchestrator only checks it (reef-claims) and never types it from the agent's message")
+        for line in dead_end_lines(task.text):
+            print(line)
         rw = int((cfg.get("writing") or {}).get("report_words", 0) or 0) if isinstance(cfg.get("writing"), dict) else 0
         acs = re.search(r"^##\s+Acceptance Criteria\s*$(.*?)(?=^##\s|\Z)", task.text, re.M | re.S)
         n_ac = len([l for l in (acs.group(1) if acs else "").splitlines()

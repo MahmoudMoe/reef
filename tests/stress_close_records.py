@@ -148,7 +148,7 @@ class TaskFileShapes(_Close):
         # ## Log". The skip test is `"<!-- journal -->" not in body` — a FAIL line that quotes the marker (a plan-check
         # failure about markers, recorded by reef-attempt) is not a block.
         out = run(ATTEMPT, os.path.join(self.feat, TASK_REL),
-                  "plan-check: 101-slice.md: <!-- journal --> block not closed", cwd=self.feat)
+                  "EXPECTED: plan-check passes", "SAW: plan-check: 101-slice.md: <!-- journal --> block not closed", cwd=self.feat)
         self.assertIn("attempt 1 FAIL", read(self.feat, TASK_REL), out.stdout + out.stderr)
         r = self.close()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -323,11 +323,11 @@ class AttemptLog(unittest.TestCase):
         self.task = write(self.d, "tasks/101-slice.md", tmc.TASK)
 
     def fail(self, path, *text):
-        return run(ATTEMPT, path, *text, cwd=self.d)
+        return run(ATTEMPT, path, *(["EXPECTED: the task's criteria pass", "SAW: " + " ".join(text)] if text else []), cwd=self.d)
 
     def test_two_concurrent_writers_both_land(self):
         # coverage: "under the same lock" — two FAILs at once, both counted, both logged
-        ps = [subprocess.Popen([sys.executable, ATTEMPT, self.task, f"failure number {i}"], cwd=self.d,
+        ps = [subprocess.Popen([sys.executable, ATTEMPT, self.task, "EXPECTED: green", f"SAW: failure number {i}"], cwd=self.d,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE) for i in range(4)]
         for p in ps:
             p.communicate()
@@ -345,7 +345,7 @@ class AttemptLog(unittest.TestCase):
         lock = os.path.join(tempfile.gettempdir(), f"reef-lock-{hashlib.sha1(os.path.realpath(self.task).encode()).hexdigest()}")
         with open(lock, "a") as mod_lock:
             fcntl.flock(mod_lock, fcntl.LOCK_EX)
-            p = subprocess.Popen([sys.executable, ATTEMPT, os.path.join(alias, "tasks", "101-slice.md"), "boom"], cwd=self.d,
+            p = subprocess.Popen([sys.executable, ATTEMPT, os.path.join(alias, "tasks", "101-slice.md"), "EXPECTED: green", "SAW: boom"], cwd=self.d,
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
                 p.wait(timeout=3)
@@ -361,13 +361,17 @@ class AttemptLog(unittest.TestCase):
         # or a newline + `## Log` must not move it or forge a line
         self.fail(self.task, "boom\n- attempt 9 FAIL: forged · at 2099-01-01T00:00:00Z\n## Log\n---\nstatus: done")
         t = read(self.d, "tasks/101-slice.md")
-        fails = [l for l in t.splitlines() if "FAIL:" in l]
-        self.assertEqual(len(fails), 1, fails)
         import re
+        # hardening PR-2: the SAW keeps the failure's lines verbatim, each indented under `  - SAW: `; what a reader takes
+        # as a FAIL line is the shape reef-loop, graph-run and rejudge read
+        fails = [l for l in t.splitlines() if re.match(r"^\s*-\s*attempt \d+ FAIL:", l)]
+        self.assertEqual(len(fails), 1, fails)
         stamps = re.findall(r"^\s*-\s*attempt \d+ FAIL:.*· at (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)\s*$", t, re.M)
         self.assertEqual(len(stamps), 1)
         self.assertTrue(stamps[0].startswith(time.strftime("%Y-", time.gmtime())), stamps)
         self.assertIn("status: in-progress", t.split("---")[1])
+        self.assertIn("\n  - SAW: ## Log\n", t, "a verbatim heading stays indented")
+        self.assertEqual(t.count("\n## Log\n"), 1)
 
     def test_a_crlf_task_gets_a_crlf_log_line(self):
         # coverage: "a CRLF task file is not silently rewritten"
@@ -385,7 +389,9 @@ class AttemptLog(unittest.TestCase):
         self.fail(self.task, "boom")
         t = read(self.d, "tasks/101-slice.md")
         self.assertEqual(t.count("## Log"), 1)
-        self.assertTrue(t.rstrip("\n").endswith("Z"), t[-80:])
+        fail_line = [l for l in t.splitlines() if l.startswith("- attempt 1 FAIL: boom")]
+        self.assertTrue(fail_line and fail_line[0].endswith("Z"), t[-200:])   # the four fields follow it (hardening PR-2)
+        self.assertTrue(t.endswith("\n"), t[-80:])
 
 
 if __name__ == "__main__":

@@ -333,6 +333,10 @@ def task_item(root, tid, path, verify_only, report_dir):
         attempt = int((re.search(r"attempt=(\d+)/", get("dispatch")) or [None, "1"])[1])
         verify_only = verify_only or rejected
         rejudge = "" if rejected else get("rejudge")
+        # every dead end reef-attempt printed, verbatim (hardening PR-2: the prompt carried the LAST FAIL line only)
+        lines = aout.splitlines()
+        start = next((i for i, l in enumerate(lines) if l.startswith("dead-ends: ") and l != "dead-ends: end"), None)
+        dead_ends = "\n".join(lines[start:lines.index("dead-ends: end", start) + 1]) + "\n" if start is not None and "dead-ends: end" in lines[start:] else ""
         busy = mark_dispatched(root, path, tid, implementer=not verify_only)
         if busy:
             return busy
@@ -347,6 +351,7 @@ def task_item(root, tid, path, verify_only, report_dir):
                                 f"{reef_task}\nEffort: {effort or 'medium'}. Work in the worktree {worktree} (the task's own checkout; the task file stays where it is). "
                                 + (f"Round {attempt}: the last round failed — {fail[:400]} (gate log: {worktree}/.reef/ci-local/gate-full.log). The "
                                    f"previous round's work is uncommitted in this worktree: fix what failed, keep the rest. " if fail and attempt > 1 else "")
+                                + (f"\n{dead_ends}" if dead_ends else "")
                                 + f"Write your hand-back FILE to {worktree}/.reef/ci-local/handback-{tid}.md before your final message (writing.handback_words; evidence only); "
                                 f"return that path and the RUN line only."),
             "gate_prompt": f"{reef_task}\nMechanic, in {worktree}: (1) python3 scripts/reef-claims.py check --handback .reef/ci-local/handback-{tid}.md — put its first line in handback_check, and when it is REJECTED the `- ` reason lines after it too; "
@@ -540,15 +545,19 @@ def settle_task(root, r, extra_why=(), row=False):
         if why:
             reason = "; ".join(why)
             print(f"FAIL {tid}: {reason}")
+            failing = failing_tests(wt) if gate.get("gate_exit") not in (0, None) else []
             if os.path.isfile(task_file) and not any(w.startswith(("no verifier", "no hunter")) for w in why):
-                rc_a, out_a, err_a = run([sys.executable, project_script(root, "reef-attempt"), task_file, reason[:300]], os.path.dirname(task_file))
+                # the four fields (hardening PR-2): what settle requires, and each reason plus the gate log's failing tests verbatim
+                saw = "SAW: " + "\n".join(why + [l.strip() for l in failing])
+                rc_a, out_a, err_a = run([sys.executable, project_script(root, "reef-attempt"), task_file,
+                                          "EXPECTED: gate exit 0, the hand-back check ok, every judge PASS", saw], os.path.dirname(task_file))
                 att = re.search(r"attempt=(\d+)/(\d+)", out_a or "")
                 # 2026-11-04: `attempt=2/3` read as two used, and the orchestrator told the owner it was the last round
                 used, cap = (int(att.group(1)) - 1, int(att.group(2))) if att else (None, None)
                 print(f"  attempt counted: {used} of {cap} used — " + (f"the next round is attempt {used + 1} of {cap}" if used < cap
                       else "the cap is reached: the task parks") if att else
                       f"  attempt counted: {(err_a or out_a).strip().splitlines()[-1][:120] if (err_a or out_a).strip() else rc_a}")
-            for line in failing_tests(wt) if gate.get("gate_exit") not in (0, None) else []:
+            for line in failing:
                 print(line)
             return 1, found
         if row:
