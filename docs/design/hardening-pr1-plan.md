@@ -29,9 +29,15 @@ worktree that holds it (the task's work is uncommitted there: the implementer ne
 1. **`touches:` is NOT a file list.** In this codebase `touches:` is a list of risk classes (`pii|money|auth|migration`,
    `schemas/task.schema.json`, `reef-plan-check.py` TOUCHES, `reef-tier.py`); it forces a tier. Reusing it for paths would
    break the plan check (it rejects any value outside the four classes) and mix two meanings. So the declared files are a
-   NEW optional frontmatter key, `files:`, a bracket list like `blocked-by:`. Conservative choice: **a task without a
-   non-empty `files:` is not scope-checked** (every plan written before this PR keeps closing); the planner is told to write
-   it and the task template carries `files: []`.
+   NEW frontmatter key, `files:`, a bracket list like `blocked-by:`.
+   **Owner decision (2026-11-15): `files:` is REQUIRED for new plans.** `reef-plan-check.py` fails an unfinished task
+   without a non-empty `files:` when its feature is planned under this rule: the feature is recorded in the stamp's new
+   `files_rule` list, or it is absent from the previous stamp's `planned_under` and has no approval record in the main
+   checkout (a plan being written now). A feature already stamped before this rule, or already approved (a stampless task
+   worktree of an approved plan), keeps closing: its tasks get a `warning:` line, never a failure. Not a layout bump: a
+   feature's `planned_under` is written only after its first passing check, so a version compare would let a planner's
+   first run pass without `files:`. A 0.5 project (no `.reef/version`, no feature folder) only warns, as for every 0.6 rule.
+   The round check itself stays as it was: a task without `files:` (an old plan) is not scope-checked there.
 2. **Path matching.** An entry ending in `/` is a directory prefix (`src/export/` covers everything under it); any other
    entry is an `fnmatch` glob on the repo-relative path (`src/*.py`; an entry without metacharacters is an exact path; `*`
    crosses `/`, as in Python's `fnmatch`). The task folder (the directory holding the task file, `done/` included) is
@@ -64,6 +70,8 @@ New file `tests/test_round_gate.py`, real git repos in temp dirs:
 - scope: a change to a file outside `files:` is refused naming the file; a directory prefix and a glob are honoured; an
   untracked new file outside the list is refused; the task folder is always allowed.
 - scope: a task without `files:` is not scope-checked (one `scope: not declared` line, exit 0).
+- plan check: a new feature's task without `files:` fails the check; with `files:` it passes; a feature already in the
+  stamp before the rule (or approved) only warns.
 - skip: `kind: refactor` and a Proof with no test name skip the red check.
 - recovery: a manifest left by a killed run is restored by the next run.
 - merge-close: a fast-path close of a round whose test passes on the base is refused (exit 2) with nothing committed.
@@ -72,6 +80,6 @@ New file `tests/test_round_gate.py`, real git repos in temp dirs:
 ## Out of scope
 
 - command Proof rows (`<command that exits 0 iff …>`): not run on the base in this PR.
-- the plan check validating `files:` (shape, existence of paths) — a later PR if the owner wants it.
+- the plan check validating that `files:` paths exist (only presence and list shape are checked).
 - the graph runner (`reef-graph-run.py`) beyond what merge-close already covers; the verifier/reviewer NIT prose.
 - any refactor of merge-close, the gate or the claims checker.
