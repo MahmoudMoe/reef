@@ -16,7 +16,7 @@ A lesson changes what one reader does next time. The layer is that reader; its f
 |---|---|---|---|---|
 | `harness` | the task's round: what the implementer is told and the checks around it (PR-1's round, PR-2's dead ends) | the implementer, every dispatch | `reef/lessons/harness.md` | **code**: `reef-attempt`'s dispatch prints a `lessons:` block (after `dead-ends:`); graph mode passes it into the implementer's prompt verbatim, as the dead ends |
 | `loop` | the orchestration: the order of steps, waits, closes, the questions (`/reef-loop`, `/reef-task`) | the orchestrator, every session | `reef/lessons/loop.md` | **code**: `reef-loop.py tick --session-start` (the SessionStart context) carries it |
-| `graph` | the plan's shape: the task split, `files:`, `depends_on`, resources (the planner's output) | the planner, every plan | `reef/lessons/graph.md` | **prose**: `agents/planner.md` reads it first (no code entry point dispatches the planner) — flagged below |
+| `graph` | the plan's shape: the task split, `files:`, `depends_on`, resources (the planner's output) | the planner, every plan | `reef/lessons/graph.md` | **the guard** (owner decision 2): a `planner` Agent dispatch is refused when its prompt lacks any line of the `lessons:` block of the graph file (`reef-lessons.py lessons graph` prints it), compared by content like PR-2's dead-ends check; `agents/planner.md` names the block |
 
 The files are the PROJECT's (`reef/lessons/` in the main checkout), not the plugin's `agents/*.md` or `skills/*`: the plugin's
 files are reinstalled on every update and the guard protects them; a lesson learned in a project belongs to it.
@@ -98,7 +98,7 @@ On the approval, in the same call: `reef/lessons/<layer>.md` (created when missi
 and the ledger a `landed` event. **The cap** (`lessons.cap`, default 10, per layer file): a layer already holding `cap` lessons
 refuses the landing — nothing written, not even the approval record — `layer harness holds 10/10 lessons — retire one first`.
 
-The file is written in the main checkout and not committed by code (like a queue footnote): the next commit on the base carries it.
+**The commit (owner decision 5)**: code commits the layer file (and on a retirement `reef/lessons/history.md` too) in the main checkout, those paths only (`git commit -- <paths>`, like `commit_plan` in #370): `reef: lesson L3 landed in reef/lessons/harness.md (approved at <digest16>)` / `reef: lesson L3 retired from reef/lessons/harness.md (kept in history.md)`. The commit runs under the pre-commit gate; a refused commit, or no git checkout, puts the files back as they were and writes nothing — no record, no ledger event: the lesson did not land.
 
 ## 6. Measure (code)
 
@@ -144,6 +144,8 @@ The report shows `L3 harness · round-not-red · landed 2026-11-15 · recurred 1
   distinct features closed since.
 - retirement proposal: recurred ≥ N → proposed (code check or retire); 0 recurrences over ≥ M rows → proposed; neither → none.
 - retirement: the approved question removes the line, appends to `history.md`, frees a cap slot.
+- the guard (decision 2): a planner dispatch without the graph block is refused, naming the first missing line; with only the header refused; with the block allowed; no graph lesson, no block needed (`tests/test_lessons.py`, the guard as a subprocess).
+- the commit (decision 5): landing commits the layer file with its subject, the tree clean after; a retirement commits the layer file and history.md; a pre-commit gate refusing the commit leaves no file, no record, no event.
 - delivery: the dispatch prints the `lessons:` block of the harness file's approved lines; a hand-edited line is not printed;
   graph mode's implementer prompt carries it (`tests/test_graph_run.py`); the session-start context carries the loop lines
   (`tests/test_loop.py`).
@@ -155,15 +157,16 @@ The report shows `L3 harness · round-not-red · landed 2026-11-15 · recurred 1
 
 - the guard refusing an implementer dispatch without the `lessons:` block (PR-2 did that for dead ends; a follow-up if wanted).
 - checking that a lesson is TRUE or useful (only its shape is code); the model drafting it unprompted at other moments.
-- committing the landed file; turning a lesson into a code check (the report proposes it; a person writes the check).
+- turning a lesson into a code check (the report proposes it; a person writes the check).
 - any refactor of reef-attempt, merge-close, graph-run, the approval script or the report.
 
-## Owner decisions — conservative choices taken, flagged (relay a change and it is implemented before the PR)
+## Owner decisions (ruled 2026-11-15, relayed by the orchestrator; all implemented in this PR)
 
-1. **Project-side layer files** `reef/lessons/<layer>.md`, not the plugin's agent/skill prose.
-2. **Delivery**: harness and loop by code; graph by the planner's prose (no code entry point). Alternative: no delivery at all
-   (land and measure only), or a guard check like PR-2's.
+1. **Project-side layer files** `reef/lessons/<layer>.md`, not the plugin's agent/skill prose — yes, as planned.
+2. **Graph lessons are enforced by the guard** on the planner dispatch, by content (every line of the graph `lessons:` block in
+   the planner's prompt), the PR-2 dead-ends pattern — not prose only. (Planned conservative choice was prose.)
 3. **Defaults**: cap 10 per layer, N = 2 recurrences, M = 10 rows (a row = a feature closed); trigger (b) only the same-signature
-   block, not the retry cap.
-4. **Owner only**: the proxy never approves or retires a lesson, not even under the autopilot.
-5. **Not committed** by code after landing.
+   block, not the retry cap — yes.
+4. **Owner only**: the proxy never approves or retires a lesson, not even under the autopilot — yes.
+5. **Code commits** the landed or retired layer file and history.md, like `commit_plan` (#370). (Planned conservative choice was
+   no commit.)
