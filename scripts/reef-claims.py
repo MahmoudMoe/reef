@@ -26,8 +26,9 @@ Usage:
       the worktree (--repo, default .; base default HEAD): (a) each named test of the task's ## Proof table passes on the
       round's tree and FAILS on the base's code with the round's test files in place (gates.one with {test} per test — a run
       whose output says it ran no test is refused, neither green nor red — else the whole fast gate once, and it says so); (b) every changed or untracked path matches the task's `files:` list (`dir/` a prefix, else an
-      fnmatch glob; the task's folder always). Exit 1, one `round: REFUSED — …` line per failure. kind: refactor, a rollup
-      and a Proof naming no test skip (a); no `files:` skips (b). docs/design/hardening-pr1-plan.md.
+      fnmatch glob; the task's folder always); (c) (hardening PR-5) each path an open task of its folder `consumes:` from it
+      exists on the tree and is changed by the round, unless the base had it. Exit 1, one `round: REFUSED — …` line per failure.
+      kind: refactor, a rollup and a Proof naming no test skip (a); no `files:` skips (b). docs/design/hardening-pr1-plan.md.
   reef-claims.py claims-only <base>..<head> [--repo DIR]
       Exit 0 iff the range, stripped of documentation files and of comment/blank lines, is
       EMPTY — the only commit allowed after a GREEN verdict. Exit 1 names the first code
@@ -341,7 +342,8 @@ def cmd_round(repo, task_path, base):
     if os.path.isfile(os.path.join(bk, "manifest.json")):
         red_restore(repo, bk)
         print(f"round: restored the round's files from an earlier check cut off mid-run ({bk})")
-    changed = [p for p in round_changes(repo, base) if not p.startswith(folder)]
+    every = round_changes(repo, base)
+    changed = [p for p in every if not p.startswith(folder)]
     refused = []
     # (b) the declared files
     decl = fm.get("files", "").strip()
@@ -356,6 +358,32 @@ def cmd_round(repo, task_path, base):
             refused.append(f"the round changed files outside the task's files: {', '.join(out)}")
         else:
             print(f"scope: {len(changed)} changed files within files: {pats}")
+    # (c) hand-offs (hardening PR-5, the owner's ruling 2): each path an OPEN task of this folder consumes from this one is on the
+    # closing tree, and changed by the round unless the base had it (an ignored build output is on disk, never in the commit)
+    home, delivered = os.path.dirname(tdir) if os.path.basename(tdir) == "done" else tdir, 0
+    for f in sorted(os.listdir(home)) if str(tid).isdigit() else ():
+        dp = os.path.join(home, f)
+        if not re.match(r"\d+-.*\.md$", f) or os.path.realpath(dp) == os.path.realpath(task_path):
+            continue
+        with open(dp, encoding="utf-8") as fh:
+            dfm = task_frontmatter(fh.read()) or {}
+        if dfm.get("status") == "done":
+            continue
+        for ent in (x.strip() for x in str(dfm.get("consumes", "")).strip("[]").split(",") if x.strip()):
+            cid, _, art = ent.partition(":")
+            path = art.strip().strip("\"'").split("#", 1)[0]
+            if not cid.strip().isdigit() or int(cid) != int(tid) or not path:
+                continue
+            drel = os.path.relpath(dp, os.path.realpath(top)).replace(os.sep, "/")
+            if not os.path.exists(os.path.join(repo, path)):
+                refused.append(f"{drel} consumes {tid}: {path} — missing on the closing tree; the round must produce it")
+            elif path not in every and not any(c.startswith(path.rstrip("/") + "/") for c in every) and subprocess.run(["git", "cat-file", "-e", f"{base}:{path}"], cwd=repo, capture_output=True).returncode:
+                refused.append(f"{drel} consumes {tid}: {path} — not changed by this round and not on the base (ignored, or made by "
+                               "something else): the commit would not carry it")
+            else:
+                delivered += 1
+    if delivered:
+        print(f"hand-offs: {delivered} consumed paths delivered")
     # (a) red first
     _, proof = task_criteria(text)
     test_re = re.compile((cfg.get("plan") or {}).get("test_re", "") or load_sibling("reef-plan-check.py", "reef_plan_check").DEFAULT_TEST_RE)

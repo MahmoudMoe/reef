@@ -35,7 +35,7 @@ Usage: reef-plan-check.py [repo-root] [--verify-stamp [--feature SLUG]]
   files changed since the last recorded approval (the approval record's `files`); --plan-files prints that map.
 Rule for the orchestrator: this script is deterministic; never argue with it, never work around it.
 """
-import hashlib, json, os, re, subprocess, sys
+import fnmatch, hashlib, json, os, re, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
 from reef_common import main_checkout, read, table_cells, section, slug_error, spec_row, SLUG_RE, GENERIC_SLUGS  # noqa: E402
@@ -303,6 +303,8 @@ def print_rules(cfg):
     print("         design/critical -> verify: judge; a design task needs `adversarial-plan:` (the loophole-hunter's plan pass) before dispatch;")
     print("         a fast-path row (every task light/full, no risk touch) runs no verifier: verify: gate-only, or tier: design for a judge")
     print("files: a new plan's task lists the paths it may change (`files: [dir/, glob]`); an older plan warns")
+    print("consumes: a new plan's blocked-by id names the repo path it reads (`consumes: [101: path[#symbol]]`), in 101's files:; an entry "
+          "with no edge fails; an older plan warns; 101's close refuses a consumed path its round did not deliver")
     print(f"rails: touches pii|money|auth -> critical; migration -> at least design + a `Rollback:` line in ## Decision; paths {dpaths} -> design,")
     print(f"         {cpaths} -> critical; a tier only gets heavier")
     print("graph: blocked-by ids resolve (tasks/ or tasks/done/), no cycles; a rollup R<NN>-<slug>.md is one per feature")
@@ -821,9 +823,12 @@ def main():
     try:
         _prev = json.loads(read(stamp_path))
         planned_prev, files_prev = dict(_prev.get("planned_under") or {}), set(_prev.get("files_rule") or [])
+        edges_prev = set(_prev.get("edges_rule") or [])
     except Exception:
-        planned_prev, files_prev = {}, set()
+        planned_prev, files_prev, edges_prev = {}, set(), set()
     files_rule = set()   # hardening PR-1: the features whose tasks must name their files (the stamp keeps the list)
+    edges_rule = set()   # hardening PR-5: the features whose blocked-by edges must name what they consume (its own list:
+    #                      a plan approved after PR-1 has files: and no consumes:, and keeps closing)
     approvals_dir = os.path.join(main_checkout(root), ".reef", "approvals")
 
     # ---- 0.6 feature folders: slug, SPEC.md and its keys, child specs, structure, task count
@@ -1045,6 +1050,15 @@ def main():
     elif graph:
         ok("no dependency cycles")
 
+    by_id = {fm["_id"]: fm for fm in tasks.values() if "_id" in fm}
+
+    def produces(up, artifact):
+        """hardening PR-5, the owner's ruling 1 (paths only): the path (before `#`, the symbol is documentation) is in the
+        upstream's files: — the round check holds the upstream to them; the close checks it was delivered."""
+        path = artifact.split("#", 1)[0]
+        pats = [x.strip().strip("\"'") for x in up.get("files", "").strip("[]").split(",") if x.strip()]
+        return bool(path) and any(path.startswith(x) if x.endswith("/") else fnmatch.fnmatchcase(path, x) for x in pats)
+
     # per-task semantic checks, ordered by file
     for rel, fm in sorted(tasks.items()):
         text = fm["_text"]
@@ -1159,6 +1173,35 @@ def main():
         if not rollup and not fm.get("files", "").strip("[] "):
             (a_fail if feat_ in files_rule else a_print)(f"{'' if feat_ in files_rule else 'warning: '}{rel}: no `files:` — list the paths this "
                                                          "task may change, tests included (`dir/` a prefix, else a glob); the round check refuses any other")
+        # hardening PR-5 (the owner): a blocked-by edge names the artifact the upstream task produces and this one reads
+        if not rollup:
+            if (marker0 is not None or fdir) and (feat_ in edges_prev or new_plan):
+                edges_rule.add(feat_)
+            raw_c, cons, c_errs = fm.get("consumes", "").strip(), [], []
+            if raw_c and not (raw_c.startswith("[") and raw_c.endswith("]")):
+                c_errs.append(f"consumes not a list: {raw_c!r} — `consumes: [<id>: <artifact>, …]`")
+            for ent in (x.strip() for x in raw_c.strip("[]").split(",") if x.strip()) if not c_errs else ():
+                cid, sep, art = ent.partition(":")
+                art = art.strip().strip("\"'")
+                if not sep or not cid.strip().isdigit() or not art:
+                    c_errs.append(f"consumes entry {ent!r} is not `<id>: <artifact>`")
+                elif re.search(r"[*?\[]", art) or not art.strip("/."):
+                    c_errs.append(f"consumes {ent!r} is a pattern — name the one artifact consumed")
+                elif re.search(r"\s", art.split("#", 1)[0]):
+                    c_errs.append(f"consumes {ent!r} is not a repo path — name the file that makes it (the migration, the route file)")
+                else:
+                    cons.append((int(cid), art))
+            for x in c_errs:
+                a_fail(f"{rel}: {x}")
+            for cid, art in cons:
+                if cid not in fm["_blocked"]:
+                    a_fail(f"{rel}: consumes {cid} but {cid} is not in blocked-by — a hand-off with no edge lets the two run at once")
+                elif cid in by_id and not produces(by_id[cid], art):
+                    a_fail(f"{rel}: consumes {cid}: {art} — {cid} does not produce it (the path is not in its files:)")
+            for b in fm["_blocked"] if not c_errs else ():
+                if b not in {c for c, _ in cons}:
+                    (a_fail if feat_ in edges_rule else a_print)(f"{'' if feat_ in edges_rule else 'warning: '}{rel}: blocked-by {b} consumes "
+                                                                 f"nothing — name the artifact {b} produces that this task reads (`consumes: [{b}: <path>]`), or drop the edge")
         n_rf, rf_errs = read_first_errors(root, section(text, "Read first") or "")
         for x in rf_errs:
             a_fail(f"{rel}: read first — {x}")
@@ -1441,7 +1484,7 @@ def main():
     os.makedirs(os.path.dirname(stamp_path) or ".", exist_ok=True)
     with open(stamp_path, "w") as f:
         json.dump({"features": written, "checks": len(results), "planned_under": planned, "finished": finished,
-                   "files_rule": sorted(files_prev | files_rule)}, f, indent=2, sort_keys=True)
+                   "files_rule": sorted(files_prev | files_rule), "edges_rule": sorted(edges_prev | edges_rule)}, f, indent=2, sort_keys=True)
         f.write("\n")
     sys.exit(0)
 

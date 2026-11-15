@@ -322,7 +322,8 @@ class Driver:
             assert r.returncode == 0, r.stderr
         write(self.co, f"reef/features/{SLUG}/SPEC.md", SPEC)
         for tid, short, title, blocked, proof in TASKS:
-            write(self.co, f"reef/features/{SLUG}/tasks/{tid}-{short}.md", TASK.format(id=tid, title=title, blocked=blocked, proof=proof))
+            write(self.co, f"reef/features/{SLUG}/tasks/{tid}-{short}.md", TASK.format(id=tid, title=title, blocked=blocked, proof=proof).replace(
+                "files: [src/, tests/]\n", "files: [src/, tests/]\n" + ("consumes: [101: src/a.py]\n" if blocked != "[]" else "")))   # PR-5: 101 writes src/a.py
         if crash == "files":
             return
         git(self.co, "add", "-A")

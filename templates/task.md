@@ -9,6 +9,7 @@ resources: []
 tier: light|full|design|critical
 touches: []
 files: []
+consumes: []
 verify: judge|gate-only
 attempts: 0
 dispatches: 0

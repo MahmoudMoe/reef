@@ -518,6 +518,74 @@ class Rails(unittest.TestCase):
             self.assertNotEqual(r.returncode, 0, f"{catch_all}: {r.stdout}")
             self.assertIn("matches every path", r.stdout)
 
+    def edge(self, consumes="consumes: [1201: src/export.py]\n", up_scope="The exporter writes the file.", blocked="[1201]"):
+        """Hardening PR-5: 1202 waits on 1201; the edge names what 1201 produces that 1202 reads."""
+        up = TASK_NEW.replace("files: [src/, tests/]", "files: [src/export.py, tests/test_export.py]").replace(
+            "The exporter writes the file.", up_scope)
+        down = (TASK_NEW.replace("id: 1201", "id: 1202").replace("# 1201", "# 1202").replace("blocked-by: []", f"blocked-by: {blocked}")
+                .replace("files: [src/, tests/]\n", "files: [src/cli.py, tests/test_cli.py]\n" + consumes)
+                .replace("`test_csv_header_and_rows`", "`test_cli_prints_path`").replace("`test_csv_two_decimals`", "`test_cli_two_decimals`"))
+        d = project()
+        feature(d, tasks={"1201-write-csv.md": up, "1202-cli.md": down})
+        return d
+
+    def test_a_blocked_by_edge_names_the_artifact_it_consumes(self):
+        r = check(self.edge(consumes=""))
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("1202-cli.md: blocked-by 1201 consumes nothing", r.stdout)
+        r = check(self.edge())
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_an_artifact_the_upstream_task_does_not_produce_is_refused(self):
+        r = check(self.edge(consumes="consumes: [1201: src/orders_table.py]\n"))
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("1202-cli.md: consumes 1201: src/orders_table.py — 1201 does not produce it", r.stdout)
+        r = check(self.edge(consumes="consumes: [1201: src/export.py#export_csv]\n"))
+        self.assertEqual(r.returncode, 0, "a path#symbol inside the upstream's files: passes: " + r.stdout)
+        r = check(self.edge(consumes="consumes: [1201: orders.total_cents]\n", up_scope="The exporter writes `orders.total_cents`."))
+        self.assertNotEqual(r.returncode, 0, "paths only (the owner's ruling 1): a Scope that names it is not enough: " + r.stdout)
+        self.assertIn("consumes 1201: orders.total_cents — 1201 does not produce it", r.stdout)
+
+    def test_a_consumes_entry_without_its_edge_is_refused(self):
+        r = check(self.edge(consumes="consumes: [1201: src/export.py, 1203: src/x.py]\n"))
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("1202-cli.md: consumes 1203 but 1203 is not in blocked-by", r.stdout)
+
+    def test_a_malformed_consumes_is_refused(self):
+        for bad in ("[x: src/export.py]", "[1201: src/*]", "[1201: ]", "[1201: ./]", "1201: src/export.py", "[1201: GET /orders]"):
+            r = check(self.edge(consumes=f"consumes: {bad}\n"))
+            self.assertNotEqual(r.returncode, 0, f"{bad}: {r.stdout}")
+            self.assertIn("1202-cli.md: consumes", r.stdout, bad)
+
+    def test_an_older_plan_without_consumes_only_warns(self):
+        d = self.edge(consumes="")
+        write(d, "tasks/.plan-review.json", json.dumps({"features": {}, "planned_under": {"csv-export-for-orders": "0.6.0"},
+                                                       "files_rule": ["csv-export-for-orders"]}))
+        r = check(d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("warning: reef/features/csv-export-for-orders/tasks/1202-cli.md: blocked-by 1201 consumes nothing", r.stdout)
+        d = self.edge(consumes="")
+        write(d, "tasks/.plan-review.json", json.dumps({"features": {}, "planned_under": {"csv-export-for-orders": "0.6.0"},
+                                                       "edges_rule": ["csv-export-for-orders"]}))
+        r = check(d)
+        self.assertNotEqual(r.returncode, 0, "a feature the stamp holds under the rule keeps failing: " + r.stdout)
+
+    def test_a_rollup_with_an_edge_is_not_asked_for_consumes(self):
+        d = self.edge()
+        write(d, "reef/features/csv-export-for-orders/tasks/R01-fixups.md", TASK_NEW.replace("id: 1201", "id: R1").replace(
+            "# 1201", "# R1").replace("blocked-by: []", "blocked-by: [1201]").replace("`test_csv_header_and_rows`", "`test_r_one`").replace(
+            "`test_csv_two_decimals`", "`test_r_two`"))
+        r = check(d)
+        self.assertNotIn("R01-fixups.md: blocked-by", r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_the_first_passing_check_records_the_feature_under_the_rule(self):
+        d = self.edge()
+        self.assertEqual(check(d).returncode, 0)
+        with open(os.path.join(d, "tasks", ".plan-review.json"), encoding="utf-8") as f:
+            stamp = json.load(f)
+        self.assertIn("csv-export-for-orders", stamp.get("edges_rule", []))
+
     def test_one_line_diff_under_auth_tiered_light_is_refused(self):
         d = tempfile.mkdtemp(prefix="reef-rail.")
         g = lambda *a: subprocess.run(["git", "-C", d, "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
