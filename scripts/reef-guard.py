@@ -1491,6 +1491,22 @@ def load_graph_module():
     return mod
 
 
+def check_dead_ends(path, text, prompt):
+    """Hardening PR-2, the owner's decision 1: a task with a recorded FAIL is dispatched with EVERY line of the dead-ends block
+    reef-attempt prints for it (its own dead_end_lines, from the plugin's directory) — by content, so a header alone or only
+    the last round's lines is refused."""
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader("reef_attempt", os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-attempt"))
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(mod)
+    have = {l.rstrip() for l in prompt.splitlines()}
+    missing = [l for l in mod.dead_end_lines(text) if l.rstrip() not in have]
+    if missing:
+        deny(f"{path} has a recorded FAIL and the implementer dispatch lacks its dead-ends block (first missing line: "
+             f"{missing[0].strip()[:160]!r}) — run scripts/reef-attempt {path} and pass its `dead-ends:` block verbatim")
+
+
 def read_cap(root):
     try:
         with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
@@ -1777,6 +1793,7 @@ def _check_dispatch(tool_input, payload):
         if dispatches >= 2 * cap:
             deny(f"{path} was dispatched {dispatches}x against cap {cap} without enough recorded failures — "
                  "runaway-loop backstop; record failures via scripts/reef-attempt or stop")
+        check_dead_ends(path, text, prompt)
         check_adversarial_plan(path, fm, text)
         # the graph: dependencies done, resources free, parallel cap — a broken graph
         # (cycle, dangling id, duplicate id) has no ready set and is a denial too

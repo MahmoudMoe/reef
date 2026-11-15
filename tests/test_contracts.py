@@ -1501,3 +1501,20 @@ class ATaskIsGreenOnItsOwnHead(unittest.TestCase):
             text = open(os.path.join(ROOT, rel), encoding="utf-8").read()
             self.assertIn("green on its own head", text, rel)
             self.assertIn("is ONE task", text, rel)
+
+
+class DeadEndsReachTheNextRound(unittest.TestCase):
+    """Hardening PR-2: reef-attempt prints the dead ends; the prose only points at them and at the labelled FAIL form."""
+
+    def test_the_implementer_reads_the_dead_ends_block_and_the_skills_record_the_labelled_form(self):
+        impl = read("agents", "implementer.md")
+        self.assertIn("`dead-ends:` block", impl)
+        for part in ("EXPECTED", "FENCE", "DEAD END"):
+            self.assertIn(part, impl)
+        task = read("skills", "reef-task", "SKILL.md")
+        self.assertIn('"EXPECTED: ', task)
+        self.assertIn('"SAW: ', task)
+        self.assertIn("`dead-ends:` block", task)
+        review = read("skills", "reef-review", "SKILL.md")
+        self.assertIn('"EXPECTED: ', review)
+        self.assertIn('"SAW: ', review)

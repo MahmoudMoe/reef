@@ -410,8 +410,10 @@ def cmd_round(repo, task_path, base):
                         print(f"red first: {n} fails on the base (exit {rc}) and passes on the round's tree")
             finally:
                 red_restore(repo, bk)
-    for r in refused:
-        print(f"round: REFUSED — {r}")
+    with open(log, "a", encoding="utf-8") as f:   # the refusals in the log too: `reef-attempt --from-round` records them as the SAW
+        for r in refused:
+            print(f"round: REFUSED — {r}")
+            f.write(f"round: REFUSED — {r}\n")
     return 1 if refused else 0
 
 
