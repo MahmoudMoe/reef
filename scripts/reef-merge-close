@@ -3,7 +3,8 @@
 """Reef merge-close — a passed task's merge and close-out as ONE command (0.7.2, the owner's go 2026-10-24, item 4).
 Usage: reef-merge-close <task-file> --subject "<commit subject>" --journal <file> [--repo DIR]   (root: --repo, else the worktree holding the task file)
 It runs in the FEATURE worktree: a job started from the main checkout with the task's path into it closes there too.
-In order, each step skipped when already done: (1) in the task's worktree stage every change (printed; a `.env*`, `.pem`
+In order, each step skipped when already done: (0) the round holds (`reef-claims.py round`: red first, the task's
+files: only; refused = exit 2, nothing changed); (1) in the task's worktree stage every change (printed; a `.env*`, `.pem`
 or `.key` file refused) and commit `<subject>` with the trailer `Closes-task: <id>-<slug>` — the gate tests the index;
 (2) here, `git merge --no-ff --no-commit task/<id>-<slug>`; a lockfile among the merged files runs `worktree.setup` here
 first; (3) in that same merge commit `status: done`, the journal file's text between `<!-- journal -->` markers under the
@@ -91,6 +92,15 @@ def recover(root, npath):
     return task
 
 
+def round_check(wt, task, base):
+    """Hardening PR-1: the implementer's round, before it is committed — red first on the base, only the task's files: (reef-claims.py round)."""
+    r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-claims.py"), "round", task,
+                        "--base", base, "--repo", wt], capture_output=True, text=True)
+    print(r.stdout.rstrip())
+    if r.returncode != 0:
+        fail(f"the round does not hold; nothing changed — {(r.stdout + r.stderr).strip().splitlines()[-1]}", 2)
+
+
 def main(argv):
     def opt(name):
         return argv[argv.index(name) + 1] if name in argv and argv.index(name) + 1 < len(argv) else None
@@ -165,6 +175,7 @@ def main(argv):
         tdir = os.path.dirname(dest)[:-len("/done")]
         half = [f for f in os.listdir(tdir) if re.match(r"R?\d+-.*\.md$", f) and f != name
                 and (task_frontmatter(open(os.path.join(tdir, f), encoding="utf-8").read()) or {}).get("status") == "done"]
+        round_check(root, task, "HEAD")
         write_note(npath, task, dest, text)
         git(root, "add", "-A", "--", ".", *[":!" + os.path.relpath(os.path.realpath(os.path.join(tdir, f)), os.path.realpath(root)) for f in half])
         staged = git(root, "diff", "--cached", "--name-only").stdout.split()
@@ -242,6 +253,8 @@ def main(argv):
         if not os.path.isdir(wt):
             fail(f"no task worktree at {wt} while {tbranch} is unmerged", 1)
         if dirty:
+            wtask = os.path.join(wt, os.path.relpath(task, root))
+            round_check(wt, wtask if os.path.isfile(wtask) else task, git(root, "merge-base", tbranch, "HEAD").stdout.strip())
             git(wt, "add", "-A")
             staged = git(wt, "diff", "--cached", "--name-only").stdout.split()
             bad = [p for p in staged if SECRET.search(p)]
