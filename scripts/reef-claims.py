@@ -295,13 +295,17 @@ def red_restore(repo, bk):
     shutil.rmtree(bk)
 
 
-def round_run(repo, cmd, no_cache=False):
+def round_run(repo, cmd, log, no_cache=False):
+    """The exit of `cmd` in the worktree, its output in `log` (the git dir: never a change of the round's); 124 past gates.timeout_s."""
     env = dict(os.environ, **({"REEF_GATE_NO_CACHE": "1"} if no_cache else {}))
     limit = int((read_cfg(repo).get("gates") or {}).get("timeout_s", 1200) or 0) or None
-    try:
-        return subprocess.run(["sh", "-c", cmd], cwd=repo, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=limit).returncode
-    except subprocess.TimeoutExpired:
-        return 124
+    with open(log, "ab") as f:
+        f.write(f"$ {cmd}\n".encode())
+        f.flush()
+        try:
+            return subprocess.run(["sh", "-c", cmd], cwd=repo, env=env, stdout=f, stderr=subprocess.STDOUT, timeout=limit).returncode
+        except subprocess.TimeoutExpired:
+            return 124
 
 
 def cmd_round(repo, task_path, base):
@@ -318,7 +322,8 @@ def cmd_round(repo, task_path, base):
     gd = subprocess.run(["git", "rev-parse", "--absolute-git-dir"], cwd=repo, capture_output=True, text=True).stdout.strip()
     if not gd:
         die(f"{repo} is not a git worktree")
-    bk = os.path.join(gd, f"reef-red-{tid}")
+    bk, log = os.path.join(gd, f"reef-red-{tid}"), os.path.join(gd, f"reef-round-{tid}.log")
+    open(log, "w").close()
     if os.path.isfile(os.path.join(bk, "manifest.json")):
         red_restore(repo, bk)
         print(f"round: restored the round's files from an earlier check cut off mid-run ({bk})")
@@ -349,10 +354,10 @@ def cmd_round(repo, task_path, base):
         one = str((cfg.get("gates") or {}).get("one", "") or "").strip()
         gate = "sh " + shlex.quote(os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-gate.sh")) + " fast"
         runs = [(n, one.replace("{test}", shlex.quote(n))) for n in names] if one else [(", ".join(names) + " (the fast gate)", gate)]
-        green = [(n, c) for n, c in runs if round_run(repo, c) == 0]
+        green = [(n, c) for n, c in runs if round_run(repo, c, log) == 0]
         for n, _ in runs:
             if (n, _) not in green:
-                refused.append(f"{n} does not pass on the round's tree — green first, then the red is checked")
+                refused.append(f"{n} does not pass on the round's tree — green first, then the red is checked (its output: {log})")
         code = [p for p in changed if not TEST_PATH.search(p)]
         if green:
             os.makedirs(os.path.join(bk, "files"))
@@ -372,7 +377,7 @@ def cmd_round(repo, task_path, base):
                     elif os.path.isfile(os.path.join(repo, p)):
                         os.remove(os.path.join(repo, p))   # new in the round: the base has no such file
                 for n, c in green:
-                    rc = round_run(repo, c, no_cache=True)
+                    rc = round_run(repo, c, log, no_cache=True)
                     if rc == 124:
                         refused.append(f"{n} timed out on the base (gates.timeout_s) — not counted as red")
                     elif rc == 0:

@@ -41,6 +41,7 @@ effort: medium
 blocked-by: {blocked}
 resources: []
 tier: light
+files: ["*"]
 verify: gate-only
 attempts: 0
 dispatches: 0
@@ -194,8 +195,9 @@ class Driver:
         os.makedirs(os.path.join(self.main, "scripts"))
         for n in SCRIPTS:
             shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.main, "scripts", n))
+        # gates.one: red on the base until the round's code lands (reef-claims.py round)
         write(self.main, ".reef/config.json", json.dumps({
-            "gates": {"full": "echo '1 passed'", "fast": "echo '1 passed'"}, "ci": {"feature_gate": "local"}, "merge": {"by": "loop"},
+            "gates": {"full": "echo '1 passed'", "fast": "echo '1 passed'", "one": "git status --porcelain -- src | grep -q ."}, "ci": {"feature_gate": "local"}, "merge": {"by": "loop"},
             "branches": {"base": "main", "release": "release"}, "graph": {"mode": "chat"}, "worktree": {"dir": ".reef/worktrees"},
             "paths": {"queue": "reef/queue.md", "features": "reef/features", "runlog": "reef/journal.md"}}))
         write(self.main, ".reef/version", "0.6.0\n")
