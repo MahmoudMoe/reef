@@ -22,6 +22,11 @@ def run(*args):
     return subprocess.run([sys.executable, ATTEMPT, *args], capture_output=True, text=True)
 
 
+def F(saw, expected="the task's criteria pass"):
+    """A FAIL record in the labelled form (hardening PR-2): the old free text is the SAW."""
+    return (f"EXPECTED: {expected}", f"SAW: {saw}")
+
+
 class Attempt(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="reef-attempt-test.")
@@ -44,54 +49,54 @@ class Attempt(unittest.TestCase):
     def test_effort_base_from_task_then_escalates(self):
         p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: low\nattempts: 0\n")
         self.assertIn("effort=low", run(p).stdout)
-        run(p, "AssertionError: boom")
+        run(p, *F("AssertionError: boom"))
         self.assertIn("effort=high", run(p).stdout)
 
     def test_cap_blocks_on_third_fail(self):
         p = make_task(self.dir)
-        self.assertEqual(run(p, "fail one").returncode, 0)
-        self.assertEqual(run(p, "fail two").returncode, 0)
-        r = run(p, "fail three")
+        self.assertEqual(run(p, *F("fail one")).returncode, 0)
+        self.assertEqual(run(p, *F("fail two")).returncode, 0)
+        r = run(p, *F("fail three"))
         self.assertEqual(r.returncode, 2)
         self.assertIn("retry cap 3", r.stderr)
         self.assertIn("status: blocked", open(p).read())
 
     def test_same_failure_twice_blocks(self):
         p = make_task(self.dir)
-        run(p, "AssertionError: expected 401 got 200")
-        r = run(p, "AssertionError: expected 401 got 200")
+        run(p, *F("AssertionError: expected 401 got 200"))
+        r = run(p, *F("AssertionError: expected 401 got 200"))
         self.assertEqual(r.returncode, 2)
         self.assertIn("same failure signature twice", r.stderr)
 
     def test_signature_normalized_across_noise(self):
         # same failure, different line number / timing / whitespace -> still "twice"
         p = make_task(self.dir)
-        run(p, "tests/test_x.py:17: AssertionError: expected 401 got 200  (0.42s)")
-        r = run(p, "tests/test_x.py:19:  AssertionError: Expected 401 got 200 (0.57s)")
+        run(p, *F("tests/test_x.py:17: AssertionError: expected 401 got 200  (0.42s)"))
+        r = run(p, *F("tests/test_x.py:19:  AssertionError: Expected 401 got 200 (0.57s)"))
         self.assertEqual(r.returncode, 2, f"normalization failed: {r.stdout} {r.stderr}")
 
     def test_different_failure_not_repeated(self):
         p = make_task(self.dir)
-        run(p, "AssertionError: expected 401 got 200")
-        r = run(p, "TypeError: cannot unpack None")
+        run(p, *F("AssertionError: expected 401 got 200"))
+        r = run(p, *F("TypeError: cannot unpack None"))
         self.assertEqual(r.returncode, 0)
 
     def test_human_reset_not_burned_by_stale_sig(self):
         # the round-2 scenario: block, human resets attempts/status but the Log keeps
         # history; the FIRST fail of the fresh round must not be "same failure twice"
         p = make_task(self.dir)
-        run(p, "AssertionError: boom")
-        run(p, "AssertionError: boom")           # blocked (repeated)
+        run(p, *F("AssertionError: boom"))
+        run(p, *F("AssertionError: boom"))           # blocked (repeated)
         text = open(p).read().replace("status: blocked", "status: pending").replace("attempts: 2", "attempts: 0")
         open(p, "w").write(text)                 # human resets, but leaves last_failure_sig stale
-        r = run(p, "AssertionError: boom")
+        r = run(p, *F("AssertionError: boom"))
         self.assertEqual(r.returncode, 0, f"stale sig burned the fresh round: {r.stderr}")
 
     def test_body_keys_never_touched(self):
         # K5: a 'last_failure_sig:' line inside ## Log is history, not state
         body = "# demo\n\n## Log\nlast_failure_sig: deadbeefdead\nstatus: was blocked once\n"
         p = make_task(self.dir, body=body)
-        r = run(p, "some new failure")
+        r = run(p, *F("some new failure"))
         self.assertEqual(r.returncode, 0)
         text = open(p).read()
         self.assertIn("last_failure_sig: deadbeefdead", text)   # body line untouched
@@ -101,7 +106,7 @@ class Attempt(unittest.TestCase):
     def test_no_frontmatter_fails_closed(self):
         p = os.path.join(self.dir, "no-fm.md")
         open(p, "w").write("# just a doc\n")
-        r = run(p, "failure")
+        r = run(p, *F("failure"))
         self.assertEqual(r.returncode, 2)
         self.assertIn("frontmatter", r.stderr)
 
@@ -143,7 +148,7 @@ class Attempt(unittest.TestCase):
 
     def test_blocked_task_never_mutated_by_further_fails(self):
         p = make_task(self.dir, fm="id: 7\nstatus: blocked\nattempts: 2\nlast_failure_sig: \"cafecafecafe\"\n")
-        r = run(p, "another failure while blocked")
+        r = run(p, *F("another failure while blocked"))
         self.assertEqual(r.returncode, 2)
         text = open(p).read()
         self.assertIn("attempts: 2", text)                # counter not burned past the block
@@ -153,7 +158,7 @@ class Attempt(unittest.TestCase):
         p = os.path.join(self.dir, "007-crlf.md")
         with open(p, "wb") as f:
             f.write(b"---\r\nid: 7\r\nstatus: pending\r\nattempts: 0\r\n---\r\n# demo\r\n\r\n## Log\r\n")
-        r = run(p, "some failure")
+        r = run(p, *F("some failure"))
         self.assertEqual(r.returncode, 0, r.stderr)
         raw = open(p, "rb").read()
         self.assertIn(b"# demo\r\n", raw)                 # body EOLs untouched
@@ -162,33 +167,33 @@ class Attempt(unittest.TestCase):
     def test_ports_are_not_line_numbers(self):
         # two genuinely different failures must NOT collide into one signature
         p = make_task(self.dir)
-        run(p, "connect to localhost:5432 refused")
-        r = run(p, "connect to localhost:6379 refused")
+        run(p, *F("connect to localhost:5432 refused"))
+        r = run(p, *F("connect to localhost:6379 refused"))
         self.assertEqual(r.returncode, 0, "different ports collided into 'same failure twice'")
 
     def test_file_line_numbers_still_normalized(self):
         p = make_task(self.dir)
-        run(p, "tests/test_x.py:17: AssertionError: boom")
-        r = run(p, "tests/test_x.py:19: AssertionError: boom")
+        run(p, *F("tests/test_x.py:17: AssertionError: boom"))
+        r = run(p, *F("tests/test_x.py:19: AssertionError: boom"))
         self.assertEqual(r.returncode, 2, "same failure at a drifted line must still count as repeated")
 
     def test_tld_ports_are_not_extensions(self):
         # round-3: '.co'/'.io' looked like file extensions to the old rule
         p = make_task(self.dir)
-        run(p, "connect to db.example.co:5432 refused")
-        r = run(p, "connect to db.example.co:6379 refused")
+        run(p, *F("connect to db.example.co:5432 refused"))
+        r = run(p, *F("connect to db.example.co:6379 refused"))
         self.assertEqual(r.returncode, 0, "two ports on a .co host collided into one signature")
 
     def test_line_and_column_both_normalized(self):
         p = make_task(self.dir)
-        run(p, "src/main.rs:10:5 error[E0308]: mismatched types")
-        r = run(p, "src/main.rs:12:9 error[E0308]: mismatched types")
+        run(p, *F("src/main.rs:10:5 error[E0308]: mismatched types"))
+        r = run(p, *F("src/main.rs:12:9 error[E0308]: mismatched types"))
         self.assertEqual(r.returncode, 2, "line:col drift must still count as the same failure")
 
     def test_extensionless_build_files_normalized(self):
         p = make_task(self.dir)
-        run(p, "Makefile:23: recipe for target 'all' failed")
-        r = run(p, "Makefile:25: recipe for target 'all' failed")
+        run(p, *F("Makefile:23: recipe for target 'all' failed"))
+        r = run(p, *F("Makefile:25: recipe for target 'all' failed"))
         self.assertEqual(r.returncode, 2, "Makefile line drift must still count as the same failure")
 
     # ---- 0.4.0 ----
@@ -289,14 +294,14 @@ class Attempt(unittest.TestCase):
                 "| AC-1 | `test_a_holds` |\n| AC-2 | `it(\"b holds\")` |\n| AC-3 | `! git grep -n 'as Foo' -- src` |\n| AC-4 | `[mechanic] npm run build` |\n\n## Log\n")
         p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: medium\nverify: judge\nattempts: 0\n", body=body)
         self.assertNotIn("rejudge:", run(p).stdout, "round 1 judges everything")
-        r = run(p, "verifier FAIL: AC-2 the proof test does not exist; hunter BLOCKER on AC-2")
+        r = run(p, *F("verifier FAIL: AC-2 the proof test does not exist; hunter BLOCKER on AC-2"))
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(p) as f:
             t = f.read()
         self.assertIn("- attempt 1 FAIL: verifier FAIL: AC-2 the proof test does not exist", t, "the failure's words live in ## Log")
         self.assertIn("rejudge: AC-2, AC-3, AC-4 (round 2: the criteria the failure named plus the ones whose Proof is not a test: AC-3, AC-4;", r.stdout)
         self.assertIn("CARRIED", r.stdout)
-        r = run(p, "the gate went red, no criterion named")
+        r = run(p, *F("the gate went red, no criterion named"))
         self.assertIn("rejudge: all (round 3: the recorded failure names no criterion)", r.stdout)
 
     def test_verifier_model_defaults_to_agent_default(self):
@@ -317,7 +322,7 @@ class Attempt(unittest.TestCase):
                   fm="id: R1\nfeature: demo\nstatus: done\neffort: medium\nattempts: 1\n")
         p = make_task(tasks, name="R02-ci-fixups.md",
                       fm="id: R2\nfeature: demo\nstatus: pending\neffort: medium\nattempts: 0\n")
-        r = run(p, "CI red: test_x failed")
+        r = run(p, *F("CI red: test_x failed"))
         self.assertEqual(r.returncode, 2, "a second rollup for one feature must be refused")
         self.assertIn("R01-fixups.md", r.stderr)
         self.assertIn("attempts: 0", open(p).read(), "a refused rollup must not be mutated")
@@ -330,10 +335,159 @@ class Attempt(unittest.TestCase):
         self.assertEqual(run(p).returncode, 0)
 
     def test_typoed_parent_dir_exits_2_not_traceback(self):
-        r = run(os.path.join(self.dir, "no-such-dir", "007-x.md"), "failure")
+        r = run(os.path.join(self.dir, "no-such-dir", "007-x.md"), *F("failure"))
         self.assertEqual(r.returncode, 2)
         self.assertIn("USER ACTION REQUIRED", r.stderr)
         self.assertNotIn("Traceback", r.stderr)
+
+
+def plan_hash(path):
+    """The approval's view of a task file (reef-plan-check.py hunter_hash: the frontmatter minus execution keys, the
+    body cut at ## Log), the same cut the plan stamp makes."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("reef_plan_check_t", os.path.join(ROOT, "scripts", "reef-plan-check.py"))
+    mod = importlib.util.module_from_spec(spec)
+    sys.dont_write_bytecode = True
+    spec.loader.exec_module(mod)
+    with open(path, encoding="utf-8") as f:
+        return mod.hunter_hash(f.read())
+
+
+DE_BODY = ("# demo\n\n## Acceptance Criteria\n- AC-1: a holds\n- AC-2: b holds\n\n## Proof\n| AC | Proof |\n|---|---|\n"
+           "| AC-1 | `test_a_holds` |\n| AC-2 | `test_b_holds` |\n\n## Log\n")
+DE_FM = "id: 7\nstatus: pending\neffort: medium\nattempts: 0\nfiles: [src/b.py, tests/test_b.py]\n"
+
+
+class DeadEnds(unittest.TestCase):
+    """Hardening PR-2: a FAIL carries EXPECTED, SAW, FENCE and DEAD END, and every later dispatch prints all of them."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="reef-attempt-deadends.")
+
+    def task(self, **kw):
+        return make_task(self.dir, fm=kw.get("fm", DE_FM), body=kw.get("body", DE_BODY))
+
+    def block(self, out):
+        """The dispatch's dead-ends block: the lines between `dead-ends:` and `dead-ends: end`."""
+        lines = out.splitlines()
+        heads = [i for i, l in enumerate(lines) if l.startswith("dead-ends: ") and l != "dead-ends: end"]
+        self.assertTrue(heads, "no `dead-ends:` block in the dispatch:\n" + out)
+        end = lines.index("dead-ends: end", heads[0])
+        return lines[heads[0]:end + 1]
+
+    def test_a_fail_without_expected_is_refused_and_the_task_file_is_unchanged(self):
+        p = self.task()
+        before = open(p, "rb").read()
+        r = run(p, "SAW: FAILED tests/test_b.py::test_b_holds - AssertionError: 0 != 2")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("EXPECTED:", r.stderr)
+        self.assertEqual(open(p, "rb").read(), before, "a refused FAIL record must not touch the task file")
+
+    def test_a_fail_without_saw_is_refused_and_the_task_file_is_unchanged(self):
+        p = self.task()
+        before = open(p, "rb").read()
+        r = run(p, "EXPECTED: AC-2 b holds", "FENCE: only src/b.py")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("SAW:", r.stderr)
+        self.assertEqual(open(p, "rb").read(), before)
+        r = run(p, "EXPECTED: AC-2 b holds", "SAW:   ")
+        self.assertEqual(r.returncode, 2, "an empty SAW is no SAW")
+        self.assertEqual(open(p, "rb").read(), before)
+
+    def test_a_free_text_fail_is_refused(self):
+        p = self.task()
+        before = open(p, "rb").read()
+        r = run(p, "AssertionError: expected 401 got 200")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("USER ACTION REQUIRED", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(open(p, "rb").read(), before)
+
+    def test_the_four_fields_land_under_the_fail_line_and_the_approval_does_not_move(self):
+        p = self.task()
+        h = plan_hash(p)
+        r = run(p, "EXPECTED: AC-2 b holds: parse_b('') exits 2",
+                "SAW: FAILED tests/test_b.py::test_b_holds - AssertionError: 0 != 2\n1 failed, 1 passed in 0.31s",
+                "FENCE: AC-1 passes, keep it", "DEAD END: rejecting the empty name in parse_a")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        t = open(p).read()
+        log = t.split("## Log\n", 1)[1]
+        self.assertRegex(log, r"^- attempt 1 FAIL: FAILED tests/test_b.py::test_b_holds - AssertionError: 0 != 2 1 failed, 1 passed in 0.31s · at \S+Z\n"
+                              r"  - EXPECTED: AC-2 b holds: parse_b\(''\) exits 2\n"
+                              r"  - SAW: FAILED tests/test_b.py::test_b_holds - AssertionError: 0 != 2\n"
+                              r"  - SAW: 1 failed, 1 passed in 0.31s\n"
+                              r"  - FENCE: AC-1 passes, keep it\n"
+                              r"  - DEAD END: rejecting the empty name in parse_a\n\Z")
+        self.assertEqual(plan_hash(p), h, "recording a FAIL must not change what the approval hashed")
+
+    def test_the_next_dispatch_prints_the_dead_ends_block(self):
+        p = self.task()
+        run(p, "EXPECTED: AC-2 b holds", "SAW: AssertionError: 0 != 2", "FENCE: AC-1 passes", "DEAD END: a guard in parse_a")
+        r = run(p)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        b = self.block(r.stdout)
+        self.assertTrue(b[0].startswith("dead-ends: 1 recorded"), b[0])
+        self.assertEqual(b[1:], ["  #1 attempt 1 EXPECTED: AC-2 b holds", "  #1 attempt 1 SAW: AssertionError: 0 != 2",
+                                 "  #1 attempt 1 FENCE: AC-1 passes", "  #1 attempt 1 DEAD END: a guard in parse_a", "dead-ends: end"])
+        self.assertLess(r.stdout.index("dead-ends: end"), r.stdout.index("REEF-TASK: "), "REEF-TASK stays the last line")
+
+    def test_round_n_plus_2_still_sees_round_n_and_a_human_reset_drops_none(self):
+        p = self.task()
+        for i, approach in enumerate(("a guard in parse_a", "a default in parse_b", "a try/except in main"), 1):
+            r = run("--cap", "5", p, f"EXPECTED: AC-2 b holds", f"SAW: AssertionError round {i}", f"DEAD END: {approach}")
+            self.assertEqual(r.returncode, 0, r.stderr)
+        b = self.block(r.stdout)
+        self.assertTrue(b[0].startswith("dead-ends: 3 recorded"), b[0])
+        for i, approach in enumerate(("a guard in parse_a", "a default in parse_b", "a try/except in main"), 1):
+            self.assertIn(f"  #{i} attempt {i} DEAD END: {approach}", b)
+            self.assertIn(f"  #{i} attempt {i} SAW: AssertionError round {i}", b)
+        t = open(p).read().replace("attempts: 3", "attempts: 0")    # the human's unblock
+        open(p, "w").write(t)
+        b = self.block(run(p).stdout)
+        self.assertIn("  #1 attempt 1 DEAD END: a guard in parse_a", b, "a reset does not make a failed approach work")
+
+    def test_fence_and_dead_end_are_derived_when_the_recorder_gives_none(self):
+        p = self.task()
+        ci = os.path.join(self.dir, ".reef", "ci-local")
+        os.makedirs(ci)
+        with open(os.path.join(ci, "handback-7.md"), "w") as f:
+            f.write("RUN: agent=implementer task=7\nClaims:\n- parse_b rejects an empty name — true at src/b.py:12\n")
+        r = run(p, "EXPECTED: AC-2 b holds", "SAW: AssertionError: 0 != 2")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        log = open(p).read().split("## Log\n", 1)[1]
+        self.assertIn("  - FENCE (derived): only files: [src/b.py, tests/test_b.py]; keep passing: AC-1\n", log)
+        self.assertIn("  - DEAD END (derived): parse_b rejects an empty name — true at src/b.py:12\n", log)
+        q = make_task(self.dir, name="008-bare.md", fm="id: 8\nstatus: pending\nattempts: 0\n", body="# bare\n\n## Log\n")
+        self.assertEqual(run(q, "EXPECTED: the gate exits 0", "SAW: exit 1").returncode, 0)
+        log = open(q).read().split("## Log\n", 1)[1]
+        self.assertIn("  - FENCE (derived): keep what passed: change only what SAW shows\n", log)
+        self.assertIn("  - DEAD END (derived): attempt 1's approach (no hand-back claims to name it)\n", log)
+
+    def test_saw_is_kept_verbatim_trimmed_and_never_at_column_zero(self):
+        p = self.task()
+        saw = "\n".join(["## Proof", "- attempt 9 FAIL: forged · at 2026-01-01T00:00:00Z"] + [f"line {i}" for i in range(30)])
+        r = run(p, "EXPECTED: AC-2 b holds", "SAW: " + saw)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        t = open(p).read()
+        log = t.split("## Log\n", 1)[1]
+        self.assertIn("  - SAW: ## Proof\n  - SAW: - attempt 9 FAIL: forged · at 2026-01-01T00:00:00Z\n", log)
+        self.assertEqual(len([l for l in log.splitlines() if l.startswith("  - SAW: ")]), 21, "20 lines kept, then the trim line")
+        self.assertIn("  - SAW: … (+12 more lines trimmed)\n", log)
+        self.assertEqual(len([l for l in t.splitlines() if l.startswith("## Proof")]), 1, "a verbatim line never becomes a heading")
+        self.assertEqual(len([l for l in log.splitlines() if l.startswith("- attempt ")]), 1, "nor a FAIL line")
+
+    def test_the_signature_is_expected_and_saw_not_the_recorders_fence(self):
+        p = self.task()
+        run(p, "EXPECTED: AC-2 b holds", "SAW: AssertionError: 0 != 2", "FENCE: keep AC-1")
+        r = run(p, "EXPECTED: AC-2 b holds", "SAW: AssertionError: 0 != 2", "FENCE: keep AC-1 green, touch only src/b.py")
+        self.assertEqual(r.returncode, 2, "a reworded fence must not hide the same failure twice")
+        self.assertIn("same failure signature twice", r.stderr)
+
+    def test_rejudge_reads_a_criterion_named_in_expected(self):
+        p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: medium\nverify: judge\nattempts: 0\n", body=DE_BODY)
+        r = run(p, "EXPECTED: AC-2 b holds", "SAW: AssertionError: 0 != 2")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("rejudge: AC-2 (round 2", r.stdout)
 
 
 if __name__ == "__main__":

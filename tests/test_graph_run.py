@@ -164,6 +164,25 @@ class Generate(unittest.TestCase):
         self.assertIn("round=2", t["verifier_prompt"])
         self.assertIn("dispatches: 1", open(os.path.join(d, "tasks", "101-a.md")).read(), "an implementer dispatch is counted")
 
+    def test_a_fix_round_prompt_carries_every_dead_end_not_only_the_last(self):
+        # hardening PR-2: the prompt carried `fail[:400]`, the LAST FAIL line only; round 3 never saw round 1's dead end
+        d = graph_project()
+        pass_gate(d)
+        log = ("- attempt 1 FAIL: AssertionError round 1 · at 2026-11-15T10:00:00.000001Z\n"
+               "  - EXPECTED: AC-1 test_t101 passes\n  - SAW: AssertionError round 1\n  - FENCE: only src/\n  - DEAD END: a guard in parse_a\n"
+               "- attempt 2 FAIL: AssertionError round 2 · at 2026-11-15T11:00:00.000001Z\n"
+               "  - EXPECTED: AC-1 test_t101 passes\n  - SAW: AssertionError round 2\n  - FENCE: only src/\n  - DEAD END: a default in parse_b")
+        self.judged(d, log, attempts=2)
+        r = g(d, "generate")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        t = self.script_of(d)["implement_prompt"]
+        self.assertIn("dead-ends: 2 recorded", t)
+        self.assertIn("  #1 attempt 1 DEAD END: a guard in parse_a\n", t, "round 3 still sees round 1's dead end")
+        self.assertIn("  #2 attempt 2 SAW: AssertionError round 2\n", t)
+        self.assertIn("  #1 attempt 1 EXPECTED: AC-1 test_t101 passes\n", t)
+        self.assertIn("  #1 attempt 1 FENCE: only src/\n", t)
+        self.assertIn("dead-ends: end", t)
+
     def test_a_rejected_report_or_a_hand_back_is_re_judged_in_full_without_an_implementer(self):
         d = graph_project()
         pass_gate(d)
@@ -221,6 +240,9 @@ class Settle(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("FAIL 101: gate exit 1: FAIL tests/x", r.stdout)
         self.assertIn("attempts: 1", open(os.path.join(d, "tasks", "101-a.md")).read(), "the failure is counted the way a chat round is")
+        log = open(os.path.join(d, "tasks", "101-a.md")).read().split("## Log", 1)[1]
+        self.assertIn("\n  - EXPECTED: gate exit 0, the hand-back check ok, every judge PASS\n  - SAW: gate exit 1: FAIL tests/x\n", log,
+                      "hardening PR-2: settle records the four fields, or reef-attempt refuses its FAIL")
         r = g(d, "settle", self.results(d, handback_check="REJECTED hand-back (chat mode: re-dispatch once, no attempt consumed; graph mode: "
                                                           "settle counts one attempt):\n  - no claims list ('<sentence> — true at <path>:<line>' lines)"))
         self.assertEqual(r.returncode, 1)
