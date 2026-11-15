@@ -163,5 +163,10 @@
   },
   "structure": {
     "new_file_lines": 400
+  },
+  "lessons": {
+    "cap": 10,
+    "recur": 2,
+    "quiet_rows": 10
   }
 }

@@ -337,6 +337,9 @@ def task_item(root, tid, path, verify_only, report_dir):
         lines = aout.splitlines()
         start = next((i for i, l in enumerate(lines) if l.startswith("dead-ends: ") and l != "dead-ends: end"), None)
         dead_ends = "\n".join(lines[start:lines.index("dead-ends: end", start) + 1]) + "\n" if start is not None and "dead-ends: end" in lines[start:] else ""
+        # the owner's approved harness lessons, verbatim, every round (hardening PR-3)
+        ls = next((i for i, l in enumerate(lines) if l.startswith("lessons: ") and l != "lessons: end"), None)
+        lessons = "\n".join(lines[ls:lines.index("lessons: end", ls) + 1]) + "\n" if ls is not None and "lessons: end" in lines[ls:] else ""
         busy = mark_dispatched(root, path, tid, implementer=not verify_only)
         if busy:
             return busy
@@ -352,6 +355,7 @@ def task_item(root, tid, path, verify_only, report_dir):
                                 + (f"Round {attempt}: the last round failed — {fail[:400]} (gate log: {worktree}/.reef/ci-local/gate-full.log). The "
                                    f"previous round's work is uncommitted in this worktree: fix what failed, keep the rest. " if fail and attempt > 1 else "")
                                 + (f"\n{dead_ends}" if dead_ends else "")
+                                + (f"\n{lessons}" if lessons else "")
                                 + f"Write your hand-back FILE to {worktree}/.reef/ci-local/handback-{tid}.md before your final message (writing.handback_words; evidence only); "
                                 f"return that path and the RUN line only."),
             "gate_prompt": f"{reef_task}\nMechanic, in {worktree}: (1) python3 scripts/reef-claims.py check --handback .reef/ci-local/handback-{tid}.md — put its first line in handback_check, and when it is REJECTED the `- ` reason lines after it too; "

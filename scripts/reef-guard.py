@@ -1136,7 +1136,7 @@ def run_target(seg):
 
 OWN_SCRIPTS = os.path.dirname(os.path.realpath(__file__))
 RECORD_WRITERS = ("reef-approval.py", "reef-record")
-WRITER_LOADS = ("reef_common.py", "reef-plan-check.py", "reef-adversarial", "reef-evidence.py", "reef-run.py", "reef-queue.py")
+WRITER_LOADS = ("reef_common.py", "reef-plan-check.py", "reef-adversarial", "reef-evidence.py", "reef-run.py", "reef-queue.py", "reef-lessons.py")   # reef-lessons.py: the lesson approval lands through it (PR-3)
 PYTHON_LOADERS = re.compile(r"^PYTHON(PATH|HOME|STARTUP|USERBASE|PLATLIBDIR|EXECUTABLE|SAFEPATH|INSPECT)=")   # what changes the code Python runs
 
 
@@ -1507,6 +1507,22 @@ def check_dead_ends(path, text, prompt):
              f"{missing[0].strip()[:160]!r}) — run scripts/reef-attempt {path} and pass its `dead-ends:` block verbatim")
 
 
+def check_graph_lessons(cwd, prompt):
+    """Hardening PR-3, the owner's decision 2: a planner is dispatched with EVERY line of the graph lessons the owner approved
+    (reef-lessons.py's own lessons_block, from the plugin's directory) — by content, as the dead-ends block: the header alone,
+    or some of the lines, is refused. No approved graph lesson: nothing to carry."""
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader("reef_lessons", os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-lessons.py"))
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(mod)
+    have = {l.rstrip() for l in prompt.splitlines()}
+    missing = [l for l in mod.lessons_block(cwd, "graph") if l.rstrip() not in have]
+    if missing:
+        deny(f"the planner dispatch lacks the graph lessons the owner approved (first missing line: {missing[0].strip()[:160]!r}) — "
+             "run `python3 scripts/reef-lessons.py lessons graph` and pass its `lessons:` block verbatim")
+
+
 def read_cap(root):
     try:
         with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
@@ -1717,6 +1733,8 @@ def _check_dispatch(tool_input, payload):
     prompt = str(tool_input.get("prompt") or "")
     tier, troot = dispatch_tier(prompt, cwd)
     check_role_model(sub, tool_input, troot if tier else cwd, tier)
+    if sub.split(":")[-1] == "planner":
+        check_graph_lessons(troot if tier else cwd, prompt)
     if "implementer" not in sub:
         if tier and any(t in sub for t in ("verifier", "loophole-hunter")):
             m = re.search(r"^REEF-TASK:[ \t]*(.+?)[ \t\r]*$", prompt, re.M)

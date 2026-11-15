@@ -2,6 +2,7 @@
 status done + journal block + git mv to done/ in that merge commit, worktree.setup on a lockfile, worktree and branch
 removed — one command; a conflict or a gate refusal leaves the tree as it was."""
 import glob
+import json
 import os
 import subprocess
 import sys
@@ -74,7 +75,7 @@ class FastRowClose(unittest.TestCase):
         for k, v in (("user.email", "t@t"), ("user.name", "t")):
             subprocess.run(["git", "-C", self.main, "config", k, v], check=True)
         write(self.main, ".reef/config.json", '{"branches": {"base": "main"}, "paths": {"features": "reef/features"}}')
-        write(self.main, ".gitignore", ".reef/worktrees/\n")
+        write(self.main, ".gitignore", ".reef/worktrees/\n.reef/approvals/\n")
         write(self.main, "reef/features/demo/SPEC.md", "# demo\nRow: 1\n")
         write(self.main, "reef/features/demo/tasks/101-slice.md", TASK)
         write(self.main, "src/a.py", "a = 1\n")
@@ -134,6 +135,31 @@ class FastRowClose(unittest.TestCase):
         self.assertEqual(git(self.feat, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip(), "feat/demo")
         r = self.close()
         self.assertEqual((r.returncode, "already closed" in r.stdout), (0, True), "a second run changes nothing")
+
+    def test_a_green_close_after_a_failed_round_writes_one_lesson_candidate_and_a_close_without_a_fail_none(self):
+        # hardening PR-3: GREEN after >=1 recorded FAIL is the learning edge's trigger (a); the close is where GREEN happens
+        fail = ("- attempt 1 FAIL: AssertionError: 1 != 2 · at 2026-11-15T10:00:00.000001Z\n"
+                "  - EXPECTED: AC-1 it works\n  - SAW: AssertionError: 1 != 2\n  - FENCE (derived): keep what passed\n")
+        write(self.feat, "reef/features/demo/tasks/101-slice.md",
+              TASK.replace("attempts: 0\n", "attempts: 1\nworktree: .reef/worktrees/demo\nlast_failure_sig: 0123456789ab\n") + fail)
+        r = self.close()
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        self.assertIn("lesson L1: candidate (green-after-fail)", r.stdout)
+        led = os.path.join(self.main, ".reef", "approvals", "lessons.jsonl")
+        evs = [json.loads(l) for l in open(led)]
+        cands = [e for e in evs if e["ev"] == "candidate"]
+        self.assertEqual([(c["trigger"], c["task"], c["sig"]) for c in cands], [("green-after-fail", "101", "0123456789ab")])
+        self.assertEqual([(e["task"], e["feature"]) for e in evs if e["ev"] == "close"], [("101", "demo")])
+        self.assertIn("  #1 attempt 1 SAW: AssertionError: 1 != 2", "\n".join(cands[0]["facts"]))
+        self.close()
+        self.assertEqual(len([l for l in open(led) if '"candidate"' in l]), 1, "a re-run close adds no second candidate")
+
+    def test_a_close_without_a_fail_writes_no_candidate_only_the_close(self):
+        r = self.close()
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        self.assertNotIn("lesson L", r.stdout)
+        evs = [json.loads(l) for l in open(os.path.join(self.main, ".reef", "approvals", "lessons.jsonl"))]
+        self.assertEqual([e["ev"] for e in evs], ["close"])
 
     def test_run_from_the_main_checkout_it_closes_in_the_worktree_holding_the_task(self):
         # 2026-10-31, the owner's project: four close jobs ran from the main checkout (on develop) with the task's path into
@@ -254,7 +280,7 @@ class MergeClose(unittest.TestCase):
         for k, v in (("user.email", "t@t"), ("user.name", "t")):
             subprocess.run(["git", "-C", self.main, "config", k, v], check=True)
         write(self.main, ".reef/config.json", '{"branches": {"base": "main"}, "worktree": {"setup": "echo ran >> setup.log"}}')
-        write(self.main, ".gitignore", "setup.log\n.reef/worktrees/\n")
+        write(self.main, ".gitignore", "setup.log\n.reef/worktrees/\n.reef/approvals/\n")
         write(self.main, "reef/features/demo/tasks/101-slice.md", TASK)
         write(self.main, "src/a.py", "a = 1\n")
         write(self.main, "package-lock.json", "{}\n")

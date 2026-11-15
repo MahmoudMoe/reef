@@ -1503,6 +1503,23 @@ class ATaskIsGreenOnItsOwnHead(unittest.TestCase):
             self.assertIn("is ONE task", text, rel)
 
 
+class LessonsReachTheirReader(unittest.TestCase):
+    """Hardening PR-3: code prints the harness and loop lessons; the prose points at the block, the graph file and the draft step."""
+
+    def test_the_implementer_the_planner_and_the_task_skill_name_their_part(self):
+        self.assertIn("`lessons:` block", read("agents", "implementer.md"))
+        self.assertIn("reef/lessons/graph.md", read("agents", "planner.md"))
+        self.assertIn("`lessons:` block", read("agents", "planner.md"))
+        self.assertIn("reef-lessons.py lessons graph", read("skills", "reef-plan", "SKILL.md"))
+        task = read("skills", "reef-task", "SKILL.md")
+        self.assertIn("`lessons:` block", task)
+        self.assertIn("reef-lessons.py draft", task)
+
+    def test_the_shipped_config_carries_the_lessons_defaults(self):
+        cfg = json.loads(read("templates", "config.json"))
+        self.assertEqual(cfg.get("lessons"), {"cap": 10, "recur": 2, "quiet_rows": 10})
+
+
 class DeadEndsReachTheNextRound(unittest.TestCase):
     """Hardening PR-2: reef-attempt prints the dead ends; the prose only points at them and at the labelled FAIL form."""
 

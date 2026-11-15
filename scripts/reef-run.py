@@ -1312,6 +1312,11 @@ def morning_report(root, started, log, mode="night"):
     sq = subprocess.run(["git", "-C", root, "log", "--first-parent", "--no-merges", "--format=- %h %s", f"--since={started}", base], capture_output=True, text=True)
     merged = r.stdout.splitlines() + [l + "  (squash — undo: git revert <sha>)" for l in sq.stdout.splitlines() if re.search(r"\(#\d+\)\s*$", l)]
     lines += [f"## Merges into {base} (undo: git revert -m 1 <sha>)", *(merged or ["- none"]), ""]
+    try:   # hardening PR-3: the lessons to approve, the landed ones with their recurrence, the retirements proposed
+        lessons = load_sibling("reef-lessons.py", "reef_lessons").report_lines(root)
+    except Exception as e:
+        lessons = [f"- the lessons could not be read: {e}"]
+    lines += ['## Lessons (approve: python3 scripts/reef-approval.py --owner "<question>")', *lessons, ""]
     q = os.path.join(root, ".reef", "questions.md")
     lines += ["## Waiting for you", *(open(q, encoding="utf-8").read().splitlines() if os.path.isfile(q) else ["- nothing"]), ""]
     sessions = [json.loads(l) for l in open(log, encoding="utf-8")] if os.path.isfile(log) else []

@@ -335,7 +335,7 @@ def exclude_keys(text, tool):
     return out if found else None
 
 
-APPROVE_Q = re.compile(r"Approve (?:plan [A-Za-z0-9._-]+|night \d{4}-\d\d-\d\d|proxy by day) at [0-9a-f]{16}\?")   # the hook's questions
+APPROVE_Q = re.compile(r"Approve (?:plan [A-Za-z0-9._-]+|night \d{4}-\d\d-\d\d|proxy by day|(?:retiring )?lesson L\d+) at [0-9a-f]{16}\?")   # the hook's questions
 
 
 def approval_questions(text):

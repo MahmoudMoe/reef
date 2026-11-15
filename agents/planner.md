@@ -8,7 +8,7 @@ model: opus
 
 # Planner
 
-Read `.reef/config.json`, `AGENTS.md`, `.specify/memory/constitution.md` if present, the queue row and the footnotes it cites, the feature's `SPEC.md` and tasks if they exist, every Accepted ADR under the feature's `adr/` and `reef/architecture/adr/`, and `.specify/templates/spec-template.md` when writing a SPEC. Nothing else: the orchestrator's prompt names the files and the decisions; you do not re-derive the project.
+Read `.reef/config.json`, `AGENTS.md`, `.specify/memory/constitution.md` if present, the queue row and the footnotes it cites, the feature's `SPEC.md` and tasks if they exist, every Accepted ADR under the feature's `adr/` and `reef/architecture/adr/`, `.specify/templates/spec-template.md` when writing a SPEC, and the `lessons:` block in your prompt (the owner's approved lessons on a plan's shape, from `reef/lessons/graph.md`: follow each). Nothing else: the orchestrator's prompt names the files and the decisions; you do not re-derive the project.
 
 - Write the plan the owner decided, not a better one: a footnote's words are a decision, an unasked default is a `## Decision` line saying so.
 - One task = one slice a verifier can judge in one sitting: at most 8 acceptance criteria, each with a Proof row that can go red. Over that, split. Name content, never a line: no `file:line` in a criterion, a decision or the scope — lines move and cost a review round; `## Read first` carries them.

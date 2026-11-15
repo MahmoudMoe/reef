@@ -22,7 +22,7 @@ import calendar
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import read_config as config, read_replace as read, main_checkout, drop_hold, process_alive, run_rc, run_rc3, git_root, checkouts, task_copies, task_frontmatter, report_verdict, read_or_empty, spec_row  # noqa: E402
+from reef_common import read_config as config, read_replace as read, main_checkout, drop_hold, process_alive, run_rc, run_rc3, git_root, checkouts, task_copies, task_frontmatter, report_verdict, read_or_empty, spec_row, load_sibling  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
 MAX_LINES = 30
@@ -261,6 +261,10 @@ def plan_gate(root, scripts, py, tasks):
 
 
 def tick(root):
+    try:   # hardening PR-3, the owner's decision 6: the approved lesson files are committed here, never in the approval hook
+        load_sibling("reef-lessons.py", "reef_lessons").commit_pending(root)
+    except Exception as e:
+        print(f"lessons: not committed — {e}", file=sys.stderr)
     cfg = config(root)
     st = load_state(root)
     scripts = os.path.join(root, "scripts")
@@ -667,7 +671,11 @@ def session_start(root, state, cfg):
     files = state.get("files") or {}
     flines = "".join(f"  {tid}: {r['task']}" + (f" · worktree {r['worktree']}" if r.get("worktree") else "") +
                      (f" · evidence {', '.join(r['evidence'])}" if r.get("evidence") else "") + "\n" for tid, r in sorted(files.items()))
-    text = (head + "\n\n" if head else "") + note + render_status_page(state) + (f"files (read these, search for nothing):\n{flines}" if flines else "") + f"\nnext command: {next_command(state)}\n"
+    try:   # hardening PR-3: the owner's approved loop lessons reach the orchestrator by code, every session
+        lessons = "".join(l + "\n" for l in load_sibling("reef-lessons.py", "reef_lessons").lessons_block(root, "loop"))
+    except Exception as e:
+        lessons = f"lesson: loop lessons not read — {e}\n"
+    text = (head + "\n\n" if head else "") + note + lessons + render_status_page(state) + (f"files (read these, search for nothing):\n{flines}" if flines else "") + f"\nnext command: {next_command(state)}\n"
     if len(text) // 4 > cap:
         text = text[: cap * 4] + f"\n[truncated: writing.session_start_tokens {cap}]\n"
     return text

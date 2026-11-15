@@ -92,6 +92,17 @@ def recover(root, npath):
     return task
 
 
+def learn_from_close(root, task):
+    """Hardening PR-3: the close is GREEN — a ledger event (the quiet-rows count), and trigger (a) when the task's Log holds a
+    FAIL. Never the close's failure: an error is said and the close stands."""
+    try:
+        m = load_sibling("reef-lessons.py", "reef_lessons")
+        m.record_close(root, task)
+        m.trigger(root, task, "green-after-fail")
+    except Exception as e:
+        print(f"lesson: not recorded — {e}")
+
+
 def round_check(wt, task, base):
     """Hardening PR-1: the implementer's round, before it is committed — red first on the base, only the task's files: (reef-claims.py round)."""
     r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-claims.py"), "round", task,
@@ -214,6 +225,7 @@ def main(argv):
         drop_note(npath)
         print(f"merge-close: fast path — {name} closed in place on {branch} at {git(root, 'rev-parse', '--short', 'HEAD').stdout.strip()}; "
               f"the row's one worktree, no task branch")
+        learn_from_close(root, dest)
         return 0
     wt = os.path.join(main_ck, fm["worktree"]) if fm.get("worktree") else os.path.join(main_ck, str((cfg.get("worktree") or {}).get("dir", ".reef/worktrees")), tid)
     tbranch = "task/{}-{}".format(tid, re.sub(r"^R?\d+-", "", name)[:-3])   # not an f-string: a backslash there needs 3.12
@@ -313,6 +325,7 @@ def main(argv):
     git(root, "branch", "-d", tbranch)
     print(f"merge-close: {tbranch} merged into {branch} at {git(root, 'rev-parse', '--short', 'HEAD').stdout.strip()}; "
           f"{os.path.relpath(task, root)} done; worktree and branch removed")
+    learn_from_close(root, task)
     return 0
 
 
