@@ -7,7 +7,7 @@ Every row cites `scripts/reef-guard.py:<line>` at that commit. Every config clai
 
 ## 1. Verdict first
 
-- **The guard is almost entirely AUTHORITY.** Of 74 refusals, 8 can be held *in part* by harness config. **None** can
+- **The guard is almost entirely AUTHORITY.** Of 79 policy rules, 16 can be held *in part* by harness config (63 are AUTHORITY). **None** can
   be held *in full* (the guard's rule stays exactly as strong without it). The guard has to stay. It cannot shrink to a config
   file.
 - **The real value of the config is three things the guard cannot do for itself.** (a) It stays in force when the guard does
@@ -15,7 +15,8 @@ Every row cites `scripts/reef-guard.py:<line>` at that commit. Every config clai
   text. (c) It can lock the **guard's own trust root**: the plugin install directory, which today no rule protects (W1). It can
   also lock the settings file that holds the walls (W2).
 - **`sandbox.failIfUnavailable` exists and does what the owner thinks, with one stated exception: it does not apply "in an
-  Anthropic-hosted environment".** The sandbox covers **shell commands only**. Edit/Write are held by `permissions.deny`, not
+  Anthropic-hosted environment".** Whether *project* settings may set it is not verified: the docs say "with limits on project
+  and local settings" and do not name the limits (6a). The sandbox covers **shell commands only**. Edit/Write are held by `permissions.deny`, not
   the sandbox. A plugin **cannot ship** `permissions` or `sandbox`, so `/reef-init` must write them into the project's
   `.claude/settings.json`.
 - **Turning the sandbox on has a cost the brief does not name.** Network isolation comes with it ("your allowed domains start
@@ -187,18 +188,19 @@ them.
 
 | | rows | of which |
 |---|---|---|
-| Hook layer | 2 refusals (H1, H2) plus 1 gap (H3) | H1 partial WALL; H2 AUTHORITY |
+| Hook layer H1–H2 | 2 | 1 partial WALL (H1), 1 AUTHORITY (H2) |
 | Bash bypasses B1–B10 | 10 | 9 partial WALL, 1 AUTHORITY |
 | Records/handoff/evidence/queue R1–R9, E1–E3, Q1 | 13 | 2 partial WALL (R2, R9), 11 AUTHORITY |
 | Self-guard G1–G6 | 6 | 1 partial WALL (G4, `.githooks/` only), 5 AUTHORITY |
-| Roles/loop/forge L1–O1 | 25 (M2 counted once) | 3 partial WALL (M1, J1, A1), 22 AUTHORITY |
+| Roles/loop/forge L1–L6, P1–P2, M1–M2, RP1–RP4, D1–D2, J1–J2, RC1–RC3, RW1–RW2, A1–A2, O1 | 26 (M2 groups 13 refusals) | 3 partial WALL (M1, J1, A1), 23 AUTHORITY |
 | Dispatch DS1–DS20 | 20 | 20 AUTHORITY |
 | Stop S1–S2 | 2 | 2 AUTHORITY |
-| **Policy rules** | **78 rows** (74 refusals plus H3, H4, G7, J2 as non-refusal or alias rows) | **16 partial WALL · 0 full WALL · 58 AUTHORITY** (plus 4 non-refusal rows) |
+| **Policy rules** | **79** | **16 partial WALL · 0 full WALL · 63 AUTHORITY** |
+| Not rules: H3 (the fail-open gap), H4 (plumbing), G7 (an alias of B8/B9) | 3 | — |
 | INFRA I1–I6 | 6 | not classified |
 
-Counted by `deny(` call: 129 call sites in `reef-guard.py` at `ac377d8`, grouped into the rows above, plus 2 in `hooks.json`.
-("74 refusals" counts rules, not call sites.)
+At the source level, `scripts/reef-guard.py` at `ac377d8` has 111 lines that call `deny(` (grep, the definition excluded).
+`hooks/hooks.json` refuses in 2 more places. Every one belongs to a row above.
 
 ## 4. The proposed WALLs
 
@@ -206,7 +208,7 @@ Each WALL lists what it holds, the exact config, where config cannot reach, and 
 
 ### W1 — the plugin install tree is unwritable (NEW: today no rule holds it)
 
-- **Why.** The guard trusts `OWN_SCRIPTS = dirname(realpath(__file__))` (`:1131`) and loads the plan check, the graph, attempt,
+- **Why.** The guard trusts `OWN_SCRIPTS = dirname(realpath(__file__))` (`:1137`) and loads the plan check, the graph, attempt,
   lessons, evidence and claims "from the PLUGIN's own directory" (`load_plugin_module` `:1454`, `load_graph_module` `:1483`).
   `reef_project()` (`:459`) judges only paths inside a Reef project, and `~/.claude/plugins/…` is not one. So today an agent's
   `Edit` of `~/.claude/plugins/cache/<market>/reef/<ver>/scripts/reef-guard.py` passes the guard, and the next hook runs the
@@ -430,7 +432,7 @@ came from WebFetch's summary of a long page, not verbatim text. The code PR re-r
   `permissions.disableBypassPermissionsMode: "disable"`. That is optional, and the owner's call.
 - **The project's `.claude/settings.json`, written by `reef-init`.** It is committed, so every worktree carries it, and `/path`
   anchors at each session's primary working directory. Today `reef-init` writes **no** `.claude/settings.json` (grep of
-  `scripts/reef-init.py` at `ac377d8`). The code PR adds it with `Renderer.offer`/merge semantics (`:528`), so an adopted
+  `scripts/reef-init.py` at `ac377d8`). The code PR adds it with `Writer.offer`/merge semantics (`scripts/reef-init.py:528`), so an adopted
   project's existing settings are merged list-wise, never replaced. `reef-doctor` reports a missing or edited block.
 
 The full block (D1 = allowlist; the hosts are per stack, and this is the github + npm case):
