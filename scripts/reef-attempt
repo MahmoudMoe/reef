@@ -8,6 +8,9 @@ Usage:
                                               the text is LABELLED lines: EXPECTED: (required), SAW: (required,
                                               verbatim output, may span lines), FENCE:, DEAD END: — one argument
                                               per field works (arguments are joined by newlines)
+  reef-attempt --from-round <task-file> [FENCE:/DEAD END: lines]
+                                              record a refused round: SAW = the `round: REFUSED` lines of
+                                              <git-dir>/reef-round-<id>.log (reef-claims.py round writes it), verbatim
   reef-attempt --cap N <task-file> [...]      override the cap for this call (rollup/CI loops)
 
 Exit codes: 0 = dispatch allowed (prints the dispatch line + the REEF-TASK header the
@@ -89,9 +92,13 @@ def normalize(failure):
 def parse_args(argv):
     cap = None
     rest = []
+    from_round = False
     i = 0
     while i < len(argv):
-        if argv[i] == "--cap":
+        if argv[i] == "--from-round":
+            from_round = True
+            i += 1
+        elif argv[i] == "--cap":
             if i + 1 >= len(argv) or not argv[i + 1].isdigit() or int(argv[i + 1]) < 1:
                 die("--cap requires a positive integer")
             cap = int(argv[i + 1])
@@ -104,6 +111,10 @@ def parse_args(argv):
     path = rest[0]
     failure_given = len(rest) > 1
     failure = "\n".join(rest[1:]).strip()   # newlines, not spaces: one argument per field, and SAW keeps its lines
+    if from_round:
+        if re.search(r"(?m)^\s*(EXPECTED|SAW):", failure):
+            die("--from-round writes EXPECTED and SAW from the round's log — pass only FENCE: or DEAD END: lines beside it; nothing recorded")
+        return cap, path, parse_fields(ROUND_EXPECTED + "\nSAW: " + "\n".join(round_refusals(path)) + ("\n" + failure if failure else ""))
     if failure_given and not failure:
         die("a failure argument was passed but it is empty — a FAIL with no text cannot be recorded; pass the real failure output")
     return cap, path, (parse_fields(failure) if failure else None)
@@ -139,6 +150,34 @@ def parse_fields(text):
         die(f"a FAIL record needs `EXPECTED: <what the criterion or test required>` and `SAW: <the failing output, verbatim>` "
             f"— missing {' and '.join(missing)}; nothing recorded")
     return out
+
+
+ROUND_EXPECTED = ("EXPECTED: reef-claims.py round exits 0 — each Proof test fails on the base and passes on the round's tree; "
+                  "only files: changed")
+
+
+def round_refusals(path):
+    """The `round: REFUSED — …` lines of the last round check on this task's checkout (hardening PR-2, the owner's decision 2:
+    the SAW is the code's words, never retyped). No log, or none of those lines, is a 2."""
+    d = os.path.dirname(os.path.realpath(path))
+    if not os.path.isdir(d):
+        die(f"task file not found: {path}")
+    gd = subprocess.run(["git", "rev-parse", "--absolute-git-dir"], cwd=d, capture_output=True, text=True).stdout.strip()
+    if not gd:
+        die(f"--from-round: {d} is not in a git checkout — the round's log lives in its git dir; nothing recorded")
+    try:
+        tid = (task_frontmatter(read(path)) or {}).get("id") or os.path.basename(path).split("-")[0]
+    except (OSError, UnicodeDecodeError) as e:
+        die(f"cannot read {path}: {e}")
+    log = os.path.join(gd, f"reef-round-{tid}.log")
+    try:
+        with open(log, encoding="utf-8", errors="replace") as f:
+            lines = [l.rstrip() for l in f if l.startswith("round: REFUSED — ")]
+    except OSError:
+        die(f"--from-round: no round log {log} — run `python3 scripts/reef-claims.py round {path}` in the task's worktree first; nothing recorded")
+    if not lines:
+        die(f"--from-round: no `round: REFUSED — …` line in {log} (the last round passed, or never ran); nothing recorded")
+    return lines
 
 
 FAIL_LINE = re.compile(r"^\s*-\s*attempt (\d+) FAIL:[ \t]?(.*?)(?:[ \t]*· at \S+Z)?[ \t]*$")
