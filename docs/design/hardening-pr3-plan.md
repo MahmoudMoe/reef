@@ -98,7 +98,16 @@ On the approval, in the same call: `reef/lessons/<layer>.md` (created when missi
 and the ledger a `landed` event. **The cap** (`lessons.cap`, default 10, per layer file): a layer already holding `cap` lessons
 refuses the landing — nothing written, not even the approval record — `layer harness holds 10/10 lessons — retire one first`.
 
-**The commit (owner decision 5)**: code commits the layer file (and on a retirement `reef/lessons/history.md` too) in the main checkout, those paths only (`git commit -- <paths>`, like `commit_plan` in #370): `reef: lesson L3 landed in reef/lessons/harness.md (approved at <digest16>)` / `reef: lesson L3 retired from reef/lessons/harness.md (kept in history.md)`. The commit runs under the pre-commit gate; a refused commit, or no git checkout, puts the files back as they were and writes nothing — no record, no ledger event: the lesson did not land.
+**The commit (owner decisions 5 and 6)**: the approval (hook or `--owner`, one path) only writes the layer file (and on a
+retirement `reef/lessons/history.md`), the record and the ledger event — never a commit and never the pre-commit gate inside
+the AskUserQuestion hook, which has a 30 s timeout. The commit is the next **`reef-loop.py tick`**'s (it runs on every
+orchestrator turn, chat mode and the runner's sessions alike; the runner's own between-session script sync is runner-only):
+`commit_pending` takes the landed/retired events not yet followed by a `committed` event, commits exactly their files in the
+main checkout under the pre-commit gate (`git commit -- <paths>`, like `commit_plan` in #370) —
+`reef: lessons L3 landed, L1 retired — committed on the tick (the owner's approvals)` — and appends `committed`. Idempotent: a
+file already committed is marked without a new commit. A refused commit leaves the files as written and appends
+`commit-refused {why}`; the night/autopilot report's `## Lessons` and the `reef` inbox name it (`not committed: <files> — <why>`)
+until a tick commits them. Never silent. The lesson is landed (and delivered) from its approval on.
 
 ## 6. Measure (code)
 
@@ -145,7 +154,7 @@ The report shows `L3 harness · round-not-red · landed 2026-11-15 · recurred 1
 - retirement proposal: recurred ≥ N → proposed (code check or retire); 0 recurrences over ≥ M rows → proposed; neither → none.
 - retirement: the approved question removes the line, appends to `history.md`, frees a cap slot.
 - the guard (decision 2): a planner dispatch without the graph block is refused, naming the first missing line; with only the header refused; with the block allowed; no graph lesson, no block needed (`tests/test_lessons.py`, the guard as a subprocess).
-- the commit (decision 5): landing commits the layer file with its subject, the tree clean after; a retirement commits the layer file and history.md; a pre-commit gate refusing the commit leaves no file, no record, no event.
+- the commit (decisions 5, 6): approving (hook or `--owner`) runs no pre-commit gate and makes no commit; the next tick commits exactly the pending lesson files (another changed file stays out), a second tick commits nothing; a retirement's tick commits the layer file and history.md; a refused commit leaves the files, and the report and the inbox name it; once the gate is green the next tick commits.
 - delivery: the dispatch prints the `lessons:` block of the harness file's approved lines; a hand-edited line is not printed;
   graph mode's implementer prompt carries it (`tests/test_graph_run.py`); the session-start context carries the loop lines
   (`tests/test_loop.py`).
@@ -170,3 +179,5 @@ The report shows `L3 harness · round-not-red · landed 2026-11-15 · recurred 1
 4. **Owner only**: the proxy never approves or retires a lesson, not even under the autopilot — yes.
 5. **Code commits** the landed or retired layer file and history.md, like `commit_plan` (#370). (Planned conservative choice was
    no commit.)
+6. **The commit is not in the hook** (ruled after the PR opened, on the 30 s hook timeout): the approval writes; the next
+   `reef-loop.py tick` commits; a refusal is reported in the report and the inbox, never silent.
