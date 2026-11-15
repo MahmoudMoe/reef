@@ -572,6 +572,18 @@ class TheUpdateIsOneVerb(unittest.TestCase):
         self.assertIn("/reload-plugins", r.stdout, "alone, the script still says the step")
 
 
+class TheOneTestGateLine(unittest.TestCase):
+    def test_the_doctor_names_a_project_with_no_one_test_gate(self):
+        # the owner's decision 2 (2026-11-15): without gates.one the round check runs the whole fast gate, not the named test
+        d = project()
+        r = doctor(d)
+        self.assertRegex(r.stdout, r"(?m)^WARN gates\.one: not set — the round check runs the whole fast gate, not the named Proof test", r.stdout)
+        with open(os.path.join(d, ".reef", "config.json"), "w") as f:
+            json.dump({"branches": {"base": "main", "feature_prefix": "feat/"}, "paths": {"queue": "reef/queue.md"},
+                       "gates": {"one": "python3 -m pytest -q -k {test}"}}, f)
+        self.assertNotIn("WARN gates.one", doctor(d).stdout)
+
+
 class TheGraphGateLine(unittest.TestCase):
     """2026-10-31: the owner's project had graph.mode auto and no graph gate, every row built in chat mode, and the doctor said nothing.
     The line says the plain truth: the gate is for the rows the owner builds himself (/reef-graph proves it, in a session); the

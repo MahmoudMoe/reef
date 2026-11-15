@@ -63,6 +63,7 @@ blocked-by: []
 resources: []
 tier: light
 touches: []
+files: [src/, tests/]
 verify: gate-only
 attempts: 0
 dispatches: 0
@@ -490,6 +491,32 @@ class Rails(unittest.TestCase):
         self.assertIn("requires a `Rollback:` line", r.stdout)
         feature(d, tasks={"1201-write-csv.md": t.replace("Add the column.", "Add the column.\nRollback: drop the column.")})
         self.assertNotIn("Rollback", check(d).stdout)
+
+    def test_a_new_plan_names_its_files_and_an_older_one_only_warns(self):
+        """Hardening PR-1, the owner's decision (2026-11-15): `files:` is required for a feature planned under the rule — the
+        round check (`reef-claims.py round`) scopes a round by it. A feature stamped before the rule, or approved, warns."""
+        d = project()
+        feature(d, tasks={"1201-write-csv.md": TASK_NEW.replace("files: [src/, tests/]\n", "")})
+        r = check(d)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("1201-write-csv.md: no `files:`", r.stdout)
+        feature(d)
+        self.assertEqual(check(d).returncode, 0, "with files: the plan passes")
+        d = project()
+        feature(d, tasks={"1201-write-csv.md": TASK_NEW.replace("files: [src/, tests/]\n", "")})
+        write(d, "tasks/.plan-review.json", json.dumps({"features": {}, "planned_under": {"csv-export-for-orders": "0.6.0"}}))
+        r = check(d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("warning: reef/features/csv-export-for-orders/tasks/1201-write-csv.md: no `files:`", r.stdout)
+
+    def test_a_files_entry_that_matches_everything_fails_the_plan_check(self):
+        """`files: ["*"]` would make the round's scope check a no-op (the orchestrator's review of PR-1)."""
+        for catch_all in ('"*"', "**", "**/*", "./", "/", "."):
+            d = project()
+            feature(d, tasks={"1201-write-csv.md": TASK_NEW.replace("files: [src/, tests/]", f"files: [src/, {catch_all}]")})
+            r = check(d)
+            self.assertNotEqual(r.returncode, 0, f"{catch_all}: {r.stdout}")
+            self.assertIn("matches every path", r.stdout)
 
     def test_one_line_diff_under_auth_tiered_light_is_refused(self):
         d = tempfile.mkdtemp(prefix="reef-rail.")

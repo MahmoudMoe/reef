@@ -22,6 +22,12 @@ Usage:
       RUN, VERDICT, every BLOCKER, failed criterion, NEW-ROW and NOTED line; exit 0 PASS/GREEN · 1 FAIL · 2 no verdict
   reef-claims.py refactor-preserved <base>...HEAD [--repo DIR]   (0.7.5) a `kind: refactor` feature: exit 1 naming each EXISTING test
       file whose assertion lines change (moved lines, a renamed file and new test files allowed); the full gate is the other half
+  reef-claims.py round <task-file> [--base REV] [--repo DIR]   (hardening PR-1) the implementer's round, its work uncommitted in
+      the worktree (--repo, default .; base default HEAD): (a) each named test of the task's ## Proof table passes on the
+      round's tree and FAILS on the base's code with the round's test files in place (gates.one with {test} per test — a run
+      whose output says it ran no test is refused, neither green nor red — else the whole fast gate once, and it says so); (b) every changed or untracked path matches the task's `files:` list (`dir/` a prefix, else an
+      fnmatch glob; the task's folder always). Exit 1, one `round: REFUSED — …` line per failure. kind: refactor, a rollup
+      and a Proof naming no test skip (a); no `files:` skips (b). docs/design/hardening-pr1-plan.md.
   reef-claims.py claims-only <base>..<head> [--repo DIR]
       Exit 0 iff the range, stripped of documentation files and of comment/blank lines, is
       EMPTY — the only commit allowed after a GREEN verdict. Exit 1 names the first code
@@ -32,15 +38,19 @@ Measured on 2026-10-03: 24 review rounds blocked on a false sentence against 14 
 defect. A claim that names a line the round did not touch is the shape of those 24.
 Exit 0 ok · 1 claims rejected / code after GREEN · 2 bad usage or git error.
 """
+import fnmatch
+import json
 import os
 import re
+import shlex
+import shutil
 import subprocess
 import sys
 from functools import partial
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.dont_write_bytecode = True
-from reef_common import table_cells, die as _die, report_verdict, prose_lines, task_frontmatter  # noqa: E402
+from reef_common import table_cells, die as _die, report_verdict, prose_lines, task_frontmatter, load_sibling  # noqa: E402
 
 CLAIM = re.compile(r"^(?P<sentence>.+?)\s+(?:—|--|-)\s*true at\s+(?P<path>[^\s:]+):(?P<a>\d+)(?:-(?P<b>\d+))?\s*$")
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
@@ -257,6 +267,154 @@ def task_criteria(task):
     return ids, proof_rows
 
 
+# a changed path the red check keeps in place on the base: the round's tests (everything else is set back to the base)
+TEST_PATH = re.compile(r"(^|/)(tests?|__tests__|specs?)/|(^|/)test_[^/]*$|_test\.[^/]+$|\.(test|spec)\.[^/]+$")
+
+
+def round_changes(repo, base):
+    """Repo-relative paths the round changed against `base`: tracked differences in the worktree, and untracked files."""
+    out = []
+    for args in (["diff", "--name-only", "--no-renames", "-z", base, "--"], ["ls-files", "--others", "--exclude-standard", "-z"]):
+        r = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True)
+        if r.returncode != 0:
+            die(f"git {' '.join(args[:2])} failed: {r.stderr.strip()}")
+        out += [p for p in r.stdout.split("\0") if p and p not in out]
+    return out
+
+
+def red_restore(repo, bk):
+    """Put back the round's files a red run set to the base (its manifest written before the first change)."""
+    with open(os.path.join(bk, "manifest.json"), encoding="utf-8") as f:
+        man = json.load(f)
+    for p in man["saved"]:
+        os.makedirs(os.path.dirname(os.path.join(repo, p)) or ".", exist_ok=True)
+        shutil.copy2(os.path.join(bk, "files", p), os.path.join(repo, p))
+    for p in man["new"]:   # absent in the round, written from the base by the run
+        if os.path.isfile(os.path.join(repo, p)):
+            os.remove(os.path.join(repo, p))
+    shutil.rmtree(bk)
+
+
+# a gates.one run that ran no test is neither green nor red (the owner's decision 2, 2026-11-15; measured: a filter matching nothing
+# exits 5 in pytest and 0 in go, cargo, vitest and jest, which say so only in their output)
+RAN = re.compile(r"\b[1-9]\d* (?:passed|failed)\b|^--- (?:PASS|FAIL)\b|^Ran [1-9]\d* tests?\b", re.M)
+NONE = re.compile(r"no tests ran|\bdeselected\b|\[no tests to run\]|running 0 tests|\bskipped\b|^Ran 0 tests|No test files found|No tests found", re.M)
+
+
+def ran_none(rc, out):
+    """True when a run's own output (or pytest's exit 5) says it ran no test; a custom command's silence decides nothing."""
+    return not RAN.search(out) and (rc == 5 or bool(NONE.search(out)))
+
+
+def round_run(repo, cmd, log, no_cache=False):
+    """(exit, output) of `cmd` in the worktree, the output kept in `log` (the git dir: never a change of the round's); 124 past gates.timeout_s."""
+    env = dict(os.environ, **({"REEF_GATE_NO_CACHE": "1"} if no_cache else {}))
+    limit = int((read_cfg(repo).get("gates") or {}).get("timeout_s", 1200) or 0) or None
+    try:
+        r = subprocess.run(["sh", "-c", cmd], cwd=repo, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=limit)
+        rc, out = r.returncode, r.stdout
+    except subprocess.TimeoutExpired as e:
+        rc, out = 124, e.stdout or b""
+    with open(log, "ab") as f:
+        f.write(f"$ {cmd}\n".encode() + out + f"[exit {rc}]\n".encode())
+    return rc, out.decode("utf-8", "replace")
+
+
+def cmd_round(repo, task_path, base):
+    repo = os.path.realpath(repo)   # CI on PR 372 (macOS: /var links to /private/var) — the task's folder is matched on real paths
+    try:
+        with open(task_path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError as e:
+        die(f"no task file {task_path} ({e})")
+    fm, cfg = task_frontmatter(text) or {}, read_cfg(repo)
+    tid = fm.get("id") or os.path.basename(task_path).split("-")[0]
+    tdir = os.path.dirname(os.path.realpath(task_path))   # the folder as the task's own checkout names it (the close may pass another's copy)
+    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=tdir, capture_output=True, text=True).stdout.strip() or repo
+    folder = os.path.relpath(tdir, os.path.realpath(top)).replace(os.sep, "/").rstrip("/") + "/"
+    folder = re.sub(r"done/$", "", folder)
+    gd = subprocess.run(["git", "rev-parse", "--absolute-git-dir"], cwd=repo, capture_output=True, text=True).stdout.strip()
+    if not gd:
+        die(f"{repo} is not a git worktree")
+    bk, log = os.path.join(gd, f"reef-red-{tid}"), os.path.join(gd, f"reef-round-{tid}.log")
+    open(log, "w").close()
+    if os.path.isfile(os.path.join(bk, "manifest.json")):
+        red_restore(repo, bk)
+        print(f"round: restored the round's files from an earlier check cut off mid-run ({bk})")
+    changed = [p for p in round_changes(repo, base) if not p.startswith(folder)]
+    refused = []
+    # (b) the declared files
+    decl = fm.get("files", "").strip()
+    if decl and not (decl.startswith("[") and decl.endswith("]")):
+        refused.append(f"files: must be a list, `files: [{decl}]`")
+    pats = [x.strip().strip("\"'") for x in decl.strip("[]").split(",") if x.strip()]
+    if not pats:
+        print("scope: not declared (no files: in the task) — not checked")
+    else:
+        out = [p for p in changed if not any(p.startswith(x) if x.endswith("/") else fnmatch.fnmatchcase(p, x) for x in pats)]
+        if out:
+            refused.append(f"the round changed files outside the task's files: {', '.join(out)}")
+        else:
+            print(f"scope: {len(changed)} changed files within files: {pats}")
+    # (a) red first
+    _, proof = task_criteria(text)
+    test_re = re.compile((cfg.get("plan") or {}).get("test_re", "") or load_sibling("reef-plan-check.py", "reef_plan_check").DEFAULT_TEST_RE)
+    names = [c for c in proof.values() if test_re.fullmatch(c)]
+    skip = ("kind: refactor (behaviour preserved; refactor-preserved checks it)" if fm.get("kind") == "refactor"
+            else "a rollup task" if str(tid).startswith("R") else "the Proof names no test" if not names else None)
+    if skip:
+        print(f"red first: skipped — {skip}")
+    else:
+        one = str((cfg.get("gates") or {}).get("one", "") or "").strip()
+        gate = "sh " + shlex.quote(os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-gate.sh")) + " fast"
+        arg = lambda n: (re.fullmatch(r"(?:it|test|describe)\((['\"])(.+)\1\)", n) or [None, None, n])[2]   # it('adds two') -> adds two
+        runs = [(n, one.replace("{test}", shlex.quote(arg(n)))) for n in names] if one else \
+            [(f"the whole fast gate, not {', '.join(names)} (no gates.one)", gate)]   # never a line that reads as the named test
+        green = []
+        for n, c in runs:
+            rc, out = round_run(repo, c, log)
+            if one and ran_none(rc, out):
+                refused.append(f"{n} ran no test (gates.one: `{one}`) — the name matches no test; neither green nor red (its output: {log})")
+            elif rc == 0:
+                green.append((n, c))
+            else:
+                refused.append(f"{n} does not pass on the round's tree — green first, then the red is checked (its output: {log})")
+        code = [p for p in changed if not TEST_PATH.search(p)]
+        if green:
+            os.makedirs(os.path.join(bk, "files"))
+            saved = [p for p in code if os.path.isfile(os.path.join(repo, p))]
+            for p in saved:
+                os.makedirs(os.path.dirname(os.path.join(bk, "files", p)), exist_ok=True)
+                shutil.copy2(os.path.join(repo, p), os.path.join(bk, "files", p))
+            with open(os.path.join(bk, "manifest.json"), "w", encoding="utf-8") as f:
+                json.dump({"saved": saved, "new": [p for p in code if p not in saved]}, f)
+            try:
+                for p in code:
+                    blob = subprocess.run(["git", "show", f"{base}:{p}"], cwd=repo, capture_output=True)
+                    if blob.returncode == 0:
+                        os.makedirs(os.path.dirname(os.path.join(repo, p)) or ".", exist_ok=True)
+                        with open(os.path.join(repo, p), "wb") as f:
+                            f.write(blob.stdout)
+                    elif os.path.isfile(os.path.join(repo, p)):
+                        os.remove(os.path.join(repo, p))   # new in the round: the base has no such file
+                for n, c in green:
+                    rc, out = round_run(repo, c, log, no_cache=True)
+                    if one and ran_none(rc, out):
+                        refused.append(f"{n} ran no test on the base (gates.one: `{one}`) — not counted as red (its output: {log})")
+                    elif rc == 124:
+                        refused.append(f"{n} timed out on the base (gates.timeout_s) — not counted as red")
+                    elif rc == 0:
+                        refused.append(f"{n} does not fail on the base ({base}, the round's {len(changed) - len(code)} test files in place, "
+                                       f"{len(code)} code files set back) — the test is not red first")
+                    else:
+                        print(f"red first: {n} fails on the base (exit {rc}) and passes on the round's tree")
+            finally:
+                red_restore(repo, bk)
+    for r in refused:
+        print(f"round: REFUSED — {r}")
+    return 1 if refused else 0
+
+
 def cmd_skeleton(task_path):
     """The verifier's report as reef-claims `report` reads it, a line per criterion, <<fill …>> where the verifier writes
     (2026-11-01, row 189: a right verdict rejected for its layout and rewritten)."""
@@ -466,11 +624,13 @@ def main(argv):
         return cmd_verdict(argv[1])
     if argv[0] == "refactor-preserved" and len(argv) == 2:
         return cmd_refactor_preserved(repo, argv[1])
+    if argv[0] == "round" and len(argv) in (2, 4) and (len(argv) == 2 or argv[2] == "--base"):
+        return cmd_round(repo, argv[1], argv[3] if len(argv) == 4 else "HEAD")
     if argv[0] == "claims-only" and len(argv) == 2:
         return cmd_claims_only(repo, argv[1])
     if argv[0] == "assess" and len(argv) in (1, 2):
         return cmd_assess(repo, argv[1] if len(argv) == 2 else repo)
-    die("usage: reef-claims.py check <base>..<head> <claims-file> | check --handback <file> | report <file> --task <task> | claims-only <base>..<head> | refactor-preserved <base>...HEAD | assess [<project-root>]")
+    die("usage: reef-claims.py check <base>..<head> <claims-file> | check --handback <file> | report <file> --task <task> | claims-only <base>..<head> | refactor-preserved <base>...HEAD | round <task> [--base REV] | assess [<project-root>]")
 
 
 if __name__ == "__main__":

@@ -33,6 +33,7 @@ effort: medium
 blocked-by: []
 resources: []
 tier: light
+files: [src/, tests/]
 verify: gate-only
 attempts: 0
 dispatches: 0
@@ -84,7 +85,7 @@ class Project:
         os.makedirs(os.path.join(self.main, "scripts"))
         for n in SCRIPTS:
             shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.main, "scripts", n))
-        cfg = {"gates": {"full": "true"}, "branches": {"base": "main", "feature_prefix": "feat/"}, "worktree": {"dir": ".reef/worktrees"},
+        cfg = {"gates": {"full": "true", "one": "git status --porcelain -- src | grep -q ."}, "branches": {"base": "main", "feature_prefix": "feat/"}, "worktree": {"dir": ".reef/worktrees"},
                "paths": {"queue": "reef/queue.md", "features": "reef/features", "runlog": "reef/journal.md"}}
         cfg.update(cfg_extra or {})
         write(self.main, ".reef/config.json", json.dumps(cfg))
@@ -465,6 +466,7 @@ class TwoRowsAtTheCap(unittest.TestCase):
         p = Project(rows=((1, "first", ""), (2, "second", ""), (3, "third", "")))
         p.plan(1, slug="row-one-thing", tids=(101,))
         p.plan(2, slug="row-two-thing", tids=(201,))
+        p.hand_back(101, p.wts["row-one-thing"])   # the round: a close needs one (reef-claims.py round)
         p.merge_close(101, slug="row-one-thing")   # every task of row 1 done on its branch, no PR
         st = p.state()
         self.assertEqual(st["rows_in_flight"], ["1", "2"], st)
@@ -474,6 +476,7 @@ class TwoRowsAtTheCap(unittest.TestCase):
         p = Project(rows=((1, "first", ""), (2, "second", ""), (3, "third", "")))
         p.plan(1, slug=SLUG, tids=(101,))
         p.plan(2, slug="row-two-thing", tids=(201,))
+        p.hand_back(101, p.wts[SLUG])
         p.merge_close(101)
         p.pr_merged()
         st = p.state()
@@ -496,6 +499,7 @@ class DependencyStillBuilding(unittest.TestCase):
         p.plan(1)
         st = p.state()
         self.assertEqual((st["rows_to_plan"], st["rows_held"]), ([], []), "row 2 depends on a row still building")
+        p.hand_back(101, p.wts[SLUG])
         p.merge_close(101)                    # done on the feature branch, not merged
         st = p.state()
         self.assertEqual((st["rows_to_plan"], st["rows_held"]), ([], []), "done on its branch is not merged: row 2 still waits")

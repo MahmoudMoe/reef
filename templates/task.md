@@ -8,6 +8,7 @@ blocked-by: []
 resources: []
 tier: light|full|design|critical
 touches: []
+files: []
 verify: judge|gate-only
 attempts: 0
 dispatches: 0

@@ -133,7 +133,7 @@ die = lambda msg, code=1: _die(msg, code, prefix="reef-init")   # the signature 
 def detect_stack(root):
     """Stack facts the templates need. Only what the files say; nothing guessed is a gate."""
     has = lambda *p: os.path.isfile(os.path.join(root, *p))
-    facts = {"name": os.path.basename(os.path.abspath(root)), "stack": "unknown", "test": "", "fast": "",
+    facts = {"name": os.path.basename(os.path.abspath(root)), "stack": "unknown", "test": "", "fast": "", "one": "",
              "build": "", "install": "", "setup": "", "ecosystem": "", "setup_steps": ""}
     if has("package.json"):
         try:
@@ -174,6 +174,8 @@ def detect_stack(root):
         # 2026-11-04 (an adopted project): the full gate keeps the profile's build output fresh (gates.build), not only setup
         facts["fresh_build"] = next(({"output": f["output"], "run": f["run"]} for f in node_profile.get("fresh") or []
                                      if any(d in deps for d in f.get("when_deps") or []) and (not f.get("needs_script") or f["needs_script"] in scripts)), None)
+        # gates.one (hardening PR-1, the owner's decision 2): the round check runs the NAMED Proof test; only a runner named in the deps
+        facts["one"] = f"npx vitest run {VITEST_SKIP} -t {{test}}" if "vitest" in deps else "npx jest -t {test}" if "jest" in deps else ""
         facts.update(stack="node", ecosystem="npm", install="npm ci",
                      test=("npm test" + (f" -- {VITEST_SKIP}" if re.fullmatch(r"vitest(\s[^&|;<>]*)?", str(scripts.get("test") or "").strip()) else ""))
                      if "test" in scripts else "",
@@ -184,13 +186,14 @@ def detect_stack(root):
         uv = has("uv.lock")
         # the module form (the live run, 2026-11-03): `python3 -m` runs where python3 does, a bare `pytest`/`pip` often is not on PATH
         facts.update(stack="python", ecosystem="pip", install="uv sync" if uv else "python3 -m pip install -e .",
-                     test="uv run pytest -q" if uv else "python3 -m pytest -q",
+                     test="uv run pytest -q" if uv else "python3 -m pytest -q", one=("uv run pytest -q" if uv else "python3 -m pytest -q") + " -k {test}",
                      setup_steps="      - uses: actions/setup-python@v5\n        with:\n          python-version: '3.12'\n      - run: " + ("pip install uv && uv sync" if uv else "pip install -e .") + "\n")
     elif has("Cargo.toml"):
-        facts.update(stack="rust", ecosystem="cargo", install="cargo fetch", test="cargo test -q", build="cargo build",
+        facts.update(stack="rust", ecosystem="cargo", install="cargo fetch", test="cargo test -q", build="cargo build", one="cargo test -q {test}",
                      setup_steps="      - uses: dtolnay/rust-toolchain@stable\n")
     elif has("go.mod"):
         facts.update(stack="go", ecosystem="gomod", install="go mod download", test="go test ./...", build="go build ./...",
+                     one="go test -v -run '^{test}$' ./...",   # -v: without it a matched test prints no line of its own
                      setup_steps="      - uses: actions/setup-go@v5\n        with:\n          go-version: stable\n")
     facts["setup"] = facts["setup"] or facts["install"]   # the other stacks: install is the whole setup
     facts["setup_steps"] = facts["setup_steps"] + AUDIT_SETUP.get(facts["stack"], "") + GITLEAKS_SETUP + (SEMGREP_SETUP if facts["stack"] in SEMGREP else "")
@@ -322,6 +325,7 @@ def project_config(existing, facts):
         cfg = json.load(f)
     cfg["gates"]["fast"] = facts["fast"]
     cfg["gates"]["full"] = facts["test"]
+    cfg["gates"]["one"] = facts["one"]
     cfg["gates"]["extra"] = {"build": facts["build"]} if facts["build"] else {}
     cfg["gates"]["release"] = release_gates(facts)
     if facts.get("fresh_build"):
@@ -809,6 +813,9 @@ def main(argv):
         print(f"  OFFERED  {r} — optional, never written unasked (minutes, a secret): read its header, then python3 {os.path.abspath(__file__)} --root {os.path.abspath(root)} --accept {r}")
     if not facts["test"]:
         print("  NOTE: no test command detected — gates.full is empty and the gate FAILS LOUDLY until you set it")
+    if not facts["one"]:
+        print("  NOTE: gates.one: not set (no runner Reef knows for this stack) — the round check runs the whole fast gate, not the "
+              "named Proof test; set it to your runner's one-test command with {test}")
     for where, line in lint_gaps(root):   # 2026-10-29: a project's ruff flagged Reef's copied scripts and its CI went red
         print(f"  LINT: {where} scans Reef's scripts — {line}  (they are rendered here and replaced on every upgrade; their style is Reef's own)")
     print(f"  {len(w.written)} written, " + (f"{len(w.updated)} updated, " if w.updated else "") +

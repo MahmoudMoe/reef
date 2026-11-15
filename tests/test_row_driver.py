@@ -27,6 +27,7 @@ effort: medium
 blocked-by: {blocked}
 resources: []
 tier: light
+files: [src/, tests/]
 verify: gate-only
 attempts: 0
 dispatches: 0
@@ -95,7 +96,7 @@ class _Row(unittest.TestCase):
         for n in SCRIPTS:
             shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(self.main, "scripts", n))
         write(self.main, ".reef/config.json", json.dumps({
-            "gates": {"full": "echo '1 passed'"}, "ci": {"feature_gate": "local"}, "merge": {"by": "loop"},
+            "gates": {"full": "echo '1 passed'", "one": "case {test} in test_it_works) grep -q 'a = 2' src/a.py;; *) test -f src/b.py;; esac"}, "ci": {"feature_gate": "local"}, "merge": {"by": "loop"},
             "branches": {"base": "main", "release": "release"}, "graph": {"mode": "auto"}, "worktree": {"dir": ".reef/worktrees"},
             "paths": {"queue": "reef/queue.md", "features": "reef/features", "runlog": "reef/journal.md"}}))
         write(self.main, ".reef/version", "0.6.0\n")
@@ -234,6 +235,7 @@ class RowSettle(_Row):
         write(self.co, "tests/test_a.py", "def test_it_works(): pass\ndef test_second_works(): pass\n")   # the named proofs exist
         self.close("101-slice.md", journal)
         if close_102:
+            write(self.co, "src/b.py", "b = 1\n")   # 102's own round: red on the base until it lands (reef-claims.py round)
             self.close("102-second.md", write(self.tmp, "journal-102.md", "| 102 | opus | - | 0 | gate green | AC-1 | - |\n"))
         r = subprocess.run(["sh", "scripts/reef-gate.sh", "full"], cwd=self.co, capture_output=True, text=True, env=self.env)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
