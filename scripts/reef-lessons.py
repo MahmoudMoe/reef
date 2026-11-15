@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
@@ -303,7 +304,11 @@ def approve(root, action, lid, digest16):
         return False, f"lesson {lid}: the question's digest {digest16} is not the {'draft' if action == 'land' else 'landed line'}'s ({dg[:16]}) (stale) — nothing written"
     layer = c.get("landed_layer") or c["layer"]
     lines = [l for l in file_lines(root, layer) if l.startswith("- ")]
+    hp = os.path.join(root, "reef", "lessons", "history.md")
+    touched = [layer_file(root, layer)] + ([hp] if action == "retire" else [])
+    before = {p: (read(p) if os.path.isfile(p) else None) for p in touched}
     if action == "land":
+        lines = [l for l in lines if not l.startswith(f"- {lid} · ")]   # a run cut off before its commit (the hook's timeout) left it: once
         cap = config(root)["cap"]
         if len(lines) >= cap:
             return False, f"lesson {lid}: layer {layer} holds {len(lines)}/{cap} lessons — retire one first (lessons.cap); nothing written"
@@ -312,12 +317,23 @@ def approve(root, action, lid, digest16):
     else:
         m = recurrence(root, c)
         write_layer(root, layer, [l for l in lines if not l.startswith(f"- {lid} · ")])
-        hp = os.path.join(root, "reef", "lessons", "history.md")
         new = not os.path.isfile(hp)
         with open(hp, "a", encoding="utf-8") as f:
             f.write(("# Lessons — history\n\nEvery retired lesson, never deleted.\n\n" if new else "")
                     + f"- {time.strftime('%Y-%m-%d', time.gmtime())} retired {lid} ({layer}, class {c['class']}, recurred {m[0]} over {m[1]} rows, "
                     f"landed {c['landed_at'][:10]}): {c['lesson']}\n")
+    subject = (f"reef: lesson {lid} landed in reef/lessons/{layer}.md (approved at {dg[:16]})" if action == "land" else
+               f"reef: lesson {lid} retired from reef/lessons/{layer}.md (kept in reef/lessons/history.md)")
+    why = commit(root, touched, subject)
+    if why:   # the owner's decision 5: the lesson lands as a commit or not at all — the files as they were, nothing recorded
+        for p, text in before.items():
+            if text is None:
+                if os.path.exists(p):
+                    os.remove(p)
+            else:
+                with open(p, "w", encoding="utf-8") as f:
+                    f.write(text)
+        return False, f"lesson {lid}: the commit was refused — {why}; the files are as they were, nothing written"
     d = os.path.join(root, ".reef", "approvals")
     os.makedirs(d, exist_ok=True)
     with open(os.path.join(d, f"lesson-{lid}{'-retire' if action == 'retire' else ''}.json"), "w", encoding="utf-8") as f:
@@ -325,7 +341,23 @@ def approve(root, action, lid, digest16):
         f.write("\n")
     append(root, {"ev": "landed" if action == "land" else "retired", "id": lid, "at": now(), "layer": layer, "digest16": dg[:16]})
     return True, (f"lesson {lid} landed in reef/lessons/{layer}.md" if action == "land" else
-                  f"lesson {lid} retired from reef/lessons/{layer}.md (kept in reef/lessons/history.md)")
+                  f"lesson {lid} retired from reef/lessons/{layer}.md (kept in reef/lessons/history.md)") + " — committed"
+
+
+def commit(root, paths, subject):
+    """Commit these paths alone in the main checkout, under its pre-commit gate (like commit_plan, #370); None, or why not."""
+    rel = [os.path.relpath(p, root) for p in paths]
+    try:
+        a = subprocess.run(["git", "-C", root, "add", "--", *rel], capture_output=True, text=True, timeout=60)
+        if a.returncode != 0:
+            return (a.stderr or a.stdout).strip()[-240:] or f"git add exit {a.returncode}"
+        c = subprocess.run(["git", "-C", root, "commit", "-q", "-m", subject, "--", *rel], capture_output=True, text=True, timeout=1800)
+    except (OSError, subprocess.SubprocessError) as e:
+        return str(e)
+    if c.returncode != 0:
+        subprocess.run(["git", "-C", root, "reset", "-q", "--", *rel], capture_output=True, text=True, timeout=60)   # unstage what was added
+        return (c.stderr or c.stdout).strip()[-240:] or f"git commit exit {c.returncode}"
+    return None
 
 
 def recurrence(root, c):

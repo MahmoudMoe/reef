@@ -1509,6 +1509,8 @@ class LessonsReachTheirReader(unittest.TestCase):
     def test_the_implementer_the_planner_and_the_task_skill_name_their_part(self):
         self.assertIn("`lessons:` block", read("agents", "implementer.md"))
         self.assertIn("reef/lessons/graph.md", read("agents", "planner.md"))
+        self.assertIn("`lessons:` block", read("agents", "planner.md"))
+        self.assertIn("reef-lessons.py lessons graph", read("skills", "reef-plan", "SKILL.md"))
         task = read("skills", "reef-task", "SKILL.md")
         self.assertIn("`lessons:` block", task)
         self.assertIn("reef-lessons.py draft", task)
