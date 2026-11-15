@@ -62,6 +62,34 @@ worktree that holds it (the task's work is uncommitted there: the implementer ne
    unblock). An earlier rule made an out-of-scope touch a NIT for the judges; with `files:` declared it is now a refusal
    at the round, before the judges.
 
+## Owner decision 2 (2026-11-15, before merge): the named test, not the whole gate
+
+Without `gates.one` the red check ran the whole fast gate: it proved "something fails on the base", not "the named Proof test
+fails", and `/reef-init` never wrote `gates.one`, so that was the default.
+
+1. **`/reef-init` writes `gates.one`** for the stacks it detects, built from the same facts that pick `gates.full`:
+   - python: `<gates.full> -k {test}` (`uv run pytest -q -k {test}` / `python3 -m pytest -q -k {test}`); `-k` is a substring
+     match, so a sibling test whose name contains the named one runs too.
+   - node: vitest in the dependencies → `npx vitest run --exclude '**/.reef/**' -t {test}`; else jest → `npx jest -t {test}`;
+     neither → left unset, and init says so. A Proof cell `it('adds two')` substitutes its string, `adds two`.
+   - go: `go test -v -run '^{test}$' ./...` (`-v`: without it a matched test prints no line of its own).
+   - rust: `cargo test -q {test}` (a substring filter, like pytest's `-k`).
+   - an unknown stack: unset. `reef doctor` WARNs on a project with no `gates.one` and names the key.
+2. **Without `gates.one` the check says so**: `red first: the whole fast gate, not <test> (no gates.one) — …`; no line reads as
+   if the named test was checked.
+3. **A run that ran no test is neither green nor red** — refused `<test> ran no test (gates.one: …)`. Measured on this machine
+   (pytest 8, go 1.2x, cargo, vitest 2.1.9, jest 29.7): a filter that matches nothing exits 5 in pytest and **0** in go, cargo,
+   vitest and jest, which print `[no tests to run]`, `running 0 tests` / `0 passed; 0 failed`, `Tests  1 skipped (1)`,
+   `Tests: 1 skipped, 1 total`. So the exit code alone cannot tell; the rule reads the output:
+   - ran a test: a count `N passed|failed` with N ≥ 1 (pytest, vitest, jest, cargo), `--- PASS|FAIL` (go -v), `Ran N test`
+     with N ≥ 1 (unittest);
+   - ran none: exit 5, or a zero marker (`no tests ran`, `deselected`, `[no tests to run]`, `running 0 tests`, `skipped`,
+     `Ran 0 tests`, `No test files found`, `No tests found`) and no evidence of a run;
+   - neither (a custom `gates.one` that prints no runner output): the exit code stands, as before.
+   This applies on the round's tree and on the base: a pytest exit 5 on the base no longer counts as red.
+   - tests: `tests/test_round_gate.py` (unittest's real `Ran 0 tests`; recorded outputs of the other runners through a stub
+     command), `tests/test_init.py` (each stack's `gates.one`), `tests/test_doctor.py` (the WARN).
+
 ## Tests (each red before the change, green after)
 
 New file `tests/test_round_gate.py`, real git repos in temp dirs:
