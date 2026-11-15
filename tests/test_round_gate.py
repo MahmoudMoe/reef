@@ -109,6 +109,17 @@ class Round(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("scope: 2 changed files within files:", r.stdout)
 
+    def test_the_task_folder_is_allowed_when_the_worktree_is_reached_through_a_symlink(self):
+        # CI on PR 372, macOS: /var is a link to /private/var — the worktree's path and the task's path named one folder two ways
+        self.make("def add(a, b):\n    return 0\n")
+        with open(os.path.join(self.d, "tasks/101-add.md"), "a", encoding="utf-8") as f:
+            f.write("note\n")
+        link = self.d + "-link"
+        os.symlink(self.d, link)
+        r = subprocess.run([sys.executable, CLAIMS, "round", os.path.join(self.d, "tasks/101-add.md"), "--repo", link],
+                           capture_output=True, text=True, cwd=self.d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def test_a_task_without_files_is_not_scope_checked(self):
         self.make("def add(a, b):\n    return 0\n", extra="")
         write(self.d, "README.md", "drive-by\n")

@@ -309,7 +309,7 @@ def round_run(repo, cmd, log, no_cache=False):
 
 
 def cmd_round(repo, task_path, base):
-    repo = os.path.abspath(repo)
+    repo = os.path.realpath(repo)   # CI on PR 372 (macOS: /var links to /private/var) — the task's folder is matched on real paths
     try:
         with open(task_path, encoding="utf-8") as f:
             text = f.read()
@@ -317,7 +317,7 @@ def cmd_round(repo, task_path, base):
         die(f"no task file {task_path} ({e})")
     fm, cfg = task_frontmatter(text) or {}, read_cfg(repo)
     tid = fm.get("id") or os.path.basename(task_path).split("-")[0]
-    folder = os.path.relpath(os.path.dirname(os.path.abspath(task_path)), repo).replace(os.sep, "/").rstrip("/") + "/"
+    folder = os.path.relpath(os.path.dirname(os.path.realpath(task_path)), repo).replace(os.sep, "/").rstrip("/") + "/"
     folder = re.sub(r"done/$", "", folder)
     gd = subprocess.run(["git", "rev-parse", "--absolute-git-dir"], cwd=repo, capture_output=True, text=True).stdout.strip()
     if not gd:
