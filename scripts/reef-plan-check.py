@@ -1153,6 +1153,9 @@ def main():
         new_plan = feat_ not in planned_prev and not os.path.isfile(os.path.join(approvals_dir, f"{feat_}.json"))
         if not rollup and (marker0 is not None or fdir) and (feat_ in files_prev or new_plan):
             files_rule.add(feat_)
+        wide = [x for x in (y.strip().strip("\"'") for y in fm.get("files", "").strip("[]").split(",")) if not x.strip("*/.")]
+        if not rollup and wide and fm.get("files", "").strip("[] "):
+            a_fail(f"{rel}: files: {', '.join(repr(x) for x in wide)} matches every path — the round check would scope nothing; name the paths")
         if not rollup and not fm.get("files", "").strip("[] "):
             (a_fail if feat_ in files_rule else a_print)(f"{'' if feat_ in files_rule else 'warning: '}{rel}: no `files:` — list the paths this "
                                                          "task may change, tests included (`dir/` a prefix, else a glob); the round check refuses any other")

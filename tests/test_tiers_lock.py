@@ -37,7 +37,7 @@ def guard(payload, env=None):
 
 def task_text(tid, feature, tier, complexity, extra=""):
     return (f"---\nid: {tid}\nfeature: {feature}\nstatus: pending\ncomplexity: {complexity}\neffort: medium\n"
-            f"blocked-by: []\nresources: []\ntier: {tier}\nfiles: [\"*\"]\nverify: {'judge' if complexity == 'design' else 'gate-only'}\n"
+            f"blocked-by: []\nresources: []\ntier: {tier}\nfiles: [src/, tests/]\nverify: {'judge' if complexity == 'design' else 'gate-only'}\n"
             f"attempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n{extra}---\n# {tid}\n\n## Scope\nx\n\n"
             f"## Decision\nhuman words\n\n## Acceptance Criteria\n- test_{feature}_{tid}_works goes red first\n\n## Log\n")
 

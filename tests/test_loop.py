@@ -28,7 +28,7 @@ def read_file(p):
 
 def task(tid, feature, status="pending", blocked="[]"):
     return (f"---\nid: {tid}\nfeature: {feature}\nstatus: {status}\ncomplexity: mech\neffort: medium\nblocked-by: {blocked}\n"
-            f"resources: []\ntier: light\nfiles: [\"*\"]\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# {tid}\n\n## Scope\nx\n\n"
+            f"resources: []\ntier: light\nfiles: [src/, tests/]\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# {tid}\n\n## Scope\nx\n\n"
             f"## Acceptance Criteria\n- test_t{tid} goes red first\n\n## Log\n")
 
 

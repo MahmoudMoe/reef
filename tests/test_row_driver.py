@@ -27,7 +27,7 @@ effort: medium
 blocked-by: {blocked}
 resources: []
 tier: light
-files: ["*"]
+files: [src/, tests/]
 verify: gate-only
 attempts: 0
 dispatches: 0

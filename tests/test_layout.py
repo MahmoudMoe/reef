@@ -23,7 +23,7 @@ GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
 
 def task(tid, feature, status="pending", resources="[]", blocked="[]"):
     return (f"---\nid: {tid}\nfeature: {feature}\nstatus: {status}\ncomplexity: mech\neffort: medium\nblocked-by: {blocked}\n"
-            f"resources: {resources}\ntier: light\nfiles: [\"*\"]\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# {tid}\n\n## Scope\nx\n\n"
+            f"resources: {resources}\ntier: light\nfiles: [src/, tests/]\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# {tid}\n\n## Scope\nx\n\n"
             f"## Acceptance Criteria\n- AC-1 (FR-1): the thing works.\n\n## Proof\n| AC | Proof |\n|---|---|\n| AC-1 | `test_t{tid}` |\n\n## Log\n")
 
 

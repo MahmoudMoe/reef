@@ -26,7 +26,7 @@ blocked-by: []
 resources: []
 tier: light
 touches: []
-files: ["*"]
+files: [src/, tests/]
 verify: gate-only
 attempts: 0
 dispatches: 0
