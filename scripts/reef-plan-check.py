@@ -302,6 +302,7 @@ def print_rules(cfg):
     print("tiers: light (mech only, allowlisted paths, no risk path) | full (default) | design (judge; `## Decision` non-empty) | critical;")
     print("         design/critical -> verify: judge; a design task needs `adversarial-plan:` (the loophole-hunter's plan pass) before dispatch;")
     print("         a fast-path row (every task light/full, no risk touch) runs no verifier: verify: gate-only, or tier: design for a judge")
+    print("files: a new plan's task lists the paths it may change (`files: [dir/, glob]`); an older plan warns")
     print(f"rails: touches pii|money|auth -> critical; migration -> at least design + a `Rollback:` line in ## Decision; paths {dpaths} -> design,")
     print(f"         {cpaths} -> critical; a tier only gets heavier")
     print("graph: blocked-by ids resolve (tasks/ or tasks/done/), no cycles; a rollup R<NN>-<slug>.md is one per feature")
@@ -818,9 +819,12 @@ def main():
         sys.exit(rc)
 
     try:
-        planned_prev = dict(json.loads(read(stamp_path)).get("planned_under") or {})
+        _prev = json.loads(read(stamp_path))
+        planned_prev, files_prev = dict(_prev.get("planned_under") or {}), set(_prev.get("files_rule") or [])
     except Exception:
-        planned_prev = {}
+        planned_prev, files_prev = {}, set()
+    files_rule = set()   # hardening PR-1: the features whose tasks must name their files (the stamp keeps the list)
+    approvals_dir = os.path.join(main_checkout(root), ".reef", "approvals")
 
     # ---- 0.6 feature folders: slug, SPEC.md and its keys, child specs, structure, task count
     folder_keys = {}
@@ -1143,6 +1147,15 @@ def main():
             a_print(f"warning: {rel}: {n_crit} acceptance criteria (8 is the slice a verifier judges in one sitting; set plan.max_acs to enforce)")
         fdir = folder_of.get(fm["_path"])   # this task's folder (2026-10-24, qassimha row 18: `path` was the last loop's)
         is06 = bool(fdir) or (marker0 is not None and planned_under_06({"planned_under": planned_prev}, fm.get("feature", "")))
+        # hardening PR-1 (the owner, 2026-11-15): `files:` is what `reef-claims.py round` scopes a round by — required for a feature
+        # planned under the rule (in the stamp's files_rule, or new: never stamped, never approved); an older plan warns
+        feat_ = str(fm.get("feature", ""))
+        new_plan = feat_ not in planned_prev and not os.path.isfile(os.path.join(approvals_dir, f"{feat_}.json"))
+        if not rollup and (marker0 is not None or fdir) and (feat_ in files_prev or new_plan):
+            files_rule.add(feat_)
+        if not rollup and not fm.get("files", "").strip("[] "):
+            (a_fail if feat_ in files_rule else a_print)(f"{'' if feat_ in files_rule else 'warning: '}{rel}: no `files:` — list the paths this "
+                                                         "task may change, tests included (`dir/` a prefix, else a glob); the round check refuses any other")
         n_rf, rf_errs = read_first_errors(root, section(text, "Read first") or "")
         for x in rf_errs:
             a_fail(f"{rel}: read first — {x}")
@@ -1424,7 +1437,8 @@ def main():
         {**kept_fin, feature_filter: sorted(fin_now.get(feature_filter, []))}
     os.makedirs(os.path.dirname(stamp_path) or ".", exist_ok=True)
     with open(stamp_path, "w") as f:
-        json.dump({"features": written, "checks": len(results), "planned_under": planned, "finished": finished}, f, indent=2, sort_keys=True)
+        json.dump({"features": written, "checks": len(results), "planned_under": planned, "finished": finished,
+                   "files_rule": sorted(files_prev | files_rule)}, f, indent=2, sort_keys=True)
         f.write("\n")
     sys.exit(0)
 
