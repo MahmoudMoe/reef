@@ -543,7 +543,8 @@ class Rails(unittest.TestCase):
         r = check(self.edge(consumes="consumes: [1201: src/export.py#export_csv]\n"))
         self.assertEqual(r.returncode, 0, "a path#symbol inside the upstream's files: passes: " + r.stdout)
         r = check(self.edge(consumes="consumes: [1201: orders.total_cents]\n", up_scope="The exporter writes `orders.total_cents`."))
-        self.assertEqual(r.returncode, 0, "a non-file artifact the upstream's Scope names as a code span passes: " + r.stdout)
+        self.assertNotEqual(r.returncode, 0, "paths only (the owner's ruling 1): a Scope that names it is not enough: " + r.stdout)
+        self.assertIn("consumes 1201: orders.total_cents — 1201 does not produce it", r.stdout)
 
     def test_a_consumes_entry_without_its_edge_is_refused(self):
         r = check(self.edge(consumes="consumes: [1201: src/export.py, 1203: src/x.py]\n"))
@@ -551,7 +552,7 @@ class Rails(unittest.TestCase):
         self.assertIn("1202-cli.md: consumes 1203 but 1203 is not in blocked-by", r.stdout)
 
     def test_a_malformed_consumes_is_refused(self):
-        for bad in ("[x: src/export.py]", "[1201: src/*]", "[1201: ]", "[1201: ./]", "1201: src/export.py"):
+        for bad in ("[x: src/export.py]", "[1201: src/*]", "[1201: ]", "[1201: ./]", "1201: src/export.py", "[1201: GET /orders]"):
             r = check(self.edge(consumes=f"consumes: {bad}\n"))
             self.assertNotEqual(r.returncode, 0, f"{bad}: {r.stdout}")
             self.assertIn("1202-cli.md: consumes", r.stdout, bad)

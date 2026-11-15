@@ -217,6 +217,68 @@ class Round(unittest.TestCase):
         self.assertFalse(os.path.exists(bk))
 
 
+DOWN = """---
+id: 102
+feature: demo
+status: pending
+complexity: mech
+tier: light
+attempts: 0
+blocked-by: [101]
+files: [src/use.py]
+consumes: [{consumes}]
+---
+# 102 — use what 101 made
+
+## Log
+"""
+
+
+class HandOffs(unittest.TestCase):
+    """Hardening PR-5, the owner's ruling 2: the round of 101 delivers every path an OPEN downstream task consumes from it — on
+    the closing tree, and changed by the round unless the base already had it."""
+    make, round = Round.make, Round.round
+
+    def with_down(self, consumes, where="tasks/102-use.md", ignore=None):
+        self.make("def add(a, b):\n    return 0\n")
+        if ignore:
+            write(self.d, ".gitignore", ".reef/ci-local/\n" + ignore + "\n")
+        write(self.d, where, DOWN.format(consumes=consumes))
+        git(self.d, "add", "-A", "--", "tasks", ".gitignore"); git(self.d, "commit", "-qm", "the downstream task")
+
+    def test_a_consumed_path_missing_on_the_closing_tree_is_refused(self):
+        self.with_down("101: src/new.py#make")
+        r = self.round()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("round: REFUSED — tasks/102-use.md consumes 101: src/new.py — missing on the closing tree", r.stdout)
+
+    def test_a_consumed_path_the_round_creates_passes(self):
+        self.with_down("101: src/new.py#make, 101: src/calc.py#add")
+        write(self.d, "src/new.py", "def make():\n    return 1\n")
+        r = self.round()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("hand-offs: 2 consumed paths delivered", r.stdout)
+
+    def test_a_new_consumed_path_the_round_does_not_change_is_refused(self):
+        # an ignored build output: on disk in the worktree, never in the commit the downstream builds on
+        self.with_down("101: src/gen.py", ignore="src/gen.py")
+        write(self.d, "src/gen.py", "X = 1\n")
+        r = self.round()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("tasks/102-use.md consumes 101: src/gen.py — not changed by this round", r.stdout)
+
+    def test_a_path_the_base_already_had_may_stay_unchanged(self):
+        self.with_down("101: src/__init__.py")
+        r = self.round()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_a_finished_downstream_and_another_tasks_hand_off_are_not_checked(self):
+        self.with_down("101: src/new.py", where="tasks/done/102-use.md")
+        self.assertEqual(self.round().returncode, 0)
+        self.with_down("100: src/new.py")
+        self.assertEqual(self.round().returncode, 0)
+
+
 class CloseRefusesTheRound(unittest.TestCase):
     """The enforcement: a fast-path close whose round is not red first commits nothing."""
 
@@ -244,6 +306,44 @@ class CloseRefusesTheRound(unittest.TestCase):
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn("does not fail on the base", r.stdout + r.stderr)
         self.assertEqual(git(feat, "rev-parse", "HEAD").stdout, head, "nothing committed")
+
+
+class CloseRefusesAnUndeliveredHandOff(unittest.TestCase):
+    """Hardening PR-5, the owner's ruling 2, at the enforcement point: a fast-path close of 101 whose open downstream 102
+    consumes a path the round did not produce commits nothing; once the round produces it, the close lands."""
+
+    def test_the_close_refuses_then_closes(self):
+        tmp = tempfile.mkdtemp(prefix="reef-handoff-close.")
+        main = os.path.join(tmp, "main")
+        subprocess.run(["git", "init", "-q", "-b", "main", main], check=True)
+        for k, v in (("user.email", "t@t"), ("user.name", "t")):
+            git(main, "config", k, v)
+        write(main, ".reef/config.json", json.dumps({"branches": {"base": "main"}, "paths": {"features": "reef/features"},
+                                                     "gates": {"fast": GATE, "full": GATE}}))
+        write(main, ".gitignore", ".reef/worktrees/\n.reef/ci-local/\n")
+        write(main, "reef/features/demo/SPEC.md", "# demo\nRow: 1\n")
+        write(main, "reef/features/demo/tasks/101-add.md", task("files: [src/, tests/]\n"))
+        write(main, "reef/features/demo/tasks/102-use.md", DOWN.format(consumes="101: src/new.py"))
+        write(main, "src/__init__.py", ""); write(main, "tests/__init__.py", "")
+        write(main, "src/calc.py", "def add(a, b):\n    return 0\n")
+        git(main, "add", "-A"); git(main, "commit", "-qm", "init")
+        feat = os.path.join(main, ".reef", "worktrees", "demo")
+        self.assertEqual(git(main, "worktree", "add", "-q", "-b", "feat/demo", feat, "main").returncode, 0)
+        write(feat, "src/calc.py", "def add(a, b):\n    return a + b\n")
+        write(feat, "tests/test_calc.py", TEST)
+        write(tmp, "journal.md", "| 101 | PASS | growth 3 |\n")
+        head = git(feat, "rev-parse", "HEAD").stdout
+        close = lambda: subprocess.run([sys.executable, CLOSE, "reef/features/demo/tasks/101-add.md", "--subject", "feat: add",
+                                        "--journal", os.path.join(tmp, "journal.md"), "--repo", feat], capture_output=True, text=True, cwd=feat)
+        r = close()
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("102-use.md consumes 101: src/new.py — missing on the closing tree", r.stdout + r.stderr)
+        self.assertEqual(git(feat, "rev-parse", "HEAD").stdout, head, "nothing committed")
+        write(feat, "src/new.py", "def make():\n    return 1\n")
+        r = close()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotEqual(git(feat, "rev-parse", "HEAD").stdout, head, "the close landed")
+        self.assertIn("src/new.py", git(feat, "show", "--name-only", "HEAD").stdout)
 
 
 class ThePromptsPointAtTheGate(unittest.TestCase):
