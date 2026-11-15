@@ -27,8 +27,9 @@ def read_file(p):
 
 
 def task(tid, feature, status="pending", blocked="[]"):
+    eds = ", ".join(f"{b.strip()}: src/t{b.strip()}.py" for b in blocked.strip("[]").split(",") if b.strip())   # hardening PR-5: an edge names its artifact
     return (f"---\nid: {tid}\nfeature: {feature}\nstatus: {status}\ncomplexity: mech\neffort: medium\nblocked-by: {blocked}\n"
-            f"resources: []\ntier: light\nfiles: [src/, tests/]\nverify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# {tid}\n\n## Scope\nx\n\n"
+            f"resources: []\ntier: light\nfiles: [src/, tests/]\n" + (f"consumes: [{eds}]\n" if eds else "") + f"verify: gate-only\nattempts: 0\ndispatches: 0\nlast_failure_sig: \"\"\n---\n# {tid}\n\n## Scope\nx\n\n"
             f"## Acceptance Criteria\n- test_t{tid} goes red first\n\n## Log\n")
 
 

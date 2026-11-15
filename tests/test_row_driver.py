@@ -109,7 +109,8 @@ class _Row(unittest.TestCase):
         write(self.main, "src/a.py", "a = 1\n")
         write(self.main, f"reef/features/{FEATURE}/SPEC.md", SPEC)
         write(self.main, f"reef/features/{FEATURE}/tasks/101-slice.md", task(101, "the slice", "[]", "test_it_works"))
-        write(self.main, f"reef/features/{FEATURE}/tasks/102-second.md", task(102, "the second", "[101]", "test_second_works"))
+        write(self.main, f"reef/features/{FEATURE}/tasks/102-second.md", task(102, "the second", "[101]", "test_second_works").replace(
+            "files: [src/, tests/]\n", "files: [src/, tests/]\nconsumes: [101: src/a.py]\n"))   # hardening PR-5: 101's round edits src/a.py
         git(self.main, "init", "-q", "-b", "main")
         for k, v in (("user.email", "t@t"), ("user.name", "t")):   # the scripts' own commits (CI has no identity: 2026-10-26)
             git(self.main, "config", k, v)
