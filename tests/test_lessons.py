@@ -32,6 +32,8 @@ def project(cap=2, recur=2, quiet=2):
     d = os.path.realpath(git_repo(prefix="reef-lessons.", identity=True))   # a Reef project is a git checkout: a landing is a commit
     write(d, ".reef/config.json", json.dumps({"lessons": {"cap": cap, "recur": recur, "quiet_rows": quiet}}))
     write(d, ".gitignore", ".reef/\n")
+    subprocess.run(["git", "-C", d, "add", ".gitignore"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", d, "commit", "-qm", "init"], check=True, capture_output=True)
     os.makedirs(os.path.join(d, "tasks", "done"))
     for t in (101, 102, 103):
         write(d, f"tasks/{t}-t.md", task(t))
@@ -358,43 +360,84 @@ def git_(d, *a):
     return subprocess.run(["git", "-C", d, *a], capture_output=True, text=True)
 
 
-class TheLandingIsCommitted(unittest.TestCase):
-    """The owner's decision 5 (2026-11-15): code commits the landed or retired layer file and history.md, like commit_plan (#370)."""
+class TheLandingIsCommittedOnTheTick(unittest.TestCase):
+    """The owner's decisions 5 and 6 (2026-11-15): code commits the landed or retired layer file and history.md (like commit_plan,
+    #370) — on the next `reef-loop.py tick`, never inside the approval hook (30 s timeout); a refused commit is reported."""
 
     def setUp(self):
         self.d = project()
         twice(self.d, 101)
+        self.m = load_script("reef-lessons.py")
+        self.head = git_(self.d, "rev-parse", "HEAD").stdout.strip()
 
-    def test_a_landing_commits_the_layer_file_alone(self):
+    def gate(self, body):
+        write(self.d, ".git/hooks/pre-commit", body)
+        os.chmod(os.path.join(self.d, ".git", "hooks", "pre-commit"), 0o755)
+
+    def test_approving_runs_no_gate_and_makes_no_commit(self):
+        self.gate(f"#!/bin/sh\ntouch {os.path.join(self.d, 'gate-ran')}\nexit 0\n")
+        lessons(self.d, "draft", "L1", "harness: name every file the fix touches in files: before the round starts")
+        payload = {"tool_name": "AskUserQuestion", "cwd": self.d, "tool_response": {"answers": {question(self.d): "Approve"}}}
+        r = subprocess.run([sys.executable, APPROVAL], input=json.dumps(payload), capture_output=True, text=True, cwd=self.d)
+        self.assertIn("lesson L1 landed in reef/lessons/harness.md", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.d, "gate-ran")), "the hook runs no pre-commit gate")
+        self.assertEqual(git_(self.d, "rev-parse", "HEAD").stdout.strip(), self.head, "and makes no commit")
+        self.assertIn("- L1 ·", open(os.path.join(self.d, "reef", "lessons", "harness.md")).read(), "the file is written")
+        self.assertTrue(os.path.isfile(os.path.join(self.d, ".reef", "approvals", "lesson-L1.json")), "the record is written")
+        self.assertIn("lessons: 1 landed (harness", subprocess.run([sys.executable, ATTEMPT, os.path.join(self.d, "tasks", "102-t.md")],
+                      capture_output=True, text=True).stdout, "landed and delivered from the approval on")
+
+    def test_the_next_tick_commits_exactly_the_pending_files_once(self):
+        landed(self.d)
         write(self.d, "untouched.txt", "another change in the tree\n")
-        landed(self.d)
-        q = [e for e in ledger(self.d) if e.get("ev") == "landed"][0]["digest16"]
+        self.assertEqual(git_(self.d, "rev-parse", "HEAD").stdout.strip(), self.head)
+        self.m.commit_pending(self.d)
         self.assertEqual(git_(self.d, "log", "-1", "--format=%s").stdout.strip(),
-                         f"reef: lesson L1 landed in reef/lessons/harness.md (approved at {q})")
+                         "reef: lessons L1 landed — committed on the tick (the owner's approvals)")
         self.assertEqual(git_(self.d, "show", "--name-only", "--format=", "HEAD").stdout.split(), ["reef/lessons/harness.md"])
-        self.assertEqual(git_(self.d, "status", "--porcelain", "--", "reef/lessons").stdout, "", "the lesson file is committed")
         self.assertIn("?? untouched.txt", git_(self.d, "status", "--porcelain").stdout, "nothing else rides in the commit")
+        head = git_(self.d, "rev-parse", "HEAD").stdout.strip()
+        self.m.commit_pending(self.d)
+        self.assertEqual(git_(self.d, "rev-parse", "HEAD").stdout.strip(), head, "a second tick commits nothing")
 
-    def test_a_retirement_commits_the_layer_file_and_the_history(self):
+    def test_a_retirement_is_committed_with_its_history(self):
         landed(self.d)
-        r = owner(self.d, question(self.d, "retire", "L1"))
-        self.assertEqual(r.returncode, 0, r.stdout)
+        self.m.commit_pending(self.d)
+        self.assertEqual(owner(self.d, question(self.d, "retire", "L1")).returncode, 0)
+        self.m.commit_pending(self.d)
         self.assertEqual(git_(self.d, "log", "-1", "--format=%s").stdout.strip(),
-                         "reef: lesson L1 retired from reef/lessons/harness.md (kept in reef/lessons/history.md)")
+                         "reef: lessons L1 retired — committed on the tick (the owner's approvals)")
         self.assertEqual(sorted(git_(self.d, "show", "--name-only", "--format=", "HEAD").stdout.split()),
                          ["reef/lessons/harness.md", "reef/lessons/history.md"])
 
-    def test_a_commit_the_gate_refuses_lands_nothing(self):
-        write(self.d, ".git/hooks/pre-commit", "#!/bin/sh\necho 'gate: red' >&2\nexit 1\n")
-        os.chmod(os.path.join(self.d, ".git", "hooks", "pre-commit"), 0o755)
-        lessons(self.d, "draft", "L1", "harness: name every file the fix touches in files: before the round starts")
-        r = owner(self.d, question(self.d))
-        self.assertNotEqual(r.returncode, 0, r.stdout)
-        self.assertIn("the commit was refused", r.stdout)
-        self.assertFalse(os.path.exists(os.path.join(self.d, "reef", "lessons", "harness.md")), "the file is put back: not there before")
-        self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "approvals", "lesson-L1.json")))
-        self.assertEqual([e for e in ledger(self.d) if e.get("ev") == "landed"], [])
-        self.assertIn("proposed: L1", lessons(self.d, "report").stdout, "still the owner's to approve once the gate is green")
+    def test_a_refused_commit_leaves_the_files_and_is_reported_until_a_tick_commits(self):
+        landed(self.d)
+        self.gate("#!/bin/sh\necho 'gate: red on the base' >&2\nexit 1\n")
+        self.m.commit_pending(self.d)
+        self.assertEqual(git_(self.d, "rev-parse", "HEAD").stdout.strip(), self.head)
+        self.assertIn("- L1 ·", open(os.path.join(self.d, "reef", "lessons", "harness.md")).read(), "the files stay as written")
+        rep = lessons(self.d, "report").stdout
+        self.assertIn("- not committed: reef/lessons/harness.md — gate: red on the base", rep)
+        mod = load_script("reef", "reef_entry_lessons_commit_under_test")
+        mod.runner_view = lambda root: (0, 0, "")
+        texts = [i["text"] for i in mod.inbox(self.d)]
+        self.assertTrue(any("lesson files not committed" in t and "gate: red on the base" in t for t in texts), texts)
+        os.remove(os.path.join(self.d, ".git", "hooks", "pre-commit"))
+        self.m.commit_pending(self.d)
+        self.assertNotEqual(git_(self.d, "rev-parse", "HEAD").stdout.strip(), self.head)
+        self.assertNotIn("not committed", lessons(self.d, "report").stdout)
+
+    def test_the_tick_is_what_commits(self):
+        import test_loop as T
+        d = T.project()
+        write(d, "tasks/103-t.md", task(103))
+        twice(d, 103)
+        lessons(d, "draft", "L1", "loop: close a task only after its round check printed ok in the same session")
+        self.assertEqual(owner(d, question(d)).returncode, 0)
+        r = subprocess.run([sys.executable, LOOP, "tick", "--repo", d], capture_output=True, text=True,
+                           env=dict(os.environ, PATH="/nonexistent-gh:" + os.environ["PATH"]))
+        self.assertEqual(git_(d, "log", "-1", "--format=%s").stdout.strip(),
+                         "reef: lessons L1 landed — committed on the tick (the owner's approvals)", r.stdout + r.stderr)
 
 
 class TheGuardHoldsThePlanner(unittest.TestCase):
