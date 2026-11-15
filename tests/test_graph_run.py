@@ -13,7 +13,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import test_loop as T  # noqa: E402  (the loop's project fixture: an approved, reviewed light task 101)
-from _fixtures import load_script  # noqa: E402
+import _fixtures  # noqa: E402  (load_script: the lessons module, PR-3)
 
 
 def graph_project():
@@ -189,12 +189,12 @@ class Generate(unittest.TestCase):
         d = graph_project()
         pass_gate(d)
         self.judged(d)
-        lm = load_script("reef-lessons.py")
+        lm = _fixtures.load_script("reef-lessons.py")
         lm.append(d, {"ev": "candidate", "id": "L1", "at": "2026-11-15T00:00:00.000000Z", "trigger": "same-failure", "task": "9",
                       "feature": "x", "sig": "0123456789ab", "class": "round-scope", "facts": [], "rounds": 2})
         lm.append(d, {"ev": "draft", "id": "L1", "at": "2026-11-15T00:00:01.000000Z", "layer": "harness",
                       "lesson": "name every file the fix touches in files: before the round starts"})
-        ok, msg = lm.approve(d, "land", "L1", lm.digest(lm.state(d)["L1"], "land")[:16])
+        ok, msg = lm.approve(d, "land", "L1", lm.lesson_digest(lm.state(d)["L1"], "land")[:16])
         self.assertTrue(ok, msg)
         r = g(d, "generate")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)

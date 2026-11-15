@@ -391,6 +391,15 @@ def check_single_rollup(path, task):
 plan_check_module = partial(load_sibling, "reef-plan-check.py", "reef_plan_check")   # scripts/reef-plan-check.py beside this script: the one home of the path rule
 
 
+def lessons_call(call):
+    """reef-lessons.py (hardening PR-3) beside this script; its failure never fails the attempt: said, and the attempt goes on."""
+    try:
+        return call(load_sibling("reef-lessons.py", "reef_lessons"))
+    except Exception as e:
+        print(f"lesson: not recorded — {e}")
+        return None
+
+
 def run_attempt(cap_flag, path, failure):
     if not os.path.isfile(path):
         die(f"task file not found: {path}")
@@ -466,9 +475,12 @@ def run_attempt(cap_flag, path, failure):
                 else:
                     for d in derived_dead_ends(root, task, attempts):
                         task.append_log(f"  - DEAD END (derived): {d}")
+            lessons = lessons_call(lambda m: m.record_fail(root, path, attempts, sig, failure))   # every FAIL: the recurrence count reads it
             if attempts >= cap or repeated:
                 task.set("status", "blocked")
                 task.write()
+                if repeated and lessons:   # trigger (b), the same failure twice: a lesson candidate from this task's records
+                    lessons_call(lambda m: m.trigger(root, path, "same-failure", task.text, sig))
                 reason = "same failure signature twice" if repeated else f"retry cap {cap} reached"
                 die(f"task blocked ({reason}). attempts={attempts} sig={sig}")
             task.write()
@@ -487,6 +499,8 @@ def run_attempt(cap_flag, path, failure):
         print(f"hand-back: .reef/ci-local/handback-{task.get('id')}.md in the task worktree — the implementer writes it; "
               f"the orchestrator only checks it (reef-claims) and never types it from the agent's message")
         for line in dead_end_lines(task.text):
+            print(line)
+        for line in lessons_call(lambda m: m.lessons_block(root, "harness")) or []:   # the owner's approved harness lessons (PR-3)
             print(line)
         rw = int((cfg.get("writing") or {}).get("report_words", 0) or 0) if isinstance(cfg.get("writing"), dict) else 0
         acs = re.search(r"^##\s+Acceptance Criteria\s*$(.*?)(?=^##\s|\Z)", task.text, re.M | re.S)

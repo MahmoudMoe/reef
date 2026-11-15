@@ -75,7 +75,7 @@ class FastRowClose(unittest.TestCase):
         for k, v in (("user.email", "t@t"), ("user.name", "t")):
             subprocess.run(["git", "-C", self.main, "config", k, v], check=True)
         write(self.main, ".reef/config.json", '{"branches": {"base": "main"}, "paths": {"features": "reef/features"}}')
-        write(self.main, ".gitignore", ".reef/worktrees/\n")
+        write(self.main, ".gitignore", ".reef/worktrees/\n.reef/approvals/\n")
         write(self.main, "reef/features/demo/SPEC.md", "# demo\nRow: 1\n")
         write(self.main, "reef/features/demo/tasks/101-slice.md", TASK)
         write(self.main, "src/a.py", "a = 1\n")
@@ -280,7 +280,7 @@ class MergeClose(unittest.TestCase):
         for k, v in (("user.email", "t@t"), ("user.name", "t")):
             subprocess.run(["git", "-C", self.main, "config", k, v], check=True)
         write(self.main, ".reef/config.json", '{"branches": {"base": "main"}, "worktree": {"setup": "echo ran >> setup.log"}}')
-        write(self.main, ".gitignore", "setup.log\n.reef/worktrees/\n")
+        write(self.main, ".gitignore", "setup.log\n.reef/worktrees/\n.reef/approvals/\n")
         write(self.main, "reef/features/demo/tasks/101-slice.md", TASK)
         write(self.main, "src/a.py", "a = 1\n")
         write(self.main, "package-lock.json", "{}\n")

@@ -278,7 +278,8 @@ def already_approved(root, q):
     if not APPROVE_Q.fullmatch(q or ""):
         return False
     head, digest = q[:-1].rsplit(" at ", 1)
-    name = head.split()[2] if head.startswith("Approve plan ") else "night" if head.startswith("Approve night ") else "day"
+    name = (head.split()[2] if head.startswith("Approve plan ") else "night" if head.startswith("Approve night ") else
+            f"lesson-{head.split()[-1]}" + ("-retire" if " retiring " in head else "") if " lesson " in head else "day")
     rec = read_json(os.path.join(root, ".reef", "approvals", f"{name}.json"))
     if not isinstance(rec, dict) or str(rec.get("digest16") or "") != digest:
         return False
@@ -312,6 +313,11 @@ def inbox(root, doctor=None, runner=None):
         qs = approval_questions(str(row_state(root, r).get("detail") or ""))
         if qs:
             add(approve_item(qs[0], text=f"row {r}: {qs[0]}", row=r))
+    try:   # hardening PR-3: a lesson to land or retire is the owner's approval, one item each
+        for q in sibling_module("reef-lessons.py", "reef_lessons_for_screen").owner_questions(root):
+            add(approve_item(q, text=f"lesson: {q}"))
+    except Exception:
+        pass
     for r, issue, q, rec in questions(root):
         a = answer_command(root, r, issue, rec or "<your answer>")   # answered <#> on issues, the footnote on a file queue, the recommendation filled in
         text = f"row {r}" + (f" (#{issue})" if issue else "") + f": {q}" + (f" (recommended: {rec})" if rec else "")

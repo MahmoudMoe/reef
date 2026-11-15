@@ -224,7 +224,7 @@ class ApproveAndLand(unittest.TestCase):
         q = question(self.d)
         r = subprocess.run([sys.executable, GUARD], input=json.dumps({"tool_name": "Bash", "cwd": self.d, "tool_input": {
             "command": f'python3 scripts/reef-approval.py --owner "{q}"'}}), capture_output=True, text=True)
-        self.assertIn("deny", r.stdout + r.stderr)
+        self.assertIn("reef-guard DENY: reef-approval.py records the OWNER's approval", r.stdout + r.stderr)
         r = subprocess.run([sys.executable, APPROVAL, "--proxy", "--day", "--kind", "process", "--row", "1", "--report", ".reef/ci-local/x.md"],
                            capture_output=True, text=True, cwd=self.d)
         self.assertFalse(os.path.exists(os.path.join(self.d, "reef", "lessons", "harness.md")), "no proxy path lands a lesson")
@@ -311,6 +311,7 @@ class Prune(unittest.TestCase):
         self.assertRegex(hist, r"- \d{4}-\d\d-\d\d retired L1 \(harness, class round-scope, recurred 0 over 0 rows, landed \d{4}-\d\d-\d\d\): a round that edits")
         self.assertEqual(json.load(open(os.path.join(self.d, ".reef", "approvals", "lesson-L1-retire.json")))["action"], "retire")
         self.assertNotIn("L1", "\n".join(l for l in self.report().splitlines() if l.startswith("- landed")))
+        self.assertIn("- layers: harness 0/5", self.report(), "the slot is free")
 
 
 class Delivery(unittest.TestCase):

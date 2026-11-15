@@ -50,7 +50,7 @@ sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project
 from reef_common import lint_gaps, die as _die, reef_dir, commands_off_path, remote_fix, release_fix  # noqa: E402
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCRIPTS = ["reef", "reef-gate.sh", "reef-attempt", "reef-snapshot.sh", "reef-plan-check.py", "reef-graph.py",
+SCRIPTS = ["reef", "reef-gate.sh", "reef-attempt", "reef-lessons.py", "reef-snapshot.sh", "reef-plan-check.py", "reef-graph.py",
            "reef-adversarial", "reef-claims.py", "reef-ci-local.sh", "reef-tier.py", "reef-queue.py",
            # 0.6
            "reef-record", "reef-structure", "reef-recalibrate", "reef-c4.py", "reef-threat.py",

@@ -6,6 +6,7 @@ is answered exactly `Approve` and the 16 hex equal the current digest (reef-plan
 (afkTimeoutMs), another label or a stale digest writes nothing. Always exit 0; the guard enforces the record.
 Usage: cat payload.json | reef-approval.py [--root DIR]
        reef-approval.py --owner "Approve plan <feature> at <digest16>?" | "Approve night <date> at <digest16>?" | "Approve proxy by day at <digest16>?"
+         | "Approve [retiring ]lesson <id> at <digest16>?" (hardening PR-3: a lesson lands or retires, reef-lessons.py; the owner's only)
          the owner, in their own terminal, where the AskUserQuestion hook does not exist (OpenCode); the guard refuses
          an agent running this script, except --proxy during a night and --proxy --day under the approved reef/proxy.md
        reef-approval.py --from-issue <row>   (v3 phase 7, queue.home: issues) the owner's approval posted on the row's issue —
@@ -29,11 +30,12 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, drop_question, process_alive, questions, issues_mode, read_config, spec_row, checkouts, read_or_empty  # noqa: E402
+from reef_common import main_checkout, load_sibling, drop_question, process_alive, questions, issues_mode, read_config, spec_row, checkouts, read_or_empty  # noqa: E402
 
 QUESTION = re.compile(r"^Approve plan (?P<feature>[A-Za-z0-9][A-Za-z0-9._-]*) at (?P<digest>[0-9a-f]{16})\?$")
 NIGHT_Q = re.compile(r"^Approve night (?P<date>\d{4}-\d\d-\d\d) at (?P<digest>[0-9a-f]{16})\?$")
 DAY_Q = re.compile(r"^Approve proxy by day at (?P<digest>[0-9a-f]{16})\?$")
+LESSON_Q = re.compile(r"^Approve (?P<retire>retiring )?lesson (?P<id>L\d+) at (?P<digest>[0-9a-f]{16})\?$")   # hardening PR-3: the owner's, never the proxy's
 # the plugin's own plan check, never the checkout's copy: a copy can print any digest, a green check or a forged files map
 PLAN_CHECK = os.path.join(os.path.dirname(os.path.realpath(__file__)), "reef-plan-check.py")
 
@@ -618,8 +620,9 @@ def main(argv):
     owner = "--owner" in argv
     if owner:
         q = (argv[argv.index("--owner") + 1] if argv.index("--owner") + 1 < len(argv) else "").strip()
-        if not (QUESTION.match(q) or NIGHT_Q.match(q) or DAY_Q.match(q)):
-            print('usage: reef-approval.py --owner "Approve plan <feature> at <digest16>?" | "Approve night <date> at <digest16>?" | "Approve proxy by day at <digest16>?"')
+        if not (QUESTION.match(q) or NIGHT_Q.match(q) or DAY_Q.match(q) or LESSON_Q.match(q)):
+            print('usage: reef-approval.py --owner "Approve plan <feature> at <digest16>?" | "Approve night <date> at <digest16>?" | "Approve proxy by day at <digest16>?"'
+                  ' | "Approve [retiring ]lesson <id> at <digest16>?"')
             return 2
         payload = {"tool_name": "AskUserQuestion", "cwd": os.getcwd(), "tool_response": {"answers": {q: "Approve"}}}
     else:
@@ -643,6 +646,15 @@ def main(argv):
     root = root or main_checkout(payload.get("cwd") or os.getcwd())
     wrote, plan_wrote = 0, 0
     for question, label in answers.items():
+        lq = LESSON_Q.match(str(question).strip())
+        if lq:   # hardening PR-3: a lesson lands (or retires) on the owner's approval at its digest, under the layer's cap
+            if not approves(label):
+                print(f"reef-approval: lesson {lq.group('id')}: answer was {label!r} — nothing written")
+                continue
+            ok, msg = load_sibling("reef-lessons.py", "reef_lessons").approve(root, "retire" if lq.group("retire") else "land", lq.group("id"), lq.group("digest"))
+            print(f"reef-approval: {msg}")
+            wrote += 1 if ok else 0
+            continue
         dq = DAY_Q.match(str(question).strip())
         if dq:
             # v3 phase 6: the owner approves the proxy's day contract + their profile ONCE, at their digest
