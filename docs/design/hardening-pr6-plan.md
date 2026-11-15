@@ -94,6 +94,12 @@ Why that is enough, checked against `reef-claims.py round`:
 
 A re-run after a refused merge commit runs the round check again (the commit in the task worktree stands): once per run.
 
+Found while testing: the check's test runs leave their artifacts (`__pycache__/`, a coverage file) in the task worktree. On
+the dirty path they are swept into the task commit by `git add -A` unless ignored (as today). On a clean worktree they are
+not committed (`dirty` is decided before the check), but if not ignored they make `git worktree remove` refuse after the
+merge (`merged but its worktree stays — fix that and re-run`, the existing message). A project ignores its bytecode; not
+changed here.
+
 ### The fast path (the row's one worktree, no task branch)
 
 The round check runs on every fast close (base `HEAD`), and the close's own commit is the one that moves the task to

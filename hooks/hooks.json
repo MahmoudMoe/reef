@@ -8,7 +8,7 @@
             "type": "command",
             "timeout": 10,
             "onFailure": "block",
-            "command": "sh -c 'if command -v python3 >/dev/null 2>&1; then exec python3 \"$0\"; fi; if grep -qiE \"no-?verify|hookspath\"; then echo \"reef-guard (no python3, degraded): possible gate bypass \u2014 denied\" >&2; exit 2; fi; exit 0' \"${CLAUDE_PLUGIN_ROOT}/scripts/reef-guard.py\""
+            "command": "sh -c 'if command -v python3 >/dev/null 2>&1; then exec python3 \"$0\"; fi; exec sh \"${0%/*}/reef-nopython.sh\" bash' \"${CLAUDE_PLUGIN_ROOT}/scripts/reef-guard.py\""
           }
         ]
       },
@@ -30,7 +30,7 @@
             "type": "command",
             "timeout": 10,
             "onFailure": "block",
-            "command": "sh -c 'command -v python3 >/dev/null 2>&1 && exec python3 \"$0\"; exit 0' \"${CLAUDE_PLUGIN_ROOT}/scripts/reef-guard.py\""
+            "command": "sh -c 'command -v python3 >/dev/null 2>&1 && exec python3 \"$0\"; exec sh \"${0%/*}/reef-nopython.sh\" edit' \"${CLAUDE_PLUGIN_ROOT}/scripts/reef-guard.py\""
           }
         ]
       }
@@ -55,7 +55,7 @@
             "type": "command",
             "timeout": 30,
             "onFailure": "continue",
-            "command": "sh -c 'command -v python3 >/dev/null 2>&1 && exec python3 \"$0\"; exit 0' \"${CLAUDE_PLUGIN_ROOT}/scripts/reef-approval.py\""
+            "command": "sh -c 'command -v python3 >/dev/null 2>&1 && exec python3 \"$0\"; exec sh \"${0%/*}/reef-nopython.sh\" approval' \"${CLAUDE_PLUGIN_ROOT}/scripts/reef-approval.py\""
           }
         ]
       }

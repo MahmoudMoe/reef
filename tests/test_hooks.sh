@@ -252,8 +252,57 @@ TASKCMD=$(python3 -c "import json;print([h for h in json.load(open('$ROOT/hooks/
 NOPY="$TMP/nopy"; mkdir -p "$NOPY"; for b in sh grep echo cat; do p=$(command -v $b) && ln -sf "$p" "$NOPY/$b"; done
 echo '{"tool_name":"Task","tool_input":{"subagent_type":"reef:implementer","prompt":"x"}}' | env -i PATH="$NOPY" CLAUDE_PLUGIN_ROOT="$ROOT" sh -c "$TASKCMD" >/dev/null 2>&1
 t "Task dispatch hook with NO python3: denied (exit 2)" 2
-echo '{"tool_name":"Bash","tool_input":{"command":"ls"}}' | env -i PATH="$NOPY" CLAUDE_PLUGIN_ROOT="$ROOT" sh -c "$(python3 -c "import json;print([h for h in json.load(open('$ROOT/hooks/hooks.json'))['hooks']['PreToolUse'] if h['matcher']=='Bash'][0]['hooks'][0]['command'])")" >/dev/null 2>&1
-t "Bash hook with NO python3 on an innocent command: allowed (degraded)" 0
+
+# ---------- hardening PR-6: without python3 the hooks fail CLOSED in a Reef project, and step aside outside one ----------
+# (docs/design/hardening-pr6-plan.md; before it the Edit hook ran `exit 0`: every edit allowed — PR-4's audit, row H3)
+for b in sed; do p=$(command -v $b) && ln -sf "$p" "$NOPY/$b"; done
+hk() { python3 -c "import json,sys;h=json.load(open(sys.argv[1]))['hooks'];print([e for v in h.values() for e in v if e.get('matcher')==sys.argv[2]][0]['hooks'][0]['command'])" "$ROOT/hooks/hooks.json" "$1"; }
+nopy() { # nopy <matcher> <cwd> <tool_input json> -> the hook's exit; its stderr in $TMP/nopy.err
+  printf '{"session_id":"s","cwd":"%s","tool_name":"x","tool_input":%s}' "$2" "$3" \
+    | ( cd "$2" && env -i PATH="$NOPY" CLAUDE_PLUGIN_ROOT="$ROOT" sh -c "$(hk "$1")" ) >/dev/null 2>"$TMP/nopy.err"
+}
+NP="$TMP/nopy-proj"; NW="$TMP/nopy-wt"; NO="$TMP/nopy-out"
+mkdir -p "$NP/.reef" "$NO"; printf '{}\n' > "$NP/.reef/config.json"
+( cd "$NP" && git init -q -b main && git config user.email t@t && git config user.name t && git commit -q --allow-empty -m i \
+  && git worktree add -q "$NW" -b feat/x ) >/dev/null 2>&1
+rm -f "$NW/.reef/config.json" 2>/dev/null; [ -f "$NW/.git" ]
+t "  fixture: a linked worktree of a Reef project, holding no .reef/config.json of its own" 0
+nopy 'Edit|Write|MultiEdit' "$NP" '{"file_path":"'"$NP"'/src/x.py","content":"x"}'
+t "Edit hook, NO python3, target in a Reef project: denied (exit 2)" 2
+grep -q "python3 is required to check an edit in a Reef project" "$TMP/nopy.err"
+t "  the denial says why in one line" 0
+nopy 'Edit|Write|MultiEdit' "$NO" '{"file_path":"'"$NW"'/src/new/x.py","content":"x"}'
+t "Edit hook, NO python3, target in a linked worktree of a Reef project (session outside, the file not there yet): denied" 2
+nopy 'Edit|Write|MultiEdit' "$NP" '{"file_path":"'"$NO"'/x.txt","content":"x"}'
+t "Edit hook, NO python3, session in a Reef project, target outside: denied" 2
+nopy 'Edit|Write|MultiEdit' "$NO" '{"file_path":"'"$NO"'/x.txt","content":"say \\"hi\\""}'
+t "Edit hook, NO python3, outside every Reef project: allowed (exit 0)" 0
+nopy 'Edit|Write|MultiEdit' "$NO" '{"file_path":"../nopy-proj/x.py","content":"x"}'
+t "Edit hook, NO python3, a relative target that lands in a Reef project: denied" 2
+nopy 'Edit|Write|MultiEdit' "$NO" '{"file_path":"'"$NO"'/a\\"b","content":"x"}'
+t "Edit hook, NO python3, a target the sh cannot place (a JSON escape): judged inside, denied" 2
+nopy Bash "$NP" '{"command":"ls"}'
+t "Bash hook, NO python3, in a Reef project: an innocent command is denied too (exit 2)" 2
+grep -q "python3 is required to check a command in a Reef project" "$TMP/nopy.err"
+t "  the denial says why and what still runs" 0
+nopy Bash "$NP" '{"command":"command -v python3"}'
+t "Bash hook, NO python3, in a Reef project: finding python3 runs" 0
+nopy Bash "$NP" '{"command":"sudo apt-get install -y python3"}'
+t "Bash hook, NO python3, in a Reef project: installing python3 runs" 0
+nopy Bash "$NP" '{"command":"command -v python3; rm -rf .reef"}'
+t "Bash hook, NO python3, in a Reef project: an allowed command chained with another is denied" 2
+nopy Bash "$NP" '{"command":"brew install python3 > scripts/reef-gate.sh"}'
+t "Bash hook, NO python3, in a Reef project: an allowed command with a redirect is denied" 2
+nopy Bash "$NO" '{"command":"ls"}'
+t "Bash hook, NO python3, outside every Reef project: an innocent command is allowed (degraded, as before)" 0
+nopy Bash "$NO" '{"command":"git commit --no-verify -m x"}'
+t "Bash hook, NO python3, outside every Reef project: a gate bypass is still denied" 2
+nopy AskUserQuestion "$NP" '{"questions":[]}'
+t "approval hook, NO python3, in a Reef project: says so (exit 2), never silent" 2
+grep -q "NOT recorded" "$TMP/nopy.err"
+t "  it says the answer was not recorded as an approval" 0
+nopy AskUserQuestion "$NO" '{"questions":[]}'
+t "approval hook, NO python3, outside every Reef project: steps aside (exit 0)" 0
 
 # ---------- 0.7: hunter.guard_pass = feature — the pass is the feature's, a task closes without the key ----------
 mkrepo "$TMP/r6f" "true"
