@@ -352,6 +352,108 @@ class CloseRefusesAnUndeliveredHandOff(unittest.TestCase):
         self.assertIn("src/new.py", git(feat, "show", "--name-only", "HEAD").stdout)
 
 
+class CloseChecksACommittedRound(unittest.TestCase):
+    """Hardening PR-6 (docs/design/hardening-pr6-plan.md): the close ran the round check only on a DIRTY task worktree, so a
+    task whose work was already committed on its branch (a close cut off after that commit, or anyone committing there)
+    merged with no check. Every merge path now runs it: base = merge-base(task branch, HEAD), the branch's commits included."""
+
+    def setup(self, base_code, down=None):
+        self.tmp = tempfile.mkdtemp(prefix="reef-round-committed.")
+        self.main = os.path.join(self.tmp, "main")
+        subprocess.run(["git", "init", "-q", "-b", "main", self.main], check=True)
+        for k, v in (("user.email", "t@t"), ("user.name", "t")):
+            git(self.main, "config", k, v)
+        write(self.main, ".reef/config.json", json.dumps({"branches": {"base": "main"}, "gates": {"fast": GATE, "full": GATE}}))
+        write(self.main, ".gitignore", ".reef/worktrees/\n.reef/ci-local/\n__pycache__/\n")   # the test runs' bytecode, as a project ignores it
+        write(self.main, "reef/features/demo/tasks/101-add.md", task("files: [src/, tests/]\n"))   # no SPEC.md: the critical path
+        if down:
+            write(self.main, "reef/features/demo/tasks/102-use.md", DOWN.format(consumes=down))
+        write(self.main, "src/__init__.py", ""); write(self.main, "tests/__init__.py", "")
+        write(self.main, "src/calc.py", base_code)
+        git(self.main, "add", "-A"); git(self.main, "commit", "-qm", "init")
+        self.feat = os.path.join(self.tmp, "feat")
+        self.assertEqual(git(self.main, "worktree", "add", "-q", "-b", "feat/demo", self.feat, "main").returncode, 0)
+        self.wt = os.path.join(self.main, ".reef", "worktrees", "101")
+        self.assertEqual(git(self.main, "worktree", "add", "-q", "-b", "task/101-add", self.wt, "feat/demo").returncode, 0)
+        write(self.wt, "src/calc.py", "def add(a, b):\n    return a + b\n")
+        write(self.wt, "tests/test_calc.py", TEST)
+        write(self.tmp, "journal.md", "| 101 | PASS | growth 3 |\n")
+
+    def commit_round(self):
+        git(self.wt, "add", "-A"); git(self.wt, "commit", "-qm", "the round, committed before the close")
+        self.assertEqual(git(self.wt, "status", "--porcelain").stdout, "", "precondition: the task worktree is clean")
+        self.tip, self.head = git(self.wt, "rev-parse", "HEAD").stdout, git(self.feat, "rev-parse", "HEAD").stdout
+
+    def close(self):
+        return subprocess.run([sys.executable, CLOSE, "reef/features/demo/tasks/101-add.md", "--subject", "feat: add",
+                               "--journal", os.path.join(self.tmp, "journal.md"), "--repo", self.feat], capture_output=True, text=True, cwd=self.feat)
+
+    def refused(self, why):
+        r = self.close()
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn(why, r.stdout + r.stderr)
+        self.assertEqual(git(self.feat, "rev-parse", "HEAD").stdout, self.head, "nothing merged")
+        self.assertNotEqual(git(self.feat, "merge-base", "--is-ancestor", "task/101-add", "HEAD").returncode, 0, "the branch is unmerged")
+        self.assertEqual(git(self.wt, "rev-parse", "HEAD").stdout, self.tip, "the branch's commits are untouched")
+        self.assertEqual(git(self.wt, "status", "--porcelain").stdout, "", "the red check left the task worktree clean")
+
+    def test_a_committed_round_whose_test_passes_on_the_base_is_refused(self):
+        self.setup("def add(a, b):\n    return a + b  # already right\n")
+        self.commit_round()
+        self.refused("does not fail on the base")
+
+    def test_a_committed_file_outside_the_declared_files_is_refused(self):
+        self.setup("def add(a, b):\n    return 0\n")
+        write(self.wt, "docs/notes.md", "x\n")
+        self.commit_round()
+        self.refused("outside the task's files: docs/notes.md")
+
+    def test_a_committed_round_that_does_not_deliver_a_hand_off_is_refused(self):
+        self.setup("def add(a, b):\n    return 0\n", down="101: src/new.py")
+        self.commit_round()
+        self.refused("102-use.md consumes 101: src/new.py — missing on the closing tree")
+
+    def test_a_committed_round_that_holds_closes_and_merges(self):
+        self.setup("def add(a, b):\n    return 0\n")
+        self.commit_round()
+        r = self.close()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("red first: the whole fast gate", r.stdout, "the round check ran on the committed work")
+        self.assertIn("fails on the base", r.stdout)
+        self.assertEqual(git(self.feat, "show", "HEAD:src/calc.py").stdout, "def add(a, b):\n    return a + b\n")
+
+
+class FastCloseOfWorkAlreadyCommitted(unittest.TestCase):
+    """Hardening PR-6, the fast path: the round check diffs the row's worktree against HEAD, so work committed on the feature
+    branch before the close is invisible to it; a round that changed nothing outside the task folder is refused."""
+
+    def test_a_fast_close_with_nothing_to_check_is_refused(self):
+        tmp = tempfile.mkdtemp(prefix="reef-round-fast-committed.")
+        main = os.path.join(tmp, "main")
+        subprocess.run(["git", "init", "-q", "-b", "main", main], check=True)
+        for k, v in (("user.email", "t@t"), ("user.name", "t")):
+            git(main, "config", k, v)
+        write(main, ".reef/config.json", json.dumps({"branches": {"base": "main"}, "paths": {"features": "reef/features"},
+                                                     "gates": {"fast": GATE, "full": GATE}}))
+        write(main, ".gitignore", ".reef/worktrees/\n.reef/ci-local/\n")
+        write(main, "reef/features/demo/SPEC.md", "# demo\nRow: 1\n")
+        write(main, "reef/features/demo/tasks/101-add.md", task("files: [src/]\n", proof="scripts/check.sh"))
+        write(main, "src/calc.py", "def add(a, b):\n    return 0\n")
+        git(main, "add", "-A"); git(main, "commit", "-qm", "init")
+        feat = os.path.join(main, ".reef", "worktrees", "demo")
+        self.assertEqual(git(main, "worktree", "add", "-q", "-b", "feat/demo", feat, "main").returncode, 0)
+        write(feat, "docs/out-of-scope.md", "x\n")
+        git(feat, "add", "-A"); git(feat, "commit", "-qm", "the work, committed by hand on the feature branch")
+        write(tmp, "journal.md", "| 101 | PASS | growth 3 |\n")
+        head = git(feat, "rev-parse", "HEAD").stdout
+        r = subprocess.run([sys.executable, CLOSE, "reef/features/demo/tasks/101-add.md", "--subject", "feat: add",
+                            "--journal", os.path.join(tmp, "journal.md"), "--repo", feat], capture_output=True, text=True, cwd=feat)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("changed nothing outside the task folder", r.stdout + r.stderr)
+        self.assertEqual(git(feat, "rev-parse", "HEAD").stdout, head, "nothing committed")
+        self.assertEqual(git(feat, "status", "--porcelain").stdout, "", "nothing left changed")
+
+
 class ThePromptsPointAtTheGate(unittest.TestCase):
     def test_the_implementer_and_the_task_skill_name_the_round_check(self):
         with open(os.path.join(ROOT, "agents", "implementer.md"), encoding="utf-8") as f:

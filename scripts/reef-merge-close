@@ -4,7 +4,7 @@
 Usage: reef-merge-close <task-file> --subject "<commit subject>" --journal <file> [--repo DIR]   (root: --repo, else the worktree holding the task file)
 It runs in the FEATURE worktree: a job started from the main checkout with the task's path into it closes there too.
 In order, each step skipped when already done: (0) the round holds (`reef-claims.py round`: red first, the task's
-files: only; refused = exit 2, nothing changed); (1) in the task's worktree stage every change (printed; a `.env*`, `.pem`
+files: only, its hand-offs; on every unmerged task branch, its commits included; refused = exit 2, nothing changed); (1) in the task's worktree stage every change (printed; a `.env*`, `.pem`
 or `.key` file refused) and commit `<subject>` with the trailer `Closes-task: <id>-<slug>` — the gate tests the index;
 (2) here, `git merge --no-ff --no-commit task/<id>-<slug>`; a lockfile among the merged files runs `worktree.setup` here
 first; (3) in that same merge commit `status: done`, the journal file's text between `<!-- journal -->` markers under the
@@ -186,6 +186,11 @@ def main(argv):
         tdir = os.path.dirname(dest)[:-len("/done")]
         half = [f for f in os.listdir(tdir) if re.match(r"R?\d+-.*\.md$", f) and f != name
                 and (task_frontmatter(open(os.path.join(tdir, f), encoding="utf-8").read()) or {}).get("status") == "done"]
+        tfold = os.path.relpath(os.path.realpath(tdir), os.path.realpath(root))
+        if not git(root, "status", "--porcelain", "--", ".", ":!" + tfold).stdout.strip():
+            # hardening PR-6: the round is diffed against HEAD here (no task branch), so work committed on the feature branch first is invisible
+            fail(f"the round changed nothing outside the task folder — the fast path checks the uncommitted work against HEAD, so work "
+                 f"already committed on {branch} cannot be checked; nothing changed", 2)
         round_check(root, task, "HEAD")
         write_note(npath, task, dest, text)
         git(root, "add", "-A", "--", ".", *[":!" + os.path.relpath(os.path.realpath(os.path.join(tdir, f)), os.path.realpath(root)) for f in half])
@@ -264,9 +269,11 @@ def main(argv):
     if not merged:
         if not os.path.isdir(wt):
             fail(f"no task worktree at {wt} while {tbranch} is unmerged", 1)
+        # every unmerged branch, dirty or not (hardening PR-6): work already committed there — a close cut off after this commit,
+        # or anyone committing in the task worktree — is judged too; the round reads the worktree against the merge-base
+        wtask = os.path.join(wt, os.path.relpath(os.path.realpath(task), os.path.realpath(root)))   # macOS: /var is /private/var
+        round_check(wt, wtask if os.path.isfile(wtask) else task, git(root, "merge-base", tbranch, "HEAD").stdout.strip())
         if dirty:
-            wtask = os.path.join(wt, os.path.relpath(os.path.realpath(task), os.path.realpath(root)))   # macOS: /var is /private/var
-            round_check(wt, wtask if os.path.isfile(wtask) else task, git(root, "merge-base", tbranch, "HEAD").stdout.strip())
             git(wt, "add", "-A")
             staged = git(wt, "diff", "--cached", "--name-only").stdout.split()
             bad = [p for p in staged if SECRET.search(p)]
