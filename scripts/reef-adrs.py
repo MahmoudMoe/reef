@@ -23,6 +23,7 @@ import re
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.dont_write_bytecode = True
+from functools import partial  # noqa: E402
 from reef_common import read_config, repo_root, task_frontmatter, die as _die  # noqa: E402
 
 GLOB = "*?["
@@ -30,8 +31,7 @@ ARCH = os.path.join("reef", "architecture", "adr")
 END = "adrs: end"
 
 
-def die(msg):
-    _die(msg, prefix="reef-adrs")
+die = partial(_die, prefix="reef-adrs")
 
 
 def match(path, pat):
@@ -109,13 +109,13 @@ def accepted(root, dirs):
     return sorted(out)
 
 
-def project_dirs(root):
+def adr_homes(root):
     cfg = read_config(root)
     legacy = str((cfg.get("paths") or {}).get("adr") or "").strip()
     return [os.path.join(root, ARCH)] + ([os.path.join(root, legacy)] if legacy else [])
 
 
-def features_dir(root):
+def features_home(root):
     return os.path.join(root, str((read_config(root).get("paths") or {}).get("features") or "reef/features"))
 
 
@@ -141,7 +141,7 @@ def task_block(path):
     here = os.path.dirname(os.path.realpath(path))
     if os.path.basename(here) == "done":
         here = os.path.dirname(here)
-    dirs = project_dirs(root)
+    dirs = adr_homes(root)
     fdir = os.path.dirname(here) if os.path.basename(here) == "tasks" else None
     if fdir and fdir != root:
         dirs.insert(0, os.path.join(fdir, "adr"))
@@ -160,9 +160,9 @@ def task_block(path):
 def feature_block(root, slug):
     if not slug or "/" in slug or slug.startswith("."):
         die(f"not a feature slug: {slug!r}")
-    fdir = os.path.join(features_dir(root), slug)
+    fdir = os.path.join(features_home(root), slug)
     own = accepted(root, [os.path.join(fdir, "adr")])
-    proj = [c for c in accepted(root, project_dirs(root)) if c not in own]
+    proj = [c for c in accepted(root, adr_homes(root)) if c not in own]
     if not own and not proj:
         return []
     pats = []
@@ -179,8 +179,8 @@ def feature_block(root, slug):
 
 
 def paths_block(root, paths):
-    fd = features_dir(root)
-    dirs = project_dirs(root) + ([os.path.join(fd, s, "adr") for s in sorted(os.listdir(fd))] if os.path.isdir(fd) else [])
+    fd = features_home(root)
+    dirs = adr_homes(root) + ([os.path.join(fd, s, "adr") for s in sorted(os.listdir(fd))] if os.path.isdir(fd) else [])
     cands = accepted(root, dirs)
     if not cands:
         return []
