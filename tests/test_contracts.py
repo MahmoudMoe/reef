@@ -310,6 +310,30 @@ class LeastCodeLadder(unittest.TestCase):
                       "stdlib function, a dependency for a few lines — a NIT naming what to use instead", text)
         self.assertIn("A BLOCKER is one of four kinds only", text, "the blocker kinds are unchanged")
 
+
+class PromptChangesPR11(unittest.TestCase):
+    """Hardening PR-11 (docs/design/hardening-pr11-plan.md): three lines from mattpocock/skills."""
+
+    def test_the_implementers_tdd_loop_stops_at_green(self):
+        # refactoring is the review's call, not the red->green loop's: smaller diffs, inside the task's files:
+        line = next(l for l in read("agents", "implementer.md").splitlines() if l.startswith("- TDD:"))
+        self.assertNotIn("refactor", line.lower())
+        self.assertIn("failing test first, then the least code to green", line)
+        self.assertTrue(line.rstrip().endswith("Never cut validation, error handling or a test."), line[-80:])
+
+    def test_an_adr_is_drafted_only_for_a_decision_that_is_all_three(self):
+        skill = read("skills", "reef-plan", "SKILL.md")
+        self.assertNotIn("only if it has non-obvious decisions", skill)
+        self.assertIn("only for a decision that is all three: hard to reverse, surprising without its context, and the result "
+                      "of a real trade-off (1–3 sentences can be enough)", skill)
+
+    def test_the_reviewer_names_a_tautological_test(self):
+        text = read("agents", "acceptance.md")
+        line = next((l for l in text.splitlines() if "tautological" in l.lower()), "")
+        self.assertIn("passes by construction", line)
+        self.assertIn("independent source", line)
+        self.assertIn("On a `## Proof` row its criterion FAILs (a failed requirement); elsewhere a NIT", line)
+
 class InitKeepsYours(unittest.TestCase):
     def test_on_an_existing_project_the_skill_recommends_the_projects_files_and_measures_before_an_accept(self):
         # 0.7.2 (ai-coach, 2026-10-24, item 8): Reef's renderings, accepted, broke 62 tests in 11 files
