@@ -21,7 +21,7 @@ SETTINGS = ".claude/settings.json"
 
 # PR-4 section 7, as this PR ships it (section 3 of the PR-7 plan: two patterns narrowed so the guard's ALLOW table passes)
 EDIT_WALLS = ["Edit(~/.claude/plugins/**)",                                   # W1: the guard's trust root
-              "Edit(/.claude/settings.json)",                                 # W2: the walls' own file
+              "Edit(/.claude/settings.json)", "Edit(/.claude/settings.local.json)",   # W2: the walls' own files
               "Edit(/.git/hooks/**)",                                         # W3
               "Edit(/.githooks/**)",                                          # W4 (D2 = yes)
               "Edit(/.reef/approvals/**)", "Edit(/.reef/review/**)", "Edit(/.reef/night/**)", "Edit(/.reef/evidence/**)",
@@ -78,6 +78,17 @@ class InitWritesTheWalls(unittest.TestCase):
             self.assertIn(h, hosts)
         self.assertNotIn("pypi.org", hosts, "a node project gets npm's registry, not PyPI's")
         self.assertIn(f"written  {SETTINGS}", r.stdout)
+
+    def test_the_settings_files_themselves_are_walled_and_the_owner_is_told_to_commit(self):
+        # the orchestrator's ruling on Q1/Q2 (2026-11-17): the agent cannot Edit the walls away, local file included; init writes
+        # it with Python (a Bash child, never the Edit tool), and `reef update` does not commit it, so the owner is told
+        d = project()
+        r = init(d)
+        deny = settings(d)["permissions"]["deny"]
+        self.assertIn("Edit(/.claude/settings.json)", deny)
+        self.assertIn("Edit(/.claude/settings.local.json)", deny)
+        self.assertIn(f"commit {SETTINGS} yourself", r.stdout)
+        self.assertNotIn(f"commit {SETTINGS} yourself", init(d).stdout, "nothing written, nothing to commit")
 
     def test_the_hosts_follow_the_stack_and_each_one_is_documented(self):
         d = project(pyproject=True)
