@@ -50,7 +50,7 @@ sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project
 from reef_common import lint_gaps, die as _die, reef_dir, commands_off_path, remote_fix, release_fix  # noqa: E402
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCRIPTS = ["reef", "reef-gate.sh", "reef-attempt", "reef-lessons.py", "reef-snapshot.sh", "reef-plan-check.py", "reef-graph.py",
+SCRIPTS = ["reef", "reef-gate.sh", "reef-attempt", "reef-lessons.py", "reef-adrs.py", "reef-snapshot.sh", "reef-plan-check.py", "reef-graph.py",
            "reef-adversarial", "reef-claims.py", "reef-ci-local.sh", "reef-tier.py", "reef-queue.py",
            # 0.6
            "reef-record", "reef-structure", "reef-recalibrate", "reef-c4.py", "reef-threat.py",
@@ -279,7 +279,7 @@ def grill_facts(answers, facts):
         # the shape decision is the one everyone later argues about ("should we split services?") — written down
         # with its reason, not left implicit in the C4 diagram (first contact, 2026-10-16)
         parts = ", ".join(containers)
-        adrs["draft-1-shape.md"] = (f"# ADR draft-1-shape — Shape: {a['shape']}, one deployable (a monolith)\n\nStatus: Accepted (number at merge)\n\n"
+        adrs["draft-1-shape.md"] = (f"# ADR draft-1-shape — Shape: {a['shape']}, one deployable (a monolith)\n\nStatus: Accepted (number at merge)\nPaths: *\n\n"
                                     f"## Context\nDay zero of {name}; the owner answered the architecture grill on {facts['date']}: shape {a['shape']}, "
                                     f"scale in one year {a['scale'] or 'undecided'}, hosted on {a['host'] or 'undecided'}.\n\n"
                                     f"## Decision\nOne deployable with the containers {parts}, built as a modular monolith: modules with explicit "
@@ -293,7 +293,7 @@ def grill_facts(answers, facts):
                                     " & ".join(c.replace("-", "_") for c in containers) + "\n```\n")
     for topic, value, title in (("hosting", a["host"], "Hosting"), ("data-store", a["store"], "Data store"), ("auth-boundary", a["auth"], "Auth boundary")):
         if value and value not in ("none", "no"):
-            adrs[f"draft-1-{topic}.md"] = (f"# ADR draft-1-{topic} — {title}: {value}\n\nStatus: Accepted (number at merge)\n\n## Context\n"
+            adrs[f"draft-1-{topic}.md"] = (f"# ADR draft-1-{topic} — {title}: {value}\n\nStatus: Accepted (number at merge)\nPaths: *\n\n## Context\n"
                                            f"Day zero of {name}; the owner answered the architecture grill on {facts['date']}.\n\n## Decision\n{title} is {value}.\n\n"
                                            f"## Consequences\n+ one {topic.replace('-', ' ')} to operate\n- changing it later is a queue row with its own ADR\n\n"
                                            f"## Diagram\n```mermaid\nflowchart LR\n  owner --> {sid} --> {topic.replace('-', '_')}[{value}]\n```\n")

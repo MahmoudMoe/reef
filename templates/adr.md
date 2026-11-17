@@ -1,6 +1,7 @@
 # ADR NNNN — <title>
 
 Status: Proposed | Accepted | Superseded by NNNN
+Paths: <the paths this decision governs: `dir/` or a glob, comma-separated; `*` = every path>
 
 ## Context
 <the forces: what problem, what constraints, why now — 3 lines max>

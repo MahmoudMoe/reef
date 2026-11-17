@@ -39,6 +39,9 @@ Dead ends (hardening PR-2): each FAIL's four fields are indented sub-lines under
 ## Log (outside every digest), FENCE and DEAD END derived when not given; every dispatch prints ALL of them as the
 `dead-ends:` block, oldest first, so round N+2 still sees round N's.
 
+ADRs (hardening PR-8): every dispatch prints the `adrs:` block — the Accepted ADRs whose `Paths:` meet the task's `files:`, and
+every undeclared one (scripts/reef-adrs.py task); the implementer reads those, not every ADR.
+
 This script records WHY a task fails. Enforcement does not depend on it being
 called: the PreToolUse guard (reef-guard.py) independently refuses implementer
 dispatches on blocked/at-cap task files and advances a `dispatches:` odometer,
@@ -501,6 +504,14 @@ def run_attempt(cap_flag, path, failure):
         for line in dead_end_lines(task.text):
             print(line)
         for line in lessons_call(lambda m: m.lessons_block(root, "harness")) or []:   # the owner's approved harness lessons (PR-3)
+            print(line)
+        try:   # the ADRs on the task's files (PR-8); the guard requires the block, so an error here is a refusal, never a skip
+            adrs = load_sibling("reef-adrs.py", "reef_adrs").task_block(path)
+        except SystemExit:
+            raise
+        except Exception as e:
+            die(f"the ADR selection failed ({e}) — scripts/reef-adrs.py task {path}")
+        for line in adrs:
             print(line)
         rw = int((cfg.get("writing") or {}).get("report_words", 0) or 0) if isinstance(cfg.get("writing"), dict) else 0
         acs = re.search(r"^##\s+Acceptance Criteria\s*$(.*?)(?=^##\s|\Z)", task.text, re.M | re.S)

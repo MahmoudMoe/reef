@@ -1523,6 +1523,22 @@ def check_graph_lessons(cwd, prompt):
              "run `python3 scripts/reef-lessons.py lessons graph` and pass its `lessons:` block verbatim")
 
 
+def check_adrs(path, prompt):
+    """Hardening PR-8, owner decision A (built as recommended): an implementer dispatch carries EVERY line of the `adrs:` block
+    reef-adrs.py computes for the task (from the plugin's directory) — by content, as the dead-ends block: a header alone or a
+    dropped ADR is refused. No Accepted ADR in the project: nothing to carry."""
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader("reef_adrs", os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-adrs.py"))
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(mod)
+    have = {l.rstrip() for l in prompt.splitlines()}
+    missing = [l for l in mod.task_block(path) if l.rstrip() not in have]
+    if missing:
+        deny(f"the implementer dispatch lacks the ADRs on {path}'s files (first missing line: {missing[0].strip()[:160]!r}) — "
+             f"run scripts/reef-attempt {path} and pass its `adrs:` block verbatim")
+
+
 def read_cap(root):
     try:
         with open(os.path.join(root, ".reef", "config.json"), encoding="utf-8") as f:
@@ -1812,6 +1828,7 @@ def _check_dispatch(tool_input, payload):
             deny(f"{path} was dispatched {dispatches}x against cap {cap} without enough recorded failures — "
                  "runaway-loop backstop; record failures via scripts/reef-attempt or stop")
         check_dead_ends(path, text, prompt)
+        check_adrs(path, prompt)
         check_adversarial_plan(path, fm, text)
         # the graph: dependencies done, resources free, parallel cap — a broken graph
         # (cycle, dangling id, duplicate id) has no ready set and is a denial too

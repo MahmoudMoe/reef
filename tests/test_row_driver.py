@@ -16,7 +16,7 @@ from _fixtures import write, git  # noqa: E402  (the suites' shared fixtures, on
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = ("reef_common.py", "reef-graph-run.py", "reef-graph.py", "reef-loop.py", "reef-queue.py", "reef-plan-check.py", "reef-attempt", "reef-claims.py",
            "reef-adversarial", "reef-snapshot.sh", "reef-gate.sh", "reef-row.py", "reef-evidence.py", "reef-tier.py", "reef-merge-close",
-           "reef-record", "reef-cost.py", "reef-handoff")
+           "reef-record", "reef-cost.py", "reef-handoff", "reef-adrs.py")
 FEATURE = "demo-row-one"
 TASK = """---
 id: {id}

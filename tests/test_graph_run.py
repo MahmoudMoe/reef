@@ -20,7 +20,7 @@ def graph_project():
     d = T.project()
     for k, v in (("user.email", "t@t"), ("user.name", "t")):   # reef-graph.py worktree commits a plan a test adds (CI has no identity)
         subprocess.run(["git", "-C", d, "config", k, v], check=True)
-    for n in ("reef-attempt", "reef-claims.py", "reef-adversarial", "reef-snapshot.sh", "reef-gate.sh", "reef-graph-run.py", "reef-lessons.py"):
+    for n in ("reef-attempt", "reef-claims.py", "reef-adversarial", "reef-snapshot.sh", "reef-gate.sh", "reef-graph-run.py", "reef-lessons.py", "reef-adrs.py"):
         shutil.copy(os.path.join(ROOT, "scripts", n), os.path.join(d, "scripts", n))
     return d
 
@@ -201,6 +201,18 @@ class Generate(unittest.TestCase):
         t = self.script_of(d)["implement_prompt"]
         self.assertIn("lessons: 1 landed (harness", t)
         self.assertIn("  L1 (round-scope): name every file the fix touches in files: before the round starts\nlessons: end\n", t)
+
+    def test_the_implementers_prompt_carries_the_adrs_block(self):
+        # hardening PR-8: the ADRs on the task's files reach the implementer by code in graph mode, as the dead ends do
+        d = graph_project()
+        pass_gate(d)
+        self.judged(d)
+        T.write(d, "reef/architecture/adr/0001-all.md", "# ADR\n\nStatus: Accepted\nPaths: *\n\n## Context\nx\n")
+        r = g(d, "generate")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        t = self.script_of(d)["implement_prompt"]
+        self.assertIn("adrs: 1 of 1 Accepted ADRs touch this task's files:", t)
+        self.assertIn("  reef/architecture/adr/0001-all.md (Paths: *)\nadrs: end\n", t)
 
     def test_a_rejected_report_or_a_hand_back_is_re_judged_in_full_without_an_implementer(self):
         d = graph_project()

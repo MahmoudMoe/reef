@@ -20,7 +20,7 @@ from _fixtures import write, git, ROOT  # noqa: E402
 LOOP = os.path.join(ROOT, "scripts", "reef-loop.py")
 GUARD = os.path.join(ROOT, "scripts", "reef-guard.py")
 SCRIPTS = ("reef_common.py", "reef-loop.py", "reef-queue.py", "reef-graph.py", "reef-cost.py", "reef-handoff", "reef-plan-check.py",
-           "reef-attempt", "reef-merge-close", "reef-record", "reef-adversarial", "reef-claims.py", "reef-tier.py", "reef-row.py")
+           "reef-attempt", "reef-merge-close", "reef-record", "reef-adversarial", "reef-claims.py", "reef-tier.py", "reef-row.py", "reef-adrs.py")
 SLUG = "demo-row-one"
 SPEC = ("# demo row one\nRow: {row}\n\n## Scope\nOne slice.\n\n## Non-goals\n- none\n\n## Already shipped\nnone\n\n"
         "## Requirements\n- FR-1 [backend]: it works.\n\n## Success criteria\n- SC-1: green.\n\n## Architecture impact\nnone\n")

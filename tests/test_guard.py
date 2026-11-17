@@ -1327,6 +1327,44 @@ class DeadEndsAtDispatch(unittest.TestCase):
         self.assertEqual(dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement").returncode, 0)
 
 
+class AdrsAtDispatch(unittest.TestCase):
+    """Hardening PR-8, owner decision A (built as recommended): an implementer dispatch carries every line of the `adrs:` block
+    reef-adrs.py computes for the task — by content, as PR-2's dead-ends; a header alone or a dropped ADR is refused."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="reef-guard-adrs.")
+        os.makedirs(os.path.join(self.dir, ".reef"))   # a Reef project: the ADR homes are found from its root
+        self.p = make_task(self.dir, extra="files: [src/auth/]\n")
+
+    def adr(self, name, paths):
+        d = os.path.join(self.dir, "reef", "architecture", "adr")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, name), "w") as f:
+            f.write(f"# ADR\n\nStatus: Accepted\nPaths: {paths}\n\n## Context\nx\n")
+
+    def block(self):
+        out = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-adrs.py"), "task", self.p],
+                             capture_output=True, text=True).stdout.splitlines()
+        return out
+
+    def test_a_dispatch_without_its_adrs_block_is_refused_and_with_it_allowed(self):
+        self.adr("0001-auth.md", "src/auth/")
+        self.adr("0002-legacy.md", "")
+        block = self.block()
+        self.assertEqual(len(block), 4, block)
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("adrs", r.stderr)
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\n" + "\n".join(block[:2] + block[3:]) + "\nimplement")
+        self.assertEqual(r.returncode, 2, "an ADR dropped from the block is refused")
+        self.assertIn("0002-legacy.md", r.stderr, "the refusal names the missing line")
+        r = dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\n" + "\n".join(block) + "\nimplement")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_a_project_with_no_adr_needs_no_block(self):
+        self.assertEqual(dispatch(self.dir, "REEF-TASK: tasks/007-demo.md\nimplement").returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
 

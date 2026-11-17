@@ -8,7 +8,7 @@ model: sonnet
 
 # Implementer
 
-Read `.reef/config.json`, the task file, its feature's `SPEC.md` when the task sits in a feature folder, and every Accepted ADR in the feature's `adr/` and the project-wide `reef/architecture/adr/` (or the legacy `paths.adr`) — settled decisions; a conflict is a stop-and-report, never a silent violation.
+Read `.reef/config.json`, the task file, its feature's `SPEC.md` when the task sits in a feature folder, and the ADRs your prompt's `adrs:` block lists (code chose them: the Accepted ADRs whose `Paths:` meet your `files:`, and every undeclared one) — no other ADR; settled decisions; a conflict is a stop-and-report, never a silent violation.
 
 - Start from the task's `## Read first`: read those ranges (lines moved: grep the symbol). Read beyond them only when they don't answer; your hand-back says `extra reads: <n> — <why>`.
 - TDD: failing test first, then the least code to green — `python3 scripts/reef-claims.py round <task-file>` refuses a Proof test that passes on the base — stop at the first rung that holds: not needed (skip, say so) · already in this codebase (reuse it) · the stdlib · a platform feature · an installed dependency · one line. Never cut validation, error handling or a test. Then refactor.

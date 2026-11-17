@@ -38,7 +38,7 @@ Rule for the orchestrator: this script is deterministic; never argue with it, ne
 import fnmatch, hashlib, json, os, re, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, read, table_cells, section, slug_error, spec_row, SLUG_RE, GENERIC_SLUGS  # noqa: E402
+from reef_common import load_sibling, main_checkout, read, table_cells, section, slug_error, spec_row, SLUG_RE, GENERIC_SLUGS  # noqa: E402
 
 STATUS = {"pending", "in-progress", "blocked", "done"}
 COMPLEXITY = {"mech", "design"}
@@ -1426,6 +1426,17 @@ def main():
             fail("ADR still Proposed (a settled plan has only Accepted): " + ", ".join(proposed))
         if not (missing_status or unchosen or proposed):
             ok(f"{len(adr_files)} ADR(s), none Proposed" + (f" (drafts exempt: {drafts})" if drafts else ""))
+    # hardening PR-8: an ADR with no Paths: is loaded for every task (reef-adrs.py) — ask for the paths it governs
+    try:
+        adr_fields = load_sibling("reef-adrs.py", "reef_adrs").adr_fields
+    except Exception:   # a project whose scripts predate PR-8: no selection, nothing to warn about
+        adr_fields = None
+    feature_adrs = [os.path.join(fd, "adr", f) for fd in folders.values() if os.path.isdir(os.path.join(fd, "adr"))
+                    for f in sorted(os.listdir(os.path.join(fd, "adr"))) if is_adr(f)]
+    undeclared = [os.path.relpath(p, root) for p in adr_files + feature_adrs
+                  if adr_fields and not re.search(r"^\**Status\**:.*\bsuperseded\b", read(p), re.M | re.I) and adr_fields(read(p))[1] is None]
+    if undeclared:
+        print("WARN ADR declares no Paths: (loaded for every task — add the paths it governs): " + ", ".join(undeclared))
 
     if brief is None:
         fail("no project brief (CLAUDE.md or AGENTS.md) at repo root — reef-init scaffolds one")

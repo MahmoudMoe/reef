@@ -893,6 +893,19 @@ class DraftAdr(unittest.TestCase):
         self.assertEqual(run(tmp).returncode, 0)
 
 
+    def test_an_adr_without_paths_is_a_warn_not_a_fail(self):
+        # hardening PR-8: an undeclared ADR is loaded for every task; the check asks for its Paths: line
+        tmp = tempfile.mkdtemp(prefix="reef-pc.")
+        repo(tmp)
+        self.write_adr(tmp, "0007-settled.md", "Accepted")
+        with open(os.path.join(tmp, "docs", "adr", "0008-scoped.md"), "w") as f:
+            f.write("# ADR\n\nStatus: Accepted\nPaths: src/\n\n## Context\nx\n")
+        r = run(tmp)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("WARN ADR declares no Paths: (loaded for every task — add the paths it governs): docs/adr/0007-settled.md", r.stdout)
+        self.assertNotIn("0008-scoped.md", r.stdout.split("declares no Paths:")[1].split("\n")[0])
+
+
 class Config(unittest.TestCase):
     def check(self, extra, should_pass, needle=None):
         tmp = tempfile.mkdtemp(prefix="reef-pc.")
