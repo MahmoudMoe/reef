@@ -357,15 +357,15 @@ class CloseChecksACommittedRound(unittest.TestCase):
     task whose work was already committed on its branch (a close cut off after that commit, or anyone committing there)
     merged with no check. Every merge path now runs it: base = merge-base(task branch, HEAD), the branch's commits included."""
 
-    def setup(self, base_code, down=None):
+    def setup(self, base_code, down=None, ignore="__pycache__/\n", files="[src/, tests/]"):
         self.tmp = tempfile.mkdtemp(prefix="reef-round-committed.")
         self.main = os.path.join(self.tmp, "main")
         subprocess.run(["git", "init", "-q", "-b", "main", self.main], check=True)
         for k, v in (("user.email", "t@t"), ("user.name", "t")):
             git(self.main, "config", k, v)
         write(self.main, ".reef/config.json", json.dumps({"branches": {"base": "main"}, "gates": {"fast": GATE, "full": GATE}}))
-        write(self.main, ".gitignore", ".reef/worktrees/\n.reef/ci-local/\n__pycache__/\n")   # the test runs' bytecode, as a project ignores it
-        write(self.main, "reef/features/demo/tasks/101-add.md", task("files: [src/, tests/]\n"))   # no SPEC.md: the critical path
+        write(self.main, ".gitignore", ".reef/worktrees/\n.reef/ci-local/\n" + ignore)   # the test runs' bytecode, as a project ignores it
+        write(self.main, "reef/features/demo/tasks/101-add.md", task(f"files: {files}\n"))   # no SPEC.md: the critical path
         if down:
             write(self.main, "reef/features/demo/tasks/102-use.md", DOWN.format(consumes=down))
         write(self.main, "src/__init__.py", ""); write(self.main, "tests/__init__.py", "")
@@ -384,9 +384,10 @@ class CloseChecksACommittedRound(unittest.TestCase):
         self.assertEqual(git(self.wt, "status", "--porcelain").stdout, "", "precondition: the task worktree is clean")
         self.tip, self.head = git(self.wt, "rev-parse", "HEAD").stdout, git(self.feat, "rev-parse", "HEAD").stdout
 
-    def close(self):
+    def close(self, env=None):
         return subprocess.run([sys.executable, CLOSE, "reef/features/demo/tasks/101-add.md", "--subject", "feat: add",
-                               "--journal", os.path.join(self.tmp, "journal.md"), "--repo", self.feat], capture_output=True, text=True, cwd=self.feat)
+                               "--journal", os.path.join(self.tmp, "journal.md"), "--repo", self.feat], capture_output=True, text=True,
+                              cwd=self.feat, env=env)
 
     def refused(self, why):
         r = self.close()
@@ -452,6 +453,54 @@ class FastCloseOfWorkAlreadyCommitted(unittest.TestCase):
         self.assertIn("changed nothing outside the task folder", r.stdout + r.stderr)
         self.assertEqual(git(feat, "rev-parse", "HEAD").stdout, head, "nothing committed")
         self.assertEqual(git(feat, "status", "--porcelain").stdout, "", "nothing left changed")
+
+
+# the test runs' environment as a shell without the variable gives it (the runner may set it; then nothing would be written)
+BYTECODE_ON = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+
+
+class TheRoundCheckLeavesNoByteCode(unittest.TestCase):
+    """Hardening PR-12 (docs/design/hardening-pr12-plan.md): the round check runs the project's tests in the task worktree;
+    in a project whose .gitignore does not ignore __pycache__/, the byte-code they wrote was merged (a dirty close), kept the
+    worktree from being removed (a clean close) and tripped files: on the next check. Its runs now write no byte-code;
+    a .pyc the round itself adds is still a change of the round."""
+
+    setup, commit_round, close, refused = (CloseChecksACommittedRound.setup, CloseChecksACommittedRound.commit_round,
+                                           CloseChecksACommittedRound.close, CloseChecksACommittedRound.refused)
+
+    def bytecode(self, tree):
+        return [p for p in git(tree, "ls-files", "-z", "--others", "--exclude-standard").stdout.split("\0") if "__pycache__" in p]
+
+    def test_a_committed_round_closes_and_its_worktree_is_removed(self):
+        self.setup("def add(a, b):\n    return 0\n", ignore="")
+        self.commit_round()
+        r = self.close(BYTECODE_ON)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(os.path.exists(self.wt), "the task worktree is removed")
+
+    def test_an_uncommitted_round_merges_no_byte_code(self):
+        self.setup("def add(a, b):\n    return 0\n", ignore="")
+        r = self.close(BYTECODE_ON)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        merged = git(self.feat, "ls-tree", "-r", "--name-only", "HEAD").stdout.split()
+        self.assertEqual([p for p in merged if "__pycache__" in p], [], "no byte-code merged")
+
+    def test_a_second_check_of_the_same_round_is_not_tripped_by_the_first(self):
+        self.setup("def add(a, b):\n    return 0\n", ignore="", files="[src/, tests/test_calc.py]")
+        wtask = os.path.join(self.wt, "reef/features/demo/tasks/101-add.md")
+        run = lambda: subprocess.run([sys.executable, CLAIMS, "round", wtask, "--repo", self.wt, "--base", "main"],
+                                     capture_output=True, text=True, cwd=self.wt, env=BYTECODE_ON)
+        first = run()
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        second = run()
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        self.assertEqual(self.bytecode(self.wt), [], "the check wrote no byte-code")
+
+    def test_a_pyc_the_round_adds_still_counts(self):
+        self.setup("def add(a, b):\n    return 0\n", ignore="", files="[src/calc.py, tests/]")
+        write(self.wt, "src/__pycache__/keep.pyc", "kept on purpose\n")
+        self.commit_round()
+        self.refused("outside the task's files: src/__pycache__/keep.pyc")
 
 
 class ThePromptsPointAtTheGate(unittest.TestCase):
