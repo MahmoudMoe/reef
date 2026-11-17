@@ -1,0 +1,73 @@
+{
+  "_about": "Hardening PR-7: the walls of docs/design/hardening-pr4-guard-audit.md section 4 (W1-W8), as Claude Code config. A plugin cannot ship permissions or a sandbox, so reef-init merges `settings` into the project's .claude/settings.json (a key the project has is never changed; a rule or host it lacks is added), with sandbox.network.allowedDomains = the hosts below for the detected stack. Defense in depth: the guard keeps every check. Edit rules: `/` is the project root, `~/` home. Sandbox paths: `./` is the project root, `~/` home, `/` the filesystem root.",
+  "settings": {
+    "permissions": {
+      "deny": [
+        "Edit(~/.claude/plugins/**)",
+        "Edit(/.claude/settings.json)",
+        "Edit(/.git/hooks/**)",
+        "Edit(/.githooks/**)",
+        "Edit(/.reef/approvals/**)",
+        "Edit(/.reef/review/**)",
+        "Edit(/.reef/night/**)",
+        "Edit(/.reef/evidence/**)",
+        "Edit(/.reef/run/jobs/**)",
+        "Edit(/.reef/graph/gate.json)",
+        "Edit(/HANDOFF.md)",
+        "Bash(git commit --no-verify *)",
+        "Bash(git commit * --no-verify)",
+        "Bash(git commit * --no-verify -*)",
+        "Bash(git commit -n *)",
+        "Bash(git commit * -n -*)",
+        "Bash(git merge --no-verify *)",
+        "Bash(git merge * --no-verify)",
+        "Bash(git merge * --no-verify -*)",
+        "Bash(git push --no-verify *)",
+        "Bash(git push * --no-verify *)",
+        "Bash(git -c core.hooksPath*)",
+        "Bash(git -c core.hookspath*)",
+        "Bash(git --config-env*hooksPath*)",
+        "Bash(git config core.hooksPath /*)",
+        "Bash(git config * core.hooksPath /*)",
+        "Bash(git config --unset core.hooksPath*)",
+        "Bash(git config --unset-all core.hooksPath*)",
+        "Bash(GIT_CONFIG_KEY_* *)",
+        "Bash(git stash)",
+        "Bash(git stash push*)",
+        "Bash(git stash save*)",
+        "Bash(git stash pop*)",
+        "Bash(git stash apply*)",
+        "Bash(git stash drop*)",
+        "Bash(git stash clear*)",
+        "Bash(gh pr merge * -R *)",
+        "Bash(gh pr merge * --repo *)",
+        "Bash(gh pr merge * --repo=*)",
+        "Bash(*reef-run.py _job-run*)",
+        "Bash(*reef-approval.py --owner*)",
+        "Bash(*reef-approval.py * --owner*)"
+      ]
+    },
+    "sandbox": {
+      "enabled": true,
+      "failIfUnavailable": true,
+      "allowUnsandboxedCommands": false,
+      "filesystem": {
+        "denyWrite": ["~/.claude/plugins", "./.claude/settings.json", "./.git/hooks"]
+      }
+    }
+  },
+  "hosts": {
+    "github.com": {"stacks": ["*"], "why": "git fetch/push to the forge over https; cargo audit reads RustSec's advisory db from it"},
+    "api.github.com": {"stacks": ["*"], "why": "gh: the loop's pull requests, checks, merges and the issues queue"},
+    "registry.npmjs.org": {"stacks": ["node"], "why": "npm ci, npx and npm audit (worktree.setup and the release audit gate)"},
+    "binaries.prisma.sh": {"stacks": ["node"], "when_deps": ["prisma", "@prisma/client"], "why": "prisma generate downloads its engines (only when package.json depends on Prisma)"},
+    "pypi.org": {"stacks": ["python"], "why": "pip install -e . / uv sync (the index) and pip-audit (PyPI's vulnerability API)"},
+    "files.pythonhosted.org": {"stacks": ["python"], "why": "the package files pip and uv download"},
+    "index.crates.io": {"stacks": ["rust"], "why": "cargo fetch: the sparse crates index"},
+    "static.crates.io": {"stacks": ["rust"], "why": "cargo fetch: the crate downloads"},
+    "proxy.golang.org": {"stacks": ["go"], "why": "go mod download: the module proxy"},
+    "sum.golang.org": {"stacks": ["go"], "why": "go mod download: the checksum database"},
+    "vuln.go.dev": {"stacks": ["go"], "why": "govulncheck: the release audit gate's vulnerability database"},
+    "semgrep.dev": {"stacks": ["node", "python", "rust", "go"], "why": "semgrep scan: the injection release gate's rule packs (p/owasp-top-ten and the stack's)"}
+  }
+}

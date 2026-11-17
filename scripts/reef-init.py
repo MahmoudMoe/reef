@@ -24,7 +24,8 @@ What it writes (from <plugin>/templates/project and <plugin>/scripts), adapted t
   docs/journal.md, HANDOFF.md, docs/day-zero.md, docs/glossary.md, .github/workflows/ci.yml,
   .github/dependabot.yml, scripts/reef-*.{py,sh} + reef-attempt + reef-adversarial,
   .githooks/pre-commit + pre-merge-commit, tasks/ + tasks/done/, .gitignore lines, a Makefile
-  `setup:` target (appended, never rewritten).
+  `setup:` target (appended, never rewritten), .claude/settings.json (the harness walls, merged: a key the project
+  has is never changed).
 
 The rule, for every file: ABSENT -> written. IDENTICAL -> skipped. DIFFERENT -> never overwritten:
 the rendering goes to <git dir>/reef/proposed/<path>, a unified diff is printed, and `--accept <path>`
@@ -556,6 +557,83 @@ class Writer:
         self.written.append(f"{rel} (+{len(missing)} line(s))")
 
 
+SETTINGS = ".claude/settings.json"
+
+
+def walls(root, facts):
+    """Hardening PR-7: the PR-4 walls (templates/claude-settings.json `settings`) with the stack's network allowlist (its
+    `hosts`, each with the reason it is there)."""
+    with open(os.path.join(PLUGIN, "templates", "claude-settings.json"), encoding="utf-8") as f:
+        tpl = json.load(f)
+    deps = {}
+    if facts.get("stack") == "node":
+        try:
+            with open(os.path.join(root, "package.json"), encoding="utf-8") as f:
+                pkg = json.load(f)
+            deps = {**(pkg.get("dependencies") or {}), **(pkg.get("devDependencies") or {})}
+        except (OSError, ValueError, AttributeError):
+            deps = {}
+    hosts = [h for h, v in tpl["hosts"].items() if ("*" in v["stacks"] or facts.get("stack") in v["stacks"])
+             and (not v.get("when_deps") or any(d in deps for d in v["when_deps"]))]
+    block = tpl["settings"]
+    block["sandbox"]["network"] = {"allowedDomains": hosts}
+    return block
+
+
+def merge_walls(base, over):
+    """`over` into `base`: a key `base` lacks is added, a list gains the entries it lacks (in order, after its own), and a value
+    `base` already has is never changed — the project's own `sandbox.enabled: false` stays, and the doctor names it."""
+    for k, v in over.items():
+        if k not in base:
+            base[k] = v
+        elif isinstance(base[k], dict) and isinstance(v, dict):
+            merge_walls(base[k], v)
+        elif isinstance(base[k], list) and isinstance(v, list):
+            base[k] += [x for x in v if x not in base[k]]
+    return base
+
+
+def place_walls(w, root, facts):
+    """.claude/settings.json: written when absent, merged when present (never a value changed), left alone and named when it does
+    not parse. A file init cannot write — the sandbox protects .claude settings files from sandboxed commands, so a re-init run as
+    a Bash call in a sandboxed session gets EPERM — goes to the proposals dir as the merge, for --accept from the owner's terminal."""
+    target = os.path.join(root, SETTINGS)
+    current = None
+    if os.path.exists(target):
+        try:
+            with open(target, encoding="utf-8") as f:
+                current = f.read()
+            existing = json.loads(current)
+            if not isinstance(existing, dict):
+                raise ValueError("not a JSON object")
+        except (OSError, ValueError) as e:
+            w.proposed.append((SETTINGS, f"    {SETTINGS} does not parse ({str(e)[:80]}) — left as it is, no wall written; fix it, then run reef-init again\n"))
+            return
+    else:
+        existing = None
+    merged = merge_walls(json.loads(json.dumps(existing)) if existing is not None else {}, walls(root, facts))
+    if existing is not None and merged == existing:
+        w.skipped.append(SETTINGS)
+        return
+    content = json.dumps(merged, indent=2) + "\n"
+    if w.dry:
+        w.written.append(SETTINGS + (" (walls merged, every key the project had unchanged)" if existing is not None else ""))
+        return
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w", encoding="utf-8") as f:
+            f.write(content)
+    except OSError as e:
+        prop = os.path.join(reef_dir(root), "proposed", SETTINGS)
+        os.makedirs(os.path.dirname(prop), exist_ok=True)
+        with open(prop, "w", encoding="utf-8") as f:
+            f.write(content)
+        diff = difflib.unified_diff((current or "").splitlines(True), content.splitlines(True), fromfile=SETTINGS, tofile=os.path.relpath(prop, root))
+        w.proposed.append((SETTINGS, f"    cannot write it here ({e.strerror}: the sandbox protects .claude settings files) — accept it from your own terminal\n" + "".join(diff)))
+        return
+    w.written.append(SETTINGS + (" (walls merged, every key the project had unchanged)" if existing is not None else ""))
+
+
 def render_tree(root, facts, dry):
     if not dry:
         carry_old_proposals(root)
@@ -661,7 +739,8 @@ def render_tree(root, facts, dry):
         if not dry:
             os.makedirs(os.path.join(root, d), exist_ok=True)
     w.append_lines(".gitignore", GITIGNORE_LINES + STACK_IGNORE.get(facts.get("stack"), []))
-    mk = os.path.join(root, "Makefile")
+    place_walls(w, root, facts)   # hardening PR-7: the harness walls; the guard keeps every check
+    mk =os.path.join(root, "Makefile")
     if os.path.isfile(mk):
         with open(mk, encoding="utf-8") as f:
             has_setup = any(l.startswith("setup:") for l in f)

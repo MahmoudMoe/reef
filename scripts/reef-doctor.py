@@ -15,6 +15,7 @@ Checks, each OK / WARN / FAIL with the fix on the same line:
   stamp    a design/critical task's adversarial-plan is current or stale
   loop     .reef/loop.json: active, wait, stop; the status page
   tools    gh auth, docker (when a compose file exists)
+  walls    .claude/settings.json holds the harness walls reef-init writes (hardening PR-7): deny rules, the sandbox fail-closed
   proposals  renderings waiting in <git dir>/reef/proposed/ and the command that accepts or keeps them
 Exit 0 = no FAIL · 1 = at least one FAIL · 2 = not a Reef project.
 
@@ -176,6 +177,41 @@ def worktrees(root):
     return items
 
 
+def walls_line(root, plugin):
+    """(level, what, fix): the project's .claude/settings.json holds every PR-4 wall the plugin's template ships (hardening PR-7).
+    A WARN, not a FAIL: the guard keeps every check, and a project that has not re-run init since is not broken, only less walled."""
+    fix = f"python3 {plugin}/scripts/reef-init.py --root {root}"
+    try:
+        with open(os.path.join(plugin, "templates", "claude-settings.json"), encoding="utf-8") as f:
+            want = json.load(f)["settings"]
+    except (OSError, ValueError, KeyError):
+        return "WARN", "walls: cannot tell (the plugin has no templates/claude-settings.json)", ""
+    path = os.path.join(root, ".claude", "settings.json")
+    if not os.path.isfile(path):
+        return "WARN", "walls: no .claude/settings.json — the harness walls (deny rules, the sandbox) are off; the guard alone holds", fix
+    try:
+        with open(path, encoding="utf-8") as f:
+            have = json.load(f)
+        have = have if isinstance(have, dict) else {}
+    except (OSError, ValueError):
+        return "WARN", "walls: .claude/settings.json does not parse — no wall in it holds", "fix the file, then run reef-init again"
+    deny = (have.get("permissions") or {}).get("deny") if isinstance(have.get("permissions"), dict) else None
+    missing = [r for r in want["permissions"]["deny"] if r not in (deny if isinstance(deny, list) else [])]
+    sb = have.get("sandbox") if isinstance(have.get("sandbox"), dict) else {}
+    off = [f"sandbox.{k} is {json.dumps(sb.get(k))}" for k in ("enabled", "failIfUnavailable", "allowUnsandboxedCommands")
+           if sb.get(k) != want["sandbox"][k]]
+    dw = (sb.get("filesystem") or {}).get("denyWrite") if isinstance(sb.get("filesystem"), dict) else None
+    missing += [f"denyWrite {p}" for p in want["sandbox"]["filesystem"]["denyWrite"] if p not in (dw if isinstance(dw, list) else [])]
+    if missing or off:
+        what = "; ".join(off + ([f"{len(missing)} wall(s) missing: {', '.join(missing[:3])}{'…' if len(missing) > 3 else ''}"] if missing else []))
+        # a value the project set is never changed by init: the fix for it is the owner's edit
+        if off:
+            key = off[0].split(" is ")[0]
+            return "WARN", f"walls: {what}", f"set {key} to {json.dumps(want['sandbox'][key[len('sandbox.'):]])} in .claude/settings.json, then run reef-init"
+        return "WARN", f"walls: {what}", fix
+    return "OK", f"walls: {len(want['permissions']['deny'])} deny rules, the sandbox on and fail-closed (.claude/settings.json)", ""
+
+
 def main(argv):
     repo = argv[argv.index("--repo") + 1] if "--repo" in argv else "."
     rc, root = git(repo, "rev-parse", "--show-toplevel")
@@ -324,6 +360,8 @@ def main(argv):
             say("WARN", "setup: reef-setup.py state did not run", "")
     else:
         say("WARN", "setup: scripts/reef-setup.py is missing (the proof that a fresh worktree passes the gate)", update_fix(root, plugin))
+    if plugin:
+        say(*walls_line(root, plugin))
     say(*plugin_enabled())
     if plugin:
         say(*installed_copy(plugin))

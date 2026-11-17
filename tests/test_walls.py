@@ -43,6 +43,11 @@ def project(pkg=None, pyproject=False):
     return d
 
 
+def raw(d, mode="r"):
+    with open(os.path.join(d, SETTINGS), mode) as f:
+        return f.read()
+
+
 def settings(d):
     with open(os.path.join(d, SETTINGS), encoding="utf-8") as f:
         return json.load(f)
@@ -93,10 +98,10 @@ class InitWritesTheWalls(unittest.TestCase):
     def test_a_second_init_writes_nothing(self):
         d = project()
         init(d)
-        before = open(os.path.join(d, SETTINGS), "rb").read()
+        before = raw(d, "rb")
         r = init(d)
         self.assertIn(f"skipped  {SETTINGS}", r.stdout)
-        self.assertEqual(open(os.path.join(d, SETTINGS), "rb").read(), before)
+        self.assertEqual(raw(d, "rb"), before)
 
     def test_an_existing_settings_file_keeps_every_key_and_value_and_gains_only_what_it_lacked(self):
         d = project()
@@ -125,7 +130,7 @@ class InitWritesTheWalls(unittest.TestCase):
         write(d, SETTINGS, "{ not json\n")
         r = init(d)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(open(os.path.join(d, SETTINGS)).read(), "{ not json\n")
+        self.assertEqual(raw(d), "{ not json\n")
         self.assertIn(f"PROPOSED {SETTINGS}", r.stdout)
         self.assertIn("does not parse", r.stdout)
 
@@ -170,7 +175,14 @@ def guard_tables():
 
 def subcommands(cmd):
     """The command split where Claude Code splits it (permissions docs: `&&`, `||`, `;`, `|`, `|&`, `&` and newlines),
-    outside quotes, each stripped of a subshell's parentheses."""
+    outside quotes, each stripped of a subshell's parentheses. A heredoc's body is data, not commands (a shell parse, as the
+    docs' "aware of shell operators" implies; the model's one assumption the real harness is not asked about here)."""
+    head = re.compile(r"<<(-?)\s*(['\"]?)(\w+)\2[^\n]*\n")
+    m = head.search(cmd)
+    while m:
+        end = re.compile(r"(?m)^" + (r"\t*" if m.group(1) else "") + re.escape(m.group(3)) + r"$").search(cmd, m.end())
+        cmd = cmd[:m.end()] + (cmd[end.end():] if end else "")
+        m = head.search(cmd, m.end())
     out, cur, q, i = [], "", None, 0
     while i < len(cmd):
         c = cmd[i]
@@ -206,9 +218,10 @@ def rule_regex(pattern):
 
 def denied_by(cmd, rules):
     """The rules that block `cmd`: any subcommand matching, as written or past its leading assignments (a deny rule
-    "matches past any leading assignment")."""
+    "matches past any leading assignment"). Both readings of a quoted word are tried, the text as written and the words a
+    shell parse yields: the docs do not say which the harness matches, so the stricter union is the model."""
     hits = []
-    for s in subcommands(cmd):
+    for s in subcommands(cmd) + [s.replace('"', "").replace("'", "") for s in subcommands(cmd)]:   # as written, and as the parsed words
         bare = re.sub(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+", "", s)
         hits += [r for r in rules if rule_regex(r).fullmatch(s) or rule_regex(r).fullmatch(bare)]
     return hits
@@ -248,7 +261,7 @@ class ThePatternsMatchTheDocs(unittest.TestCase):
         for cmd in allow:
             if cmd in self.ACCEPTED:
                 continue
-            self.assertEqual(denied_by(cmd, rules), [], f"the config would block the guard's ALLOW case {cmd!r}")
+            self.assertEqual(sorted(set(denied_by(cmd, rules))), [], f"the config would block the guard's ALLOW case {cmd!r}")
         for cmd in self.ACCEPTED:
             self.assertTrue(denied_by(cmd, rules), f"an accepted false positive is pinned, so its cost stays stated: {cmd!r}")
 
