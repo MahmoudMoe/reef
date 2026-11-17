@@ -768,3 +768,157 @@ def critical_in_flight(root):
             except (OSError, ValueError, AttributeError):
                 continue
     return False
+
+
+# hardening PR-10 (docs/design/hardening-pr10-plan.md, 2026-11-17, the owner: "the reports use ids nobody explained"):
+# every row, task, lesson or ADR id the owner reads carries its name — `row 7 (add CSV export)`. Parentheses, never an em
+# dash: ` — ` is the field separator of the lines these ids sit in (Mahmoud's DECIDE, questions.md, `— undo:`).
+NAME_MAX = 60
+NAME_KINDS = {"row": "row", "rows": "row", "task": "task", "tasks": "task", "lesson": "lesson", "lessons": "lesson", "adr": "adr", "adrs": "adr"}
+NOT_FOUND = "name not found"   # the queue may be unreadable, the task file in a checkout not here: said, never guessed
+REF_ID = r"#?(?:L\d+|R?\d+[a-z]?)(?![\w.-])"
+REF_WORD = re.compile(r"\b(rows?|tasks?|lessons?|ADRs?):?[ \t]+(?=" + REF_ID + ")", re.I)   # `rows: 3, 12` lists rows too
+REF_ONE = re.compile(REF_ID)
+REF_MORE = re.compile(r"[ \t]*(?:,|and|&)[ \t]*(?=" + REF_ID + ")")
+LESSON_ALONE = re.compile(r"(?<![\w#/.-])L\d+(?![\w.-])")
+REF_EXEMPT = re.compile(APPROVE_Q.pattern + r"|`[^`\n]*`|(?:(?<=\s)|^)(?:python3|gh|git|sh) [^\s][^\n]*|^[ \t]*(?:RUN:|VERDICT|summary:|Rows?:)[^\n]*", re.M)   # `Row: 12` is a SPEC's key
+
+
+def name_text(name):
+    """A name as the owner reads it: one plain line, footnote markers out, at most NAME_MAX characters, a cut marked."""
+    t = re.sub(r"\[\^[^\]]*\]|[⁰¹²³⁴⁵⁶⁷⁸⁹]+", "", plain(name)).strip()
+    return t if len(t) <= NAME_MAX else t[:NAME_MAX - 1].rstrip() + "…"
+
+
+def named(kind, rid, names=None):
+    """`row 7 (add CSV export)` — the one form (`kind` row, task, lesson or adr; `names` from names(root)). A name not found
+    is said, never left out: `row 7 (name not found)`."""
+    kind = NAME_KINDS.get(str(kind).lower(), str(kind).lower())
+    rid = str(rid).lstrip("#")
+    return f"{'ADR' if kind == 'adr' else kind} {rid} ({name_of(kind, rid, names)})"
+
+
+def name_of(kind, rid, names=None):
+    table = (names or {}).get(kind) or {}
+    key = str(rid).lstrip("#")
+    hit = table.get(key) or (table.get(str(int(key))) if key.isdigit() else None)   # `ADR 0003` is ADR 3
+    return name_text(hit) if hit else NOT_FOUND
+
+
+def _named_at(masked, end, kind, rid, names):
+    """The id ending at `end` is followed by ` (` — given `names`, by its name: whole, or (a name cut to NAME_MAX) its start."""
+    if names is None:
+        return masked.startswith(" (", end)
+    want = name_of(kind, rid, names)
+    return masked.startswith(f" ({want.rstrip('…') if want.endswith('…') else want + ')'}", end)
+
+
+def _ref_spans(text, names=None):
+    """[(kind, id, end, named)] for every reference in `text` outside the exempt spans (an approval question verbatim, a
+    backtick span, a command to the end of its line, a RUN:/VERDICT/summary: line). Named = the id is followed by ` (`
+    — and, given `names`, by ` (<its name>)`: `row 12 (process)` is a row with a word after it, not a named row."""
+    masked = REF_EXEMPT.sub(lambda m: " " * len(m.group(0)), text or "")
+    out, taken = [], set()
+    for m in REF_WORD.finditer(masked):
+        kind, pos = NAME_KINDS[m.group(1).lower()], m.end()
+        while True:
+            one = REF_ONE.match(masked, pos)
+            if not one:
+                break
+            end = one.end()
+            taken.add(one.start())
+            is_named = _named_at(masked, end, kind, one.group(0), names)
+            out.append((kind, one.group(0).lstrip("#"), end, is_named))
+            if is_named:   # skip the name, its parentheses balanced
+                depth, i = 0, end + 1
+                while i < len(masked):
+                    depth += {"(": 1, ")": -1}.get(masked[i], 0)
+                    i += 1
+                    if depth == 0:
+                        break
+                end = i
+            more = REF_MORE.match(masked, end)
+            if not more:
+                break
+            pos = more.end()
+    for m in LESSON_ALONE.finditer(masked):   # `L1` without its word is a lesson's id too
+        if m.start() not in taken:
+            out.append(("lesson", m.group(0), m.end(), _named_at(masked, m.end(), "lesson", m.group(0), names)))
+    return sorted(out, key=lambda r: r[2])
+
+
+def bare_refs(text, names=None):
+    """The references in owner-facing `text` that carry no name: `row 7`, `rows 3, 12`, `task 403`, `L1` — the check
+    tests/test_names.py runs over every rendered owner output, with the project's `names` (then only the real name counts).
+    [(kind, id)]."""
+    return [(k, i) for k, i, _, n in _ref_spans(text, names) if not n]
+
+
+def name_refs(text, names=None):
+    """`text` with every bare reference named — for text an agent or the loop wrote (a wait, a question, a footnote), at the
+    point the owner reads it. Exempt spans are left as they are; the text on disk is never rewritten."""
+    text = str(text or "")
+    for kind, rid, end, is_named in reversed(_ref_spans(text, names if names is not None else {})):
+        if not is_named:
+            text = text[:end] + f" ({name_of(kind, rid, names)})" + text[end:]
+    return text
+
+
+def _task_title(path, tid):
+    head = next((l for l in read(path, errors="replace", default="").splitlines() if l.startswith("# ")), "")
+    title = re.sub(r"^#\s*" + re.escape(str(tid)) + r"\b\s*(?:—|-|:)?\s*", "", head).strip()
+    if title and not title.startswith("<"):
+        return title
+    stem = os.path.basename(path)[:-3]
+    return stem[len(str(tid)):].lstrip("-_ ").replace("-", " ") or ""
+
+
+def names(root):
+    """{"row": {id: Item}, "task": {id: title}, "lesson": {id: text}, "adr": {number: title}} — what the owner's outputs name
+    their ids by, read once per render. Rows: the queue and its archive (an issues queue: the synced .reef/queue.json, no
+    network). Tasks: the `# <id> — <title>` heading of every task file in every checkout (a task in flight lives in its
+    feature worktree). Lessons: the ledger. ADRs: the first heading of each ADR file. What cannot be read is left out."""
+    import glob
+    cfg, out = read_config(root), {"row": {}, "task": {}, "lesson": {}, "adr": {}}
+    paths = cfg.get("paths") or {}
+    try:
+        if issues_mode(cfg):
+            with open(os.path.join(root, ".reef", "queue.json"), encoding="utf-8") as f:
+                snap = json.load(f)
+            for r in list(snap.get("rows") or []) + list(snap.get("closed") or []):
+                if isinstance(r, dict) and r.get("Id") is not None and r.get("Item"):
+                    out["row"].setdefault(str(r["Id"]), name_text(r["Item"]))
+        else:
+            q = load_sibling("reef-queue.py", "reef_queue_for_names")
+            rel = paths.get("queue", "docs/queue.md")
+            for p in (os.path.join(root, rel), os.path.join(root, os.path.dirname(rel), "queue-archive.md")):
+                for r in q.parse_table(read(p, errors="replace", default="")):
+                    if r.get("Item"):
+                        out["row"].setdefault(str(r["Id"]), name_text(r["Item"]))
+    except Exception:
+        pass
+    wt = git_out(root, "worktree", "list", "--porcelain", timeout=10)
+    tops = [l[len("worktree "):].strip() for l in wt.splitlines() if l.startswith("worktree ")] or [root]
+    for top in tops:
+        dirs = [os.path.join(top, paths.get("tasks") or "tasks")] + glob.glob(os.path.join(top, paths.get("features") or "reef/features", "*", "tasks"))
+        for d in dirs:
+            for p in sorted(glob.glob(os.path.join(d, "*.md")) + glob.glob(os.path.join(d, "done", "*.md"))):
+                m = re.match(r"(R?\d+[a-z]?)(?:[-_.]|$)", os.path.basename(p))
+                if m and m.group(1) not in out["task"]:
+                    t = _task_title(p, m.group(1))
+                    if t:
+                        out["task"][m.group(1)] = t
+        for d in [os.path.join(top, paths.get("adr") or "docs/adr")] + glob.glob(os.path.join(top, paths.get("features") or "reef/features", "*", "adr")):
+            for p in sorted(glob.glob(os.path.join(d, "*.md"))):
+                m = re.match(r"0*(\d+)[-_]", os.path.basename(p))
+                head = next((l for l in read(p, errors="replace", default="").splitlines() if l.startswith("# ")), "")
+                title = re.sub(r"^#\s*(?:ADR[ -]?)?0*\d+\s*(?:—|-|:|\.)?\s*", "", head).strip()
+                if m and title:
+                    out["adr"].setdefault(m.group(1), title)
+    try:
+        for lid, c in load_sibling("reef-lessons.py", "reef_lessons_for_names").state(main_checkout(root)).items():
+            text = str(c.get("lesson") or "")
+            out["lesson"][str(lid)] = re.sub(r"^\w+:\s*", "", text) if text else "not drafted yet"
+    except Exception:
+        pass
+    return out

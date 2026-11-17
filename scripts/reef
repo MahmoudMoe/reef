@@ -20,7 +20,7 @@ import threading
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, approval_questions, APPROVE_Q, questions, answer_command, drop_question, process_alive, plain, spec_row  # noqa: E402
+from reef_common import main_checkout, approval_questions, APPROVE_Q, questions, answer_command, drop_question, process_alive, plain, spec_row, named, names, name_refs  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
@@ -297,12 +297,13 @@ def approve_item(q, text=None, row=None):
 def inbox(root, doctor=None, runner=None):
     """Every wait Reef has recorded, as items — each with the argv that answers it, never twice. The sources are the loop's
     own files and scripts; agent-written text becomes a command only through a regex that admits nothing a shell reads."""
-    items = []
+    items, nm = [], names(root)   # hardening PR-10: every id an item's text shows carries its name
 
     def add(it):
         if it["kind"] == "approve" and already_approved(root, it["argv"][-1]):
             return   # decided: the record exists at this digest; the runner resumes on its own
         if it["argv"] and it["cmd"] not in [i["cmd"] for i in items]:
+            it["text"] = name_refs(it["text"], nm)   # the text only: argv and cmd are what runs, never rewritten
             items.append(it)
 
     st = read_json(os.path.join(root, ".reef", "loop.json"))
@@ -316,7 +317,8 @@ def inbox(root, doctor=None, runner=None):
     try:   # hardening PR-3: a lesson to land or retire is the owner's approval, one item each
         lm = sibling_module("reef-lessons.py", "reef_lessons_for_screen")
         for q in lm.owner_questions(root):
-            add(approve_item(q, text=f"lesson: {q}"))
+            lid = re.search(r"lesson (L\d+) at", q)
+            add(approve_item(q, text=f"{named('lesson', lid.group(1), nm)}: {q}" if lid else f"lesson: {q}"))
         for l in lm.report_lines(root):   # the owner's decision 6: a refused commit of a lesson file is never silent
             if l.startswith("- not committed: "):
                 add(item("look", "lesson files not committed: " + l[len("- not committed: "):], [PY, script("reef-loop.py") or "scripts/reef-loop.py", "tick"],
@@ -325,7 +327,7 @@ def inbox(root, doctor=None, runner=None):
         pass
     for r, issue, q, rec in questions(root):
         a = answer_command(root, r, issue, rec or "<your answer>")   # answered <#> on issues, the footnote on a file queue, the recommendation filled in
-        text = f"row {r}" + (f" (#{issue})" if issue else "") + f": {q}" + (f" (recommended: {rec})" if rec else "")
+        text = (named("row", r, nm) if r != "-" else "no row") + (f" #{issue}" if issue else "") + f": {q}" + (f" (recommended: {rec})" if rec else "")
         if a:
             argv, shown = a
             add(item("answer", text, [PY, script("reef-queue.py") or "scripts/reef-queue.py"] + argv[2:], shown=shown, row=r, recommended=rec, issue=issue))

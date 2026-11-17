@@ -110,7 +110,7 @@ class ContractNamesTheReadyRows(unittest.TestCase):
         d = project()   # rows 12 and 3 ready; the contract names 12
         r = subprocess.run([sys.executable, RUN, "contract", "--repo", d], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("WARN ready rows not in tonight's contract, which the night will not touch: 3", r.stdout)
+        self.assertIn("WARN ready rows not in tonight's contract, which the night will not touch: row 3 (items)", r.stdout)   # hardening PR-10: by name
 
 
 class PersonalProfile(unittest.TestCase):

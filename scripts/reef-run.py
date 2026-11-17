@@ -64,7 +64,7 @@ import time
 from functools import cache, partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question, merge_by, read_config, load_sibling, plugin_version, die as _die, ROW_ID, guard_seal, critical_in_flight  # noqa: E402
+from reef_common import main_checkout, process_alive, APPROVE_Q, row_approval_question, read_hold, drop_hold, HOLD_MINUTES, questions, answer_command, question_line, drop_question, merge_by, read_config, load_sibling, plugin_version, die as _die, ROW_ID, guard_seal, critical_in_flight, named, names, name_refs  # noqa: E402
 
 RUN_DIR = os.path.join(".reef", "run")
 LIVE = os.path.join(RUN_DIR, "live.log")
@@ -1100,7 +1100,7 @@ def owner_wait_lines(root, wait, mode):
         lines.append(f"  the runner starts again by itself once you decide — any command above, or the reef screen — or answer in /reef-loop in {host}")
     else:
         lines.append(f"  answer in /reef-loop in {host}")
-    return "\n".join(lines)
+    return name_refs("\n".join(lines), names(root))   # hardening PR-10: the wait's ids named; its commands are left as they are
 
 
 def drop_session_hold(root, sid):
@@ -1178,10 +1178,11 @@ def cmd_contract(root, src, day=False):
     if contract_line(os.path.join(root, NIGHT_DIR, "contract.md"), "Rows") is None:
         die("the contract has more than one `Rows:` line — keep ONE: `Rows: 3, 12 (not 7: <why>)`")
     print(f"night digest: {dg}")
-    print(f"rows: {', '.join(night_rows(root)) or '-'}")
+    nm = names(root)   # hardening PR-10: the rows the owner approves, by name
+    print(f"rows: {', '.join(named('row', r, nm) for r in night_rows(root)) or '-'}")
     left = [r for r in ready_rows(root) if r not in night_rows(root)]
     if left:
-        print(f"WARN ready rows not in tonight's contract, which the night will not touch: {', '.join(left)} — add them, or say why not")
+        print(f"WARN ready rows not in tonight's contract, which the night will not touch: {', '.join(named('row', r, nm) for r in left)} — add them, or say why not")
     print(f"question: Approve night {time.strftime('%Y-%m-%d')} at {dg[:16]}?")
     return 0
 
@@ -1271,6 +1272,7 @@ def morning_report(root, started, log, mode="night"):
                    else ("Mahmoud (proxy, day", os.path.join(RUN_DIR, "autopilot.md")))
     started = started if mode == "night" else autopilot_day_start(root, started)
     lines = [f"# {'Night' if mode == 'night' else 'Autopilot'} report — {time.strftime('%Y-%m-%d %H:%M')} (since {started})", ""]
+    nm = names(root)   # hardening PR-10: every row, task and lesson id in the report carries its name
     appr = []
     for p in sorted(glob.glob(os.path.join(root, ".reef", "approvals", "*.json"))):
         try:
@@ -1301,7 +1303,7 @@ def morning_report(root, started, log, mode="night"):
                 except ValueError:
                     continue
                 if str(rec.get("at", "")) >= started:
-                    day.append(f"- row {rec.get('row')} ({rec.get('kind')}): {rec.get('question')} → {rec.get('decision')} — undo: edit footnote {rec.get('footnote')}")
+                    day.append(f"- {named('row', rec.get('row'), nm)}, {rec.get('kind')}: {rec.get('question')} → {rec.get('decision')} — undo: edit footnote {rec.get('footnote')}")
     except OSError:
         pass
     lines += ["## The proxy's decisions by day (what he called process or wording — read the question)", *(day or ["- none"]), ""]
@@ -1338,8 +1340,8 @@ def morning_report(root, started, log, mode="night"):
         f.write(json.dumps({"started": started, "mode": mode, "day": today, **nums}) + "\n")
     dead = sum(1 for x in tonight if x.get("killed"))   # a killed session's cost never reached the log: say so, not a lower total
     lines += [f"Sessions: {len(tonight)} · cost: ${cost:.2f}" + (f" + {dead} killed, cost unknown" if dead else "") + f" · log: {os.path.relpath(log, root)}"]
-    with open(os.path.join(root, path), "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+    with open(os.path.join(root, path), "w", encoding="utf-8") as f:   # the footnotes, questions and merges are others' words: named here, on display
+        f.write(name_refs("\n".join(lines), nm) + "\n")
     line = f"reef-run: the {'night' if mode == 'night' else 'autopilot'} report — {path}"
     with open(os.path.join(root, LIVE), "a", encoding="utf-8") as f:   # the owner watching sees where the report is (the review)
         f.write(f"{time.strftime('%H:%M')} -- {line}\n")
