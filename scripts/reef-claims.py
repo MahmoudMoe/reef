@@ -27,7 +27,8 @@ Usage:
       round's tree and FAILS on the base's code with the round's test files in place (gates.one with {test} per test — a run
       whose output says it ran no test is refused, neither green nor red — else the whole fast gate once, and it says so); (b) every changed or untracked path matches the task's `files:` list (`dir/` a prefix, else an
       fnmatch glob; the task's folder always); (c) (hardening PR-5) each path an open task of its folder `consumes:` from it
-      exists on the tree and is changed by the round, unless the base had it. Exit 1, one `round: REFUSED — …` line per failure.
+      exists on the tree and is changed by the round, unless the base had it; (d) (hardening PR-9) no Avoid word of the glossary
+      in a code line the round added (reef-glossary.py check; docs and comments a NIT). Exit 1, one `round: REFUSED — …` per failure.
       kind: refactor, a rollup and a Proof naming no test skip (a); no `files:` skips (b). docs/design/hardening-pr1-plan.md.
   reef-claims.py claims-only <base>..<head> [--repo DIR]
       Exit 0 iff the range, stripped of documentation files and of comment/blank lines, is
@@ -384,6 +385,14 @@ def cmd_round(repo, task_path, base):
                 delivered += 1
     if delivered:
         print(f"hand-offs: {delivered} consumed paths delivered")
+    # (d) (hardening PR-9) the glossary's Avoid words: one the round added in a code or schema line is refused; docs and comments a NIT
+    if os.path.isfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-glossary.py")):
+        fails, nits, note = load_sibling("reef-glossary.py", "reef_glossary").check(repo, base, skip=(folder,))
+    else:   # a project's scripts/ from before PR-9 (`reef update` brings it): said, not refused
+        fails, nits, note = [], [], "glossary: scripts/reef-glossary.py missing beside this script — not checked (reef update)"
+    for line in ([note] if note else []) + [f"glossary: NIT — {m}" for m in nits]:
+        print(line)
+    refused += [f"glossary: {m}" for m in fails]
     # (a) red first
     _, proof = task_criteria(text)
     test_re = re.compile((cfg.get("plan") or {}).get("test_re", "") or load_sibling("reef-plan-check.py", "reef_plan_check").DEFAULT_TEST_RE)

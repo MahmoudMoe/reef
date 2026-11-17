@@ -16,6 +16,7 @@ Checks, each OK / WARN / FAIL with the fix on the same line:
   loop     .reef/loop.json: active, wait, stop; the status page
   tools    gh auth, docker (when a compose file exists)
   proposals  renderings waiting in <git dir>/reef/proposed/ and the command that accepts or keeps them
+  glossary   a term nothing uses outside the glossary, with the owner's retirement question (hardening PR-9)
 Exit 0 = no FAIL · 1 = at least one FAIL · 2 = not a Reef project.
 
 Usability plan A1 (2026-10-17): the owner typed `--accept` and `--keep` by trial, pulled the plugin on the wrong
@@ -30,7 +31,7 @@ import sys
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
-from reef_common import lint_state, read_hold, git_rc, plugin_root, plugin_version, commands_off_path, remote_fix, release_fix  # noqa: E402
+from reef_common import lint_state, read_hold, git_rc, plugin_root, plugin_version, commands_off_path, remote_fix, release_fix, load_sibling  # noqa: E402
 
 LINES = []
 
@@ -374,6 +375,14 @@ def main(argv):
             f"python3 {plugin}/scripts/reef-init.py --root {root} --accept {props[0]}")   # a project has no scripts/reef-init.py (2026-10-31)
     else:
         say("OK", "proposals: none")
+    try:   # hardening PR-9: a term nothing uses is the owner's to retire (one item each in the inbox), three at a time
+        gl = load_sibling("reef-glossary.py", "reef_glossary_for_doctor").doctor_findings(root)
+        for level, what, fix in gl[:3]:
+            say(level, what, fix)
+        if len(gl) > 3:
+            say("WARN", f"glossary: {len(gl) - 3} more", "python3 scripts/reef-glossary.py candidates")
+    except Exception as e:
+        say("WARN", f"glossary: not read ({e})")
     for l in LINES[:40]:
         print(l)
     return 1 if any(l.startswith("FAIL") for l in LINES) else 0
