@@ -23,6 +23,7 @@ import sys
 from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree (reef-update, a row worktree read it as changes)
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"   # nor the tests the close runs, its commits' gate too (hardening PR-12: the worktree stayed)
 from reef_common import main_checkout, git_checked, die as _die, load_sibling, task_frontmatter, report_verdict, journal_blocks  # noqa: E402
 
 FENCE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.S)
