@@ -652,7 +652,7 @@ def main(argv):
             if not approves(label):
                 print(f"reef-approval: glossary term {gq.group('term')}: answer was {label!r} — nothing written")
                 continue
-            ok, msg = load_sibling("reef-glossary.py", "reef_glossary").approve(root, gq.group("term"), gq.group("digest"))
+            ok, msg = load_sibling("reef-glossary.py", "reef_glossary").approve_retirement(root, gq.group("term"), gq.group("digest"))
             print(f"reef-approval: {msg}")
             wrote += 1 if ok else 0
             continue

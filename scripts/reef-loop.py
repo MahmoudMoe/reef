@@ -266,7 +266,7 @@ def tick(root):
     except Exception as e:
         print(f"lessons: not committed — {e}", file=sys.stderr)
     try:   # hardening PR-9: an approved glossary retirement is committed here too, never in the approval hook
-        load_sibling("reef-glossary.py", "reef_glossary").commit_pending(root)
+        load_sibling("reef-glossary.py", "reef_glossary").commit_retirements(root)
     except Exception as e:
         print(f"glossary: not committed — {e}", file=sys.stderr)
     cfg = config(root)

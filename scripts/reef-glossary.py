@@ -45,7 +45,7 @@ def history_rel(gloss):
     return os.path.join(os.path.dirname(gloss), "glossary-history.md").replace(os.sep, "/")
 
 
-def parse(text):
+def parse_glossary(text):
     """[{term, avoid, row}] of the table whose header has a `Term` cell; `avoid` from a column headed `Avoid`, else []."""
     out, cols = [], None
     for line in (text or "").splitlines():
@@ -81,7 +81,8 @@ def pattern(word):
     return re.compile(r"(?<![a-z0-9])" + r"\s+".join(parts) + r"(?:e?s)?(?![a-z0-9])") if parts else None
 
 
-def git(repo, *args):
+def git_replace(repo, *args):
+    """(exit, stdout) with undecodable bytes replaced: a project's file need not be UTF-8 (reef_common's git decodes strictly)."""
     r = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, errors="replace")
     return r.returncode, r.stdout
 
@@ -89,14 +90,14 @@ def git(repo, *args):
 def avoids(repo, base):
     """[(word, term, [the term's avoid words])]: the Avoid words of the base's glossary and the worktree's (a round cannot drop one)."""
     rel = glossary_rel(repo)
-    _, at_base = git(repo, "show", f"{base}:{rel}")
+    _, at_base = git_replace(repo, "show", f"{base}:{rel}")
     try:
         with open(os.path.join(repo, rel), encoding="utf-8") as f:
             here = f.read()
     except OSError:
         here = ""
     seen, out = {}, []
-    for t in parse(at_base) + parse(here):
+    for t in parse_glossary(at_base) + parse_glossary(here):
         for w in t["avoid"]:
             key = w.lower()
             if key not in seen:
@@ -108,25 +109,27 @@ def avoids(repo, base):
 def changes(repo, base):
     """{path: (added [(lineno, text)], removed [text])} of the worktree against `base`, untracked files whole."""
     out = {}
-    rc, diff = git(repo, "diff", "-U0", "--no-renames", "--no-color", "--no-ext-diff", base, "--")
+    rc, diff = git_replace(repo, "-c", "core.quotePath=false", "diff", "-U0", "--no-renames", "--no-color", "--no-ext-diff", base, "--")
     if rc != 0:
         die(f"git diff {base} failed")
-    path, n = None, 0
+    path, n, header = None, 0, False
     for line in diff.splitlines():
-        if line.startswith("+++ "):
+        if line.startswith("diff --git "):
+            path, header = None, True   # the file's header lines until its first hunk: never content
+        elif header and line.startswith("+++ "):
             path = line[6:] if line.startswith("+++ b/") else None
             if path:
                 out.setdefault(path, ([], []))
-        elif line.startswith("--- ") or line.startswith("diff --git"):
-            continue
         elif HUNK.match(line):
-            n = int(HUNK.match(line).group(1))
-        elif path and line.startswith("+"):
+            n, header = int(HUNK.match(line).group(1)), False
+        elif header or not path:
+            continue
+        elif line.startswith("+"):
             out[path][0].append((n, line[1:]))
             n += 1
-        elif path and line.startswith("-"):
+        elif line.startswith("-"):
             out[path][1].append(line[1:])
-    _, others = git(repo, "ls-files", "--others", "--exclude-standard", "-z")
+    _, others = git_replace(repo, "-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard", "-z")
     for p in (x for x in others.split("\0") if x):
         try:
             with open(os.path.join(repo, p), "rb") as f:
@@ -178,7 +181,7 @@ def used(root, term):
     first = words(term).split()
     if not rx or not first:
         return True
-    rc, out = git(root, "grep", "-I", "-i", "-l", "-z", "-F", "-e", first[0], "--", ".", f":(exclude){rel}", f":(exclude){history_rel(rel)}")
+    rc, out = git_replace(root, "grep", "-I", "-i", "-l", "-z", "-F", "-e", first[0], "--", ".", f":(exclude){rel}", f":(exclude){history_rel(rel)}")
     for p in (x for x in out.split("\0") if x) if rc == 0 else ():
         try:
             with open(os.path.join(root, p), encoding="utf-8", errors="replace") as f:
@@ -189,12 +192,12 @@ def used(root, term):
     return False
 
 
-def digest(term, row):
+def term_digest(term, row):
     return hashlib.sha256(json.dumps(["retire-term", term, row], ensure_ascii=False).encode()).hexdigest()
 
 
-def question(term, row):
-    return f"Approve retiring glossary term {term} at {digest(term, row)[:16]}?"
+def term_question(term, row):
+    return f"Approve retiring glossary term {term} at {term_digest(term, row)[:16]}?"
 
 
 def read_glossary(root):
@@ -208,25 +211,25 @@ def read_glossary(root):
 def candidates(start):
     """[(term, question)] of the terms nothing uses outside the glossary — retirement candidates, never removed by code alone."""
     root = main_checkout(repo_root(start))
-    return [(t["term"], question(t["term"], t["row"])) for t in parse(read_glossary(root)) if not used(root, t["term"])]
+    return [(t["term"], term_question(t["term"], t["row"])) for t in parse_glossary(read_glossary(root)) if not used(root, t["term"])]
 
 
 def slug(term):
     return re.sub(r"[^a-z0-9]+", "-", term.lower()).strip("-") or "term"
 
 
-def record_path(root, term):
+def term_record(root, term):
     return os.path.join(root, ".reef", "approvals", f"glossary-{slug(term)}.json")
 
 
-def approve(root, term, digest16):
+def approve_retirement(root, term, digest16):
     """The owner's `Approve retiring glossary term <term> at <digest16>?`: (ok, message). The row moves to the history file;
     an unknown term, a stale digest (the row changed) or a term used since: nothing written."""
     text = read_glossary(root)
-    row = next((t["row"] for t in parse(text) if t["term"] == term), None)
+    row = next((t["row"] for t in parse_glossary(text) if t["term"] == term), None)
     if row is None:
         return False, f"glossary term {term}: no such term in {glossary_rel(root)} — nothing written"
-    dg = digest(term, row)
+    dg = term_digest(term, row)
     if dg[:16] != digest16:
         return False, f"glossary term {term}: the question's digest {digest16} is not the row's ({dg[:16]}) (stale) — nothing written"
     if used(root, term):
@@ -243,8 +246,8 @@ def approve(root, term, digest16):
     with open(hp, "a", encoding="utf-8") as f:
         f.write(("# Glossary — history\n\nEvery retired term, never deleted. Written by scripts/reef-glossary.py on the owner's approval.\n\n" if new else "")
                 + f"- {time.strftime('%Y-%m-%d', time.gmtime())} retired: {row}\n")
-    os.makedirs(os.path.dirname(record_path(root, term)), exist_ok=True)
-    with open(record_path(root, term), "w", encoding="utf-8") as f:
+    os.makedirs(os.path.dirname(term_record(root, term)), exist_ok=True)
+    with open(term_record(root, term), "w", encoding="utf-8") as f:
         json.dump({"action": "retire-term", "term": term, "digest16": dg[:16], "digest": dg, "by": "owner", "paths": [rel, hist],
                    "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f, indent=1)
         f.write("\n")
@@ -266,7 +269,7 @@ def records(root):
     return out
 
 
-def commit_pending(start):
+def commit_retirements(start):
     """On the tick: each approved retirement not yet committed is committed — its two files alone, under the pre-commit gate
     (reef-lessons.py's commit). A refusal stays on the record for the doctor; None, or the last why."""
     root = main_checkout(repo_root(start))
@@ -288,7 +291,7 @@ def commit_pending(start):
     return why
 
 
-def doctor_lines(start):
+def doctor_findings(start):
     """[(level, what, fix)] for reef doctor: each candidate with the owner's command, each refused commit with its why."""
     root = main_checkout(repo_root(start))
     rel = glossary_rel(root)
@@ -303,7 +306,7 @@ def main(argv):
     repo = argv[argv.index("--repo") + 1] if "--repo" in argv and argv.index("--repo") + 1 < len(argv) else "."
     args = [a for i, a in enumerate(argv) if a != "--repo" and (i == 0 or argv[i - 1] != "--repo")]
     if args[:1] == ["check"] and len(args) <= 2:
-        rc, base = git(repo, "merge-base", args[1], "HEAD") if len(args) == 2 else git(repo, "rev-parse", "HEAD")
+        rc, base = git_replace(repo, "merge-base", args[1], "HEAD") if len(args) == 2 else git_replace(repo, "rev-parse", "HEAD")
         if rc != 0:
             die(f"no merge-base of {args[1] if len(args) == 2 else 'HEAD'} and HEAD")
         fails, nits, note = check(repo, base.strip())
@@ -311,7 +314,7 @@ def main(argv):
             print(line)
         return 1 if fails else 0
     if args == ["candidates"]:
-        for _, what, fix in doctor_lines(repo):
+        for _, what, fix in doctor_findings(repo):
             print(f"{what} — {fix}")
         return 0
     print("usage: reef-glossary.py check [<rev>] [--repo DIR] | candidates [--repo DIR]", file=sys.stderr)

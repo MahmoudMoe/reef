@@ -49,11 +49,11 @@ class Format(unittest.TestCase):
         self.m = load_script("reef-glossary.py")
 
     def test_the_avoid_column_is_read_and_a_two_column_glossary_bans_nothing(self):
-        terms = self.m.parse(GLOSS)
+        terms = self.m.parse_glossary(GLOSS)
         self.assertEqual([t["term"] for t in terms], ["Account", "Work item", "Ledger"])
         self.assertEqual(terms[0]["avoid"], ["customer", "client"])
         self.assertEqual(terms[2]["avoid"], [], "an empty cell bans nothing")
-        self.assertEqual(self.m.parse(TWO_COL), [{"term": "Account", "avoid": [], "row": "| Account | A paying organisation. |"}])
+        self.assertEqual(self.m.parse_glossary(TWO_COL), [{"term": "Account", "avoid": [], "row": "| Account | A paying organisation. |"}])
 
     def test_the_template_has_the_avoid_column(self):
         with open(os.path.join(ROOT, "templates", "glossary.md"), encoding="utf-8") as f:
@@ -123,6 +123,12 @@ class Check(unittest.TestCase):
         write(self.d, "docs/glossary.md", GLOSS.replace("| customer, client |", "| |"))
         write(self.d, "src/b.py", "customer = 1\n")
         self.assertEqual(check(self.d).returncode, 1, "the base's Avoid words still count")
+
+    def test_an_added_line_that_starts_like_a_header_is_content(self):
+        write(self.d, "src/legacy.py", "x = 1\n")
+        git(self.d, "add", "-A"); git(self.d, "commit", "-qm", "x")
+        write(self.d, "src/legacy.py", "x = 1\n++ customer\n")
+        self.assertIn('src/legacy.py:2 uses "customer"', check(self.d).stdout)
 
     def test_an_untracked_file_is_scanned(self):
         write(self.d, "src/new.py", "ticket = 1\n")

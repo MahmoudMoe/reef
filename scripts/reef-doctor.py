@@ -376,7 +376,7 @@ def main(argv):
     else:
         say("OK", "proposals: none")
     try:   # hardening PR-9: a term nothing uses is the owner's to retire (one item each in the inbox), three at a time
-        gl = load_sibling("reef-glossary.py", "reef_glossary_for_doctor").doctor_lines(root)
+        gl = load_sibling("reef-glossary.py", "reef_glossary_for_doctor").doctor_findings(root)
         for level, what, fix in gl[:3]:
             say(level, what, fix)
         if len(gl) > 3:

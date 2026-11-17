@@ -386,7 +386,10 @@ def cmd_round(repo, task_path, base):
     if delivered:
         print(f"hand-offs: {delivered} consumed paths delivered")
     # (d) (hardening PR-9) the glossary's Avoid words: one the round added in a code or schema line is refused; docs and comments a NIT
-    fails, nits, note = load_sibling("reef-glossary.py", "reef_glossary").check(repo, base, skip=(folder,))
+    if os.path.isfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "reef-glossary.py")):
+        fails, nits, note = load_sibling("reef-glossary.py", "reef_glossary").check(repo, base, skip=(folder,))
+    else:   # a project's scripts/ from before PR-9 (`reef update` brings it): said, not refused
+        fails, nits, note = [], [], "glossary: scripts/reef-glossary.py missing beside this script — not checked (reef update)"
     for line in ([note] if note else []) + [f"glossary: NIT — {m}" for m in nits]:
         print(line)
     refused += [f"glossary: {m}" for m in fails]
