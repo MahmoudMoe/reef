@@ -496,6 +496,17 @@ class TheRoundCheckLeavesNoByteCode(unittest.TestCase):
         self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
         self.assertEqual(self.bytecode(self.wt), [], "the check wrote no byte-code")
 
+    def test_the_commit_gate_the_close_runs_writes_no_byte_code_either(self):
+        # a project's .githooks/pre-commit runs the tests in the tree it commits: the task worktree, then the feature's
+        self.setup("def add(a, b):\n    return 0\n", ignore="")
+        write(self.tmp, "hooks/pre-commit", "#!/bin/sh\nexec python3 -m unittest discover -s tests -q\n")
+        os.chmod(os.path.join(self.tmp, "hooks/pre-commit"), 0o755)
+        git(self.main, "config", "core.hooksPath", os.path.join(self.tmp, "hooks"))
+        r = self.close(BYTECODE_ON)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(os.path.exists(self.wt), "the task worktree is removed")
+        self.assertEqual(self.bytecode(self.feat), [], "the merge commit's gate wrote no byte-code")
+
     def test_a_pyc_the_round_adds_still_counts(self):
         self.setup("def add(a, b):\n    return 0\n", ignore="", files="[src/calc.py, tests/]")
         write(self.wt, "src/__pycache__/keep.pyc", "kept on purpose\n")

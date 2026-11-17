@@ -54,6 +54,8 @@ covered (none of the stacks Reef detects does by default).
   merged).
 - the check run twice on the same round (a re-run after any refusal), `files: [src/, tests/test_calc.py]` → the second
   run's scope check passes (red today: `outside the task's files: tests/__pycache__/…`).
+- D2: a pre-commit gate (`core.hooksPath`) that runs the tests, on a dirty close → closes, the task worktree is removed and
+  the feature worktree holds no byte-code (red with only `round_run` fixed: `merged but its worktree stays`).
 - not hidden: a `.pyc` the round adds on purpose (`src/__pycache__/keep.pyc`, committed), with `files: [src/calc.py, tests/]` → still
   refused `outside the task's files: src/__pycache__/keep.pyc`.
 

@@ -309,7 +309,8 @@ def ran_none(rc, out):
 
 def round_run(repo, cmd, log, no_cache=False):
     """(exit, output) of `cmd` in the worktree, the output kept in `log` (the git dir: never a change of the round's); 124 past gates.timeout_s."""
-    env = dict(os.environ, **({"REEF_GATE_NO_CACHE": "1"} if no_cache else {}))
+    # no byte-code (hardening PR-12): un-ignored __pycache__/ was merged, kept the worktree and tripped files: on the next check
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", **({"REEF_GATE_NO_CACHE": "1"} if no_cache else {}))
     limit = int((read_cfg(repo).get("gates") or {}).get("timeout_s", 1200) or 0) or None
     try:
         r = subprocess.run(["sh", "-c", cmd], cwd=repo, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=limit)
