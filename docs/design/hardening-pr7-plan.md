@@ -119,7 +119,16 @@ All three are in one new suite, `tests/test_walls.py` (so it does not conflict w
 3. **Doctor**: a Reef project without `.claude/settings.json` → `WARN walls: …`; with the block →
    `OK walls`; with `sandbox.enabled: false` → `WARN` naming the key.
 
-## 8. Questions for the owner (conservative default taken, flagged)
+## 8. Rulings relayed (orchestrator, 2026-11-17; the owner confirms)
 
-- Q1: add `.claude/settings.json` to `GUARD_FILES` (guard + seal) in a follow-up? Default here: **no** (section 6).
-- Q2: should `reef update` commit the merged `.claude/settings.json`? Default here: **no**, the owner commits it.
+- **Q1: `GUARD_FILES` is a follow-up, but the walls' own files are walled here.** The block denies
+  `Edit(/.claude/settings.json)` **and** `Edit(/.claude/settings.local.json)`. `Edit(…)` covers Write, MultiEdit and
+  NotebookEdit (section 5). The sandbox already write-protects ".claude settings files" by default **[S]**, and
+  bypassPermissions skips that protection's prompt (section 5, last row). So the deny is belt-and-braces in default mode and
+  the only wall in bypass mode. `settings.local.json` gets no `denyWrite` entry: it often does not exist, and on Linux a
+  missing path's entry "has no effect". The default protection covers it. **How init still writes it:** `reef-init.py` is a
+  Python process the agent starts with the Bash tool, never the Edit tool, so the Edit deny does not apply. Under the
+  sandbox the default protection does apply, and then section 1's proposal flow takes over (`--accept` from the owner's terminal).
+  Test: `test_the_settings_files_themselves_are_walled_and_the_owner_is_told_to_commit`.
+- **Q2: `reef update` does not commit the file.** When init writes or merges it, it prints
+  `WALLS: commit .claude/settings.json yourself …`. Same test.

@@ -5,6 +5,7 @@
       "deny": [
         "Edit(~/.claude/plugins/**)",
         "Edit(/.claude/settings.json)",
+        "Edit(/.claude/settings.local.json)",
         "Edit(/.git/hooks/**)",
         "Edit(/.githooks/**)",
         "Edit(/.reef/approvals/**)",

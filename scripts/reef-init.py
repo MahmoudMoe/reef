@@ -888,6 +888,8 @@ def main(argv):
         print("".join("    " + l for l in diff.splitlines(True)), end="")
     if w.proposed:
         print(f"  to apply one after reading its diff: python3 {os.path.abspath(__file__)} --root {os.path.abspath(root)} --accept <path>")
+    if any(r.startswith(SETTINGS) for r in w.written) and not dry:
+        print(f"  WALLS: commit {SETTINGS} yourself (git add {SETTINGS}) — every clone and worktree reads it; reef update does not commit it")
     for r in w.offered:
         print(f"  OFFERED  {r} — optional, never written unasked (minutes, a secret): read its header, then python3 {os.path.abspath(__file__)} --root {os.path.abspath(root)} --accept {r}")
     if not facts["test"]:
