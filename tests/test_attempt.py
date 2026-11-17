@@ -528,5 +528,36 @@ class FromRound(unittest.TestCase):
         self.assertEqual(open(self.p, "rb").read(), before)
 
 
+
+class AdrsAtDispatch(unittest.TestCase):
+    """Hardening PR-8: the dispatch prints the `adrs:` block — the Accepted ADRs whose Paths meet the task's files:, and the
+    undeclared — so the implementer reads those, by code, not every ADR the project ever accepted."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="reef-attempt-adrs.")
+        os.makedirs(os.path.join(self.dir, ".reef"))
+        self.p = make_task(self.dir, fm="id: 7\nstatus: pending\neffort: medium\nattempts: 0\nfiles: [src/auth/]\n")
+
+    def adr(self, name, paths):
+        d = os.path.join(self.dir, "reef", "architecture", "adr")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, name), "w") as f:
+            f.write(f"# ADR\n\nStatus: Accepted\nPaths: {paths}\n\n## Context\nx\n")
+
+    def test_the_dispatch_prints_the_adrs_block_before_reef_task(self):
+        self.adr("0001-auth.md", "src/auth/")
+        self.adr("0002-billing.md", "src/billing/")
+        r = run(self.p)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("\nadrs: 1 of 2 Accepted ADRs touch this task's files:", r.stdout)
+        self.assertIn("\n  reef/architecture/adr/0001-auth.md (Paths: src/auth/)\nadrs: end\n", r.stdout)
+        self.assertNotIn("0002-billing", r.stdout)
+        self.assertLess(r.stdout.index("adrs: end"), r.stdout.index("REEF-TASK: "), "REEF-TASK stays the last line")
+
+    def test_no_adr_no_block(self):
+        r = run(self.p)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("adrs:", r.stdout)
+
 if __name__ == "__main__":
     unittest.main()

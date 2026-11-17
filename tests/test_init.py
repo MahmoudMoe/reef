@@ -740,6 +740,8 @@ class DayZero(unittest.TestCase):
         self.assertIn("Microservices", shape)                     # with the alternative it rejects and why
         self.assertIn("browser, api, store", shape)
         self.assertIn("## Diagram", read(d, "reef/architecture/adr/draft-1-hosting.md"))
+        for adr in ("draft-1-shape.md", "draft-1-hosting.md", "draft-1-data-store.md", "draft-1-auth-boundary.md"):
+            self.assertIn("\nPaths: *\n", read(d, f"reef/architecture/adr/{adr}"), "a project-wide decision governs every path (PR-8)")
         r2 = init(d, "--grill", os.path.join(d, "answers.json"))
         self.assertRegex(r2.stdout, r"\n  0 written, \d+ skipped, 0 proposed", "a second grill run writes nothing")
 
