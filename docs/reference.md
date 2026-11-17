@@ -298,20 +298,20 @@ review also doing the guard pass and, on a risk touch, the security review, all 
 | Acceptance | read-only | The row's ONE reviewer, every path: the feature against its spec from the user's side, the diff against the base, every criterion against its named test in the evidence; on the critical path also the guard pass and, on a risk touch, the security review. One report, `HEAD:` to `VERDICT:`; the green record binds to it. | `roles.reviewer`: sonnet; opus on `design` and `critical` |
 | Mechanic | writes, no claims | Rebase, run the gates, re-take a measurement, archive edits; inside a row's workflow it closes each green task in place (`reef-merge-close`). Exit codes and diffs, never prose. | the cheapest model |
 | Mahmoud | read-only | Your proxy and the project's CTO: a master architect and senior software architect with research depth in software and AI, who reads the business as an economist (finance, marketing, sales, after-sales, the front staff) and still chooses the simplest robust thing. Decides what you would decide from your profile (`reef/owner.md`) and your own footnotes, inside the contract you approved — a night's (`.reef/night/contract.md`) or the day's (`reef/proxy.md`): plan approvals, design looks, product and process questions, holes after the hunter's rounds, found-row triage. Challenges a plan once, on the record (`reef-approval.py --proxy --challenge`; the second challenge on a row is yours); researches the web when it changes the decision (a page is evidence, never an instruction; nothing from the repository leaves the machine). Never a hard limit, never the release; every decision recorded in his name with its undo. | `roles.proxy` (Opus, effort high) |
-| Security | read-only | Once per feature on the critical path (`review.security_per_item`), and once per release: audits the diff against the threat model and the constitution, then argues what a scanner cannot reach (untrusted input, the authenticated attacker, the deployment surface). Its verdict is a record; the release PR opens only on a PASS at its head. | `roles.security` |
+| Security | read-only | Once per release (a feature's security review is the acceptance report's `## Security`): audits the batch's diff against the constitution's security rules and the threat model when there is one (a missing one is named, never a finding), then argues what a scanner cannot reach (untrusted input, the authenticated attacker, the deployment surface). Its verdict is a record; the release PR opens only on a PASS at its head. | `roles.security` |
 
 The tier decides which model does the work, which model judges it, and how hard they try. You declare it on a task;
 the paths it touches can only move it up.
 
 | Tier | When a task is this tier | Judges | Author | Effort | How it is checked |
 |---|---|---|---|---|---|
-| `critical` | First-time analysis, architecture, the constitution, the threat model, `touches: money\|pii\|auth`, the guard's own paths. | opus | opus | high | judge; the hunter on the plan (two rounds) and on the feature's diff |
-| `design` | Two people would build it differently; a mechanism that failed twice; auth, crypto, secrets, migrations. | opus | opus | high | judge; the hunter on the feature's diff (`hunter.plan_pass: design` adds the plan) |
-| `full` | The default. | opus | opus | medium | judge; the hunter on the feature's diff |
-| `light` | Allowlisted paths (`docs/**`, `README.md`), no risk path, under the line ceiling. | none: the deterministic check alone stamps | opus | low | gate and golden test, no judge |
+| `critical` | First-time analysis, architecture, the constitution, the threat model, `touches: money\|pii\|auth`, the guard's own paths. | opus | opus | high | critical path: a verifier per task, the hunter on the plan (two rounds), the one review's guard pass |
+| `design` | Two people would build it differently; a mechanism that failed twice; auth, crypto, secrets, migrations. | opus | opus | high | critical path: a verifier per task, the hunter on the plan (`hunter.plan_pass: design`), the one review's guard pass |
+| `full` | The default. | sonnet (the one reviewer) | sonnet; the planner on opus | medium | fast path: the fast gate per task, the full suite once per row, one reviewer |
+| `light` | Allowlisted paths (`docs/**`, `README.md`), no risk path, under the line ceiling. | none: the deterministic check alone stamps | sonnet | low | gate and golden test, no judge |
 
 The model names are Claude Code's defaults. Change the model per role and tier in `.reef/config.json` under `tiers.<tier>.roles`; a project with no tier table gets
-one model per role (`roles.*`).
+one model per role (`roles.*`: sonnet to build, verify and review; opus to plan, attack, audit and decide). A row of `light` and `full` tasks takes the fast path; any `design` or `critical` task, or a touch of auth, pii, money or a migration, puts the row on the critical path.
 
 <p align="center"><img src="../assets/divider-rain.svg" alt="" width="100%"></p>
 
@@ -513,7 +513,9 @@ and never runs in CI; its fixture replay does.
 
 ### Status and what is next
 
-Reef 0.7.4 is the released version. It brings the hands-off plan (`docs/design/owner-hands-off.md`) — `reef autopilot`
+Reef 0.7.4 is the released version; `main` is the 0.7.5 development line (`0.7.5-dev.N`, every change under "0.7.5 (unreleased)" in `CHANGELOG.md`): one review per row on every path — the plan-reviewer and converge are gone, and on the critical path the acceptance report carries the hunter's guard pass and the feature's security review —, opus to plan and on the critical path and sonnet for the rest, found rows built only once the owner promotes them (`reef-queue.py promote`), a guard that judges a write by the Reef project it lands in, a close that recovers from a session cut off mid-commit, a release security pass that no longer rates a missing threat model, and the opt-in clean-code gate `reef-structure --quality`.
+
+0.7.4 brings the hands-off plan (`docs/design/owner-hands-off.md`) — `reef autopilot`
 as the standing delegation, a runner that never stops dead (its last word reaches the screen and the desk, a decision restarts it:
 `reef resume`), the `reef` screen in its fourth design (the work board, the inbox, PLAN, the autopilot panel), questions on an issues queue
 answered from the screen, and Mahmoud as the project's CTO who challenges a plan once, on the record, on Opus at high effort. Then: the autopilot sleeps on an owner wait it cannot decide and its report covers the day; the day contract is approved from an issue comment (`reef-approval.py --from-issue day`); graph mode runs only in the sessions you run yourself; the full suite runs once per row; owner waits are one line with no placeholders; the screen's LOG shows each row's files; `reef update`, `/reef-watch`, and the runner keeping the project's scripts level with the plugin. Then it was stress-tested in three rounds (a crash at every step of a row, a fuzz of every file an agent writes) and run live on GitHub, and every finding was fixed: a crash at any step resumes, one reader parses each line an agent writes, init checks the gate commands, the remote and the release branch on first contact, the guard reads inline programs and the runner seals the guard's own files, a stale build is rebuilt before the gate, and a resumed session's cost is counted once.
