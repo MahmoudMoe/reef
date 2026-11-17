@@ -649,7 +649,7 @@ class NormalRound(unittest.TestCase):
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertTrue(os.path.exists(crumb), "the desk was told")
         told = open(crumb).read()
-        self.assertIn("row 7 needs you", told, "the wait itself, not only the title")
+        self.assertIn("row 7 (name not found) needs you", told, "the wait itself, not only the title — its row named (hardening PR-10)")
         self.assertIn('\\"yes\\"', told, "a quote in the wait is escaped for the AppleScript literal")
         self.assertIn("\\\\no", told, "a backslash too")
         os.unlink(crumb)

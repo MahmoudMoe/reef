@@ -179,10 +179,10 @@ class Draft(unittest.TestCase):
         drafts = [e for e in ledger(self.d) if e.get("ev") == "draft"]
         self.assertEqual((drafts[0]["layer"], drafts[0]["lesson"]), ("harness", "name every file the fix touches in files: before the round starts"))
         rep = lessons(self.d, "report").stdout
-        self.assertRegex(rep, r"proposed: L1 harness — name every file .* — Approve lesson L1 at [0-9a-f]{16}\?")
+        self.assertRegex(rep, r"proposed: lesson L1 \(name every file .*\) — harness · class round-scope · from task 101 \(t\) · same-failure — Approve lesson L1 at [0-9a-f]{16}\?")
 
     def test_an_undrafted_candidate_is_named_with_its_facts_command(self):
-        self.assertIn("to draft: L1 (same-failure, task 101, class round-scope) — python3 scripts/reef-lessons.py facts L1", lessons(self.d, "report").stdout)
+        self.assertIn("to draft: lesson L1 (not drafted yet) — same-failure · task 101 (t) · class round-scope — python3 scripts/reef-lessons.py facts L1", lessons(self.d, "report").stdout)
 
 
 class ApproveAndLand(unittest.TestCase):
@@ -198,7 +198,7 @@ class ApproveAndLand(unittest.TestCase):
         self.assertRegex(text, r"(?m)^## Lessons\n(.*\n)*- L1 · class round-scope · sig " + sig + r" · landed \d{4}-\d\d-\d\d · a round that edits")
         rec = json.load(open(os.path.join(self.d, ".reef", "approvals", "lesson-L1.json")))
         self.assertEqual((rec["action"], rec["by"]), ("land", "owner"))
-        self.assertIn("landed: L1 harness · round-scope", lessons(self.d, "report").stdout)
+        self.assertRegex(lessons(self.d, "report").stdout, r"landed: lesson L1 \(a round that edits .*\) — harness · round-scope")
 
     def test_a_redraft_makes_the_old_question_stale_and_nothing_is_written(self):
         lessons(self.d, "draft", "L1", "harness: the first draft of the lesson, long enough")
@@ -262,7 +262,7 @@ class Measure(unittest.TestCase):
         self.m = load_script("reef-lessons.py")
 
     def line(self):
-        return next(l for l in lessons(self.d, "report").stdout.splitlines() if l.startswith("- landed: L1"))
+        return next(l for l in lessons(self.d, "report").stdout.splitlines() if l.startswith("- landed: lesson L1 ("))
 
     def test_recurrence_counts_only_its_class_after_landing(self):
         self.assertIn("recurred 0", self.line())
@@ -296,7 +296,7 @@ class Prune(unittest.TestCase):
     def test_a_class_that_recurs_n_times_is_proposed_as_a_code_check_or_retired(self):
         for tid in (102, 103):
             attempt(self.d, tid, ROUND_EXPECTED, f"SAW: round: REFUSED — the round changed files outside the task's files: src/{tid}.py")
-        self.assertRegex(self.report(), r"retire\? L1 — recurred 2 times since it landed: it does not work — turn it into a code check, "
+        self.assertRegex(self.report(), r"retire\? lesson L1 \(.*\) — recurred 2 times since it landed: it does not work — turn it into a code check, "
                                         r"or retire it — Approve retiring lesson L1 at [0-9a-f]{16}\?")
 
     def test_no_recurrence_over_m_rows_is_the_deletion_test(self):
@@ -304,7 +304,7 @@ class Prune(unittest.TestCase):
             p = os.path.join(self.d, "tasks", f"{tid}-t.md")
             open(p, "w").write(task(int(tid), feat))
             self.m.record_close(self.d, p)
-        self.assertRegex(self.report(), r"retire\? L1 — no recurrence over 2 rows: the deletion test — retire it — Approve retiring lesson L1")
+        self.assertRegex(self.report(), r"retire\? lesson L1 \(.*\) — no recurrence over 2 rows: the deletion test — retire it — Approve retiring lesson L1")
 
     def test_the_retirement_removes_the_line_and_keeps_it_in_the_history(self):
         r = owner(self.d, question(self.d, "retire", "L1"))
@@ -491,7 +491,7 @@ class Report(unittest.TestCase):
         load_script("reef-run.py").morning_report(d, "2000-01-01T00:00:00Z", log)
         rep = open(os.path.join(d, ".reef", "night", "report.md")).read()
         self.assertIn("## Lessons (approve: python3 scripts/reef-approval.py --owner \"<question>\")", rep)
-        self.assertRegex(rep, r"- proposed: L1 harness — name every file .* — Approve lesson L1 at [0-9a-f]{16}\?")
+        self.assertRegex(rep, r"- proposed: lesson L1 \(name every file .*\) — harness · .* — Approve lesson L1 at [0-9a-f]{16}\?")
         self.assertIn("- layers: harness 0/2 · loop 0/2 · graph 0/2", rep)
 
     def test_the_screens_inbox_has_the_approve_item_and_drops_it_once_landed(self):

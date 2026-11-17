@@ -12,9 +12,9 @@ import subprocess
 import sys
 import unittest
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 from _fixtures import git_repo, load_script, write  # noqa: E402
 import reef_common as C  # noqa: E402
@@ -113,6 +113,25 @@ class TheOwnerReadsNames(unittest.TestCase):
         self.assertIn("python3 scripts/reef-run.py release 1201", [i["cmd"] for i in items], "the command is untouched")
 
 
+class MahmoudsNamedLineStillParses(unittest.TestCase):
+    """agents/mahmoud.md writes `DECIDE row <id> (<its Item>) …`: reef-approval.py --proxy --day still finds the row's own line and
+    splits question, answer and why at the em dashes — the name is in parentheses, never a fourth ` — ` field."""
+
+    def test_a_named_decide_line_records_its_rows_answer(self):
+        import test_day_proxy as D
+        d = D.N.project()
+        D.approve_day(self, d)
+        multi = (f"RUN: agent=mahmoud day={D.TODAY} kind=process question=triage rows 12 and 3\n"
+                 "DECIDE row 12 (share links) keep it? — keep p2 — a real defect (reef/owner.md)\n"
+                 "DECIDE row 3 (items) keep it? — drop — a duplicate of row 12 (share links) (reef/owner.md)\n"
+                 "VERDICT: DONE\n")
+        for row in ("3", "12"):
+            r = D.decide(d, row=row, report=f".reef/ci-local/report-mahmoud-day-{row}.md", text=multi)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        log = {e["row"]: e for e in (json.loads(l) for l in open(os.path.join(d, ".reef", "approvals", "day-decisions.jsonl")))}
+        self.assertEqual((log["12"]["question"], log["12"]["decision"], log["3"]["decision"]), ("row 12 (share links) keep it?", "keep p2", "drop"))
+
+
 class TheDetector(unittest.TestCase):
     """bare_refs: what counts as a bare id, and the exempt spans (an approval question, a command, a backtick span, RUN:)."""
     N = {"row": {"7": "CSV export", "12": "share links"}, "task": {"403": "the button"}, "lesson": {"L1": "name every file"}}
@@ -137,9 +156,9 @@ class TheDetector(unittest.TestCase):
     def test_name_refs_names_prose_and_leaves_the_exempt_spans(self):
         self.assertEqual(C.name_refs("row 7 and task 403; `row 12`; python3 x --row 12", self.N),
                          "row 7 (CSV export) and task 403 (the button); `row 12`; python3 x --row 12")
-        self.assertEqual(C.name_refs("rows 7, 12 and 9", self.N), "rows 7 (CSV export), 12 (share links) and 9 (not in the queue)")
+        self.assertEqual(C.name_refs("rows 7, 12 and 9", self.N), "rows 7 (CSV export), 12 (share links) and 9 (name not found)")
         self.assertEqual(C.named("row", "7", self.N), "row 7 (CSV export)")
-        self.assertEqual(C.named("task", "999", self.N), "task 999 (no task file)", "a name not found is said")
+        self.assertEqual(C.named("task", "999", self.N), "task 999 (name not found)", "a name not found is said")
         long = {"row": {"1": "x" * 100}}
         self.assertEqual(len(C.named("row", "1", long)), len("row 1 ()") + C.NAME_MAX, "a long name is cut to NAME_MAX, the cut marked")
         self.assertTrue(C.named("row", "1", long).endswith("…)"))

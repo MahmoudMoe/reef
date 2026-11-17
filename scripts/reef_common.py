@@ -775,7 +775,7 @@ def critical_in_flight(root):
 # dash: ` — ` is the field separator of the lines these ids sit in (Mahmoud's DECIDE, questions.md, `— undo:`).
 NAME_MAX = 60
 NAME_KINDS = {"row": "row", "rows": "row", "task": "task", "tasks": "task", "lesson": "lesson", "lessons": "lesson", "adr": "adr", "adrs": "adr"}
-NOT_FOUND = {"row": "not in the queue", "task": "no task file", "lesson": "no such lesson", "adr": "no ADR file"}
+NOT_FOUND = "name not found"   # the queue may be unreadable, the task file in a checkout not here: said, never guessed
 REF_ID = r"#?(?:L\d+|R?\d+[a-z]?)(?![\w.-])"
 REF_WORD = re.compile(r"\b(rows?|tasks?|lessons?|ADRs?):?[ \t]+(?=" + REF_ID + ")", re.I)   # `rows: 3, 12` lists rows too
 REF_ONE = re.compile(REF_ID)
@@ -792,7 +792,7 @@ def name_text(name):
 
 def named(kind, rid, names=None):
     """`row 7 (add CSV export)` — the one form (`kind` row, task, lesson or adr; `names` from names(root)). A name not found
-    is said, never left out: `row 7 (not in the queue)`."""
+    is said, never left out: `row 7 (name not found)`."""
     kind = NAME_KINDS.get(str(kind).lower(), str(kind).lower())
     rid = str(rid).lstrip("#")
     return f"{'ADR' if kind == 'adr' else kind} {rid} ({name_of(kind, rid, names)})"
@@ -801,8 +801,16 @@ def named(kind, rid, names=None):
 def name_of(kind, rid, names=None):
     table = (names or {}).get(kind) or {}
     key = str(rid).lstrip("#")
-    hit = table.get(key) or (table.get(key.lstrip("0") or "0") if key.isdigit() else None) or (table.get(str(int(key))) if key.isdigit() else None)
-    return name_text(hit) if hit else NOT_FOUND.get(kind, "not found")
+    hit = table.get(key) or (table.get(str(int(key))) if key.isdigit() else None)   # `ADR 0003` is ADR 3
+    return name_text(hit) if hit else NOT_FOUND
+
+
+def _named_at(masked, end, kind, rid, names):
+    """The id ending at `end` is followed by ` (` — given `names`, by its name: whole, or (a name cut to NAME_MAX) its start."""
+    if names is None:
+        return masked.startswith(" (", end)
+    want = name_of(kind, rid, names)
+    return masked.startswith(f" ({want.rstrip('…') if want.endswith('…') else want + ')'}", end)
 
 
 def _ref_spans(text, names=None):
@@ -819,7 +827,7 @@ def _ref_spans(text, names=None):
                 break
             end = one.end()
             taken.add(one.start())
-            is_named = masked.startswith(f" ({name_of(kind, one.group(0), names)})" if names is not None else " (", end)
+            is_named = _named_at(masked, end, kind, one.group(0), names)
             out.append((kind, one.group(0).lstrip("#"), end, is_named))
             if is_named:   # skip the name, its parentheses balanced
                 depth, i = 0, end + 1
@@ -835,7 +843,7 @@ def _ref_spans(text, names=None):
             pos = more.end()
     for m in LESSON_ALONE.finditer(masked):   # `L1` without its word is a lesson's id too
         if m.start() not in taken:
-            out.append(("lesson", m.group(0), m.end(), masked.startswith(f" ({name_of('lesson', m.group(0), names)})" if names is not None else " (", m.end())))
+            out.append(("lesson", m.group(0), m.end(), _named_at(masked, m.end(), "lesson", m.group(0), names)))
     return sorted(out, key=lambda r: r[2])
 
 
@@ -879,14 +887,14 @@ def names(root):
                 snap = json.load(f)
             for r in list(snap.get("rows") or []) + list(snap.get("closed") or []):
                 if isinstance(r, dict) and r.get("Id") is not None and r.get("Item"):
-                    out["row"].setdefault(str(r["Id"]), str(r["Item"]))
+                    out["row"].setdefault(str(r["Id"]), name_text(r["Item"]))
         else:
             q = load_sibling("reef-queue.py", "reef_queue_for_names")
             rel = paths.get("queue", "docs/queue.md")
             for p in (os.path.join(root, rel), os.path.join(root, os.path.dirname(rel), "queue-archive.md")):
                 for r in q.parse_table(read(p, errors="replace", default="")):
                     if r.get("Item"):
-                        out["row"].setdefault(str(r["Id"]), r["Item"])
+                        out["row"].setdefault(str(r["Id"]), name_text(r["Item"]))
     except Exception:
         pass
     wt = git_out(root, "worktree", "list", "--porcelain", timeout=10)

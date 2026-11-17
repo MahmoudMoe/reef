@@ -12,7 +12,7 @@ wayfinder, "refer by name"): a name wraps its id, never a bare id.
   the lines that carry these ids: Mahmoud's `DECIDE <question> — <answer> — <why>` (parsed by `reef-approval.py:333`), the
   questions file's `— recommended:`, the report's `— undo:`. An em-dash name inside a DECIDE question would split it.
 - A list names each id: `rows 3 (login page), 12 (CSV export)`.
-- A name the code cannot find says so: `row 7 (not in the queue)`, `task 403 (no task file)`, never a bare id (D3).
+- A name the code cannot find says so: `row 7 (name not found)`, never a bare id (D3).
 - A name is plain text (control characters out, `reef_common.plain`), at most 60 characters, a cut marked `…` (D4).
 
 ## Where the owner reads ids today (main, e5d2197)
@@ -77,7 +77,7 @@ assertions on main's renderers, the bare ids listed. Plus the detector's own cas
 - **D1** form `row 7 (add CSV export)`, parentheses (why above). The brief's example used an em dash.
 - **D2** name sources: a row's queue `Item`; a task's heading title; a lesson's own text (a candidate not drafted yet:
   `not drafted yet`).
-- **D3** a name not found is said: `(not in the queue)`, `(no task file)`, `(no such lesson)`.
+- **D3** a name not found is said: `(name not found)` — one neutral phrase (built: "not in the queue" was wrong when the queue was only unreadable, e.g. an issues queue before its first sync).
 - **D4** 60 characters, cut marked `…`.
 - **D5** the board is exempt: every board line already carries its row's Item beside the id, and its 22-character status
   cell (`waits: row 8`) has no room for a name — row 8 is a line of the same table. The inbox, the report, the wait lines
@@ -97,4 +97,11 @@ assertions on main's renderers, the bare ids listed. Plus the detector's own cas
 2. Red: `tests/test_names.py` — the renders on main, the bare ids printed.
 3. Green: the formatter, the writers, `agents/mahmoud.md`; the existing tests whose expected strings name ids updated to the
    named form (listed in the PR).
+
+## Built (as it went)
+
+- The detector's first cut counted any ` (` after an id as named: `row 12 (process)` passed. Given the project's names it now
+  wants the name itself (a name cut at 60 characters: its start).
+- `rows: 12, 3` (the contract) was missed: a colon after the word is read too; a line-start `Row:`/`Rows:` (a SPEC's key) stays exempt.
+- A cell the detector cannot place (`…will not touch: 7` — a bare number with no word) is named by the writer, not caught by the check: a stated limit.
 4. CHANGELOG, bump-version, size budget; `sh tests/run.sh` + stress; rebase on main; PR.

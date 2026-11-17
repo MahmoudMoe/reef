@@ -26,7 +26,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the shared helpers live beside this script
 sys.dont_write_bytecode = True   # and no scripts/__pycache__ lands in a project's tree
-from reef_common import main_checkout, read_config, repo_root, task_frontmatter, read, load_sibling, die as _die  # noqa: E402
+from reef_common import main_checkout, read_config, repo_root, task_frontmatter, read, load_sibling, named, names, die as _die  # noqa: E402
 
 LAYERS = ("harness", "loop", "graph")
 READER = {"harness": "the implementer", "loop": "the orchestrator", "graph": "the planner"}
@@ -401,23 +401,25 @@ def recurrence(root, c):
 def report_lines(start):
     root = home(start)
     st, cfg = state(root), config(root)
+    n = names(root)   # hardening PR-10: a lesson and a task the owner reads carry their names
+    lesson = lambda c: f"lesson {c['id']} ({re.sub(r'^[a-z]+:[ ]*', '', c['lesson'])})" if c.get("lesson") else named("lesson", c["id"], n)
     out = []
     for c in st.values():
         if c.get("retired_at") or c.get("landed_at"):
             continue
         if c.get("lesson"):
-            out.append(f"- proposed: {c['id']} {c['layer']} — {c['lesson']} (class {c['class']}, from task {c['task']}, {c['trigger']}) — {question(c, 'land')}")
+            out.append(f"- proposed: {lesson(c)} — {c['layer']} · class {c['class']} · from {named('task', c['task'], n)} · {c['trigger']} — {question(c, 'land')}")
         else:
-            out.append(f"- to draft: {c['id']} ({c['trigger']}, task {c['task']}, class {c['class']}) — python3 scripts/reef-lessons.py facts {c['id']}")
+            out.append(f"- to draft: {lesson(c)} — {c['trigger']} · {named('task', c['task'], n)} · class {c['class']} — python3 scripts/reef-lessons.py facts {c['id']}")
     for c in st.values():
         if c.get("landed_at") and not c.get("retired_at"):
-            n, rows = recurrence(root, c)
-            out.append(f"- landed: {c['id']} {c['landed_layer']} · {c['class']} · landed {c['landed_at'][:10]} · recurred {n} · {rows} rows since"
+            k, rows = recurrence(root, c)
+            out.append(f"- landed: {lesson(c)} — {c['landed_layer']} · {c['class']} · landed {c['landed_at'][:10]} · recurred {k} · {rows} rows since"
                        f" — to make room: {question(c, 'retire')}")
-            why = (f"recurred {n} times since it landed: it does not work — turn it into a code check, or retire it" if n >= cfg["recur"] else
-                   f"no recurrence over {rows} rows: the deletion test — retire it" if n == 0 and rows >= cfg["quiet_rows"] else "")
+            why = (f"recurred {k} times since it landed: it does not work — turn it into a code check, or retire it" if k >= cfg["recur"] else
+                   f"no recurrence over {rows} rows: the deletion test — retire it" if k == 0 and rows >= cfg["quiet_rows"] else "")
             if why:
-                out.append(f"- retire? {c['id']} — {why} — {question(c, 'retire')}")
+                out.append(f"- retire? {lesson(c)} — {why} — {question(c, 'retire')}")
     todo, why = pending(root)
     if why:
         out.append(f"- not committed: {', '.join(dict.fromkeys(p for e in todo for p in e.get('paths') or []))} — {why} "

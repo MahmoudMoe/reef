@@ -276,7 +276,8 @@ class EveryWordIsReachable(unittest.TestCase):
             lines, sel = mod.render(model, width=width, height=57, selected=0)
             self.assertTrue(all(len(l) <= width for l in lines), f"{width}: a line wider than the screen")
             box = " ".join(l[2:-2].strip() for l in lines if l.startswith("│"))
-            self.assertIn(" ".join(self.QUESTION.split()), " ".join(box.split()), f"{width}: the question whole in the box\n" + "\n".join(lines))
+            q = mod.name_refs(self.QUESTION, mod.names(d))   # hardening PR-10: its ids named, `Row 36 (…) task 364 (…)`
+            self.assertIn(" ".join(q.split()), " ".join(box.split()), f"{width}: the question whole in the box\n" + "\n".join(lines))
             self.assertIn(" ".join(self.ANSWER.split()), " ".join(box.split()), f"{width}: the answer whole, as words")
             self.assertNotIn("answered 280 '", box, "never the shell command with the answer in quotes")
             cut = [l for l in lines if l.rstrip().endswith("…")]
@@ -346,7 +347,7 @@ class TheScreen(unittest.TestCase):
         self.assertIn('--owner "Approve plan other-row at 0123456789abcdef?"', out, "an approval only the handoff names is an item too (the review)")
         self.assertRegex(out, r"(?m)^\s*1\s+approve\b")
         self.assertIn("python3 scripts/reef-queue.py footnote 'yes, it is served today' --row 7", out, "the recommended answer, not a placeholder")
-        self.assertIn("recommended: yes, it is served today", out)
+        self.assertIn("(recommended: yes, it is served", out)   # the row's name (hardening PR-10) moves the cut at 100 columns
         self.assertIn("python3 scripts/reef-loop.py start", out, "a parked loop is a wait with its command")
         self.assertIn("implementer 903 out → PASS", out, "the runner's last steps")
         self.assertIn("no runner is running", out)
@@ -413,7 +414,7 @@ class TheScreen(unittest.TestCase):
         self.assertTrue(keys_rows and keys_rows[0].startswith("keys: q quit") and "↑↓" in keys_rows[0] and "Enter" in keys_rows[0], "quit first, whatever the width wraps\n" + "\n".join(lines[-3:]))
         self.assertIn("▶", lines[sel]); self.assertIn("2  answer", lines[sel])
         box = " ".join(l.strip("│ ") for l in lines if l.startswith("│"))
-        self.assertIn("row 4: Where do the 125 rows land?", box, "the selected item's words, whole, in the box")
+        self.assertIn("row 4 (name not found): Where do the 125 rows land?", box, "the selected item's words, whole, in the box")
         self.assertIn("your answer", box); self.assertIn("Batch 9", box, "the answer as words (2026-11-01: not a shell command)")
         self.assertNotIn("'Batch 9'", box, "no shell quotes around the owner's answer")
         lines, sel = mod.render(model, width=100, height=34, selected=0)
