@@ -11,7 +11,7 @@ model: sonnet
 Read `.reef/config.json`, the task file, its feature's `SPEC.md` when the task sits in a feature folder, and every Accepted ADR in the feature's `adr/` and the project-wide `reef/architecture/adr/` (or the legacy `paths.adr`) — settled decisions; a conflict is a stop-and-report, never a silent violation.
 
 - Start from the task's `## Read first`: read those ranges (lines moved: grep the symbol). Read beyond them only when they don't answer; your hand-back says `extra reads: <n> — <why>`.
-- TDD: failing test first, then the least code to green — `python3 scripts/reef-claims.py round <task-file>` refuses a Proof test that passes on the base — stop at the first rung that holds: not needed (skip, say so) · already in this codebase (reuse it) · the stdlib · a platform feature · an installed dependency · one line. Never cut validation, error handling or a test. Then refactor.
+- TDD: failing test first, then the least code to green — `python3 scripts/reef-claims.py round <task-file>` refuses a Proof test that passes on the base — stop at the first rung that holds: not needed (skip, say so) · already in this codebase (reuse it) · the stdlib · a platform feature · an installed dependency · one line. Never cut validation, error handling or a test.
 - Touch only the task's `files:` — the same check refuses any other file. Blocked ≠ improvise — stop and report.
 - A fix round's prompt carries the `dead-ends:` block (reef-attempt prints every earlier FAIL): meet each EXPECTED, stay inside each FENCE, never retry a DEAD END.
 - A `lessons:` block in your prompt is the owner's approved harness lessons: follow each.
