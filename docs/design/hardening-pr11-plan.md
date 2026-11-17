@@ -88,7 +88,7 @@ The harness is `tests/eval/reef-eval`. It has corpora for `verifier`, `hunter` a
 ## Housekeeping
 - `python3 .github/bump-version.py` (agents/ and skills/ changed)
 - a CHANGELOG line in the house style
-- `tests/size-budget.json` `prose_words` raised only by what these lines add (about +45). Before reporting ready:
+- `tests/size-budget.json` `prose_words` raised only by what these lines add (+77 measured; the plan guessed +45). Before reporting ready:
   rebase on `origin/main`, re-bump, re-run the suites.
 
 ## Owner decisions (flagged; conservative default in place)
@@ -96,3 +96,20 @@ The harness is `tests/eval/reef-eval`. It has corpora for `verifier`, `hunter` a
   line, and the corpus entry stays as a regression guard either way. The PR says which way the data fell.
 - D2: changes 1 and 2 land unmeasured (contract tests only), with the protocol above for the owner. Default: land them.
   Both are small, and the owner approved them from the source.
+
+## Results (2026-11-17, live, about $6.20 in total)
+
+| run | model | new case `proof-recomputes-expected` | other nine cases (k=1) | cost |
+|---|---|---|---|---|
+| A: main's `acceptance.md` | opus | caught 3/3; names the recomputed expected value 3/3 | catch 1.00 · precision 1.00 · false-FAIL 0.00 · NIT 1.00 | $2.80 |
+| B: with change 3 | opus | caught 3/3; names it 3/3 (says "tautological" 3/3) | the same; `reef-eval compare A B`: ok | $2.51 |
+| A | sonnet | caught 3/3; names it 3/3 | not run | $0.40 |
+| B | sonnet | caught 3/3; names it 3/3 | not run | $0.40 |
+
+- I read every report on the new case by hand. A keyword grep missed one baseline report that writes "the same
+  `f"{t:.2f}"` expression", with backticks in the middle of the phrase.
+- Report words on the new case: opus 1,140 (A) vs 1,044 (B); sonnet 818 vs 763. That is within noise at k=3.
+- **Verdict: change 3 is a no-op on this corpus, for both models.** The existing lines ("a criterion whose test does
+  not test it: FAIL", the guard pass's "a test that cannot go red") already produce the behaviour. This is evidence
+  for D1's alternative: drop the line and keep the case. The default stays "land" until the owner rules.
+- Changes 1 and 2: not measured. No harness exists; the protocol above stands.
