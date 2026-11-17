@@ -265,6 +265,16 @@ class Prune(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.d, "docs", "glossary-history.md")))
         self.assertFalse(os.path.exists(os.path.join(self.d, ".reef", "approvals", "glossary-spec.json")))
 
+    def test_an_agent_cannot_run_the_approval_and_no_proxy_path_retires(self):
+        q = question(self.d, "Spec")
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "reef-guard.py")], input=json.dumps({"tool_name": "Bash", "cwd": self.d,
+                           "tool_input": {"command": f'python3 scripts/reef-approval.py --owner "{q}"'}}), capture_output=True, text=True)
+        self.assertIn("reef-guard DENY: reef-approval.py records the OWNER's approval", r.stdout + r.stderr)
+        subprocess.run([sys.executable, APPROVAL, "--proxy", "--day", "--kind", "process", "--row", "1", "--report", ".reef/ci-local/x.md"],
+                       capture_output=True, text=True, cwd=self.d)
+        with open(os.path.join(self.d, "docs", "glossary.md"), encoding="utf-8") as f:
+            self.assertIn("| Spec |", f.read())
+
     def test_another_answer_writes_nothing(self):
         payload = {"tool_name": "AskUserQuestion", "cwd": self.d, "tool_response": {"answers": {question(self.d, "Spec"): "Keep"}}}
         subprocess.run([sys.executable, APPROVAL], input=json.dumps(payload), capture_output=True, text=True, cwd=self.d)

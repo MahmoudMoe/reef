@@ -265,6 +265,10 @@ def tick(root):
         load_sibling("reef-lessons.py", "reef_lessons").commit_pending(root)
     except Exception as e:
         print(f"lessons: not committed — {e}", file=sys.stderr)
+    try:   # hardening PR-9: an approved glossary retirement is committed here too, never in the approval hook
+        load_sibling("reef-glossary.py", "reef_glossary").commit_pending(root)
+    except Exception as e:
+        print(f"glossary: not committed — {e}", file=sys.stderr)
     cfg = config(root)
     st = load_state(root)
     scripts = os.path.join(root, "scripts")
